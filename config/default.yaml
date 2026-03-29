@@ -1,0 +1,80 @@
+# Forex Trading System — Phase 0 Baseline Configuration
+# =====================================================
+
+system:
+  name: "forex-phase0-baseline"
+  log_level: "INFO"
+
+data:
+  base_dir: "data"
+
+# Target pairs — the 3 most liquid forex pairs
+pairs:
+  - symbol: "EURUSD"
+    pip_value: 0.0001
+    spread_pips: 0.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: -1.2
+    swap_short_pips_per_day: 0.3
+
+  - symbol: "USDJPY"
+    pip_value: 0.01
+    spread_pips: 0.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.8
+    swap_short_pips_per_day: -1.5
+
+  - symbol: "GBPUSD"
+    pip_value: 0.0001
+    spread_pips: 0.8
+    slippage_pips: 0.6
+    commission_pips: 0.5
+    swap_long_pips_per_day: -0.9
+    swap_short_pips_per_day: 0.1
+
+# Strategies — using literature-standard parameters (no optimization)
+strategies:
+  active:
+    - "ma_crossover"
+    - "bollinger_rsi"
+    - "momentum"
+
+  ma_crossover:
+    fast_period: 50
+    slow_period: 200
+
+  bollinger_rsi:
+    bb_period: 20
+    bb_std: 2.0
+    rsi_period: 14
+    rsi_oversold: 30
+    rsi_overbought: 70
+
+  momentum:
+    lookback_period: 20
+    threshold: 0.0
+
+# Backtest configuration
+backtest:
+  initial_capital: 100000.0
+
+  position_sizing:
+    method: "fixed_fractional"
+    risk_per_trade: 0.02        # 2% equity per trade
+    stop_loss_atr_multiple: 2.0
+    max_position_pct: 0.10      # Max 10% equity in one position
+
+  execution:
+    entry_delay_bars: 1         # Execute on next bar (no lookahead)
+
+  walkforward:
+    enabled: true
+    train_window_days: 504      # ~2 years
+    test_window_days: 126       # ~6 months
+    step_days: 63               # ~3 months
+
+# Analysis settings
+analysis:
+  benchmark: "buy_and_hold"

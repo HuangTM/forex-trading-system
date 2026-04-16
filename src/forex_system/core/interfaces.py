@@ -83,7 +83,12 @@ class CostModel(ABC):
 
 
 class PositionSizer(ABC):
-    """Contract for position sizing logic."""
+    """Contract for position sizing logic.
+
+    Signal strength maps to position size. The confidence and ratchet_level
+    parameters are optional extensions for continuous sizing and capital
+    ratcheting — existing implementations can ignore them via defaults.
+    """
 
     @abstractmethod
     def calculate_size(
@@ -93,12 +98,38 @@ class PositionSizer(ABC):
         current_price: float,
         atr: float,
         pair: str,
+        confidence: float = 1.0,
+        ratchet_level: float = 1.0,
     ) -> float:
         """Calculate position size in units.
 
         signal_strength: [-1.0, 1.0] from strategy
         atr: for stop-loss distance calculation
+        confidence: [0.0, 1.0] signal confidence (1.0 = full confidence)
+        ratchet_level: [0.0, 1.0] capital ratchet multiplier (1.0 = full size)
         """
+        ...
+
+
+class ExecutionBackend(ABC):
+    """Contract for execution — backtest, paper, or live."""
+
+    @abstractmethod
+    def execute_signal(
+        self, pair: str, signal: float, size: float,
+        context: dict[str, Any] | None = None,
+    ) -> Any:
+        """Execute a trading signal. Returns execution result."""
+        ...
+
+    @abstractmethod
+    def get_positions(self) -> dict:
+        """Get current open positions."""
+        ...
+
+    @abstractmethod
+    def flatten_all(self) -> list:
+        """Close all open positions."""
         ...
 
 

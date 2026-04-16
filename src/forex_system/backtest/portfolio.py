@@ -30,6 +30,8 @@ class FixedFractionalSizer(PositionSizer):
         current_price: float,
         atr: float,
         pair: str,
+        confidence: float = 1.0,
+        ratchet_level: float = 1.0,
     ) -> float:
         if atr <= 0 or current_price <= 0 or account_equity <= 0:
             return 0.0

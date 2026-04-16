@@ -1,0 +1,72 @@
+# JPY Carry-Momentum Portfolio — Phase 1 Validated
+# ==================================================
+# Portfolio Sharpe: 0.59 (16 years, real Saxo data)
+# Walk-forward: all 3 pairs consistent
+# Null hypothesis: USDJPY and GBPJPY passed (p=0.000)
+# Validated: 2026-04-07
+
+system:
+  name: "jpy-carry-momentum"
+  log_level: "INFO"
+
+data:
+  base_dir: "data"
+
+pairs:
+  - symbol: "USDJPY"
+    pip_value: 0.01
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.8
+    swap_short_pips_per_day: -1.5
+
+  - symbol: "GBPJPY"
+    pip_value: 0.01
+    spread_pips: 2.0
+    slippage_pips: 0.8
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.2
+    swap_short_pips_per_day: -1.5
+
+  - symbol: "CADJPY"
+    pip_value: 0.01
+    spread_pips: 2.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.2
+    swap_short_pips_per_day: -1.0
+
+strategies:
+  active:
+    - "carry_momentum"
+
+  carry_momentum:
+    fast_period: 20
+    slow_period: 50
+    agreement_only: true
+    min_differential: 0.002
+    max_differential: 0.05
+    carry_weight: 0.4
+    momentum_weight: 0.6
+
+backtest:
+  initial_capital: 100000.0
+
+  position_sizing:
+    method: "continuous"
+    risk_per_trade: 0.02
+    stop_loss_atr_multiple: 2.0
+    max_position_pct: 0.10
+
+  execution:
+    entry_delay_bars: 1
+
+  walkforward:
+    enabled: true
+    train_window_days: 504
+    test_window_days: 126
+    step_days: 63
+
+analysis:
+  benchmark: "buy_and_hold"

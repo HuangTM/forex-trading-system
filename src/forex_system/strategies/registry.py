@@ -2,6 +2,8 @@
 
 from forex_system.core.interfaces import Strategy
 from forex_system.strategies.bollinger_rsi import BollingerRSIStrategy
+from forex_system.strategies.carry import CarryStrategy
+from forex_system.strategies.carry_momentum import CarryMomentumStrategy
 from forex_system.strategies.ma_crossover import MACrossoverStrategy
 from forex_system.strategies.momentum import MomentumStrategy
 
@@ -9,6 +11,8 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "ma_crossover": MACrossoverStrategy,
     "bollinger_rsi": BollingerRSIStrategy,
     "momentum": MomentumStrategy,
+    "carry": CarryStrategy,
+    "carry_momentum": CarryMomentumStrategy,
 }
 
 

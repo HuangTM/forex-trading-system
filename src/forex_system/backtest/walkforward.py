@@ -10,8 +10,7 @@ import pandas as pd
 
 from forex_system.backtest.engine import run_backtest
 from forex_system.backtest.metrics import PerformanceMetrics, calculate_metrics
-from forex_system.costs.model import RealisticCostModel
-from forex_system.core.interfaces import Strategy
+from forex_system.core.interfaces import CostModel, PositionSizer, Strategy
 from forex_system.features.registry import compute_indicators
 
 
@@ -62,13 +61,14 @@ def run_walkforward(
     data: pd.DataFrame,
     strategy: Strategy,
     pair: str,
-    cost_model: RealisticCostModel,
+    cost_model: CostModel,
     train_days: int = 504,
     test_days: int = 126,
     step_days: int = 63,
     initial_capital: float = 100_000.0,
     risk_per_trade: float = 0.02,
     stop_loss_atr_multiple: float = 2.0,
+    sizer: PositionSizer | None = None,
 ) -> WalkForwardResult:
     """Run walk-forward analysis across rolling windows.
 
@@ -126,6 +126,7 @@ def run_walkforward(
             initial_capital=initial_capital,
             risk_per_trade=risk_per_trade,
             stop_loss_atr_multiple=stop_loss_atr_multiple,
+            sizer=sizer,
         )
 
         metrics = calculate_metrics(result.equity_curve, result.trade_log)

@@ -63,5 +63,49 @@ class BacktestResult:
     end_date: pd.Timestamp
 
 
+@dataclass(frozen=True)
+class Position:
+    """A currently open position."""
+
+    pair: str
+    direction: Direction
+    size: float
+    entry_price: float
+    entry_time: pd.Timestamp
+    unrealized_pnl: float
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    """Result of executing a trade."""
+
+    pair: str
+    direction: Direction
+    size: float
+    requested_price: float
+    fill_price: float
+    fill_time: pd.Timestamp
+    slippage_pips: float
+    spread_at_fill: float
+    success: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ExperimentRecord:
+    """Metadata for a single backtest experiment."""
+
+    experiment_id: str
+    git_hash: str
+    timestamp: pd.Timestamp
+    strategy_name: str
+    pair: str
+    config_hash: str
+    data_hash: str
+    metrics: dict[str, float]
+    parameters: dict[str, Any]
+    tags: list[str]
+
+
 # Standard OHLCV column names used throughout the system
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]

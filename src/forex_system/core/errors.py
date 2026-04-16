@@ -27,3 +27,7 @@ class BacktestError(ForexSystemError):
 
 class CostModelError(ForexSystemError):
     """Transaction cost calculation error."""
+
+
+class ExperimentError(ForexSystemError):
+    """Experiment registry error."""

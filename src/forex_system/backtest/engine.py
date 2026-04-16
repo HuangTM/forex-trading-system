@@ -9,8 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from forex_system.core.interfaces import CostModel, PositionSizer
 from forex_system.core.types import BacktestResult, Direction, Trade
-from forex_system.costs.model import RealisticCostModel
 
 
 def run_backtest(
@@ -18,11 +18,12 @@ def run_backtest(
     signals: pd.Series,
     pair: str,
     strategy_name: str,
-    cost_model: RealisticCostModel,
+    cost_model: CostModel,
     initial_capital: float = 100_000.0,
     risk_per_trade: float = 0.02,
     stop_loss_atr_multiple: float = 2.0,
     entry_delay_bars: int = 1,
+    sizer: PositionSizer | None = None,
 ) -> BacktestResult:
     """Run a vectorized backtest.
 
@@ -86,9 +87,15 @@ def run_backtest(
         # Open new position if signal is non-zero
         if change != 0 and pos != 0:
             current_atr = atr_series.iloc[i]
-            current_size = _calculate_size(
-                equity, risk_per_trade, current_atr, stop_loss_atr_multiple, price,
-            )
+            if sizer is not None:
+                raw_signal = delayed_signals.iloc[i]
+                current_size = sizer.calculate_size(
+                    raw_signal, equity, price, current_atr, pair,
+                )
+            else:
+                current_size = _calculate_size(
+                    equity, risk_per_trade, current_atr, stop_loss_atr_multiple, price,
+                )
 
             entry_cost_pips = cost_model.entry_cost(pair, current_size)
             equity -= entry_cost_pips * pip_value * current_size
@@ -131,7 +138,7 @@ def run_backtest(
 def _close_position(
     pair: str,
     strategy_name: str,
-    cost_model: RealisticCostModel,
+    cost_model: CostModel,
     pip_value: float,
     position: float,
     size: float,

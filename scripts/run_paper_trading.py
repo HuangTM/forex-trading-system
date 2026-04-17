@@ -23,11 +23,14 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pandas as pd
+import requests
 
 from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
@@ -47,6 +50,35 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = "config/carry_momentum_portfolio.yaml"
 REBALANCE_THRESHOLD = 0.20  # Rebalance if target differs from current by >20%
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+QUIET_HOURS = (20, 8)  # No notifications between 8pm and 8am local time
+
+
+def notify(topic: str | None, title: str, message: str, priority: str = "default") -> None:
+    """Send a push notification via ntfy.sh. No-op if topic is None."""
+    if not topic:
+        return
+
+    # Respect quiet hours
+    local_hour = datetime.now(LOCAL_TZ).hour
+    quiet_start, quiet_end = QUIET_HOURS
+    if quiet_start <= local_hour or local_hour < quiet_end:
+        logger.info("Notification suppressed (quiet hours): %s", title)
+        return
+
+    try:
+        requests.post(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode("utf-8"),
+            headers={
+                "Title": title,
+                "Priority": priority,
+                "Tags": "chart_with_upwards_trend",
+            },
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning("Failed to send notification: %s", e)
 
 
 def fetch_recent_bars(client: SaxoClient, pair: str, count: int = 200) -> pd.DataFrame:
@@ -92,6 +124,7 @@ def run_signal_cycle(
     strategy_params: dict,
     auto_mode: bool = False,
     auth: SaxoAuth | None = None,
+    ntfy_topic: str | None = None,
 ) -> dict:
     """Run one signal generation cycle across all portfolio pairs.
 
@@ -113,6 +146,7 @@ def run_signal_cycle(
     if kill_switch.is_triggered:
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         print("  No trades will be executed. Reset required.")
+        notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, priority="urgent")
         return {}
 
     signals_generated = {}
@@ -257,6 +291,16 @@ def run_signal_cycle(
                 result, signal=current_signal, strategy="carry_momentum",
                 source="paper", context={"equity": account_equity, "rebalance": is_rebalance},
             )
+
+            # Notify on trade execution
+            direction = "LONG" if current_signal > 0 else "SHORT"
+            notify(
+                ntfy_topic,
+                f"Trade {status}: {pair}",
+                f"{pair} {direction} {proposed_size:.0f} @ {bid:.4f}/{ask:.4f}\n"
+                f"Signal: {current_signal:+.3f} | Equity: {account_equity:,.0f}",
+                priority="high" if result.success else "urgent",
+            )
         else:
             print("  Result:      SKIPPED by operator")
 
@@ -274,6 +318,11 @@ def run_signal_cycle(
         )
         print("  KILL SWITCH TRIGGERED — flattening all positions")
         backend.flatten_all()
+        notify(
+            ntfy_topic, "KILL SWITCH — positions flattened",
+            f"Reason: {discrepancies[0]}\nAll positions closed.",
+            priority="urgent",
+        )
     else:
         print("\n  Reconciliation: OK")
 
@@ -295,6 +344,8 @@ def main():
                         help="Run continuously, checking every bar close")
     parser.add_argument("--interval", type=int, default=86400,
                         help="Seconds between checks in loop mode (default: 86400 = daily)")
+    parser.add_argument("--ntfy", metavar="TOPIC",
+                        help="ntfy.sh topic for push notifications (8am-8pm Pacific only)")
     args = parser.parse_args()
 
     if not args.token and not args.oauth:
@@ -367,7 +418,7 @@ def main():
                 run_signal_cycle(
                     client, backend, rate_data, sizer, pred_log, trade_log,
                     kill_switch, portfolio_pairs, strategy_params,
-                    auto_mode=args.auto, auth=auth,
+                    auto_mode=args.auto, auth=auth, ntfy_topic=args.ntfy,
                 )
                 pred_log.flush()
                 trade_log.flush()
@@ -381,7 +432,7 @@ def main():
         run_signal_cycle(
             client, backend, rate_data, sizer, pred_log, trade_log,
             kill_switch, portfolio_pairs, strategy_params,
-            auto_mode=args.auto, auth=auth,
+            auto_mode=args.auto, auth=auth, ntfy_topic=args.ntfy,
         )
 
     pred_log.close()

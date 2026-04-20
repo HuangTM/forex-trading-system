@@ -1,0 +1,84 @@
+# GBPUSD Multi-Strategy Portfolio
+# ================================
+# Multiple strategies across multiple timeframes, blended by weight.
+# Final signal per pair = weighted average of all strategy signals.
+
+system:
+  name: "gbpusd-multi-strategy"
+  log_level: "INFO"
+
+data:
+  base_dir: "data"
+
+pairs:
+  - symbol: "GBPUSD"
+    pip_value: 0.0001
+    spread_pips: 1.2
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: -0.8
+    swap_short_pips_per_day: 0.2
+
+backtest:
+  initial_capital: 100000.0
+
+  position_sizing:
+    method: "continuous"
+    risk_per_trade: 0.01
+    stop_loss_atr_multiple: 2.0
+    max_position_pct: 0.10
+
+  execution:
+    entry_delay_bars: 1
+
+# Multi-strategy portfolio definition
+# Each entry runs independently; signals are blended by weight per pair.
+portfolio:
+  check_interval: 1800  # 30 minutes
+
+  strategies:
+    # Daily trend — slow, high-conviction
+    - name: "ma_crossover"
+      timeframe: "daily"
+      weight: 0.30
+      params:
+        fast_period: 50
+        slow_period: 200
+
+    # 4H trend — medium speed
+    - name: "ma_crossover"
+      timeframe: "4h"
+      weight: 0.25
+      params:
+        fast_period: 20
+        slow_period: 50
+
+    # 4H momentum — responsive
+    - name: "momentum"
+      timeframe: "4h"
+      weight: 0.20
+      params:
+        lookback_period: 20
+        threshold: 0.0
+
+    # 4H mean-reversion — counter-trend
+    - name: "bollinger_rsi"
+      timeframe: "4h"
+      weight: 0.15
+      params:
+        bb_period: 20
+        bb_std: 2.0
+        rsi_period: 14
+        rsi_oversold: 30
+        rsi_overbought: 70
+
+    # 1H momentum — fastest signal
+    - name: "momentum"
+      timeframe: "1h"
+      weight: 0.10
+      params:
+        lookback_period: 20
+        threshold: 0.0
+
+analysis:
+  benchmark: "buy_and_hold"

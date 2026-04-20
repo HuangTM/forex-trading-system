@@ -110,6 +110,39 @@ class TestReset:
         assert len(ks.events) == 2
 
 
+class TestConsecutiveFetchFailures:
+    def test_single_failure_does_not_trigger(self):
+        ks = KillSwitch(initial_equity=100_000)
+        assert not ks.record_equity_fetch_failure()
+        assert not ks.is_triggered
+        assert ks.consecutive_fetch_failures == 1
+
+    def test_threshold_triggers_with_error_reason(self):
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=3)
+        assert not ks.record_equity_fetch_failure()
+        assert not ks.record_equity_fetch_failure()
+        assert ks.record_equity_fetch_failure()  # 3rd trips
+        assert ks.is_triggered
+        assert ks.last_event.reason == TriggerReason.ERROR
+
+    def test_success_resets_counter(self):
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=3)
+        ks.record_equity_fetch_failure()
+        ks.record_equity_fetch_failure()
+        ks.record_equity_fetch_success()
+        assert ks.consecutive_fetch_failures == 0
+        # Two more failures should NOT trip now — counter was reset
+        ks.record_equity_fetch_failure()
+        ks.record_equity_fetch_failure()
+        assert not ks.is_triggered
+
+    def test_failure_after_trigger_is_noop(self):
+        ks = KillSwitch(initial_equity=100_000)
+        ks.trigger(TriggerReason.MANUAL, "already halted", 100_000)
+        assert not ks.record_equity_fetch_failure()  # returns False, no double-trigger
+        assert len(ks.events) == 1
+
+
 class TestStatusLine:
     def test_ok_when_not_triggered(self):
         ks = KillSwitch(initial_equity=100_000)

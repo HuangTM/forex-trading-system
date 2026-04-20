@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Hardcoded invariants — require code review to change
 MAX_DAILY_LOSS_PCT = 0.02  # 2% of equity
 RECONCILIATION_TOLERANCE_UNITS = 1  # Units mismatch before triggering
+MAX_CONSECUTIVE_FETCH_FAILURES = 3  # Equity-fetch misses before halting
 
 
 class TriggerReason(Enum):
@@ -70,11 +71,13 @@ class KillSwitch:
 
     initial_equity: float
     max_daily_loss_pct: float = MAX_DAILY_LOSS_PCT
+    max_consecutive_fetch_failures: int = MAX_CONSECUTIVE_FETCH_FAILURES
 
     # State
     is_triggered: bool = field(default=False, init=False)
     day_start_equity: float = field(default=0.0, init=False)
     current_day: str = field(default="", init=False)
+    consecutive_fetch_failures: int = field(default=0, init=False)
     events: list[KillSwitchEvent] = field(default_factory=list, init=False)
 
     def __post_init__(self):
@@ -109,6 +112,33 @@ class KillSwitch:
             return True
 
         return False
+
+    def record_equity_fetch_failure(self) -> bool:
+        """Record a failed equity fetch. Trips the kill switch after N in a row.
+
+        Skipping a single cycle on a transient Saxo timeout is safe; skipping
+        many cycles silently disables the daily-loss guard while positions
+        keep accruing real P&L. After `max_consecutive_fetch_failures` misses
+        we halt and flatten as a fail-safe.
+
+        Returns True iff this call pushed the kill switch into a triggered
+        state (caller should flatten positions in response).
+        """
+        if self.is_triggered:
+            return False
+        self.consecutive_fetch_failures += 1
+        if self.consecutive_fetch_failures >= self.max_consecutive_fetch_failures:
+            self.trigger(
+                TriggerReason.ERROR,
+                f"Equity fetch failed {self.consecutive_fetch_failures} consecutive cycles",
+                0.0,
+            )
+            return True
+        return False
+
+    def record_equity_fetch_success(self) -> None:
+        """Reset the consecutive-failure counter after a successful fetch."""
+        self.consecutive_fetch_failures = 0
 
     def trigger(
         self,

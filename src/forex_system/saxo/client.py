@@ -37,6 +37,12 @@ PAIR_UICS = {
     "CADJPY": 6,
 }
 
+# (connect_timeout, read_timeout) in seconds. Applied to every HTTP call unless
+# the caller explicitly passes its own timeout. Prevents indefinite hangs —
+# a Saxo gateway timeout once masqueraded as a 100% drawdown via the balance
+# endpoint and silently halted trading.
+DEFAULT_HTTP_TIMEOUT = (10, 30)
+
 # Horizon codes: minutes per bar
 HORIZONS = {
     "1m": 1,
@@ -88,16 +94,19 @@ class SaxoClient:
     def _get(self, path: str, **kwargs) -> requests.Response:
         """GET with auto token refresh."""
         self._ensure_token_fresh()
+        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
         return self.session.get(f"{self.base_url}{path}", **kwargs)
 
     def _post(self, path: str, **kwargs) -> requests.Response:
         """POST with auto token refresh."""
         self._ensure_token_fresh()
+        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
         return self.session.post(f"{self.base_url}{path}", **kwargs)
 
     def _delete(self, path: str, **kwargs) -> requests.Response:
         """DELETE with auto token refresh."""
         self._ensure_token_fresh()
+        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
         return self.session.delete(f"{self.base_url}{path}", **kwargs)
 
     def get_chart_data(

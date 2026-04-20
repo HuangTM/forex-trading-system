@@ -105,6 +105,8 @@ class SaxoAuth:
     # Internal state
     _tokens: TokenState | None = field(default=None, init=False, repr=False)
     _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+    _keepalive_thread: threading.Thread | None = field(default=None, init=False, repr=False)
+    _keepalive_stop: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
 
     def __post_init__(self):
         self.token_file = Path(self.token_file)
@@ -232,6 +234,46 @@ class SaxoAuth:
             self._tokens = tokens
         self._save_tokens()
         logger.info("Initialized with developer token (expires in %ds)", expires_in)
+
+    def start_keepalive(self, interval_seconds: int = 900) -> None:
+        """Start background thread that refreshes tokens before they expire.
+
+        Saxo refresh tokens are single-use and expire in ~40 minutes.
+        This thread calls ensure_valid() every `interval_seconds` (default 15 min)
+        to keep the auth chain alive during long sleeps between trading cycles.
+
+        Safe to call multiple times — restarts if already running.
+        """
+        self.stop_keepalive()
+
+        def _keepalive_loop():
+            while not self._keepalive_stop.is_set():
+                try:
+                    self.ensure_valid()
+                    logger.debug(
+                        "Keepalive refresh OK — %.1f min to auth death",
+                        self.minutes_to_auth_death,
+                    )
+                except AuthChainDead as e:
+                    logger.error("Keepalive: auth chain dead — %s", e)
+                    break
+                except Exception as e:
+                    logger.warning("Keepalive refresh error: %s", e)
+                self._keepalive_stop.wait(timeout=interval_seconds)
+
+        self._keepalive_stop.clear()
+        self._keepalive_thread = threading.Thread(
+            target=_keepalive_loop, daemon=True, name="saxo-keepalive",
+        )
+        self._keepalive_thread.start()
+        logger.info("Token keepalive started (every %ds)", interval_seconds)
+
+    def stop_keepalive(self) -> None:
+        """Stop the background keepalive thread."""
+        if self._keepalive_thread and self._keepalive_thread.is_alive():
+            self._keepalive_stop.set()
+            self._keepalive_thread.join(timeout=5)
+            logger.info("Token keepalive stopped")
 
     # --- Internal ---
 

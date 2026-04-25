@@ -9,8 +9,9 @@ rebalance_mode="discrete" (default):
 
 rebalance_mode="continuous":
     Every bar, compute target_units = sizer.calculate_size(signal, equity, price, atr, pair).
-    If |target_units - cur_units| / max(cur_units, 1) > rebalance_threshold, execute
-    a delta trade. Cost is charged on the delta only. Long-only: negative signal → flat.
+    If |target_units - cur_units| / cur_units > rebalance_threshold (when in position),
+    execute a delta trade. Cost is charged on the delta only. Long-only: negative signal → flat.
+    Swap/carry is credited daily via per-bar equity accrual (not as a lump sum at exit).
     Requires sizer to be provided.
 """
 
@@ -42,6 +43,7 @@ def run_backtest(
     sizer: PositionSizer | None = None,
     rebalance_mode: str = "discrete",
     rebalance_threshold: float = 0.20,
+    constant_capital_sizing: bool = False,
 ) -> BacktestResult:
     """Run a vectorized backtest.
 
@@ -61,8 +63,15 @@ def run_backtest(
             position size every bar when target differs from current by more than
             rebalance_threshold. Backward compatible: "discrete" is unchanged.
         rebalance_threshold: Fractional threshold for continuous rebalancing.
-            Rebalance fires when |target - cur| / max(cur, 1) > threshold.
+            Rebalance fires when |target - cur| / cur_units > threshold (when in position),
+            matching the script's semantics (vol_targeting.py:88).
             Default 0.20 (20%). Only used in continuous mode.
+        constant_capital_sizing: If True, the sizer always receives initial_capital as
+            account_equity, producing constant-notional sizing (matching the research
+            script's `capital / cur_close * scale` convention). If False (default),
+            the sizer receives current equity — constant-leverage-on-equity behavior,
+            which is correct for live Saxo trading but diverges from the script over
+            long compounding periods. Only used in continuous mode.
     """
     if rebalance_mode not in _VALID_REBALANCE_MODES:
         raise ValueError(
@@ -74,8 +83,9 @@ def run_backtest(
         return _empty_result(pair, strategy_name, signals)
 
     logger.debug(
-        "run_backtest: pair=%s strategy=%s mode=%s threshold=%.2f bars=%d",
+        "run_backtest: pair=%s strategy=%s mode=%s threshold=%.2f bars=%d constant_cap=%s",
         pair, strategy_name, rebalance_mode, rebalance_threshold, len(data),
+        constant_capital_sizing,
     )
 
     if rebalance_mode == "continuous":
@@ -91,6 +101,7 @@ def run_backtest(
             entry_delay_bars=entry_delay_bars,
             sizer=sizer,
             rebalance_threshold=rebalance_threshold,
+            constant_capital_sizing=constant_capital_sizing,
         )
 
     return _run_discrete(
@@ -226,6 +237,7 @@ def _run_continuous(
     entry_delay_bars: int,
     sizer: PositionSizer | None,
     rebalance_threshold: float,
+    constant_capital_sizing: bool = False,
 ) -> BacktestResult:
     """Continuous rebalance mode.
 
@@ -237,6 +249,9 @@ def _run_continuous(
     sizing decision, identical to discrete mode. The rebalance decision at bar i
     uses delayed_signals[i] (which saw data up to bar i-1), so the economic effect
     lands in that bar's equity mark-to-market.
+
+    Swap/carry is credited daily to the equity curve (not lump-sum at exit), matching
+    the reference script vol_targeting.py:72 semantics.
     """
     if sizer is None:
         raise ValueError(
@@ -274,8 +289,12 @@ def _run_continuous(
         # The sizer returns USD-nominal exposure. Convert to engine-convention
         # units for quote-currency pairs (e.g. USDJPY) so that the engine's
         # pnl = price_change * units formula yields USD P&L, not JPY P&L.
+        # RC4: constant_capital_sizing uses initial_capital (constant-notional,
+        # matching the research script). Default (False) uses current equity
+        # (constant-leverage-on-equity, correct for live Saxo trading).
+        sizing_equity = initial_capital if constant_capital_sizing else equity
         usd_nominal = sizer.calculate_size(
-            clamped_signal, equity, price, current_atr, pair,
+            clamped_signal, sizing_equity, price, current_atr, pair,
         )
         target_units = _to_engine_units(usd_nominal, pair, price)
 
@@ -286,8 +305,22 @@ def _run_continuous(
             ts, raw_signal, clamped_signal, usd_nominal, target_units, cur_units, price, equity,
         )
 
-        # Compute fractional delta to determine if rebalance fires
-        denominator = max(cur_units, 1.0)
+        # RC5: Daily swap accrual — credit carry income every bar while in position.
+        # The script (vol_targeting.py:72) adds daily_swap_per_unit * cur_units each bar.
+        # The engine must do the same so the equity curve reflects carry in real time,
+        # not as a lump-sum at position close. Using include_swap=False in _close_position
+        # prevents double-counting the holding swap at exit.
+        if cur_units > 0:
+            # holding_cost returns -swap_long_pips * days (negative = credit).
+            # Negate to get daily credit: positive value added to equity.
+            daily_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, 1)
+            equity += daily_swap_pips * pip_value * cur_units
+
+        # Compute fractional delta to determine if rebalance fires.
+        # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)
+        # not max(cur_units, 1.0). For USDJPY the units are always >> 1 so the
+        # difference is negligible, but the script semantics are correct and cleaner.
+        denominator = cur_units if cur_units > 0 else 1.0
         frac_delta = abs(target_units - cur_units) / denominator
 
         if frac_delta > rebalance_threshold:
@@ -337,11 +370,12 @@ def _run_continuous(
                 reduce_units = abs(delta)
 
                 if target_units <= 0.0:
-                    # Full exit
+                    # Full exit — swap was already credited daily, so skip in close
                     trade = _close_position(
                         pair, strategy_name, cost_model, pip_value,
                         1.0,  # long position
                         cur_units, entry_price, entry_time, ts, price,
+                        include_swap=False,
                     )
                     trade_log.append(trade)
                     equity += trade.pnl_dollars
@@ -392,7 +426,8 @@ def _run_continuous(
         else:
             equity_curve.iloc[i] = equity
 
-    # Close any remaining position at the last bar
+    # Close any remaining position at the last bar.
+    # Swap was already credited daily so skip it here (include_swap=False).
     if cur_units > 0:
         last_ts = data.index[-1]
         last_price = data["close"].iloc[-1]
@@ -400,6 +435,7 @@ def _run_continuous(
             pair, strategy_name, cost_model, pip_value,
             1.0,  # long position
             cur_units, entry_price, entry_time, last_ts, last_price,
+            include_swap=False,
         )
         trade_log.append(trade)
         equity += trade.pnl_dollars
@@ -431,13 +467,22 @@ def _close_position(
     entry_time: pd.Timestamp | None,
     exit_time: pd.Timestamp,
     exit_price: float,
+    include_swap: bool = True,
 ) -> Trade:
-    """Close a position and return the completed Trade."""
+    """Close a position and return the completed Trade.
+
+    Args:
+        include_swap: If True (default), include swap/carry P&L for the holding
+            period in the trade PnL. Set to False in continuous mode where swap
+            is already credited daily via per-bar equity accrual.
+    """
     direction = Direction.LONG if position > 0 else Direction.SHORT
     hold_days = (exit_time - entry_time).days if entry_time is not None else 0
 
     exit_cost_pips = cost_model.exit_cost(pair, size)
-    swap_cost_pips = cost_model.holding_cost(pair, direction, hold_days)
+    swap_cost_pips = (
+        cost_model.holding_cost(pair, direction, hold_days) if include_swap else 0.0
+    )
     total_cost_pips = exit_cost_pips + swap_cost_pips
 
     price_diff_pips = (exit_price - entry_price) / pip_value * position

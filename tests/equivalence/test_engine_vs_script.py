@@ -15,10 +15,12 @@ Root cause (resolved 2026-04-25):
     (capital / cur_close) * scale convention.
 
 Test 1 (test_sharpe_within_tolerance):
-    Currently XFAILS strict=True. Track 2 reconciliation closed the gap from
-    ~0.84 to ~0.16. Script Sharpe ≈ 0.76; Engine Sharpe ≈ 0.60. Residual gap
-    likely from rebalance threshold / cost handling differences.
-    The strict=True alerts when the gap closes inside tolerance.
+    Now PASSES. Track 5 closed the residual gap by aligning rebalance-threshold
+    semantics (RC1: `delta / cur_units` not `max(cur_units, 1)`), adding daily
+    swap accrual to continuous mode (RC5: positive carry credit), and adding
+    `constant_capital_sizing=True` (RC4: match script's $1M-fixed notional vs
+    growing-equity sizing). Script Sharpe ≈ 0.7619; Engine Sharpe ≈ 0.7674;
+    |Δ| = 0.0055 < 0.10 tolerance.
 
 Test 2 (test_equity_curve_correlation):
     Passes. Catches future regressions in directional agreement.
@@ -162,6 +164,9 @@ def _run_engine_path(df: pd.DataFrame, pair_info) -> tuple[pd.Series, float]:
         sizer=sizer,
         rebalance_mode="continuous",
         rebalance_threshold=0.20,
+        # RC4: use constant-notional sizing to match the script's convention
+        # (script uses constant $1M capital, not growing equity).
+        constant_capital_sizing=True,
     )
 
     metrics = calculate_metrics(result.equity_curve, result.trade_log)
@@ -169,13 +174,11 @@ def _run_engine_path(df: pd.DataFrame, pair_info) -> tuple[pd.Series, float]:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Sharpe within tolerance — XFAIL until residual gap is closed
-# Track 2 closed the gap from ~0.84 → ~0.16 by fixing the JPY unit conversion.
-# Remaining gap likely from rebalance-threshold semantics or cost handling.
-# strict=True alerts when the gap closes inside the 0.10 tolerance.
+# Test 1: Sharpe within tolerance — PASSES after Track 5 reconciliation
+# Track 2 closed the gap from ~0.84 → ~0.16 (JPY unit fix).
+# Track 5 closed the gap from ~0.16 → ~0.0055 (rebalance threshold + swap + sizing).
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="Residual engine-script Sharpe gap ~0.16 after JPY unit fix; tolerance is 0.10")
 def test_sharpe_within_tolerance(usdjpy_df, usdjpy_pair_info):
     """Assert |Sharpe_engine - Sharpe_script| < 0.10.
 

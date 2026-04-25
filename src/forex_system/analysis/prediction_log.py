@@ -81,8 +81,14 @@ class PredictionLog:
         self._buffer = []
         self._buffer_rows = 0
 
-        # Partition by year-month
-        all_records["_month"] = pd.to_datetime(all_records["timestamp"]).dt.to_period("M")
+        # Partition by year-month.
+        # Drop timezone info before converting to Period to avoid the
+        # "Converting to PeriodArray/Index representation will drop timezone
+        # information" UserWarning that fires on every paper-trading cycle.
+        ts_series = pd.to_datetime(all_records["timestamp"])
+        if ts_series.dt.tz is not None:
+            ts_series = ts_series.dt.tz_localize(None)
+        all_records["_month"] = ts_series.dt.to_period("M")
 
         for month, group in all_records.groupby("_month"):
             month_str = str(month)  # e.g., "2024-01"

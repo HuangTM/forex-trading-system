@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 import pytest
 
@@ -149,3 +151,30 @@ class TestPredictionLog:
         h1 = _hash_params({"fast": 20})
         h2 = _hash_params({"fast": 50})
         assert h1 != h2
+
+    def test_flush_no_timezone_userwarning(self, tmp_path):
+        """flush() must not emit a UserWarning about timezone information.
+
+        Regression test for CTO C7: prediction_log.py:85 fired
+        'Converting to PeriodArray/Index representation will drop timezone
+        information' on every paper-trading cycle when timestamps were tz-aware.
+        Fix: strip tz before calling .dt.to_period("M").
+        """
+        plog = PredictionLog(output_dir=tmp_path / "predictions")
+        # Create tz-aware timestamps (UTC) — this was the triggering condition.
+        dates = pd.date_range("2024-01-02", periods=10, freq="D", tz="UTC")
+        signals = pd.Series([1.0] * 10, index=dates)
+        plog.log(signals, "carry_momentum", "USDJPY", parameters={"fast": 20})
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            plog.flush()
+
+        user_warnings = [
+            w for w in caught
+            if issubclass(w.category, UserWarning)
+        ]
+        assert user_warnings == [], (
+            f"Expected zero UserWarnings but got: {[str(w.message) for w in user_warnings]}"
+        )
+        plog.close()

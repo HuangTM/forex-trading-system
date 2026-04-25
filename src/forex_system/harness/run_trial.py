@@ -368,6 +368,19 @@ def run_trial(
         }
         report_path = _RESULTS_DIR / f"{trial_id}.json"
         report["report_path"] = str(report_path)
+
+        # Write equity-curve Parquet alongside the JSON report.
+        # Columns: timestamp, equity, signal (position signal; rename from
+        # BacktestResult.signals which holds raw signal floats in [-1, +1]).
+        equity_df = pd.DataFrame({
+            "timestamp": bt_result.equity_curve.index,
+            "equity": bt_result.equity_curve.values,
+            "signal": bt_result.signals.reindex(bt_result.equity_curve.index).values,
+        })
+        equity_parquet_path = _RESULTS_DIR / f"{trial_id}_equity.parquet"
+        equity_df.to_parquet(equity_parquet_path, index=False)
+        report["equity_curve_path"] = str(equity_parquet_path)
+
         report_path.write_text(json.dumps(report, indent=2, default=_json_default))
 
         # -- Update registry entry from skeleton to complete --

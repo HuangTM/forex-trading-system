@@ -63,7 +63,7 @@ def notify(topic: str | None, title: str, message: str, priority: str = "default
     try:
         requests.post(
             f"https://ntfy.sh/{topic}",
-            data=message.encode("utf-8"),
+            data=message.encode("ascii", errors="replace"),
             headers={"Title": title, "Priority": priority,
                      "Tags": "chart_with_upwards_trend"},
             timeout=10,
@@ -340,7 +340,10 @@ def main():
     if initial_equity is None:
         print("Error: cannot fetch initial equity. Refusing to start.")
         sys.exit(1)
-    kill_switch = KillSwitch(initial_equity=initial_equity)
+    kill_switch = KillSwitch(
+        initial_equity=initial_equity,
+        audit_log_path="data/kill_switch_audit.log",
+    )
 
     print("=" * 60)
     print("  PAPER TRADING — Vol-Target Carry (USDJPY)")

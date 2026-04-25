@@ -10,13 +10,18 @@ Design principles:
     - Human reset required — no automatic recovery
     - Logs trigger reason for audit trail
     - Exception-safe — failure in the kill switch itself triggers it
+    - Restart-safe — refuses to start silently if last audit event was HALTED;
+      operator must set KILL_SWITCH_FORCE_RESET=1 to override.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 import pandas as pd
 
@@ -26,6 +31,13 @@ logger = logging.getLogger(__name__)
 MAX_DAILY_LOSS_PCT = 0.02  # 2% of equity
 RECONCILIATION_TOLERANCE_UNITS = 1  # Units mismatch before triggering
 MAX_CONSECUTIVE_FETCH_FAILURES = 3  # Equity-fetch misses before halting
+
+# States that mean trading was halted when the process last stopped.
+# Substring match: any new_state containing one of these strings is treated
+# as HALTED.
+_HALTED_STATE_SUBSTRINGS = ("HALTED", "FLAT_AND_HALTED")
+
+_DEFAULT_AUDIT_LOG = "data/kill_switch_audit.log"
 
 
 class TriggerReason(Enum):
@@ -44,6 +56,39 @@ class KillSwitchEvent:
     reason: TriggerReason
     detail: str
     equity_at_trigger: float
+
+
+def _last_audit_entry(audit_log_path: str) -> dict | None:
+    """Return the last JSON line from the audit log, or None if empty/missing."""
+    p = Path(audit_log_path)
+    if not p.exists():
+        return None
+    lines = [l.strip() for l in p.read_text().splitlines() if l.strip()]
+    if not lines:
+        return None
+    try:
+        return json.loads(lines[-1])
+    except json.JSONDecodeError:
+        logger.warning("KillSwitch: could not parse last audit log entry — treating as clean.")
+        return None
+
+
+def _new_state_is_halted(new_state: str | None) -> bool:
+    """Return True if new_state string indicates the switch was HALTED."""
+    if new_state is None:
+        return False
+    for substr in _HALTED_STATE_SUBSTRINGS:
+        if substr in new_state:
+            return True
+    return False
+
+
+def _write_audit_entry(audit_log_path: str, entry: dict) -> None:
+    """Append a single JSON line to the audit log."""
+    p = Path(audit_log_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 @dataclass
@@ -67,11 +112,18 @@ class KillSwitch:
 
         # Human reset:
         ks.reset(operator="HuangTM")
+
+    Restart safety:
+        On __init__, if an audit log exists and the last entry's new_state
+        contains "HALTED" (or "FLAT_AND_HALTED"), KillSwitch refuses to start
+        and raises RuntimeError unless the environment variable
+        KILL_SWITCH_FORCE_RESET=1 is set.
     """
 
     initial_equity: float
     max_daily_loss_pct: float = MAX_DAILY_LOSS_PCT
     max_consecutive_fetch_failures: int = MAX_CONSECUTIVE_FETCH_FAILURES
+    audit_log_path: str | None = None  # Set to _DEFAULT_AUDIT_LOG in production
 
     # State
     is_triggered: bool = field(default=False, init=False)
@@ -83,6 +135,58 @@ class KillSwitch:
     def __post_init__(self):
         self.day_start_equity = self.initial_equity
         self.current_day = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+        self._check_audit_log_on_startup()
+
+    def _check_audit_log_on_startup(self) -> None:
+        """Refuse to start silently if last audit event indicated HALTED state.
+
+        If KILL_SWITCH_FORCE_RESET=1 is set, allows startup but logs CRITICAL
+        and writes a FORCE_RESET_ON_STARTUP audit entry so the decision is
+        recorded for the operator.
+        """
+        if not self.audit_log_path:
+            return
+
+        last = _last_audit_entry(self.audit_log_path)
+        if last is None:
+            return  # Empty or missing audit log — clean start.
+
+        new_state = last.get("new_state", "")
+        if not _new_state_is_halted(new_state):
+            return  # Last event was a clean state — no action needed.
+
+        ts = last.get("timestamp", "unknown")
+        operator = last.get("operator", "unknown")
+
+        force_reset = os.environ.get("KILL_SWITCH_FORCE_RESET", "").strip() == "1"
+
+        if not force_reset:
+            msg = (
+                f"KillSwitch starting fresh but last audit event was HALTED at {ts} "
+                f"(operator={operator}). Refusing to start unless "
+                "--force-reset is passed via env KILL_SWITCH_FORCE_RESET=1."
+            )
+            logger.critical(msg)
+            raise RuntimeError(msg)
+
+        # Force-reset path: log clearly and write audit entry.
+        env_user = os.environ.get("USER", "unknown")
+        logger.critical(
+            "KILL SWITCH FORCE RESET on startup by env var. "
+            "Operator must justify in next audit-log entry. (USER=%s)",
+            env_user,
+        )
+        _write_audit_entry(
+            self.audit_log_path,
+            {
+                "timestamp": pd.Timestamp.now(tz="UTC").isoformat(),
+                "event": "FORCE_RESET_ON_STARTUP",
+                "operator": env_user,
+                "reason": "KILL_SWITCH_FORCE_RESET=1 set in env",
+                "previous_state": new_state,
+                "new_state": "RUNNING",
+            },
+        )
 
     def check_and_trigger(self, current_equity: float) -> bool:
         """Check if daily loss threshold is breached. Returns True if triggered.

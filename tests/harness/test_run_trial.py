@@ -252,3 +252,32 @@ class TestRunTrialIntegration:
         n1 = report1["dsr"]["n_trials"]
         n2 = report2["dsr"]["n_trials"]
         assert n2 > n1, f"Second trial should see more trials: got n1={n1}, n2={n2}"
+
+    def test_equity_parquet_written(self, tmp_registry, minimal_config, minimal_pre_reg):
+        """run_trial must write a _equity.parquet sibling alongside the JSON report."""
+        data_path = Path("data/processed/EURUSD_daily.parquet")
+        if not data_path.exists():
+            pytest.skip("EURUSD daily data not available in this environment")
+
+        import pandas as pd
+        import forex_system.harness.run_trial as rt_mod
+
+        report = run_trial(
+            config_path=str(minimal_config),
+            pair="EURUSD",
+            pre_reg_path=str(minimal_pre_reg),
+        )
+
+        # equity_curve_path must be present in the report
+        assert "equity_curve_path" in report, "report must contain equity_curve_path"
+        equity_path = Path(report["equity_curve_path"])
+        assert equity_path.exists(), f"Equity parquet not found: {equity_path}"
+
+        # Verify columns
+        ec_df = pd.read_parquet(equity_path)
+        assert "timestamp" in ec_df.columns
+        assert "equity" in ec_df.columns
+        assert "signal" in ec_df.columns
+
+        # Row count must be positive
+        assert len(ec_df) > 0

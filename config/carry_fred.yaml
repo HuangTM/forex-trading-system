@@ -1,0 +1,141 @@
+# FRED-Rates Carry — HoQR CONSENSUS Bet #1
+# ==========================================
+# Long-short carry on 12-pair universe using FRED rate differentials.
+# Cross-sectional rank-normalized signal, equal-vol-weighted portfolio.
+# Pre-registration: references/pre-registrations/carry_fred.md
+# OOS holdout: 2023-04-25 to 2026-04-25 (last 36 months)
+
+system:
+  name: "carry-fred-12pair"
+  log_level: "INFO"
+
+data:
+  base_dir: "data"
+
+# Full 12-pair universe (CONSENSUS Bet #1)
+pairs:
+  - symbol: "AUDJPY"
+    pip_value: 0.01
+    spread_pips: 1.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.5
+    swap_short_pips_per_day: -1.0
+
+  - symbol: "AUDUSD"
+    pip_value: 0.0001
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.3
+    swap_short_pips_per_day: -0.8
+
+  - symbol: "CADJPY"
+    pip_value: 0.01
+    spread_pips: 1.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.4
+    swap_short_pips_per_day: -0.9
+
+  - symbol: "EURGBP"
+    pip_value: 0.0001
+    spread_pips: 1.2
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: -0.2
+    swap_short_pips_per_day: 0.1
+
+  - symbol: "EURJPY"
+    pip_value: 0.01
+    spread_pips: 1.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.3
+    swap_short_pips_per_day: -0.8
+
+  - symbol: "EURUSD"
+    pip_value: 0.0001
+    spread_pips: 0.8
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: -0.3
+    swap_short_pips_per_day: 0.1
+
+  - symbol: "GBPJPY"
+    pip_value: 0.01
+    spread_pips: 2.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.5
+    swap_short_pips_per_day: -1.0
+
+  - symbol: "GBPUSD"
+    pip_value: 0.0001
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.2
+    swap_short_pips_per_day: -0.7
+
+  - symbol: "NZDJPY"
+    pip_value: 0.01
+    spread_pips: 2.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.4
+    swap_short_pips_per_day: -0.9
+
+  - symbol: "NZDUSD"
+    pip_value: 0.0001
+    spread_pips: 1.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.2
+    swap_short_pips_per_day: -0.7
+
+  - symbol: "USDCAD"
+    pip_value: 0.0001
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.1
+    swap_short_pips_per_day: -0.5
+
+  - symbol: "USDJPY"
+    pip_value: 0.01
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.8
+    swap_short_pips_per_day: -1.5
+
+strategies:
+  active:
+    - "carry_fred"
+
+  carry_fred:
+    rate_data_path: "data/rates/rate_differentials.parquet"
+    rank_normalize: true               # cross-sectional z-score (pre-registered)
+    min_differential: 0.001            # 0.1% — ignore near-zero carry noise
+    max_differential: 0.05             # used only when rank_normalize: false
+    # oos_holdout_start: "2023-04-25"  # documented; enforcement is in harness/scripts
+
+backtest:
+  initial_capital: 1000000.0
+
+  position_sizing:
+    method: "default"                  # equal-vol-weight applied in portfolio runner
+    risk_per_trade: 0.02
+    max_position_pct: 0.10
+
+  execution:
+    entry_delay_bars: 1                # no-lookahead: signal at bar N -> entry at bar N+1
+    rebalance_mode: "discrete"
+    rebalance_threshold: 0.05          # monthly rebalance — small threshold for carry
+
+  walkforward:
+    enabled: false                     # harness per-pair; portfolio runner handles OOS split
+
+analysis:
+  benchmark: "buy_and_hold"

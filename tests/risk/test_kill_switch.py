@@ -6,6 +6,7 @@ import os
 import pytest
 
 from forex_system.risk.kill_switch import (
+    MAX_CONSECUTIVE_FETCH_FAILURES,
     MAX_DAILY_LOSS_PCT,
     KillSwitch,
     TriggerReason,
@@ -268,3 +269,63 @@ class TestKillSwitchAuditOnStartup:
         monkeypatch.delenv("KILL_SWITCH_FORCE_RESET", raising=False)
         ks = KillSwitch(initial_equity=100_000, audit_log_path=None)
         assert not ks.is_triggered
+
+
+# ---------------------------------------------------------------------------
+# Tests for balance-fetch WARN log with N/MAX context (D2)
+# ---------------------------------------------------------------------------
+
+class TestFetchFailureWarnContext:
+    """WARN log must surface 'failure N of MAX' on each non-terminal fetch failure."""
+
+    def test_first_failure_logs_warn_1_of_3(self, caplog):
+        import logging
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=3)
+        with caplog.at_level(logging.WARNING, logger="forex_system.risk.kill_switch"):
+            ks.record_equity_fetch_failure()
+        warn_lines = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("failure 1 of 3" in line for line in warn_lines), (
+            f"Expected 'failure 1 of 3' in WARN lines, got: {warn_lines}"
+        )
+
+    def test_second_failure_logs_warn_2_of_3(self, caplog):
+        import logging
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=3)
+        ks.record_equity_fetch_failure()  # 1st — already checked above
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="forex_system.risk.kill_switch"):
+            ks.record_equity_fetch_failure()
+        warn_lines = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("failure 2 of 3" in line for line in warn_lines), (
+            f"Expected 'failure 2 of 3' in WARN lines, got: {warn_lines}"
+        )
+
+    def test_third_failure_triggers_no_warn(self, caplog):
+        """The 3rd failure reaches threshold → kill switch fires (CRITICAL), no WARN."""
+        import logging
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=3)
+        ks.record_equity_fetch_failure()
+        ks.record_equity_fetch_failure()
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="forex_system.risk.kill_switch"):
+            triggered = ks.record_equity_fetch_failure()
+        assert triggered
+        assert ks.is_triggered
+        warn_lines = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        # Should not see "failure 3 of 3" WARN — the trigger path fires instead
+        assert not any("failure 3 of 3" in line for line in warn_lines)
+
+    def test_warn_uses_correct_max_when_overridden(self, caplog):
+        """Custom max_consecutive_fetch_failures appears correctly in the WARN."""
+        import logging
+        ks = KillSwitch(initial_equity=100_000, max_consecutive_fetch_failures=5)
+        with caplog.at_level(logging.WARNING, logger="forex_system.risk.kill_switch"):
+            ks.record_equity_fetch_failure()
+        warn_lines = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("failure 1 of 5" in line for line in warn_lines), (
+            f"Expected 'failure 1 of 5' in WARN lines, got: {warn_lines}"
+        )
+
+    def test_max_consecutive_fetch_failures_constant(self):
+        """Sanity-check that the module constant is still 3."""
+        assert MAX_CONSECUTIVE_FETCH_FAILURES == 3

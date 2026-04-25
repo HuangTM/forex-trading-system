@@ -253,6 +253,78 @@ class TestRunTrialIntegration:
         n2 = report2["dsr"]["n_trials"]
         assert n2 > n1, f"Second trial should see more trials: got n1={n1}, n2={n2}"
 
+    def test_walkforward_enabled_produces_results(self, tmp_registry, minimal_pre_reg, tmp_path):
+        """Harness with walkforward enabled must not crash and must populate windows counts.
+
+        Regression test for the missing pair= keyword in run_walkforward() call.
+        Uses a very short train/test window so the test stays fast on CI.
+        """
+        data_path = Path("data/processed/EURUSD_daily.parquet")
+        if not data_path.exists():
+            pytest.skip("EURUSD daily data not available in this environment")
+
+        config_text = """
+system:
+  name: "test-wf"
+  log_level: "INFO"
+data:
+  base_dir: "data"
+pairs:
+  - symbol: "EURUSD"
+    pip_value: 0.0001
+    spread_pips: 1.0
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: 0.1
+    swap_short_pips_per_day: -0.5
+strategies:
+  active:
+    - "vol_target_carry"
+  vol_target_carry:
+    target_vol: 0.10
+    vol_window: 20
+    leverage_cap: 2.0
+backtest:
+  initial_capital: 100000.0
+  position_sizing:
+    method: "vol_target"
+    leverage_cap: 2.0
+    min_order_size: 0
+    max_order_units: 5000000
+  execution:
+    entry_delay_bars: 1
+    rebalance_mode: continuous
+    rebalance_threshold: 0.20
+  walkforward:
+    enabled: true
+    train_window_days: 252
+    test_window_days: 126
+    step_days: 126
+"""
+        config_path = tmp_path / "config_wf.yaml"
+        config_path.write_text(config_text)
+
+        report = run_trial(
+            config_path=str(config_path),
+            pair="EURUSD",
+            pre_reg_path=str(minimal_pre_reg),
+        )
+
+        # Walkforward must have produced at least one window
+        wf = report.get("walkforward", {})
+        assert wf.get("windows_total") is not None, (
+            "walkforward.windows_total must be populated when walkforward is enabled"
+        )
+        assert isinstance(wf["windows_total"], int), (
+            f"windows_total must be int, got {type(wf['windows_total'])}"
+        )
+        assert wf["windows_total"] > 0, (
+            f"Expected at least one walk-forward window, got {wf['windows_total']}"
+        )
+        assert wf.get("windows_beat_zero") is not None, (
+            "walkforward.windows_beat_zero must be populated"
+        )
+
     def test_equity_parquet_written(self, tmp_registry, minimal_config, minimal_pre_reg):
         """run_trial must write a _equity.parquet sibling alongside the JSON report."""
         data_path = Path("data/processed/EURUSD_daily.parquet")

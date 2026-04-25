@@ -20,11 +20,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
+import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -70,6 +72,47 @@ def notify(topic: str | None, title: str, message: str, priority: str = "default
         )
     except Exception as e:
         logger.warning("Failed to send notification: %s", e)
+
+
+def write_heartbeat(
+    heartbeat_path: str,
+    cycle_id: int,
+    loop_start: float,
+    last_signal: float | None = None,
+    last_action: str | None = None,
+) -> None:
+    """Write heartbeat.json atomically (write-then-rename).
+
+    A watcher process (check_heartbeat.py) reads this file to detect hangs.
+    Atomic rename ensures the reader never sees a half-written file.
+    """
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "cycle_id": cycle_id,
+        "pid": os.getpid(),
+        "last_signal": last_signal,
+        "last_action": last_action,
+        "uptime_seconds": time.monotonic() - loop_start,
+    }
+    path = Path(heartbeat_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".heartbeat_tmp_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        logger.warning("Failed to write heartbeat: %s", e)
+
+
+HEARTBEAT_PATH = "data/heartbeat.json"
 
 
 def fetch_recent_bars(client: SaxoClient, pair: str, count: int = 300,
@@ -144,7 +187,7 @@ def run_cycle(
     if kill_switch.is_triggered:
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, "urgent")
-        return {}
+        return {"_action": "KILL_HALTED"}
 
     equity = fetch_account_equity(client, backend.account_key)
     if equity is None:
@@ -157,13 +200,13 @@ def run_cycle(
             remaining = (kill_switch.max_consecutive_fetch_failures
                          - kill_switch.consecutive_fetch_failures)
             print(f"\n  Skipping cycle — equity unavailable ({remaining} skips before halt)")
-        return {}
+        return {"_action": "SKIP"}
     kill_switch.record_equity_fetch_success()
 
     if kill_switch.check_and_trigger(equity):
         print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
         backend.flatten_all()
-        return {}
+        return {"_action": "KILL_HALTED"}
 
     current_positions = backend.get_positions()
     print("\n" + "=" * 60)
@@ -174,10 +217,10 @@ def run_cycle(
     ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
     if ohlcv.empty:
         print(f"  No data for {pair}")
-        return {}
+        return {"_action": "SKIP"}
     if len(ohlcv) < strategy.params.get("vol_window", 252) + 10:
         print(f"  Not enough bars: {len(ohlcv)} (need ≥ vol_window + 10)")
-        return {}
+        return {"_action": "SKIP"}
 
     signals = strategy.generate_signals(ohlcv)
     sig = float(signals.iloc[-1])
@@ -243,13 +286,13 @@ def run_cycle(
         if monitor_pairs:
             print("\n  --- monitor-only signals ---")
             log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
-        return {pair: sig}
+        return {pair: sig, "_action": "HOLD", "_signal": sig}
 
     if not auto_mode:
         response = input("  Execute? [y/N]: ").strip().lower()
         if response != "y":
             print("  Result:        SKIPPED by operator")
-            return {pair: sig}
+            return {pair: sig, "_action": "SKIP", "_signal": sig}
 
     if is_close:
         result = backend.execute_signal(pair, 0, 0)
@@ -265,7 +308,7 @@ def run_cycle(
                          source="paper", context={"equity": equity, "rebalance": True})
         if not close_r.success:
             print(f"  Result:        REBALANCE CLOSE FAILED: {close_r.error}")
-            return {pair: sig}
+            return {pair: sig, "_action": "SKIP", "_signal": sig}
         time.sleep(1.5)
         result = backend.execute_signal(pair, sig, target_units)
         status = "EXECUTED" if result.success else f"FAILED: {result.error}"
@@ -298,7 +341,14 @@ def run_cycle(
         print("\n  --- monitor-only signals ---")
         log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
 
-    return {pair: sig}
+    # Derive heartbeat action label from which branch we took
+    if is_close:
+        hb_action = "EXIT"
+    elif is_rebalance:
+        hb_action = "REBALANCE"
+    else:
+        hb_action = "ENTER"
+    return {pair: sig, "_action": hb_action, "_signal": sig}
 
 
 def main():
@@ -363,16 +413,26 @@ def main():
         for p, pos in positions.items():
             print(f"  {p}: {pos.direction.name} {pos.size:.0f} @ {pos.entry_price:.4f}")
 
+    loop_start = time.monotonic()
+    last_signal: float | None = None
+    last_action: str | None = None
+
     if args.loop:
         print(f"\nLoop mode (every {args.interval}s). Ctrl+C to stop.")
+        cycle_id = 0
         try:
             while True:
-                run_cycle(client, backend, sizer, strategy, pair,
-                          pred_log, trade_log, kill_switch,
-                          rebal_threshold=rebal_threshold,
-                          auto_mode=args.auto, ntfy_topic=args.ntfy,
-                          horizon=args.timeframe,
-                          monitor_pairs=args.monitor_pairs)
+                cycle_id += 1
+                write_heartbeat(HEARTBEAT_PATH, cycle_id, loop_start,
+                                last_signal=last_signal, last_action=last_action)
+                result = run_cycle(client, backend, sizer, strategy, pair,
+                                   pred_log, trade_log, kill_switch,
+                                   rebal_threshold=rebal_threshold,
+                                   auto_mode=args.auto, ntfy_topic=args.ntfy,
+                                   horizon=args.timeframe,
+                                   monitor_pairs=args.monitor_pairs)
+                last_signal = result.get("_signal")
+                last_action = result.get("_action")
                 pred_log.flush()
                 trade_log.flush()
                 print(f"\nNext check in {args.interval}s...")
@@ -380,6 +440,8 @@ def main():
         except KeyboardInterrupt:
             print("\nStopped by operator.")
     else:
+        write_heartbeat(HEARTBEAT_PATH, 1, loop_start,
+                        last_signal=last_signal, last_action=last_action)
         run_cycle(client, backend, sizer, strategy, pair,
                   pred_log, trade_log, kill_switch,
                   rebal_threshold=rebal_threshold,

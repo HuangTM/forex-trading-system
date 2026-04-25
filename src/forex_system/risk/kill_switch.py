@@ -238,6 +238,11 @@ class KillSwitch:
                 0.0,
             )
             return True
+        logger.warning(
+            "Could not fetch balance (failure %d of %d before kill switch fires)",
+            self.consecutive_fetch_failures,
+            self.max_consecutive_fetch_failures,
+        )
         return False
 
     def record_equity_fetch_success(self) -> None:

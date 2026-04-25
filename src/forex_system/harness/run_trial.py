@@ -286,6 +286,7 @@ def run_trial(
             wf_result = run_walkforward(
                 data=enriched,
                 strategy=strategy,
+                pair=pair.upper(),
                 cost_model=cost_model,
                 initial_capital=config.backtest.initial_capital,
                 train_days=config.backtest.walkforward_train_days,
@@ -293,8 +294,8 @@ def run_trial(
                 step_days=config.backtest.walkforward_step_days,
                 sizer=sizer,
             )
-            if wf_result:
-                oos_sharpes = [w.metrics.sharpe_ratio for w in wf_result]
+            if wf_result and wf_result.windows:
+                oos_sharpes = [w.metrics.sharpe_ratio for w in wf_result.windows]
                 wf_windows_total = len(oos_sharpes)
                 wf_windows_beat = sum(1 for s in oos_sharpes if s > 0)
 

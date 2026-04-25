@@ -36,9 +36,12 @@ class BacktestConfig:
     stop_loss_atr_multiple: float = 2.0
     max_position_pct: float = 0.10
     entry_delay_bars: int = 1
+    walkforward_enabled: bool = False
     walkforward_train_days: int = 504
     walkforward_test_days: int = 126
     walkforward_step_days: int = 63
+    rebalance_mode: str = "discrete"
+    rebalance_threshold: float = 0.20
 
 
 @dataclass
@@ -104,9 +107,12 @@ def load_config(path: str | Path) -> SystemConfig:
             stop_loss_atr_multiple=ps_raw.get("stop_loss_atr_multiple", 2.0),
             max_position_pct=ps_raw.get("max_position_pct", 0.10),
             entry_delay_bars=exec_raw.get("entry_delay_bars", 1),
+            walkforward_enabled=bool(wf_raw.get("enabled", False)),
             walkforward_train_days=wf_raw.get("train_window_days", 504),
             walkforward_test_days=wf_raw.get("test_window_days", 126),
             walkforward_step_days=wf_raw.get("step_days", 63),
+            rebalance_mode=exec_raw.get("rebalance_mode", "discrete"),
+            rebalance_threshold=float(exec_raw.get("rebalance_threshold", 0.20)),
         )
 
         return SystemConfig(

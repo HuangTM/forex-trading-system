@@ -33,6 +33,77 @@ def test_get_pair_info_missing(sample_config_path):
         config.get_pair_info("AUDUSD")
 
 
+_MINIMAL_PAIR = """
+pairs:
+  - symbol: "EURUSD"
+    pip_value: 0.0001
+    spread_pips: 0.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_day: -1.2
+    swap_short_pips_per_day: 0.3
+strategies:
+  active:
+    - "ma_crossover"
+  ma_crossover:
+    fast_period: 10
+    slow_period: 30
+"""
+
+
+def test_walkforward_enabled_true(tmp_path):
+    """walkforward.enabled: true is parsed into BacktestConfig.walkforward_enabled=True."""
+    config_file = tmp_path / "wf_enabled.yaml"
+    config_file.write_text(
+        _MINIMAL_PAIR + """
+backtest:
+  initial_capital: 100000.0
+  walkforward:
+    enabled: true
+    train_window_days: 504
+    test_window_days: 504
+    step_days: 252
+"""
+    )
+    config = load_config(config_file)
+    assert config.backtest.walkforward_enabled is True
+
+
+def test_walkforward_enabled_false(tmp_path):
+    """walkforward.enabled: false is parsed into BacktestConfig.walkforward_enabled=False."""
+    config_file = tmp_path / "wf_disabled.yaml"
+    config_file.write_text(
+        _MINIMAL_PAIR + """
+backtest:
+  initial_capital: 100000.0
+  walkforward:
+    enabled: false
+    train_window_days: 504
+    test_window_days: 504
+    step_days: 252
+"""
+    )
+    config = load_config(config_file)
+    assert config.backtest.walkforward_enabled is False
+
+
+def test_walkforward_enabled_absent(tmp_path):
+    """When walkforward.enabled is absent, defaults to False."""
+    config_file = tmp_path / "wf_absent.yaml"
+    config_file.write_text(
+        _MINIMAL_PAIR + """
+backtest:
+  initial_capital: 100000.0
+  walkforward:
+    train_window_days: 504
+    test_window_days: 504
+    step_days: 252
+"""
+    )
+    config = load_config(config_file)
+    assert config.backtest.walkforward_enabled is False
+
+
 def test_empty_strategies(tmp_path):
     config_file = tmp_path / "bad.yaml"
     config_file.write_text("""

@@ -2,15 +2,31 @@
 
 Takes OHLCV data + signals + cost model -> equity curve + trade log.
 Strictly avoids lookahead: signals at bar N execute at bar N+1 open.
+
+rebalance_mode="discrete" (default):
+    Sign-of-signal direction changes only. Enters/exits on direction flip.
+    One trade per direction change.
+
+rebalance_mode="continuous":
+    Every bar, compute target_units = sizer.calculate_size(signal, equity, price, atr, pair).
+    If |target_units - cur_units| / max(cur_units, 1) > rebalance_threshold, execute
+    a delta trade. Cost is charged on the delta only. Long-only: negative signal → flat.
+    Requires sizer to be provided.
 """
 
 from __future__ import annotations
+
+import logging
 
 import numpy as np
 import pandas as pd
 
 from forex_system.core.interfaces import CostModel, PositionSizer
 from forex_system.core.types import BacktestResult, Direction, Trade
+
+logger = logging.getLogger(__name__)
+
+_VALID_REBALANCE_MODES = frozenset({"discrete", "continuous"})
 
 
 def run_backtest(
@@ -24,6 +40,8 @@ def run_backtest(
     stop_loss_atr_multiple: float = 2.0,
     entry_delay_bars: int = 1,
     sizer: PositionSizer | None = None,
+    rebalance_mode: str = "discrete",
+    rebalance_threshold: float = 0.20,
 ) -> BacktestResult:
     """Run a vectorized backtest.
 
@@ -37,10 +55,71 @@ def run_backtest(
         risk_per_trade: Fraction of equity to risk per trade
         stop_loss_atr_multiple: ATR multiplier for position sizing
         entry_delay_bars: Bars to delay signal execution (1 = next bar)
+        sizer: Optional position sizer (required for rebalance_mode="continuous")
+        rebalance_mode: "discrete" (default) or "continuous". Discrete mode
+            enters/exits on direction changes only. Continuous mode rebalances
+            position size every bar when target differs from current by more than
+            rebalance_threshold. Backward compatible: "discrete" is unchanged.
+        rebalance_threshold: Fractional threshold for continuous rebalancing.
+            Rebalance fires when |target - cur| / max(cur, 1) > threshold.
+            Default 0.20 (20%). Only used in continuous mode.
     """
+    if rebalance_mode not in _VALID_REBALANCE_MODES:
+        raise ValueError(
+            f"rebalance_mode must be one of {sorted(_VALID_REBALANCE_MODES)}, "
+            f"got {rebalance_mode!r}"
+        )
+
     if data.empty:
         return _empty_result(pair, strategy_name, signals)
 
+    logger.debug(
+        "run_backtest: pair=%s strategy=%s mode=%s threshold=%.2f bars=%d",
+        pair, strategy_name, rebalance_mode, rebalance_threshold, len(data),
+    )
+
+    if rebalance_mode == "continuous":
+        return _run_continuous(
+            data=data,
+            signals=signals,
+            pair=pair,
+            strategy_name=strategy_name,
+            cost_model=cost_model,
+            initial_capital=initial_capital,
+            risk_per_trade=risk_per_trade,
+            stop_loss_atr_multiple=stop_loss_atr_multiple,
+            entry_delay_bars=entry_delay_bars,
+            sizer=sizer,
+            rebalance_threshold=rebalance_threshold,
+        )
+
+    return _run_discrete(
+        data=data,
+        signals=signals,
+        pair=pair,
+        strategy_name=strategy_name,
+        cost_model=cost_model,
+        initial_capital=initial_capital,
+        risk_per_trade=risk_per_trade,
+        stop_loss_atr_multiple=stop_loss_atr_multiple,
+        entry_delay_bars=entry_delay_bars,
+        sizer=sizer,
+    )
+
+
+def _run_discrete(
+    data: pd.DataFrame,
+    signals: pd.Series,
+    pair: str,
+    strategy_name: str,
+    cost_model: CostModel,
+    initial_capital: float,
+    risk_per_trade: float,
+    stop_loss_atr_multiple: float,
+    entry_delay_bars: int,
+    sizer: PositionSizer | None,
+) -> BacktestResult:
+    """Original discrete mode: enter/exit on sign-of-signal direction changes."""
     # Shift signals forward to avoid lookahead
     delayed_signals = signals.shift(entry_delay_bars).fillna(0.0)
 
@@ -127,7 +206,209 @@ def run_backtest(
         equity_curve=equity_curve,
         trade_log=trade_log,
         signals=signals,
-        parameters={},
+        parameters={"rebalance_mode": "discrete"},
+        pair=pair,
+        strategy_name=strategy_name,
+        start_date=data.index[0],
+        end_date=data.index[-1],
+    )
+
+
+def _run_continuous(
+    data: pd.DataFrame,
+    signals: pd.Series,
+    pair: str,
+    strategy_name: str,
+    cost_model: CostModel,
+    initial_capital: float,
+    risk_per_trade: float,
+    stop_loss_atr_multiple: float,
+    entry_delay_bars: int,
+    sizer: PositionSizer | None,
+    rebalance_threshold: float,
+) -> BacktestResult:
+    """Continuous rebalance mode.
+
+    Every bar, compute target_units from the sizer using the (already-delayed)
+    signal. If the fractional delta vs current units exceeds rebalance_threshold,
+    trade the delta. Long-only: negative target → exit to flat.
+
+    No-lookahead guarantee: signals are shifted by entry_delay_bars before any
+    sizing decision, identical to discrete mode. The rebalance decision at bar i
+    uses delayed_signals[i] (which saw data up to bar i-1), so the economic effect
+    lands in that bar's equity mark-to-market.
+    """
+    if sizer is None:
+        raise ValueError(
+            "rebalance_mode='continuous' requires a sizer. "
+            "Pass a PositionSizer instance (e.g. VolTargetSizer) to run_backtest()."
+        )
+
+    # Shift signals forward to avoid lookahead — identical to discrete mode
+    delayed_signals = signals.shift(entry_delay_bars).fillna(0.0)
+
+    atr_series = _get_atr(data)
+    pip_value = _get_pip_value(pair)
+
+    equity = initial_capital
+    equity_curve = pd.Series(np.nan, index=data.index)
+    trade_log: list[Trade] = []
+
+    cur_units = 0.0
+    entry_price = 0.0
+    entry_time: pd.Timestamp | None = None
+
+    for i, (ts, row) in enumerate(data.iterrows()):
+        price = row["close"]
+        if pd.isna(price):
+            equity_curve.iloc[i] = equity
+            continue
+
+        raw_signal = float(delayed_signals.iloc[i])
+        current_atr = float(atr_series.iloc[i]) if not pd.isna(atr_series.iloc[i]) else 0.0
+
+        # Long-only clamp: negative signal → target flat
+        clamped_signal = max(raw_signal, 0.0)
+
+        # Compute target units using the sizer
+        target_units = sizer.calculate_size(
+            clamped_signal, equity, price, current_atr, pair,
+        )
+
+        # Decision boundary log — per log-as-decision-trace §3
+        logger.debug(
+            "continuous.bar: ts=%s signal=%.4f clamped=%.4f target_units=%.0f "
+            "cur_units=%.0f price=%.4f equity=%.2f",
+            ts, raw_signal, clamped_signal, target_units, cur_units, price, equity,
+        )
+
+        # Compute fractional delta to determine if rebalance fires
+        denominator = max(cur_units, 1.0)
+        frac_delta = abs(target_units - cur_units) / denominator
+
+        if frac_delta > rebalance_threshold:
+            delta = target_units - cur_units
+
+            if delta > 0:
+                # Increase position (or initial entry)
+                cost_pips = cost_model.entry_cost(pair, abs(delta))
+                equity -= cost_pips * pip_value * abs(delta)
+
+                if cur_units == 0.0:
+                    # Fresh entry
+                    entry_price = price
+                    entry_time = ts
+                else:
+                    # Rebalance up — adjust entry_price to weighted average
+                    total_new = cur_units + delta
+                    if total_new > 0:
+                        entry_price = (
+                            (entry_price * cur_units + price * delta) / total_new
+                        )
+
+                # Emit a Trade for the delta (direction=LONG, size=delta)
+                trade_log.append(Trade(
+                    pair=pair,
+                    direction=Direction.LONG,
+                    entry_time=entry_time or ts,
+                    exit_time=ts,
+                    entry_price=entry_price,
+                    exit_price=price,
+                    size=abs(delta),
+                    pnl_pips=0.0,   # delta trade; running PnL tracked via equity_curve
+                    pnl_dollars=0.0,
+                    cost_pips=cost_pips,
+                    cost_dollars=cost_pips * pip_value * abs(delta),
+                    strategy=strategy_name,
+                ))
+                cur_units = target_units
+
+                logger.debug(
+                    "continuous.rebalance_up: ts=%s delta=%.0f new_units=%.0f cost_pips=%.4f",
+                    ts, delta, cur_units, cost_pips,
+                )
+
+            else:
+                # Decrease position (partial exit or full exit)
+                reduce_units = abs(delta)
+
+                if target_units <= 0.0:
+                    # Full exit
+                    trade = _close_position(
+                        pair, strategy_name, cost_model, pip_value,
+                        1.0,  # long position
+                        cur_units, entry_price, entry_time, ts, price,
+                    )
+                    trade_log.append(trade)
+                    equity += trade.pnl_dollars
+                    cur_units = 0.0
+                    entry_price = 0.0
+                    entry_time = None
+
+                    logger.debug(
+                        "continuous.exit: ts=%s pnl=%.2f", ts, trade.pnl_dollars,
+                    )
+                else:
+                    # Partial reduction — charge cost on delta only
+                    cost_pips = cost_model.exit_cost(pair, reduce_units)
+                    # Realized PnL on the reduced chunk
+                    price_diff_pips = (price - entry_price) / pip_value
+                    realized_pnl_dollars = (
+                        price_diff_pips * pip_value * reduce_units
+                        - cost_pips * pip_value * reduce_units
+                    )
+                    equity += realized_pnl_dollars
+
+                    trade_log.append(Trade(
+                        pair=pair,
+                        direction=Direction.LONG,
+                        entry_time=entry_time or ts,
+                        exit_time=ts,
+                        entry_price=entry_price,
+                        exit_price=price,
+                        size=reduce_units,
+                        pnl_pips=price_diff_pips - cost_pips,
+                        pnl_dollars=realized_pnl_dollars,
+                        cost_pips=cost_pips,
+                        cost_dollars=cost_pips * pip_value * reduce_units,
+                        strategy=strategy_name,
+                    ))
+                    cur_units = target_units
+
+                    logger.debug(
+                        "continuous.rebalance_down: ts=%s delta=%.0f new_units=%.0f "
+                        "realized_pnl=%.2f",
+                        ts, delta, cur_units, realized_pnl_dollars,
+                    )
+
+        # Mark-to-market
+        if cur_units > 0:
+            unrealized_pips = (price - entry_price) / pip_value
+            equity_curve.iloc[i] = equity + unrealized_pips * pip_value * cur_units
+        else:
+            equity_curve.iloc[i] = equity
+
+    # Close any remaining position at the last bar
+    if cur_units > 0:
+        last_ts = data.index[-1]
+        last_price = data["close"].iloc[-1]
+        trade = _close_position(
+            pair, strategy_name, cost_model, pip_value,
+            1.0,  # long position
+            cur_units, entry_price, entry_time, last_ts, last_price,
+        )
+        trade_log.append(trade)
+        equity += trade.pnl_dollars
+        equity_curve.iloc[-1] = equity
+
+    return BacktestResult(
+        equity_curve=equity_curve,
+        trade_log=trade_log,
+        signals=signals,
+        parameters={
+            "rebalance_mode": "continuous",
+            "rebalance_threshold": rebalance_threshold,
+        },
         pair=pair,
         strategy_name=strategy_name,
         start_date=data.index[0],

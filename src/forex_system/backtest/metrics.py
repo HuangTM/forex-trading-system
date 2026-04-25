@@ -66,9 +66,13 @@ def calculate_metrics(
         sortino_ratio = sharpe_ratio  # No downside = use Sharpe
 
     # Max drawdown
+    # Clamp to [0, 1]: unrealized mark-to-market equity can go below zero when a
+    # highly-leveraged position's paper loss exceeds initial capital (no margin-call
+    # simulation in the engine). The ratio (ec - cummax) / cummax would then exceed
+    # -1.0 in magnitude, producing an economically nonsensical result > 100%.
     cummax = ec.cummax()
     drawdown = (ec - cummax) / cummax
-    max_drawdown = abs(drawdown.min()) if len(drawdown) > 0 else 0.0
+    max_drawdown = min(1.0, abs(drawdown.min())) if len(drawdown) > 0 else 0.0
 
     # Max drawdown duration
     max_dd_duration = _max_drawdown_duration(ec)

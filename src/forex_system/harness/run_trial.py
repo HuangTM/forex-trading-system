@@ -255,6 +255,8 @@ def run_trial(
             initial_capital=config.backtest.initial_capital,
             entry_delay_bars=config.backtest.entry_delay_bars,
             sizer=sizer,
+            rebalance_mode=config.backtest.rebalance_mode,
+            rebalance_threshold=config.backtest.rebalance_threshold,
         )
 
         # -- Compute metrics --

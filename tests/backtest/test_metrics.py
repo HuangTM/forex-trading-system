@@ -1,5 +1,7 @@
 """Tests for performance metrics."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -110,3 +112,25 @@ def test_max_drawdown_monotonic_growth_with_small_dip():
     metrics = calculate_metrics(equity, [])
     assert metrics.max_drawdown == pytest.approx(0.10, abs=0.02)
     assert 0.0 <= metrics.max_drawdown <= 1.0
+
+
+def test_annualized_return_total_loss():
+    """Equity wiped out (goes to zero or below) over 10 years.
+
+    Should return annualized_return = -1.0 (total loss) with no RuntimeWarning.
+    """
+    dates = pd.bdate_range("2015-01-01", periods=2521, freq="B")  # ~10 years
+    # Start at $1M, steadily decline to $0
+    equity_values = np.linspace(1_000_000, 0, len(dates))
+    equity = pd.Series(equity_values, index=dates, dtype=float)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        metrics = calculate_metrics(equity, [])
+        # Check no RuntimeWarning was raised
+        runtime_warns = [warn for warn in w
+                         if issubclass(warn.category, RuntimeWarning)]
+        assert len(runtime_warns) == 0, f"Got RuntimeWarning: {runtime_warns}"
+
+    assert metrics.annualized_return == -1.0
+    assert metrics.total_return == -1.0

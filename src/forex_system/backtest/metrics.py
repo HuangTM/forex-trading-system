@@ -45,7 +45,12 @@ def calculate_metrics(
     total_return = (ec.iloc[-1] / ec.iloc[0]) - 1.0
     n_days = (ec.index[-1] - ec.index[0]).days
     n_years = max(n_days / 365.25, 1e-6)
-    annualized_return = (1 + total_return) ** (1.0 / n_years) - 1.0
+    # Guard against total_loss case: if equity wiped out (total_return <= -1),
+    # position was liquidated. Annualized return = -1.0 (total loss).
+    if total_return <= -1.0:
+        annualized_return = -1.0
+    else:
+        annualized_return = (1 + total_return) ** (1.0 / n_years) - 1.0
 
     # Daily returns
     daily_returns = ec.pct_change().dropna()

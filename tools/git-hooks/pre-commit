@@ -1,0 +1,40 @@
+#!/bin/bash
+# Pre-commit hook: Pre-registration gate for strategy files.
+#
+# Blocks commits of new strategy files unless a corresponding pre-registration
+# markdown exists at references/pre-registrations/<strategy_name>.md
+#
+# HoQR §5 condition 5 — structural enforcement of hypothesis pre-commitment.
+#
+# INSTALL (one-time, from project root):
+#   cp tools/git-hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# To bypass (exceptional circumstances only):
+#   git commit --no-verify
+# Bypasses are logged to .fintech-org/policy-violations.jsonl
+
+set -e
+
+# Find Python — prefer venv, fall back to system
+if [ -f ".venv/bin/python3" ]; then
+    PYTHON=".venv/bin/python3"
+elif command -v python3 &>/dev/null; then
+    PYTHON="python3"
+else
+    echo "[pre-reg gate] WARNING: Python not found, skipping pre-registration check"
+    exit 0
+fi
+
+# Ensure we're running from the repo root (hooks run from repo root by default)
+if [ ! -f "tools/check_pre_registration.py" ]; then
+    echo "[pre-reg gate] WARNING: tools/check_pre_registration.py not found, skipping"
+    exit 0
+fi
+
+# Run the pre-registration checker
+if ! $PYTHON tools/check_pre_registration.py --staged; then
+    exit 1
+fi
+
+exit 0

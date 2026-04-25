@@ -3,9 +3,11 @@
 Covers:
 - Signal bounds: positive signals produce valid sizes
 - Zero-vol guard: zero/negative signal → 0 size (long-only)
-- Leverage cap clamp: signal=1.0 produces leverage_cap × equity
+- Leverage cap clamp: signal=1.0 produces leverage_cap × equity (USD nominal)
 - min_order_size boundary: sub-minimum signal returns 0.0
 - max_order_units hard cap: never exceeded
+- Output is USD nominal (Saxo FX convention): no price division here;
+  the backtest engine applies the quote-currency correction for JPY pairs.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ class TestSignalBounds:
     """Positive signals within [0, 1] should produce proportional sizes."""
 
     def test_full_signal_produces_max_size(self, sizer):
-        """signal=1.0 → leverage_cap × equity."""
+        """signal=1.0 → leverage_cap × equity (USD nominal)."""
         equity = 100_000.0
         size = sizer.calculate_size(1.0, equity, 150.0, 0.5, "USDJPY")
         expected = 1.0 * sizer.leverage_cap * equity  # = 200_000
@@ -96,7 +98,7 @@ class TestMinOrderSizeBoundary:
         size = sizer.calculate_size(0.5, 1_000.0, 150.0, 0.5, "USDJPY")
         assert size == 1_000.0  # At boundary (not below): returns the size
 
-        # One below the boundary: returns 0
+        # One above the boundary: returns 0
         sizer2 = VolTargetSizer(leverage_cap=2.0, max_order_units=5_000_000.0, min_order_size=1_001.0)
         size2 = sizer2.calculate_size(0.5, 1_000.0, 150.0, 0.5, "USDJPY")
         assert size2 == 0.0  # 1000 < 1001 → stay flat

@@ -270,16 +270,20 @@ def _run_continuous(
         # Long-only clamp: negative signal → target flat
         clamped_signal = max(raw_signal, 0.0)
 
-        # Compute target units using the sizer
-        target_units = sizer.calculate_size(
+        # Compute target units using the sizer.
+        # The sizer returns USD-nominal exposure. Convert to engine-convention
+        # units for quote-currency pairs (e.g. USDJPY) so that the engine's
+        # pnl = price_change * units formula yields USD P&L, not JPY P&L.
+        usd_nominal = sizer.calculate_size(
             clamped_signal, equity, price, current_atr, pair,
         )
+        target_units = _to_engine_units(usd_nominal, pair, price)
 
         # Decision boundary log — per log-as-decision-trace §3
         logger.debug(
-            "continuous.bar: ts=%s signal=%.4f clamped=%.4f target_units=%.0f "
-            "cur_units=%.0f price=%.4f equity=%.2f",
-            ts, raw_signal, clamped_signal, target_units, cur_units, price, equity,
+            "continuous.bar: ts=%s signal=%.4f clamped=%.4f usd_nominal=%.0f "
+            "target_units=%.2f cur_units=%.2f price=%.4f equity=%.2f",
+            ts, raw_signal, clamped_signal, usd_nominal, target_units, cur_units, price, equity,
         )
 
         # Compute fractional delta to determine if rebalance fires
@@ -490,6 +494,38 @@ def _get_pip_value(pair: str) -> float:
     if "JPY" in pair.upper():
         return 0.01
     return 0.0001
+
+
+def _to_engine_units(usd_nominal: float, pair: str, price: float) -> float:
+    """Convert USD-nominal position size to engine-convention units.
+
+    The engine P&L formula is: pnl_dollars = price_change * units.
+
+    For USD-quoted pairs (EURUSD, GBPUSD) the price change is in USD per unit,
+    so units = usd_nominal directly.
+
+    For JPY-quoted pairs (USDJPY, EURJPY) the price change is in JPY, not USD.
+    To make pnl_dollars = price_change * units give USD P&L, we need:
+        units = usd_nominal / price
+
+    because: pnl_usd = (delta_price_jpy / price_jpy) * usd_nominal
+                     = delta_price_jpy * (usd_nominal / price_jpy)
+                     = delta_price_jpy * units  ✓
+
+    This keeps VolTargetSizer outputting USD nominal (matching Saxo FX order
+    semantics) while the engine handles the quote-currency conversion.
+
+    Args:
+        usd_nominal: USD nominal position size from the sizer
+        pair: currency pair symbol (e.g. "USDJPY")
+        price: current mid price
+
+    Returns:
+        Engine-convention units for correct USD P&L arithmetic.
+    """
+    if pair.upper().endswith("JPY") and price > 0:
+        return usd_nominal / price
+    return usd_nominal
 
 
 def _empty_result(

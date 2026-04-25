@@ -5,14 +5,20 @@ These tests exist to catch divergence between the ad-hoc research script
 (forex_system.backtest.engine::run_backtest with rebalance_mode="continuous").
 
 The gap was discovered 2026-04-24: script Sharpe ≈ 0.76, engine Sharpe ≈ -0.08
-on the same USDJPY data. This test suite is the canary — it surfaces the
-divergence as a tracked xfail rather than a silent production surprise.
+on the same USDJPY data.
+
+Root cause (resolved 2026-04-25):
+    VolTargetSizer was outputting units = signal * leverage * equity (USD nominal)
+    but the engine P&L formula is pnl = price_change * units, which for USDJPY
+    (a JPY-quoted pair) requires units = notional_usd / price to give USD P&L.
+    The fix divides by current_price for *JPY pairs, matching the script's
+    (capital / cur_close) * scale convention.
 
 Test 1 (test_sharpe_within_tolerance):
-    xfail(strict=True) — currently fails by ~0.84. Remove xfail once reconciled.
+    Now PASSES — xfail removed. Script Sharpe ≈ 0.76; Engine Sharpe ≈ 0.76.
 
 Test 2 (test_equity_curve_correlation):
-    Passes today. Catches future regressions in directional agreement.
+    Passes. Catches future regressions in directional agreement.
 """
 
 from __future__ import annotations
@@ -160,22 +166,15 @@ def _run_engine_path(df: pd.DataFrame, pair_info) -> tuple[pd.Series, float]:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Sharpe within tolerance — EXPECTED TO FAIL TODAY
+# Test 1: Sharpe within tolerance — PASSES after VolTargetSizer fix
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    reason=(
-        "Engine-script divergence — known issue, see commit 5a33fcb body. "
-        "Remove xfail when reconciled. "
-        "Script Sharpe ≈ 0.76; Engine Sharpe ≈ -0.08; gap ≈ 0.84."
-    ),
-    strict=True,
-)
 def test_sharpe_within_tolerance(usdjpy_df, usdjpy_pair_info):
     """Assert |Sharpe_engine - Sharpe_script| < 0.10.
 
-    This test is EXPECTED TO FAIL until the engine-script divergence is fixed.
-    xfail(strict=True) means pytest will ALERT if it starts passing (gap closed).
+    Fixed 2026-04-25: VolTargetSizer now divides by price for JPY-quoted pairs
+    so the engine's pnl = price_change × units gives USD P&L, matching the
+    script's (capital / cur_close) × scale convention.
     """
     equity_script, sharpe_script = _run_script_path(usdjpy_df, usdjpy_pair_info)
     equity_engine, sharpe_engine = _run_engine_path(usdjpy_df, usdjpy_pair_info)

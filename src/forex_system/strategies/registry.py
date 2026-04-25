@@ -6,6 +6,7 @@ from forex_system.strategies.carry import CarryStrategy
 from forex_system.strategies.carry_momentum import CarryMomentumStrategy
 from forex_system.strategies.ma_crossover import MACrossoverStrategy
 from forex_system.strategies.momentum import MomentumStrategy
+from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "ma_crossover": MACrossoverStrategy,
@@ -13,6 +14,7 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "momentum": MomentumStrategy,
     "carry": CarryStrategy,
     "carry_momentum": CarryMomentumStrategy,
+    "vol_target_carry": VolTargetCarryStrategy,
 }
 
 

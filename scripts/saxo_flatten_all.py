@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from forex_system.saxo.client import PAIR_UICS, SaxoClient
 
-DATE_TAG = "2026-04-25"
+DATE_TAG = "2026-04-26"
 OUT_DIR = Path(__file__).resolve().parent.parent / "data"
 LOG_PATH = OUT_DIR / f"saxo_flatten_{DATE_TAG}.log"
 
@@ -231,9 +231,9 @@ def run_flatten(token: str, dry_run: bool = False) -> dict:
             }
             result["orders_placed"].append(order_entry)
             _append_log(LOG_PATH, order_entry)
+            fill_str = f"{fill_price_approx:.4f}" if fill_price_approx else "?"
             print(
-                f"    -> OrderId={order_id}  "
-                f"approx_fill={fill_price_approx:.4f if fill_price_approx else '?'}"
+                f"    -> OrderId={order_id}  approx_fill={fill_str}"
             )
 
         except Exception as e:

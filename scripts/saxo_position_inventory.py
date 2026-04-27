@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from forex_system.saxo.client import PAIR_UICS, SaxoClient
 
-DATE_TAG = "2026-04-25"
+DATE_TAG = "2026-04-26"
 OUT_DIR = Path(__file__).resolve().parent.parent / "data"
 
 

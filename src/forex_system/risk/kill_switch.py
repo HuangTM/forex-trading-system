@@ -95,7 +95,7 @@ def _write_audit_entry(audit_log_path: str, entry: dict) -> None:
 class KillSwitch:
     """Binary circuit breaker for trading operations.
 
-    Usage:
+    Usage (single-strategy, backward-compat):
         ks = KillSwitch(initial_equity=100_000)
 
         # Before each signal cycle:
@@ -103,15 +103,19 @@ class KillSwitch:
             # Do not trade — system halted
             return
 
-        # After execution, update P&L:
-        ks.update_equity(current_equity)
-
         # After reconciliation:
         if discrepancies:
             ks.trigger(TriggerReason.RECONCILIATION, detail="...")
 
         # Human reset:
-        ks.reset(operator="HuangTM")
+        ks.reset(operator="HuangTM", reason="resolved overnight")
+
+    Usage (per-strategy, Path B prereq P6):
+        ks_a = KillSwitch(initial_equity=100_000, strategy_id="vol_target_carry")
+        ks_b = KillSwitch(initial_equity=100_000, strategy_id="carry_fred")
+        # Independent state, independent audit logs:
+        # data/kill_switch_audit_vol_target_carry.log
+        # data/kill_switch_audit_carry_fred.log
 
     Restart safety:
         On __init__, if an audit log exists and the last entry's new_state
@@ -124,6 +128,7 @@ class KillSwitch:
     max_daily_loss_pct: float = MAX_DAILY_LOSS_PCT
     max_consecutive_fetch_failures: int = MAX_CONSECUTIVE_FETCH_FAILURES
     audit_log_path: str | None = None  # Set to _DEFAULT_AUDIT_LOG in production
+    strategy_id: str | None = None     # Path B prereq P6: per-strategy isolation
 
     # State
     is_triggered: bool = field(default=False, init=False)
@@ -135,6 +140,13 @@ class KillSwitch:
     def __post_init__(self):
         self.day_start_equity = self.initial_equity
         self.current_day = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+        # Path B P6: per-strategy audit-log namespacing. If strategy_id is
+        # set and no explicit audit_log_path was passed, default to a
+        # per-strategy file so two strategies running in parallel cannot
+        # cross-contaminate each other's audit trails. Single-strategy
+        # (strategy_id=None) preserves the existing default.
+        if self.strategy_id is not None and self.audit_log_path is None:
+            self.audit_log_path = f"data/kill_switch_audit_{self.strategy_id}.log"
         self._check_audit_log_on_startup()
 
     def _check_audit_log_on_startup(self) -> None:
@@ -306,22 +318,70 @@ class KillSwitch:
                 "(in-memory event preserved at events[-1])", e,
             )
 
-    def reset(self, operator: str, current_equity: float | None = None) -> None:
+    def reset(
+        self,
+        operator: str,
+        *,
+        reason: str = "operator reset (no reason given)",
+        evidence_path: str | None = None,
+        current_equity: float | None = None,
+    ) -> None:
         """Reset the kill switch. Requires human operator name for audit.
 
         Args:
-            operator: Human operator name for audit trail.
+            operator: Human operator name for audit trail. Empty/falsy
+                operator raises ValueError per Path B P6 audit requirement.
+            reason: Why the reset is being performed. Defaults to a generic
+                placeholder for backward compat with existing test callers;
+                the CLI (scripts/reset_kill_switch.py) requires a real reason.
+            evidence_path: Optional path to a results / log file documenting
+                the resolution of the trigger condition.
             current_equity: If provided, resets daily baseline to this value
                 (gives a fresh daily loss budget from reset point).
+
+        Path B P6: writes a structured RESET audit-log entry on every
+        successful reset so the trigger->reset cycle is reconstructable
+        post-hoc. Previously operator had to hand-type the audit line;
+        that gap closes here.
         """
+        if not operator or not operator.strip():
+            raise ValueError("KillSwitch.reset requires a non-empty operator name")
         if not self.is_triggered:
             return
 
-        logger.warning("Kill switch RESET by operator: %s", operator)
+        last_event = self.last_event
+        previous_state = (
+            f"HALTED_{last_event.reason.value.upper()}" if last_event else "HALTED"
+        )
+
+        logger.warning("Kill switch RESET by operator: %s (reason: %s)", operator, reason)
         self.is_triggered = False
-        self.current_day = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+        ts = pd.Timestamp.now(tz="UTC")
+        self.current_day = ts.strftime("%Y-%m-%d")
         if current_equity is not None:
             self.day_start_equity = current_equity
+
+        if not self.audit_log_path:
+            return
+        try:
+            _write_audit_entry(
+                self.audit_log_path,
+                {
+                    "timestamp": ts.isoformat(),
+                    "event": "RESET",
+                    "operator": operator,
+                    "reason": reason,
+                    "evidence_path": evidence_path,
+                    "previous_state": previous_state,
+                    "new_state": "OK",
+                    "strategy_id": self.strategy_id,
+                },
+            )
+        except Exception as e:
+            logger.critical(
+                "KILL SWITCH: failed to write RESET audit entry: %s "
+                "(in-memory state already reset)", e,
+            )
 
     @property
     def last_event(self) -> KillSwitchEvent | None:

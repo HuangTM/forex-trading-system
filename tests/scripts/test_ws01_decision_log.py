@@ -317,3 +317,132 @@ def test_attach_ws01_file_handler_is_idempotent(tmp_path):
             if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
                 h.close()
                 rpt.logger.removeHandler(h)
+
+
+# --------------------------------------------------------------------------- #
+# Regression: WS01 must be emitted BEFORE backend.flatten_all() on every
+# kill path (R1 critic finding #4). Otherwise the audit trace records the
+# decision AFTER the execution side-effect.
+# --------------------------------------------------------------------------- #
+
+class _OrderTracker:
+    """Records the sequence of (event_type, payload) pairs to verify ordering."""
+
+    def __init__(self):
+        self.events: list[tuple[str, str]] = []
+
+    def add(self, event_type: str, payload: str = "") -> None:
+        self.events.append((event_type, payload))
+
+
+def test_ws01_emitted_before_flatten_on_drawdown_kill(monkeypatch, caplog):
+    """On drawdown-kill path, ws01 emit must precede flatten_all()."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    tracker = _OrderTracker()
+
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    kwargs["kill_switch"].check_and_trigger.return_value = True
+    kwargs["kill_switch"].status_line = "DD trigger"
+    kwargs["backend"].flatten_all = lambda: tracker.add("flatten_all")
+
+    # Wrap _emit_ws01 to record its invocation order
+    real_emit = rpt._emit_ws01
+    def tracked_emit(*a, **kw):
+        tracker.add("ws01", kw.get("equity", a[2] if len(a) > 2 else ""))
+        return real_emit(*a, **kw)
+    monkeypatch.setattr(rpt, "_emit_ws01", tracked_emit)
+
+    rpt.run_cycle(**kwargs)
+
+    # Find indexes; ws01 must come before flatten_all
+    types = [e[0] for e in tracker.events]
+    assert "ws01" in types and "flatten_all" in types
+    ws01_idx = types.index("ws01")
+    flatten_idx = types.index("flatten_all")
+    assert ws01_idx < flatten_idx, (
+        f"WS01 must precede flatten_all; observed order {types}"
+    )
+
+
+def test_ws01_emitted_before_flatten_on_equity_fetch_kill(monkeypatch, caplog):
+    """On equity-fetch-failure kill path, ws01 must precede flatten_all()."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    tracker = _OrderTracker()
+
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    monkeypatch.setattr(rpt, "fetch_account_equity", lambda *a, **kw: None)
+    kwargs["kill_switch"].record_equity_fetch_failure.return_value = True
+    kwargs["kill_switch"].status_line = "fetch fail"
+    kwargs["backend"].flatten_all = lambda: tracker.add("flatten_all")
+
+    real_emit = rpt._emit_ws01
+    def tracked_emit(*a, **kw):
+        tracker.add("ws01")
+        return real_emit(*a, **kw)
+    monkeypatch.setattr(rpt, "_emit_ws01", tracked_emit)
+
+    rpt.run_cycle(**kwargs)
+
+    types = [e[0] for e in tracker.events]
+    assert "ws01" in types and "flatten_all" in types
+    assert types.index("ws01") < types.index("flatten_all"), (
+        f"WS01 must precede flatten_all; observed order {types}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Regression: vol field in WS01 trace must use the same bars_per_year as
+# the strategy's signal computation. Otherwise on 4h bars the trace shows
+# a vol that's a factor of sqrt(6) too small (R1 critic finding #3).
+# --------------------------------------------------------------------------- #
+
+def test_ws01_vol_uses_dynamic_bars_per_year_4h(monkeypatch, caplog):
+    """On 4H-frequency bars, vol annualization must NOT use hardcoded sqrt(252).
+
+    A 4h bar at median dt = 4*3600s yields bars_per_year = 252*24*3600/14400
+    = 1512 -- so sqrt(1512) ≈ 38.9 vs sqrt(252) ≈ 15.9 (a factor of ~2.45
+    difference). The WS01 vol field must reflect the dynamic factor.
+    """
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+
+    # Build 4H synthetic data with controlled return std so we can verify
+    # the annualization scalar.
+    rng = np.random.default_rng(7)
+    n = 320
+    base_sigma_per_bar = 0.001  # arbitrary
+    rets = rng.normal(0, base_sigma_per_bar, n)
+    close = 150.0 * np.exp(np.cumsum(rets))
+    ohlcv = pd.DataFrame({
+        "open": close, "high": close * 1.001, "low": close * 0.999,
+        "close": close, "volume": np.full(n, 1000.0),
+    }, index=pd.date_range("2025-01-01", periods=n, freq="4h"))
+
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    monkeypatch.setattr(rpt, "fetch_recent_bars", lambda *a, **kw: ohlcv)
+
+    # Set sizer to return 0 so we hit HOLD FLAT branch (main-path emit)
+    kwargs["sizer"].calculate_size.return_value = 0.0
+
+    rpt.run_cycle(**kwargs)
+
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) >= 1
+    payload = json.loads(lines[-1].removeprefix("ws01 "))
+
+    # Compute the expected vol with dynamic bars_per_year
+    from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
+    expected_bars_per_year = VolTargetCarryStrategy._bars_per_year(ohlcv)
+    expected_vol = (
+        ohlcv["close"].pct_change().rolling(252).std().iloc[-1]
+    ) * (expected_bars_per_year ** 0.5)
+    # 4H data yields bars_per_year ≈ 1512, NOT 252
+    assert expected_bars_per_year > 1000, (
+        f"4h bars should yield bars_per_year >> 252; got {expected_bars_per_year}"
+    )
+    # The vol in the trace must match the dynamic-formula expected vol
+    assert payload["vol"] == pytest.approx(float(expected_vol), rel=1e-6)
+    # And NOT match the wrong-formula (sqrt(252)) vol
+    wrong_vol = (
+        ohlcv["close"].pct_change().rolling(252).std().iloc[-1]
+    ) * (252 ** 0.5)
+    assert payload["vol"] != pytest.approx(float(wrong_vol), rel=1e-3)

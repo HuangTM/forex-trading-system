@@ -274,10 +274,12 @@ def run_cycle(
     if equity is None:
         if kill_switch.record_equity_fetch_failure():
             print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
+            # Emit WS01 BEFORE the execution branch so the audit trace shows
+            # what the system saw at the decision point, not after it acted.
+            _emit_ws01(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH")
             backend.flatten_all()
             notify(ntfy_topic, "KILL SWITCH - equity fetch failures",
                    kill_switch.status_line, "urgent")
-            _emit_ws01(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH")
         else:
             remaining = (kill_switch.max_consecutive_fetch_failures
                          - kill_switch.consecutive_fetch_failures)
@@ -288,8 +290,10 @@ def run_cycle(
 
     if kill_switch.check_and_trigger(equity):
         print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
-        backend.flatten_all()
+        # Emit WS01 BEFORE flatten_all so the audit captures the decision
+        # state before the execution side-effect.
         _emit_ws01(cycle_id, pair, "KILL_HALTED_DRAWDOWN", equity=equity)
+        backend.flatten_all()
         return {"_action": "KILL_HALTED"}
 
     current_positions = backend.get_positions()
@@ -322,8 +326,14 @@ def run_cycle(
         bid = ask = float(ohlcv["close"].iloc[-1])
     mid = (bid + ask) / 2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
 
+    # Use the same bars-per-year factor the strategy uses; otherwise the WS01
+    # trace would show a vol computed with hardcoded sqrt(252) while the
+    # signal was computed on the actual bar frequency (4h, 1h). For daily
+    # bars these are identical; for non-daily timeframes they diverge.
+    bars_per_year = VolTargetCarryStrategy._bars_per_year(ohlcv)
     realized_vol = (ohlcv["close"].pct_change()
-                    .rolling(strategy.params.get("vol_window", 252)).std().iloc[-1]) * (252 ** 0.5)
+                    .rolling(strategy.params.get("vol_window", 252))
+                    .std().iloc[-1]) * (bars_per_year ** 0.5)
     target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
     cur_pos = current_positions.get(pair)
     cur_units = cur_pos.size if cur_pos else 0.0

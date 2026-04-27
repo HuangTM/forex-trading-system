@@ -144,6 +144,145 @@ The 4H TAS-ceiling mean-reversion mechanism on the USDJPY/EURUSD/GBPUSD universe
 
 - **Quant Researcher:** pre-registered prospectively per CONSENSUS.md R2 action item; mechanism specified to engineer-implementable precision before any backtest run.
 - **Head of Quant Research:** dispatch authorized in `hoqr-week-ahead-prioritization.yaml` 2026-04-26T20:35:00Z; H2 hard-gated on this file's existence + mtime predating any 4H backtest invocation.
-- **NHT:** Bonferroni denominator handling per N2 ruling (count-of-trials = 17 unless NHT escalates); dissent on Bet #1 testability does NOT extend to this pre-reg (Bet #2 has a clean OOS window with no regime-overlap claim).
+- **NHT:** Bonferroni denominator handling per N2 ruling (count-of-trials = 17 unless NHT escalates); dissent on Bet #1 testability does NOT extend to this pre-reg (Bet #2 has a clean OOS window with no regime-overlap claim — but see Amendment 1).
 - **CTO:** PROCESS-IMPL-1 and PROCESS-IMPL-2 added on top of CONSENSUS's BET2-T1..T6 to close WS-05 risk ahead of dispatch.
 - **CRO:** backtest-only research dispatch — no paper-trading exposure, no live-capital exposure, no broker-side state mutation. No CRO sign-off required for this artifact.
+
+---
+
+## Amendment 1 — Critic-driven spec hardening (2026-04-27)
+
+This amendment is **append-only** per pre-reg discipline. The original specification above is unchanged. This amendment closes 8 ambiguities and structural gaps surfaced by an adversarial review prior to any backtest run; all 8 are resolved here, BEFORE the H2 dispatch executes. Ratifying this amendment is a precondition for the H2 hard gate.
+
+### A1-1. Stateful signal: post-exit re-entry rule (closes critic Issue #1)
+
+**Binding:** After ANY exit (z-threshold exit OR `max_hold_bars` force-exit OR direction flip), the state machine returns to the `no-position` state. The next entry requires `|z_t| > k_enter` to be satisfied on a **subsequent bar after the exit bar** — i.e., the bar of the exit cannot itself be the bar of a new entry, even if its z-score qualifies. This is implemented by requiring a one-bar cooldown after exit:
+
+```
+state := no_position
+for each bar t:
+    if state == no_position and |z_t| > k_enter:
+        enter direction = -sign(z_t), position_age = 0
+    elif state == in_position:
+        position_age += 1
+        if |z_t| < k_exit OR position_age > max_hold_bars OR sign(z_t) != position_direction_consistent:
+            exit; state := exit_cooldown(1 bar)
+    elif state == exit_cooldown:
+        state := no_position  # next bar evaluable
+```
+
+Rationale: prevents single-bar churn in trending markets where price oscillates around the |z|=k_enter boundary. If the implementer chooses to ignore the cooldown, the resulting strategy is a DIFFERENT strategy and constitutes a new trial registration.
+
+### A1-2. BET2-T4 canonical reference script: binding co-authorship requirement (closes critic Issue #2)
+
+**Binding:** BET2-T4's "engine vs. canonical script" comparison requires a canonical reference script to exist *independently of the engine implementation*. To satisfy this:
+
+1. **Two-author rule:** The canonical reference script (`scripts/tas_ceiling_4h_canonical.py`) and the engine strategy module (`src/forex_system/strategies/tas_ceiling_4h.py`) MUST be authored by **different engineers/agents**. Solo author = T4 vacated, dispatch BLOCKED.
+2. **Same-PR commit:** Both files MUST be committed in the same pull request as the strategy module. Sequential PRs are permitted only if the canonical script lands FIRST and is signed off by HoQR before the engine module is begun.
+3. **IS fixture invariant:** The canonical script MUST include a small in-sample fixture window (e.g., 2018-01 → 2018-12) with its computed Sharpe committed as a comment or YAML sidecar. The engine implementer reads the canonical fixture Sharpe BEFORE running the engine and is bound to match it within Δ=0.05 on the same window. Deviation = HARD STOP, escalate to HoQR + CTO.
+4. **Cost stress co-runs:** Both engine AND canonical script must be re-run with 2× costs (BET2-T3 stress test) and produce the same Sharpe-Δ < 0.10 invariant.
+
+This rule operationalizes the lesson from `vol_target_carry` (5 paper-trading days lost on the equivalence reconciliation; CONSENSUS_2026-04-25 §NHT). T4 is empty without it.
+
+### A1-3. Cost model: explicit 4H proration; new config file required (closes critic Issue #3)
+
+**Binding:** Before any 4H backtest of `tas_ceiling_4h` runs, a new config file MUST exist at `config/tas_ceiling_4h.yaml` with **explicit per-4H-bar costs**. Loading from `config/default.yaml`'s daily swap rates without proration is a HARD VIOLATION and constitutes BET2-T4 (engine divergence) — auto-retire.
+
+Required structure for `config/tas_ceiling_4h.yaml`:
+
+```yaml
+pairs:
+  - symbol: USDJPY
+    pip_value: 0.01
+    spread_pips: 0.5            # may differ from daily; verify against Saxo 4H quotes
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    # 4H-specific swap proration. Daily swap = 6 × per_bar_swap.
+    swap_long_pips_per_4h_bar: 0.1333    # +0.8 daily / 6
+    swap_short_pips_per_4h_bar: -0.25    # -1.5 daily / 6
+  - symbol: EURUSD
+    pip_value: 0.0001
+    spread_pips: 0.5
+    slippage_pips: 0.5
+    commission_pips: 0.5
+    swap_long_pips_per_4h_bar: -0.20     # -1.2 daily / 6
+    swap_short_pips_per_4h_bar: 0.05     # +0.3 daily / 6
+  - symbol: GBPUSD
+    pip_value: 0.0001
+    spread_pips: 0.8
+    slippage_pips: 0.6
+    commission_pips: 0.5
+    swap_long_pips_per_4h_bar: -0.15     # -0.9 daily / 6
+    swap_short_pips_per_4h_bar: 0.0167   # +0.1 daily / 6
+```
+
+The cost model implementation MUST verify total-per-day swap equals daily rate within 1e-6 tolerance, regardless of how many 4H bars elapsed during a holding period.
+
+### A1-4. Signal price domain: returns, not log-prices (closes critic Issue #4)
+
+**Binding:** The OLS regression in step (1) of the original signal construction is **redefined** to operate on **cumulative log-returns** rather than `log(close)`:
+
+```
+cum_log_ret_t = sum_{s=t-119..t} log(close_s / close_{s-1})
+```
+
+Then fit `cum_log_ret_t = β_t · t + α_t` over the 120-bar window. Compute residuals on the cum-log-return scale and z-score the same way.
+
+**Why:** Mean-reversion in cumulative-log-return space is sign-symmetric regardless of FX quote convention. Operating on `log(close)` directly produces opposite-sign residuals between USD-base pairs (EURUSD, GBPUSD) and USD-quote pairs (USDJPY) under identical underlying mean-reversion phenomena, which would silently flip the strategy's direction on USDJPY. This amendment is mathematically equivalent to the original spec on USD-base pairs (cum-log-return is just `log(close_t) - log(close_{t-120})` plus a constant), but eliminates the USDJPY sign-flip footgun.
+
+### A1-5. Trade-holding-period: precise definition (closes critic Issue #5)
+
+**Binding for BET2-T6:** "Trade holding period" is defined as the number of consecutive bars from the bar where the position was opened (signal first becomes nonzero of a given sign) to the bar where the position is fully closed (signal returns to 0). Direction flips count as a CLOSE of the prior trade plus an OPEN of a new trade — they are NOT a single continuous holding period.
+
+For fractional signals from the `clip()` operation:
+- A signal of `+0.7` is a "long position" regardless of magnitude.
+- The trade is "open" while signal magnitude > 0.
+- The trade "closes" when signal returns to exactly 0 (z-threshold exit, max-hold force-exit, or direction flip).
+- A signal change from `+0.7` to `+0.3` is NOT a new trade; the trade continues.
+
+`average_trade_holding_period_bars = mean of (close_bar_index - open_bar_index)` across all trades on OOS. BET2-T6 fires if this mean < 6 bars on OOS.
+
+### A1-6. No-parameter-sweeps enforcement: hard prerequisite on Q4 (closes critic Issue #6)
+
+**Binding:** The "no parameter sweeps" line in the original spec is enforceable only via the Q4 pre-commit equivalence-gate hook (per CONSENSUS Q4 / Path B prerequisite P5). Until Q4 lands AND its hook is wired to block strategy-file commits without a paired pre-reg signature, parameter sweeps are enforceable ONLY by manual review.
+
+Therefore: **H2 dispatch is HARD-GATED on Q4 having landed in main**, OR on an explicit waiver from HoQR + NHT acknowledging that no enforcement layer exists and accepting the implementer's discipline as the only safeguard. Until Q4 lands, the implementer commits a sworn statement at the top of the PR description: "I tested no parameter values for tas_ceiling_4h other than {regression_window_bars=120, k_enter=2.0, k_exit=0.5, k_scale=1.0, max_hold_bars=60} prior to OOS evaluation."
+
+### A1-7. OOS regime-overlap defense (closes critic Issue #7)
+
+**Binding new triggers:**
+
+- **BET2-T7:** Split the OOS window 2023-04-25 → 2026-04-06 into TWO sub-windows at 2024-10-01 (BoJ pivot date — when policy rate first exceeded 0.30%):
+  - sub-window 1: 2023-04-25 → 2024-09-30 (post-SVB / pre-BoJ-pivot, low-vol regime)
+  - sub-window 2: 2024-10-01 → 2026-04-06 (post-BoJ-pivot, normalization regime)
+
+  The strategy MUST pass equal-weighted portfolio Sharpe ≥ 0.30 net of costs on **at least one** sub-window AND not have a portfolio Sharpe < -0.10 on the other. A strategy that produces +0.60 on sub-1 and -0.40 on sub-2 (regime-concentrated) FAILS BET2-T7 even if the overall OOS Sharpe averages above 0.30.
+
+- **BET2-T8:** Pre-2023 walk-forward sanity. The implementer MUST report per-pair OOS Sharpes from a walk-forward run on the IS data (pre-2023-04-25) using the firm's standard walk-forward protocol (504-day train, 126-day test, 63-day step per `config/default.yaml:73`). If the walk-forward's median window-Sharpe is < 0.20, the strategy mechanism is suspect even if the official 2023-2026 OOS passes — file with HoQR for ruling.
+
+These triggers directly address NHT's regime-overlap objection. They cannot be eliminated by parameter choice.
+
+### A1-8. BET2-T5 toothlessness — add stronger alternative (closes critic Issue #8)
+
+The original BET2-T5 (one-sample t-test on 3 per-pair Sharpes vs zero, p > 0.10) has near-zero falsification power at N=3 (df=2; critical t≈2.92 → requires per-pair Sharpe ~1.0+ to reject zero). It remains in force per CONSENSUS verbatim, but is supplemented by:
+
+- **BET2-T5b (binding):** OOS portfolio Sharpe degradation from in-sample to OOS exceeds 50% → retire. Specifically: if `(IS_portfolio_Sharpe − OOS_portfolio_Sharpe) / |IS_portfolio_Sharpe| > 0.50`, the strategy is regime-fragile and retires regardless of whether OOS Sharpe absolute level passes BET2-T1.
+
+  This catches the "passed BET2-T1 by luck on a favorable OOS window" scenario that BET2-T5 cannot detect at N=3.
+
+### A1-9. Implementation prerequisites checklist (binding before H2 dispatch)
+
+H2 (HoQR Bet #2 backtest dispatch) is HARD-GATED on **all** of the following BEFORE any backtest invocation:
+
+- [ ] `config/tas_ceiling_4h.yaml` committed with explicit per-bar costs per A1-3
+- [ ] `scripts/tas_ceiling_4h_canonical.py` committed with IS fixture per A1-2
+- [ ] `src/forex_system/strategies/tas_ceiling_4h.py` committed by a DIFFERENT author per A1-2
+- [ ] Q4 pre-commit hook in place OR HoQR + NHT waiver attached to PR per A1-6
+- [ ] PROCESS-IMPL-1 verification (no Saxo / paper imports in backtest path) — `grep -r "saxo\|paper_trading" $(python -c "import ast; ...")` returns empty
+- [ ] PROCESS-IMPL-2 verification — IS-only run committed and signed-off BEFORE OOS run executes; the two backtest invocations are separate `git log` entries
+
+Any item missing → H2 BLOCKED. The amendment author's commit time of this file (or its successor amendment) is the binding pre-execution mtime for H2 audit.
+
+### Amendment 1 author
+
+- **Quant Researcher:** filed 2026-04-27 in response to adversarial review; closes 8 critic findings; original spec unchanged, this amendment binding additively.

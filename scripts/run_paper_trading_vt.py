@@ -109,16 +109,30 @@ def _emit_ws01(
     price: float | None = None,
     target_units: float | None = None,
     current_units: float | None = None,
+    strategy_params: dict | None = None,
 ) -> None:
     """Emit one structured WS-01 decision-trace line.
 
     Called at every cycle exit (early returns + main path) so ops can
     reconstruct what the system saw and decided — including kill-halts,
     equity-fetch failures, and data-unavailable cycles.
+
+    CTO 2026-04-27 conditional findings on Q1+Q2:
+      C1 (strategy_params): the trace must capture the parameters in force
+         when the decision was made. Without this, an audit reading
+         historical ws01 lines cannot tell whether a config drift between
+         cycles changed the decision -- the strategy module's params live
+         in memory only. Pass strategy.params at the main path; early-exit
+         paths pass None (the strategy hasn't computed yet).
+      C2 (decision_ts): the asctime in the formatter is the LOG-WRITE time,
+         not the DECISION time. On a slow cycle (network latency), these
+         differ. Capture the decision instant explicitly so latency
+         analysis is possible from the trace alone.
     """
     logger.info(
         "ws01 %s",
         json.dumps({
+            "decision_ts": datetime.now(timezone.utc).isoformat(),
             "cycle_id": cycle_id,
             "pair": pair,
             "signal": _finite_or_none(signal),
@@ -128,6 +142,7 @@ def _emit_ws01(
             "target_units": _finite_or_none(target_units),
             "current_units": _finite_or_none(current_units),
             "action": action,
+            "strategy_params": strategy_params,
         }),
     )
 
@@ -379,6 +394,7 @@ def run_cycle(
         price=mid,
         target_units=float(target_units),
         current_units=float(cur_units),
+        strategy_params=dict(strategy.params),
     )
 
     print(f"  Action:        {action}")

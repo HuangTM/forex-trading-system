@@ -105,11 +105,17 @@ def test_ws01_log_emitted_exactly_once(ws01_lines):
 
 
 def test_ws01_log_contains_required_fields(ws01_lines):
-    """All consensus-pinned fields must be present and the right type."""
+    """All consensus-pinned fields must be present and the right type.
+
+    Per CTO 2026-04-27 Q1+Q2 conditions, the field set is extended:
+    - decision_ts: explicit UTC timestamp at the decision instant
+    - strategy_params: the parameter dict in force at decision time
+    """
     payload = json.loads(ws01_lines[0].removeprefix("ws01 "))
 
-    required = {"cycle_id", "pair", "signal", "vol", "equity", "price",
-                "target_units", "current_units", "action"}
+    required = {"decision_ts", "cycle_id", "pair", "signal", "vol", "equity",
+                "price", "target_units", "current_units", "action",
+                "strategy_params"}
     assert required.issubset(payload.keys()), \
         f"missing fields: {required - set(payload.keys())}"
 
@@ -122,6 +128,14 @@ def test_ws01_log_contains_required_fields(ws01_lines):
     assert payload["action"] == "HOLD FLAT"
     # vol may be None if NaN, but for our 320-bar synthetic it should be float
     assert isinstance(payload["vol"], float) and payload["vol"] > 0
+    # decision_ts must be an ISO-8601 UTC string parseable by datetime
+    from datetime import datetime
+    parsed = datetime.fromisoformat(payload["decision_ts"])
+    assert parsed.tzinfo is not None  # UTC, not naive
+    # strategy_params must be a dict and contain the standard knobs
+    assert isinstance(payload["strategy_params"], dict)
+    assert "vol_window" in payload["strategy_params"]
+    assert "leverage_cap" in payload["strategy_params"]
 
 
 def test_ws01_log_is_machine_parseable(ws01_lines):
@@ -395,6 +409,40 @@ def test_ws01_emitted_before_flatten_on_equity_fetch_kill(monkeypatch, caplog):
 # the strategy's signal computation. Otherwise on 4h bars the trace shows
 # a vol that's a factor of sqrt(6) too small (R1 critic finding #3).
 # --------------------------------------------------------------------------- #
+
+def test_ws01_decision_ts_is_distinct_per_cycle(monkeypatch, caplog):
+    """decision_ts must change between cycles (it's the actual timestamp,
+    not a constant). Two consecutive cycles produce two distinct values."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    rpt.run_cycle(**kwargs)
+    # Sleep a tick so timestamps differ
+    import time
+    time.sleep(0.01)
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) >= 2
+    ts1 = json.loads(lines[0].removeprefix("ws01 "))["decision_ts"]
+    ts2 = json.loads(lines[-1].removeprefix("ws01 "))["decision_ts"]
+    assert ts1 != ts2, "decision_ts must update per cycle, not be constant"
+
+
+def test_ws01_strategy_params_absent_on_early_exit(monkeypatch, caplog):
+    """Early-exit paths (kill-active, no-data, etc.) emit ws01 BEFORE
+    the strategy module computes -- strategy_params must serialize as
+    null (or be absent), not crash."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    kwargs["kill_switch"].is_triggered = True
+    kwargs["kill_switch"].status_line = "halted"
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    # Either absent OR null -- both are fine; the trace must not crash and
+    # must not emit a stale prior-cycle params dict.
+    assert payload.get("strategy_params") is None
+    assert payload["action"] == "KILL_HALTED_PRECYCLE"
+
 
 def test_ws01_vol_uses_dynamic_bars_per_year_4h(monkeypatch, caplog):
     """On 4H-frequency bars, vol annualization must NOT use hardcoded sqrt(252).

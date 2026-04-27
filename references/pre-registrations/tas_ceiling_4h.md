@@ -278,7 +278,7 @@ H2 (HoQR Bet #2 backtest dispatch) is HARD-GATED on **all** of the following BEF
 - [ ] `scripts/tas_ceiling_4h_canonical.py` committed with IS fixture per A1-2
 - [ ] `src/forex_system/strategies/tas_ceiling_4h.py` committed by a DIFFERENT author per A1-2
 - [ ] Q4 pre-commit hook in place OR HoQR + NHT waiver attached to PR per A1-6
-- [ ] PROCESS-IMPL-1 verification (no Saxo / paper imports in backtest path) — `grep -r "saxo\|paper_trading" $(python -c "import ast; ...")` returns empty
+- [ ] PROCESS-IMPL-1 verification (no Saxo / paper imports in backtest path) — `python tools/check_no_saxo_imports.py scripts/run_backtest.py` returns exit code 0. (The original grep stub here was non-runnable; CTO 2026-04-27 routed the fix to Quant Developer; the tool is now the operative check. Run on each backtest entry point individually if multiple exist.)
 - [ ] PROCESS-IMPL-2 verification — IS-only run committed and signed-off BEFORE OOS run executes; the two backtest invocations are separate `git log` entries
 
 Any item missing → H2 BLOCKED. The amendment author's commit time of this file (or its successor amendment) is the binding pre-execution mtime for H2 audit.

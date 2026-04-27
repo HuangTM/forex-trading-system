@@ -1,0 +1,319 @@
+"""WS-01 (CTO consensus 2026-04-26): decision-boundary structured-log test.
+
+Asserts that run_cycle() emits exactly one `ws01 {...json...}` log line per
+cycle, containing the consensus-pinned fields: cycle_id, pair, signal, vol,
+equity, price, target_units, current_units, action.
+
+This is the HARD-BLOCKER instrumentation for paper-cycle resumption per
+CONSENSUS.md gate chain (A1 → A2 → A3 → Q2 → cycle resume). If this test
+fails, the trace contract has regressed and paper trading must NOT resume.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"))
+
+import run_paper_trading_vt as rpt
+
+
+def _make_ohlcv(n: int = 320, base: float = 150.0) -> pd.DataFrame:
+    """Synthetic daily bars long enough to exceed vol_window + buffer."""
+    rng = np.random.default_rng(42)
+    rets = rng.normal(0.0001, 0.005, n)
+    close = base * np.exp(np.cumsum(rets))
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": close * 1.001,
+            "low": close * 0.999,
+            "close": close,
+            "volume": np.full(n, 1000.0),
+        },
+        index=pd.date_range("2025-01-01", periods=n, freq="B"),
+    )
+
+
+@pytest.fixture
+def ws01_lines(monkeypatch, caplog):
+    """Run a single cycle in HOLD FLAT mode and capture ws01 log lines."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+
+    client = MagicMock()
+    client.get_chart_data.return_value = {"Data": []}
+    client.get_info_price.return_value = {"Quote": {"Bid": 150.10, "Ask": 150.20}}
+
+    backend = MagicMock()
+    backend.account_key = "TEST_ACCT"
+    backend.get_positions.return_value = {}
+    backend.reconcile.return_value = []
+
+    # Stub fetch_recent_bars to return our synthetic frame regardless of args
+    monkeypatch.setattr(rpt, "fetch_recent_bars", lambda *a, **kw: _make_ohlcv())
+    # Stub equity to a known value
+    monkeypatch.setattr(rpt, "fetch_account_equity", lambda *a, **kw: 100_000.0)
+
+    sizer = MagicMock()
+    sizer.calculate_size.return_value = 0.0  # forces HOLD FLAT branch (no current pos)
+
+    strategy = MagicMock()
+    strategy.params = {"vol_window": 252, "leverage_cap": 2.0, "target_vol": 0.10}
+    # Generate signals returns last value 0.5 (mid-strength long)
+    sig_series = pd.Series(np.full(320, 0.5), index=pd.date_range("2025-01-01", periods=320, freq="B"))
+    strategy.generate_signals.return_value = sig_series
+
+    kill_switch = MagicMock()
+    kill_switch.is_triggered = False
+    kill_switch.check_and_trigger.return_value = False
+    kill_switch.record_equity_fetch_failure.return_value = False
+
+    pred_log = MagicMock()
+    trade_log = MagicMock()
+
+    rpt.run_cycle(
+        client=client,
+        backend=backend,
+        sizer=sizer,
+        strategy=strategy,
+        pair="USDJPY",
+        pred_log=pred_log,
+        trade_log=trade_log,
+        kill_switch=kill_switch,
+        rebal_threshold=0.20,
+        auto_mode=True,
+        ntfy_topic=None,
+        horizon="daily",
+        monitor_pairs=None,
+        cycle_id=42,
+    )
+
+    return [r.message for r in caplog.records if r.message.startswith("ws01 ")]
+
+
+def test_ws01_log_emitted_exactly_once(ws01_lines):
+    """Exactly one ws01 line per cycle (single decision boundary)."""
+    assert len(ws01_lines) == 1, f"expected 1 ws01 line, got {len(ws01_lines)}: {ws01_lines}"
+
+
+def test_ws01_log_contains_required_fields(ws01_lines):
+    """All consensus-pinned fields must be present and the right type."""
+    payload = json.loads(ws01_lines[0].removeprefix("ws01 "))
+
+    required = {"cycle_id", "pair", "signal", "vol", "equity", "price",
+                "target_units", "current_units", "action"}
+    assert required.issubset(payload.keys()), \
+        f"missing fields: {required - set(payload.keys())}"
+
+    assert payload["cycle_id"] == 42
+    assert payload["pair"] == "USDJPY"
+    assert payload["signal"] == pytest.approx(0.5)
+    assert payload["equity"] == 100_000.0
+    assert payload["target_units"] == 0.0
+    assert payload["current_units"] == 0.0
+    assert payload["action"] == "HOLD FLAT"
+    # vol may be None if NaN, but for our 320-bar synthetic it should be float
+    assert isinstance(payload["vol"], float) and payload["vol"] > 0
+
+
+def test_ws01_log_is_machine_parseable(ws01_lines):
+    """Log line must be `ws01 ` prefix + valid JSON (single line, no embedded newlines)."""
+    line = ws01_lines[0]
+    assert line.startswith("ws01 ")
+    body = line.removeprefix("ws01 ")
+    assert "\n" not in body, "JSON body must be single-line for log-parser compatibility"
+    json.loads(body)  # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# Early-exit coverage (critic Issue 1): WS-01 must fire on every cycle exit,
+# not just the main path. A kill-halt or data-failure cycle is exactly when
+# ops most need the trace.
+# --------------------------------------------------------------------------- #
+
+def _make_ws01_kwargs(monkeypatch, **overrides):
+    """Build a default kwargs dict for run_cycle() — caller can override fields."""
+    client = MagicMock()
+    client.get_chart_data.return_value = {"Data": []}
+    client.get_info_price.return_value = {"Quote": {"Bid": 150.10, "Ask": 150.20}}
+
+    backend = MagicMock()
+    backend.account_key = "TEST_ACCT"
+    backend.get_positions.return_value = {}
+    backend.reconcile.return_value = []
+
+    monkeypatch.setattr(rpt, "fetch_recent_bars", lambda *a, **kw: _make_ohlcv())
+    monkeypatch.setattr(rpt, "fetch_account_equity", lambda *a, **kw: 100_000.0)
+
+    sizer = MagicMock()
+    sizer.calculate_size.return_value = 0.0
+
+    strategy = MagicMock()
+    strategy.params = {"vol_window": 252, "leverage_cap": 2.0, "target_vol": 0.10}
+    sig_series = pd.Series(np.full(320, 0.5), index=pd.date_range("2025-01-01", periods=320, freq="B"))
+    strategy.generate_signals.return_value = sig_series
+
+    kill_switch = MagicMock()
+    kill_switch.is_triggered = False
+    kill_switch.check_and_trigger.return_value = False
+    kill_switch.record_equity_fetch_failure.return_value = False
+    kill_switch.max_consecutive_fetch_failures = 3
+    kill_switch.consecutive_fetch_failures = 0
+
+    kwargs = dict(
+        client=client, backend=backend, sizer=sizer, strategy=strategy,
+        pair="USDJPY", pred_log=MagicMock(), trade_log=MagicMock(),
+        kill_switch=kill_switch, rebal_threshold=0.20, auto_mode=True,
+        ntfy_topic=None, horizon="daily", monitor_pairs=None, cycle_id=7,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _ws01_lines_after(caplog):
+    return [r.message for r in caplog.records if r.message.startswith("ws01 ")]
+
+
+def test_ws01_emits_on_kill_switch_already_active(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    kwargs["kill_switch"].is_triggered = True
+    kwargs["kill_switch"].status_line = "TRIGGERED 2026-04-25"
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1, "kill-active cycle must emit ws01"
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["action"] == "KILL_HALTED_PRECYCLE"
+    assert payload["cycle_id"] == 7
+    assert payload["pair"] == "USDJPY"
+
+
+def test_ws01_emits_on_equity_fetch_failure(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    monkeypatch.setattr(rpt, "fetch_account_equity", lambda *a, **kw: None)
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["action"] == "SKIP_EQUITY_FETCH_FAIL"
+
+
+def test_ws01_emits_on_drawdown_kill_trigger(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    kwargs["kill_switch"].check_and_trigger.return_value = True
+    kwargs["kill_switch"].status_line = "DD trigger"
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["action"] == "KILL_HALTED_DRAWDOWN"
+    assert payload["equity"] == 100_000.0
+
+
+def test_ws01_emits_on_no_data(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    monkeypatch.setattr(rpt, "fetch_recent_bars", lambda *a, **kw: pd.DataFrame())
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["action"] == "SKIP_NO_DATA"
+
+
+def test_ws01_emits_on_insufficient_bars(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    kwargs = _make_ws01_kwargs(monkeypatch)
+    monkeypatch.setattr(rpt, "fetch_recent_bars", lambda *a, **kw: _make_ohlcv(n=50))
+    rpt.run_cycle(**kwargs)
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["action"] == "SKIP_INSUFFICIENT_BARS"
+    assert payload["price"] is not None  # last close was available
+
+
+# --------------------------------------------------------------------------- #
+# Finite-float guard (critic Issue 3): json.dumps must never crash the
+# decision boundary on non-finite vol/equity/price/units.
+# --------------------------------------------------------------------------- #
+
+def test_finite_or_none_handles_inf_nan_none():
+    assert rpt._finite_or_none(1.5) == 1.5
+    assert rpt._finite_or_none(0) == 0.0
+    assert rpt._finite_or_none(float("inf")) is None
+    assert rpt._finite_or_none(float("-inf")) is None
+    assert rpt._finite_or_none(float("nan")) is None
+    assert rpt._finite_or_none(None) is None
+    assert rpt._finite_or_none("not a number") is None
+
+
+def test_emit_ws01_does_not_raise_on_inf_vol(caplog):
+    """Regression for critic Issue 3: inf in any field must serialize as null."""
+    caplog.set_level(logging.INFO, logger="run_paper_trading_vt")
+    rpt._emit_ws01(
+        cycle_id=99, pair="USDJPY", action="HOLD FLAT",
+        signal=0.5, vol=float("inf"), equity=100_000.0,
+        price=150.0, target_units=0.0, current_units=0.0,
+    )
+    lines = _ws01_lines_after(caplog)
+    assert len(lines) == 1
+    payload = json.loads(lines[0].removeprefix("ws01 "))
+    assert payload["vol"] is None  # inf got scrubbed
+    assert payload["signal"] == 0.5  # finite values pass through
+
+
+# --------------------------------------------------------------------------- #
+# Durability (critic Issue 2): file handler must persist trace independent
+# of stderr redirection.
+# --------------------------------------------------------------------------- #
+
+def test_attach_ws01_file_handler_writes_to_disk(tmp_path):
+    """Attaching the handler creates the file and routes ws01 lines to it."""
+    trace_path = tmp_path / "ws01_trace.log"
+    rpt._attach_ws01_file_handler(str(trace_path))
+    try:
+        rpt._emit_ws01(cycle_id=5, pair="USDJPY", action="HOLD FLAT",
+                       signal=0.1, equity=10_000.0)
+        # Flush the handler we just attached
+        for h in rpt.logger.handlers:
+            if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
+                h.flush()
+        assert trace_path.exists()
+        contents = trace_path.read_text()
+        assert "ws01 " in contents
+        assert '"cycle_id": 5' in contents
+        assert '"action": "HOLD FLAT"' in contents
+    finally:
+        # Cleanup: remove handler so it doesn't bleed into other tests
+        for h in list(rpt.logger.handlers):
+            if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
+                h.close()
+                rpt.logger.removeHandler(h)
+
+
+def test_attach_ws01_file_handler_is_idempotent(tmp_path):
+    """Calling twice must not stack duplicate handlers."""
+    trace_path = tmp_path / "ws01_trace.log"
+    rpt._attach_ws01_file_handler(str(trace_path))
+    rpt._attach_ws01_file_handler(str(trace_path))
+    try:
+        ws01_handlers = [h for h in rpt.logger.handlers
+                         if isinstance(h, logging.FileHandler)
+                         and getattr(h, "_ws01_marker", False)]
+        assert len(ws01_handlers) == 1
+    finally:
+        for h in list(rpt.logger.handlers):
+            if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
+                h.close()
+                rpt.logger.removeHandler(h)

@@ -15,6 +15,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
+
+# Force non-quiet hour so notify() actually invokes requests.post in tests.
+class _FakeNoonDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 4, 26, 12, 0, 0, tzinfo=tz)
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -37,11 +43,12 @@ def _notify(topic, title, message, priority="default", requests_mod=None):
     quiet_start, quiet_end = QUIET_HOURS
     if quiet_start <= local_hour or local_hour < quiet_end:
         return
+    safe_title = title.encode("ascii", errors="replace").decode("ascii")
     try:
         requests_mod.post(
             f"https://ntfy.sh/{topic}",
             data=message.encode("ascii", errors="replace"),
-            headers={"Title": title, "Priority": priority,
+            headers={"Title": safe_title, "Priority": priority,
                      "Tags": "chart_with_upwards_trend"},
             timeout=10,
         )
@@ -99,3 +106,59 @@ class TestNotifyEncoding:
             message=special,
             requests_mod=mock_requests,
         )
+
+
+class TestNotifyTitleSanitization:
+    """C1 (CTO): Title header must be ASCII to survive HTTP-header encoding.
+
+    The `requests` library encodes headers as latin-1; em-dash (U+2014) is
+    NOT in latin-1 and raises UnicodeEncodeError. notify() must ASCII-replace
+    the Title before passing to headers={}.
+    """
+
+    def test_title_with_em_dash_is_ascii_replaced(self):
+        """Title containing em-dash must reach requests.post as ASCII."""
+        mock_requests = MagicMock()
+        with patch.object(sys.modules[__name__], "datetime", _FakeNoonDatetime):
+            _notify(
+                topic="test_topic",
+                title="KILL SWITCH — equity fetch failures",
+                message="status",
+                priority="urgent",
+                requests_mod=mock_requests,
+            )
+        assert mock_requests.post.called, "post should fire outside quiet hours"
+        call_kwargs = mock_requests.post.call_args.kwargs
+        sent_title = call_kwargs["headers"]["Title"]
+        # No em-dash; replaced with '?'
+        assert "—" not in sent_title
+        assert "KILL SWITCH" in sent_title
+        # Must be pure ASCII (latin-1-safe by construction)
+        sent_title.encode("ascii")  # must not raise
+
+    def test_title_with_smart_quotes_replaced(self):
+        """Title containing smart-quotes must also be ASCII-safe."""
+        mock_requests = MagicMock()
+        with patch.object(sys.modules[__name__], "datetime", _FakeNoonDatetime):
+            _notify(
+                topic="test_topic",
+                title="alert “critical” status",
+                message="m",
+                requests_mod=mock_requests,
+            )
+        sent_title = mock_requests.post.call_args.kwargs["headers"]["Title"]
+        sent_title.encode("ascii")  # must not raise
+        assert "“" not in sent_title and "”" not in sent_title
+
+    def test_plain_ascii_title_unchanged(self):
+        """ASCII title must pass through identically."""
+        mock_requests = MagicMock()
+        with patch.object(sys.modules[__name__], "datetime", _FakeNoonDatetime):
+            _notify(
+                topic="test_topic",
+                title="Plain ASCII Title",
+                message="m",
+                requests_mod=mock_requests,
+            )
+        sent_title = mock_requests.post.call_args.kwargs["headers"]["Title"]
+        assert sent_title == "Plain ASCII Title"

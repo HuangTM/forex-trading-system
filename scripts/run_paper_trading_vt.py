@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import sys
 import tempfile
@@ -53,6 +54,83 @@ DEFAULT_CONFIG = "config/vol_target_carry.yaml"
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)
 
+WS01_TRACE_PATH = "data/ws01_trace.log"
+
+
+def _attach_ws01_file_handler(path: str = WS01_TRACE_PATH) -> None:
+    """Persist ws01 decision-trace lines to disk independently of stderr.
+
+    WS-01 (CTO consensus 2026-04-26) requires a durable signal-to-execution
+    audit trail. stderr alone is not durable: nohup/systemd/supervisor must
+    redirect it, and operators forget. A dedicated file handler on the module
+    logger guarantees the trace exists on disk regardless of how the process
+    is launched. Idempotent across re-imports.
+    """
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    for h in logger.handlers:
+        if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
+            return
+    handler = logging.FileHandler(path)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    handler._ws01_marker = True  # type: ignore[attr-defined]
+    logger.addHandler(handler)
+    # Make sure INFO records actually flow through this logger regardless of
+    # how the host configured logging (basicConfig in __main__ vs pytest's
+    # default WARNING root). Without this, the module logger's effective
+    # level can suppress ws01 emits silently.
+    if logger.level == logging.NOTSET or logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+
+
+def _finite_or_none(v) -> float | None:
+    """Return v as float if finite, else None.
+
+    json.dumps raises ValueError on inf/-inf/nan by default; the WS-01 trace
+    must never be the source of an uncaught exception at the decision boundary.
+    """
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _emit_ws01(
+    cycle_id: int | None,
+    pair: str,
+    action: str,
+    *,
+    signal: float | None = None,
+    vol: float | None = None,
+    equity: float | None = None,
+    price: float | None = None,
+    target_units: float | None = None,
+    current_units: float | None = None,
+) -> None:
+    """Emit one structured WS-01 decision-trace line.
+
+    Called at every cycle exit (early returns + main path) so ops can
+    reconstruct what the system saw and decided — including kill-halts,
+    equity-fetch failures, and data-unavailable cycles.
+    """
+    logger.info(
+        "ws01 %s",
+        json.dumps({
+            "cycle_id": cycle_id,
+            "pair": pair,
+            "signal": _finite_or_none(signal),
+            "vol": _finite_or_none(vol),
+            "equity": _finite_or_none(equity),
+            "price": _finite_or_none(price),
+            "target_units": _finite_or_none(target_units),
+            "current_units": _finite_or_none(current_units),
+            "action": action,
+        }),
+    )
+
 
 def notify(topic: str | None, title: str, message: str, priority: str = "default") -> None:
     if not topic:
@@ -62,11 +140,12 @@ def notify(topic: str | None, title: str, message: str, priority: str = "default
     if quiet_start <= local_hour or local_hour < quiet_end:
         logger.info("Notification suppressed (quiet hours): %s", title)
         return
+    safe_title = title.encode("ascii", errors="replace").decode("ascii")
     try:
         requests.post(
             f"https://ntfy.sh/{topic}",
             data=message.encode("ascii", errors="replace"),
-            headers={"Title": title, "Priority": priority,
+            headers={"Title": safe_title, "Priority": priority,
                      "Tags": "chart_with_upwards_trend"},
             timeout=10,
         )
@@ -183,10 +262,12 @@ def run_cycle(
     ntfy_topic: str | None = None,
     horizon: str = "daily",
     monitor_pairs: list[str] | None = None,
+    cycle_id: int | None = None,
 ) -> dict:
     if kill_switch.is_triggered:
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, "urgent")
+        _emit_ws01(cycle_id, pair, "KILL_HALTED_PRECYCLE")
         return {"_action": "KILL_HALTED"}
 
     equity = fetch_account_equity(client, backend.account_key)
@@ -194,18 +275,21 @@ def run_cycle(
         if kill_switch.record_equity_fetch_failure():
             print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
             backend.flatten_all()
-            notify(ntfy_topic, "KILL SWITCH — equity fetch failures",
+            notify(ntfy_topic, "KILL SWITCH - equity fetch failures",
                    kill_switch.status_line, "urgent")
+            _emit_ws01(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH")
         else:
             remaining = (kill_switch.max_consecutive_fetch_failures
                          - kill_switch.consecutive_fetch_failures)
             print(f"\n  Skipping cycle — equity unavailable ({remaining} skips before halt)")
+            _emit_ws01(cycle_id, pair, "SKIP_EQUITY_FETCH_FAIL")
         return {"_action": "SKIP"}
     kill_switch.record_equity_fetch_success()
 
     if kill_switch.check_and_trigger(equity):
         print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
         backend.flatten_all()
+        _emit_ws01(cycle_id, pair, "KILL_HALTED_DRAWDOWN", equity=equity)
         return {"_action": "KILL_HALTED"}
 
     current_positions = backend.get_positions()
@@ -217,9 +301,12 @@ def run_cycle(
     ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
     if ohlcv.empty:
         print(f"  No data for {pair}")
+        _emit_ws01(cycle_id, pair, "SKIP_NO_DATA", equity=equity)
         return {"_action": "SKIP"}
     if len(ohlcv) < strategy.params.get("vol_window", 252) + 10:
         print(f"  Not enough bars: {len(ohlcv)} (need ≥ vol_window + 10)")
+        _emit_ws01(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
+                   price=float(ohlcv["close"].iloc[-1]) if len(ohlcv) else None)
         return {"_action": "SKIP"}
 
     signals = strategy.generate_signals(ohlcv)
@@ -272,6 +359,17 @@ def run_cycle(
             action = f"HOLD (delta {delta:.0%} < {rebal_threshold:.0%})"
     else:
         action = "HOLD FLAT"
+
+    # WS-01 main-path emit: action determined, no execution branch yet taken.
+    _emit_ws01(
+        cycle_id, pair, action,
+        signal=sig,
+        vol=float(realized_vol) if pd.notna(realized_vol) else None,
+        equity=equity,
+        price=mid,
+        target_units=float(target_units),
+        current_units=float(cur_units),
+    )
 
     print(f"  Action:        {action}")
 
@@ -368,6 +466,10 @@ def main():
         print("Error: --token or SAXO_TOKEN required")
         sys.exit(1)
 
+    # WS-01: attach file handler before any cycle runs so the audit trail
+    # exists on disk independent of stderr redirection.
+    _attach_ws01_file_handler()
+
     config = load_config(args.config)
     pair = config.pair_symbols[0]  # single-pair vol-target deployment
     strat_cfg = next(s for s in config.strategies if s.name == "vol_target_carry")
@@ -430,7 +532,8 @@ def main():
                                    rebal_threshold=rebal_threshold,
                                    auto_mode=args.auto, ntfy_topic=args.ntfy,
                                    horizon=args.timeframe,
-                                   monitor_pairs=args.monitor_pairs)
+                                   monitor_pairs=args.monitor_pairs,
+                                   cycle_id=cycle_id)
                 last_signal = result.get("_signal")
                 last_action = result.get("_action")
                 pred_log.flush()
@@ -446,7 +549,8 @@ def main():
                   pred_log, trade_log, kill_switch,
                   rebal_threshold=rebal_threshold,
                   auto_mode=args.auto, ntfy_topic=args.ntfy,
-                  horizon=args.timeframe)
+                  horizon=args.timeframe,
+                  cycle_id=1)
 
     pred_log.close()
     trade_log.close()

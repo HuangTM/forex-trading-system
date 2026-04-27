@@ -445,20 +445,31 @@ amendment_1:
           - VTC-T1 through VTC-T8: trigger CONDITIONS are machine-checkable
             (all expressed as scalar comparisons or test-suite outcomes).
           - The downstream RETIREMENT ACTION (mark trial retired in
-            .fintech-org/trials.jsonl + halt re-enrollment) is currently
-            a MANUAL operator action.
-        For end-to-end machine-checkability, a follow-up tool is required:
-        scripts/auto_retire_on_trigger.py that reads gate-evaluation
-        output and writes the retirement record. That tool does not
-        exist as of 2026-04-27. Tracked as a separate Q-class action
-        item for the harness developer.
+            .fintech-org/trials.jsonl + halt re-enrollment) is now also
+            machine-checkable via scripts/auto_retire_on_trigger.py
+            (committed in this session). Operator invokes the tool with
+            an explicit trigger-id + reason OR with a gate-output JSON;
+            the tool performs the retirement-record append idempotently.
+      closure: |
+        STATUS: closed by scripts/auto_retire_on_trigger.py + tests
+        (tests/scripts/test_auto_retire_on_trigger.py, 9 tests covering
+        write + idempotency + gate-output parsing). The trigger
+        CONDITIONS are evaluated by the harness/monitor; the RETIREMENT
+        ACTION is now operator-invoked-but-deterministic, with an
+        idempotency guard preventing duplicate records. End-to-end
+        path: monitor exit-1 -> CF-T9-style JSON -> auto_retire tool
+        -> trials.jsonl RETIRED record. No human transcription step.
       action_required: |
-        Until the auto-retirement tool ships, the VTC-T1..T8 triggers
-        should be read as "condition machine-checkable; execution
-        operator-mediated". Operator runbook: when any trigger condition
-        fires (per harness gate evaluation OR live-trade quarterly
-        review), append a RETIRED record to .fintech-org/trials.jsonl
-        within 5 trading days.
+        Standing operator runbook: on any harness gate-evaluation
+        producing a trigger-fired output OR any quarterly review where
+        a VTC-T1..T8 condition is observed, run:
+          python scripts/auto_retire_on_trigger.py \
+            --strategy vol_target_carry \
+            --trigger-id VTC-T<N> \
+            --reason "<one-sentence cause>" \
+            --evidence-path <path-to-results-or-log>
+        The tool is idempotent; running it twice for the same trigger
+        is a no-op.
 
   related_code_fixes_in_commit_5151da2:
     A1_C4_ws01_emit_after_flatten_on_kill_paths:

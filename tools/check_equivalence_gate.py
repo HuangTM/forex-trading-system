@@ -53,7 +53,12 @@ TRIGGER_PREFIXES = (
 )
 # Canonical research scripts that pair with engine code; add as new ones land.
 TRIGGER_SCRIPTS = {
-    "scripts/vol_targeting.py",       # paired with vol_target_carry equivalence
+    "scripts/vol_targeting.py",                    # paired with vol_target_carry equivalence
+    "scripts/tas_ceiling_4h_canonical.py",         # paired with Bet #2 (R2 Amendment 1 A1-2)
+                                                    # Authored alongside the engine module per
+                                                    # the two-author rule. Will be created when
+                                                    # H2 dispatch begins; the path is registered
+                                                    # NOW so the gate covers it on day 1.
 }
 
 

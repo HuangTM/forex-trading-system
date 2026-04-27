@@ -184,6 +184,31 @@ class TestEvaluateCFT9:
 # Audit log
 # --------------------------------------------------------------------------- #
 
+class TestPartialUniverseFailClosed:
+    """CTO 2026-04-27 ruling: a partial JPY-cross universe (<6 pairs)
+    must NOT silently produce a basket Sharpe; the spec is binding on
+    the universe. Caller must treat as exit-2 inconclusive.
+    """
+
+    def test_load_pair_returns_raises_on_missing_pair(self, tmp_path, monkeypatch):
+        """Pointing at a directory with only some pair parquets must
+        raise RuntimeError, not return a degraded universe.
+        """
+        # Build a tmp data dir with only 5 of the 6 pairs (drop USDJPY)
+        data_dir = tmp_path / "processed"
+        data_dir.mkdir()
+        idx = pd.date_range("2024-01-01", periods=300, freq="B")
+        for pair in ["AUDJPY", "CADJPY", "EURJPY", "GBPJPY", "NZDJPY"]:
+            df = pd.DataFrame({"close": np.linspace(100, 110, 300)}, index=idx)
+            df.to_parquet(data_dir / f"{pair}_daily.parquet")
+        # USDJPY intentionally missing
+
+        monkeypatch.setattr(m, "PAIR_DATA_DIR", data_dir)
+
+        with pytest.raises(RuntimeError, match="Partial JPY-cross universe"):
+            m.load_pair_returns()
+
+
 class TestAuditLog:
     def test_audit_record_appended(self, tmp_path):
         """Each invocation appends one JSON-line to the audit log."""

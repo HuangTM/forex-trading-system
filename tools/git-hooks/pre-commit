@@ -30,26 +30,36 @@ else
     exit 0
 fi
 
+# Fail-closed policy: a missing checker file means the gate is offline.
+# Per CTO 2026-04-27 ruling on Q4, silently skipping a missing checker is
+# equivalent to disabling the gate. The correct response is to BLOCK the
+# commit, force the operator to either restore the file or use --no-verify
+# (which logs the bypass to .fintech-org/policy-violations.jsonl).
+
 # ---------------------------------------------------------------------------
 # Gate 1: pre-registration
 # ---------------------------------------------------------------------------
 if [ ! -f "tools/check_pre_registration.py" ]; then
-    echo "[pre-reg gate] WARNING: tools/check_pre_registration.py not found, skipping"
-else
-    if ! $PYTHON tools/check_pre_registration.py --staged; then
-        exit 1
-    fi
+    echo "[pre-reg gate] ERROR: tools/check_pre_registration.py not found."
+    echo "[pre-reg gate] Gate is OFFLINE -- BLOCKING commit (fail-closed)."
+    echo "[pre-reg gate] Restore the checker or bypass with: git commit --no-verify"
+    exit 1
+fi
+if ! $PYTHON tools/check_pre_registration.py --staged; then
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Gate 2: engine-vs-script equivalence
 # ---------------------------------------------------------------------------
 if [ ! -f "tools/check_equivalence_gate.py" ]; then
-    echo "[equivalence gate] WARNING: tools/check_equivalence_gate.py not found, skipping"
-else
-    if ! $PYTHON tools/check_equivalence_gate.py --staged; then
-        exit 1
-    fi
+    echo "[equivalence gate] ERROR: tools/check_equivalence_gate.py not found."
+    echo "[equivalence gate] Gate is OFFLINE -- BLOCKING commit (fail-closed)."
+    echo "[equivalence gate] Restore the checker or bypass with: git commit --no-verify"
+    exit 1
+fi
+if ! $PYTHON tools/check_equivalence_gate.py --staged; then
+    exit 1
 fi
 
 exit 0

@@ -108,6 +108,93 @@ class TestEquivalenceTestDiscovery:
             assert f.name != "__init__.py"
 
 
+class TestTriggerScriptCoverage:
+    """CTO 2026-04-27 condition: TRIGGER_SCRIPTS must cover canonical
+    research scripts for ALL strategies that have an equivalence pair --
+    not just vol_target_carry. Path-of-least-resistance failure: someone
+    edits scripts/tas_ceiling_4h_canonical.py without the gate firing.
+    """
+
+    def test_vol_target_canonical_covered(self):
+        assert "scripts/vol_targeting.py" in gate.TRIGGER_SCRIPTS
+
+    def test_tas_ceiling_canonical_covered(self):
+        """Bet #2 canonical script must be registered before H2 dispatch."""
+        assert "scripts/tas_ceiling_4h_canonical.py" in gate.TRIGGER_SCRIPTS
+
+    def test_tas_ceiling_canonical_actually_triggers(self):
+        triggered, paths = gate.files_trigger_gate(
+            ["scripts/tas_ceiling_4h_canonical.py"]
+        )
+        assert triggered
+        assert "scripts/tas_ceiling_4h_canonical.py" in paths
+
+
+class TestHookFailClosed:
+    """CTO 2026-04-27 condition: missing checker file must FAIL CLOSED, not
+    silently skip. Verifies the bash-hook contract by running the hook in a
+    temporary clone where the checker file is absent.
+    """
+
+    def test_hook_blocks_when_equivalence_checker_missing(self, tmp_path):
+        """Running the installed hook against a clone with no
+        check_equivalence_gate.py must exit non-zero with a clear message."""
+        import shutil
+        import subprocess
+
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        hook_src = repo_root / "tools" / "git-hooks" / "pre-commit"
+        if not hook_src.exists():
+            pytest.skip("pre-commit hook source not present")
+
+        # Build a minimal stub repo: copy the hook + check_pre_registration
+        # (so gate 1 doesn't pre-empt the gate 2 missing-file branch).
+        stub = tmp_path / "stub_repo"
+        stub.mkdir()
+        (stub / "tools").mkdir()
+        shutil.copy(repo_root / "tools" / "check_pre_registration.py",
+                    stub / "tools" / "check_pre_registration.py")
+        # Deliberately do NOT copy check_equivalence_gate.py; that's the
+        # missing-file we're testing. Also need an empty .venv/bin/python3
+        # symlink-style shim so the hook's PYTHON detection finds something.
+        (stub / ".venv" / "bin").mkdir(parents=True)
+        venv_py = stub / ".venv" / "bin" / "python3"
+        # Symlink to the actually-installed venv python so subprocess works.
+        actual_py = repo_root / ".venv" / "bin" / "python3"
+        if not actual_py.exists():
+            pytest.skip(".venv/bin/python3 not found in repo")
+        venv_py.symlink_to(actual_py)
+
+        hook_dst = stub / "pre-commit"
+        shutil.copy(hook_src, hook_dst)
+        hook_dst.chmod(0o755)
+
+        # Init a git repo and stage a doc-only file so gate 1 is no-op
+        subprocess.run(["git", "init", "-q"], cwd=stub, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test"],
+                       cwd=stub, check=True)
+        subprocess.run(["git", "config", "user.name", "test"],
+                       cwd=stub, check=True)
+        (stub / "README.md").write_text("test\n")
+        subprocess.run(["git", "add", "README.md"], cwd=stub, check=True)
+
+        # Run the hook directly
+        result = subprocess.run(
+            [str(hook_dst)],
+            cwd=stub,
+            capture_output=True,
+            text=True,
+        )
+        # Expect non-zero exit (fail-closed) and the BLOCKING message
+        assert result.returncode != 0, (
+            f"Hook should fail closed when checker missing; got exit "
+            f"{result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+        )
+        assert "BLOCKING" in result.stdout or "BLOCKING" in result.stderr, (
+            "Fail-closed message must include BLOCKING token for operator clarity"
+        )
+
+
 class TestPolicyViolationLog:
     """The gate records bypassed/failed events for forensic audit."""
 

@@ -107,23 +107,39 @@ def fetch_boj_rate_series(api_key: str | None) -> pd.Series:
 def load_pair_returns() -> pd.DataFrame:
     """Load close-prices for all 6 JPY-cross pairs and compute daily returns.
 
-    Returns a DataFrame indexed by date with one column per pair.
-    Pairs missing data are dropped with a warning -- caller decides how to
-    handle the resulting universe shrinkage.
+    Returns a DataFrame indexed by date with one column per pair. Per CTO
+    2026-04-27 ruling on Q6, the universe is binding: ALL 6 pairs must be
+    present for the basket Sharpe computation to match the pre-registered
+    Clause B. A partial universe is INCONCLUSIVE (caller treats as exit-2),
+    not a degraded-but-usable signal.
     """
     closes = {}
+    missing = []
     for pair in JPY_CROSS_PAIRS:
         path = PAIR_DATA_DIR / PAIR_DATA_PATTERN.format(pair=pair)
         if not path.exists():
             print(f"WARN: missing {path}", file=sys.stderr)
+            missing.append(pair)
             continue
         df = pd.read_parquet(path)
         if "close" not in df.columns:
             print(f"WARN: {path} has no 'close' column", file=sys.stderr)
+            missing.append(pair)
             continue
         closes[pair] = df["close"]
     if not closes:
         raise RuntimeError("No JPY-cross pair data available.")
+    if missing:
+        # Pre-reg binds the universe. Don't compute a fake basket Sharpe
+        # on a degraded universe and let the operator believe Clause B was
+        # legitimately evaluated.
+        raise RuntimeError(
+            f"Partial JPY-cross universe: missing {missing}. CF-T9 Clause B "
+            f"requires all 6 pairs ({JPY_CROSS_PAIRS}); partial-universe "
+            "evaluation does not match pre-registered Clause B and would "
+            "produce a misleading basket Sharpe. Restore missing pair data "
+            "before re-running."
+        )
     closes_df = pd.DataFrame(closes).sort_index()
     closes_df = closes_df.dropna(how="all")
     returns = closes_df.pct_change().dropna(how="all")

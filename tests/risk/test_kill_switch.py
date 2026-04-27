@@ -329,3 +329,108 @@ class TestFetchFailureWarnContext:
     def test_max_consecutive_fetch_failures_constant(self):
         """Sanity-check that the module constant is still 3."""
         assert MAX_CONSECUTIVE_FETCH_FAILURES == 3
+
+
+class TestWS03TriggerAuditAppend:
+    """WS-03 (CTO consensus 2026-04-26): every trigger() must append a
+    structured JSON-line to the audit log so the kill-switch state
+    transition is reconstructable post-hoc.
+    """
+
+    def test_trigger_appends_audit_entry(self, tmp_path):
+        audit = tmp_path / "audit.log"
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+        ks.trigger(TriggerReason.MANUAL, "test trigger", equity=99_500.0)
+        contents = audit.read_text().strip().split("\n")
+        assert len(contents) == 1
+        record = json.loads(contents[0])
+        assert record["event"] == "TRIGGER"
+        assert record["reason"] == "manual_trigger"
+        assert record["detail"] == "test trigger"
+        assert record["equity_at_trigger"] == 99_500.0
+        # new_state must contain HALTED so a restart correctly refuses-to-start
+        assert "HALTED" in record["new_state"]
+        # Operator field present so audit format matches RESET/VERIFY entries
+        assert record["operator"] == "system"
+
+    def test_trigger_audit_new_state_per_reason(self, tmp_path):
+        """new_state encodes the trigger reason for forensic clarity."""
+        audit = tmp_path / "audit.log"
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+        ks.trigger(TriggerReason.DAILY_LOSS, "DD")
+        record = json.loads(audit.read_text().strip().split("\n")[0])
+        assert record["new_state"] == "HALTED_DAILY_LOSS_EXCEEDED"
+
+    def test_trigger_audit_disabled_when_no_path(self, tmp_path):
+        """audit_log_path=None must not raise; trigger still flips state."""
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=None)
+        ks.trigger(TriggerReason.RECONCILIATION, "no audit")
+        assert ks.is_triggered  # state still flipped
+        # No exception expected; nothing to assert on the (absent) file
+
+    def test_trigger_audit_idempotent_with_first_event(self, tmp_path):
+        """Idempotent trigger must NOT append a second audit entry."""
+        audit = tmp_path / "audit.log"
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+        ks.trigger(TriggerReason.MANUAL, "first")
+        ks.trigger(TriggerReason.DAILY_LOSS, "second")  # ignored — already triggered
+        lines = audit.read_text().strip().split("\n")
+        assert len(lines) == 1
+        assert json.loads(lines[0])["detail"] == "first"
+
+    def test_trigger_audit_parseable_by_existing_parser(self, tmp_path):
+        """The new TRIGGER entry must parse via _last_audit_entry() (line 72)."""
+        from forex_system.risk.kill_switch import _last_audit_entry, _new_state_is_halted
+        audit = tmp_path / "audit.log"
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+        ks.trigger(TriggerReason.AUTH_DEATH, "token expired")
+        last = _last_audit_entry(str(audit))
+        assert last is not None
+        assert _new_state_is_halted(last["new_state"])  # restart-safety guard fires
+
+    def test_audit_write_failure_does_not_block_trigger(self, tmp_path, monkeypatch):
+        """If the audit append raises, trigger() must STILL halt the system.
+
+        The kill switch's halting-of-trading is a stronger invariant than the
+        audit trail. An I/O failure (full disk, permission error, etc.) must
+        not leave the system trading.
+        """
+        from forex_system.risk import kill_switch as ks_mod
+        audit = tmp_path / "audit.log"
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+
+        def fake_write(*args, **kwargs):
+            raise IOError("disk full")
+
+        monkeypatch.setattr(ks_mod, "_write_audit_entry", fake_write)
+        ks.trigger(TriggerReason.MANUAL, "audit fails")
+        assert ks.is_triggered
+        # In-memory event preserved
+        assert ks.last_event is not None
+        assert ks.last_event.reason == TriggerReason.MANUAL
+
+    def test_existing_reset_format_compatibility(self, tmp_path):
+        """Pre-existing RESET/VERIFY entries co-exist with new TRIGGER entries.
+
+        The audit log started with RESET (operator-side) and now includes
+        TRIGGER (system-side). Both must parse via the same json.loads path.
+        """
+        audit = tmp_path / "audit.log"
+        # Simulate an existing RESET entry (matches data/kill_switch_audit.log
+        # format from production).
+        audit.write_text(
+            json.dumps({
+                "timestamp": "2026-04-25T00:00:00+00:00",
+                "event": "RESET",
+                "operator": "huangtm",
+                "previous_state": "HALTED",
+                "new_state": "OK",
+            }) + "\n"
+        )
+        # KillSwitch starts cleanly because last entry's new_state is "OK".
+        ks = KillSwitch(initial_equity=100_000, audit_log_path=str(audit))
+        ks.trigger(TriggerReason.DAILY_LOSS, "post-reset trigger")
+        lines = audit.read_text().strip().split("\n")
+        assert len(lines) == 2
+        assert json.loads(lines[0])["event"] == "RESET"
+        assert json.loads(lines[1])["event"] == "TRIGGER"

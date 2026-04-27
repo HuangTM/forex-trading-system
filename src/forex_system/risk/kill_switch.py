@@ -255,13 +255,21 @@ class KillSwitch:
         detail: str,
         equity: float = 0.0,
     ) -> None:
-        """Trigger the kill switch. Idempotent — safe to call multiple times."""
+        """Trigger the kill switch. Idempotent — safe to call multiple times.
+
+        WS-03 (CTO consensus 2026-04-26): every trigger appends a structured
+        JSON-line to the audit log so the kill-switch state transition can be
+        reconstructed post-hoc without grepping process stderr. The new_state
+        contains the substring "HALTED" so a subsequent process restart's
+        _check_audit_log_on_startup correctly refuses-to-start.
+        """
         if self.is_triggered:
             return
 
         self.is_triggered = True
+        ts = pd.Timestamp.now(tz="UTC")
         event = KillSwitchEvent(
-            timestamp=pd.Timestamp.now(tz="UTC"),
+            timestamp=ts,
             reason=reason,
             detail=detail,
             equity_at_trigger=equity,
@@ -271,6 +279,32 @@ class KillSwitch:
             "KILL SWITCH TRIGGERED: %s — %s (equity: %.2f)",
             reason.value, detail, equity,
         )
+
+        # WS-03 audit append. Best-effort: an audit-write failure must NOT
+        # prevent the kill switch from halting trading. Log critical and
+        # proceed if the file write fails (process may exit before the next
+        # trigger anyway).
+        if not self.audit_log_path:
+            return
+        try:
+            _write_audit_entry(
+                self.audit_log_path,
+                {
+                    "timestamp": ts.isoformat(),
+                    "event": "TRIGGER",
+                    "operator": "system",
+                    "reason": reason.value,
+                    "detail": detail,
+                    "equity_at_trigger": float(equity),
+                    "previous_state": "OK",
+                    "new_state": f"HALTED_{reason.value.upper()}",
+                },
+            )
+        except Exception as e:
+            logger.critical(
+                "KILL SWITCH: failed to write trigger audit entry: %s "
+                "(in-memory event preserved at events[-1])", e,
+            )
 
     def reset(self, operator: str, current_equity: float | None = None) -> None:
         """Reset the kill switch. Requires human operator name for audit.

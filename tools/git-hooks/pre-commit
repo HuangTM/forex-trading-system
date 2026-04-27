@@ -1,10 +1,13 @@
 #!/bin/bash
-# Pre-commit hook: Pre-registration gate for strategy files.
+# Pre-commit hook: chained gates for the firm's hypothesis-and-implementation
+# discipline.
 #
-# Blocks commits of new strategy files unless a corresponding pre-registration
-# markdown exists at references/pre-registrations/<strategy_name>.md
-#
-# HoQR §5 condition 5 — structural enforcement of hypothesis pre-commitment.
+# Gate 1 — Pre-registration gate (HoQR §5): strategy files require a
+#          corresponding markdown pre-registration before commit.
+# Gate 2 — Equivalence gate (Path B P5 / CONSENSUS Q4 / R2 Amendment §A1-9):
+#          strategy/sizer/engine commits must pass the engine-vs-canonical-
+#          script Sharpe-equivalence test. Closes the failure mode that
+#          consumed five paper-trading days on vol_target_carry.
 #
 # INSTALL (one-time, from project root):
 #   cp tools/git-hooks/pre-commit .git/hooks/pre-commit
@@ -12,7 +15,8 @@
 #
 # To bypass (exceptional circumstances only):
 #   git commit --no-verify
-# Bypasses are logged to .fintech-org/policy-violations.jsonl
+# Bypasses are logged to .fintech-org/policy-violations.jsonl by the python
+# checkers themselves.
 
 set -e
 
@@ -22,19 +26,30 @@ if [ -f ".venv/bin/python3" ]; then
 elif command -v python3 &>/dev/null; then
     PYTHON="python3"
 else
-    echo "[pre-reg gate] WARNING: Python not found, skipping pre-registration check"
+    echo "[hooks] WARNING: Python not found, skipping all gates"
     exit 0
 fi
 
-# Ensure we're running from the repo root (hooks run from repo root by default)
+# ---------------------------------------------------------------------------
+# Gate 1: pre-registration
+# ---------------------------------------------------------------------------
 if [ ! -f "tools/check_pre_registration.py" ]; then
     echo "[pre-reg gate] WARNING: tools/check_pre_registration.py not found, skipping"
-    exit 0
+else
+    if ! $PYTHON tools/check_pre_registration.py --staged; then
+        exit 1
+    fi
 fi
 
-# Run the pre-registration checker
-if ! $PYTHON tools/check_pre_registration.py --staged; then
-    exit 1
+# ---------------------------------------------------------------------------
+# Gate 2: engine-vs-script equivalence
+# ---------------------------------------------------------------------------
+if [ ! -f "tools/check_equivalence_gate.py" ]; then
+    echo "[equivalence gate] WARNING: tools/check_equivalence_gate.py not found, skipping"
+else
+    if ! $PYTHON tools/check_equivalence_gate.py --staged; then
+        exit 1
+    fi
 fi
 
 exit 0

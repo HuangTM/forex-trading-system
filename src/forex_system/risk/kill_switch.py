@@ -103,12 +103,17 @@ class KillSwitch:
             # Do not trade — system halted
             return
 
+        # After every equity update, check the daily-loss threshold:
+        if ks.check_and_trigger(current_equity):
+            # Threshold breached -- ks.trigger() has fired internally
+            return
+
         # After reconciliation:
         if discrepancies:
             ks.trigger(TriggerReason.RECONCILIATION, detail="...")
 
-        # Human reset:
-        ks.reset(operator="HuangTM", reason="resolved overnight")
+        # Human reset (writes RESET audit entry per Path B P6):
+        ks.reset(operator="HuangTM", reason="incident resolved 2026-04-27")
 
     Usage (per-strategy, Path B prereq P6):
         ks_a = KillSwitch(initial_equity=100_000, strategy_id="vol_target_carry")

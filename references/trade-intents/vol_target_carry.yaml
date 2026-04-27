@@ -361,3 +361,163 @@ approvals:
     note: |
       NHT does not gate spec authoring; their domain is statistical-rigor
       review of the pre-reg + results, not the implementation contract.
+
+# =============================================================================
+# Amendment 1 — adversarial-review corrections (2026-04-27)
+# =============================================================================
+# Authored append-only after a devils-advocate review of v1.0.0 (commit
+# bfa2fde). Original spec preserved verbatim above; Amendment 1 binds
+# additively. Three spec contradictions and two integrity gaps closed
+# here. Two related code defects (#3 vol annualization, #4 ws01-after-
+# flatten ordering) were fixed in commit 5151da2 with regression tests.
+
+amendment_1:
+  filed: 2026-04-27
+  filed_by: quant-researcher
+  reason: adversarial review surfaced spec-vs-pre-reg contradictions and
+          machine-checkability claim that does not match operational reality
+  binding_additively: true
+  original_unchanged: true
+
+  corrections:
+    A1_C1_min_carry_pre_reg_contradiction:
+      severity: critical
+      issue: |
+        TradeIntent v1.0.0 declares min_carry=-inf with rationale "no
+        carry filter -- VT does the work" (line 205-209). The pre-reg
+        at references/pre-registrations/vol_target_carry.md:57 lists
+        min_carry=-0.10 in the registered parameters table. These are
+        NOT equivalent; -inf disables the filter structurally, while
+        -0.10 means the filter CAN trigger if carry drops below -10%.
+      resolution: |
+        The BINDING value is min_carry=-inf (the default in
+        src/forex_system/strategies/vol_target_carry.py:59 and the
+        config-loaded value used in production). The pre-reg's -0.10
+        is treated as a likely typo from the retroactive pre-registration
+        process. A pre-reg amendment should be filed by HoQR to harmonize
+        the two artifacts; until then, this TradeIntent is authoritative
+        on min_carry.
+      action_required: |
+        HoQR to amend references/pre-registrations/vol_target_carry.md:57
+        to read "min_carry: -inf" with rationale matching this YAML.
+        Tracked as a pending HoQR action; does not block the spec
+        functioning as the implementation contract.
+
+    A1_C2_sizing_formula_missing_multipliers:
+      severity: critical
+      issue: |
+        TradeIntent v1.0.0 sizing.formula (line 95) reads
+        "units = signal * leverage_cap * account_equity" but the actual
+        sizer (src/forex_system/sizing/vol_target.py:75-79) is:
+            scale = min(signal_strength, 1.0)
+            units = scale * self.leverage_cap * account_equity
+            units *= confidence * ratchet_level
+        Both confidence and ratchet_level default to 1.0 and the paper
+        runner does not pass non-default values, so the result agrees
+        numerically -- but the spec formula does not warn an A1 reviewer
+        about a future call site that DOES pass a non-unity multiplier.
+        This is exactly the silent-multiplier failure mode the firewall
+        rubric Section A1 exists to catch.
+      resolution: |
+        The binding sizing formula is now:
+            units = min(signal, 1.0) * leverage_cap * account_equity
+                    * confidence * ratchet_level
+        with current default confidence=1.0, ratchet_level=1.0 (paper
+        runner does not pass non-default; backtest engine does not pass
+        non-default). Any caller that passes a non-default for either
+        is a SEPARATE TradeIntent and a separate pre-reg.
+      machine_checkable: yes  # the engine equivalence test pins the
+                              # numeric agreement at default multiplier
+                              # values; non-default values would require
+                              # a new equivalence trial
+
+    A1_C3_machine_checkable_vs_manual_retirement_workflow:
+      severity: significant
+      issue: |
+        TradeIntent v1.0.0 marks all 8 retirement triggers VTC-T1..T8 as
+        "machine_checkable: yes" (lines 233-261) but the spec's own
+        integration_tests block (line 316-318) acknowledges the
+        retirement-trigger PATH (auto-marking trials.jsonl) is "PARTIAL --
+        operator marks retired manually". A trigger that fires reliably
+        but requires an operator to act is not end-to-end machine-checkable.
+      resolution: |
+        Re-classify the triggers:
+          - VTC-T1 through VTC-T8: trigger CONDITIONS are machine-checkable
+            (all expressed as scalar comparisons or test-suite outcomes).
+          - The downstream RETIREMENT ACTION (mark trial retired in
+            .fintech-org/trials.jsonl + halt re-enrollment) is currently
+            a MANUAL operator action.
+        For end-to-end machine-checkability, a follow-up tool is required:
+        scripts/auto_retire_on_trigger.py that reads gate-evaluation
+        output and writes the retirement record. That tool does not
+        exist as of 2026-04-27. Tracked as a separate Q-class action
+        item for the harness developer.
+      action_required: |
+        Until the auto-retirement tool ships, the VTC-T1..T8 triggers
+        should be read as "condition machine-checkable; execution
+        operator-mediated". Operator runbook: when any trigger condition
+        fires (per harness gate evaluation OR live-trade quarterly
+        review), append a RETIRED record to .fintech-org/trials.jsonl
+        within 5 trading days.
+
+  related_code_fixes_in_commit_5151da2:
+    A1_C4_ws01_emit_after_flatten_on_kill_paths:
+      severity: significant
+      where: scripts/run_paper_trading_vt.py:275-280, :289-293 (pre-fix)
+      issue: WS01 audit line emitted AFTER backend.flatten_all() on both
+             drawdown-kill and equity-fetch-kill paths -- violates
+             observability requirement that the trace precede any
+             execution side-effect.
+      fix_commit: 5151da2
+      regression_tests:
+        - tests/scripts/test_ws01_decision_log.py::test_ws01_emitted_before_flatten_on_drawdown_kill
+        - tests/scripts/test_ws01_decision_log.py::test_ws01_emitted_before_flatten_on_equity_fetch_kill
+
+    A1_C5_vol_annualization_mismatch_4h_1h:
+      severity: critical
+      where: scripts/run_paper_trading_vt.py:325-326 (pre-fix)
+      issue: |
+        Paper runner used hardcoded sqrt(252) for WS01 vol annualization;
+        strategy class uses dynamic _bars_per_year() based on median bar
+        dt. On 4h bars these differ by sqrt(6) ≈ 2.45; on 1h bars by
+        sqrt(24) ≈ 4.9. Debugging from logs would yield incorrect vol
+        readings on any non-daily run.
+      fix_commit: 5151da2
+      regression_tests:
+        - tests/scripts/test_ws01_decision_log.py::test_ws01_vol_uses_dynamic_bars_per_year_4h
+
+  remaining_open_findings_for_independent_review:
+    A1_OPEN_B1_partial_calibration:
+      severity: concern
+      finding: |
+        slippage_budget.status = "PARTIAL_CALIBRATION" with all per-regime
+        P50/P90/P99 marked TODO. The execution-firewall-review rubric
+        Section B1 requires a CALIBRATED distribution; whether TODOs with
+        a documented calibration plan satisfy B1 is a rubric-interpretation
+        question that requires the CTO to rule on.
+      route_to: cto
+      blocking_for: nothing immediate (rubric-interpretation only); does
+                    NOT block the implementation contract.
+
+    A1_OPEN_FM2_self_acknowledgment:
+      severity: structural
+      finding: |
+        v1.0.0 acknowledges FM-2 (firewall failure mode -- "spec authored
+        by same person who implemented strategy"). FM-2's correct
+        mitigation per the rubric is an INDEPENDENT-AUTHOR rewrite, not
+        self-disclosure. This TradeIntent has not been independently
+        rewritten; the claimed mitigation (status flag +
+        retroactive_transcription_pending_independent_review) is a
+        deferred prerequisite, not a closure.
+      route_to: hoqr + cto (joint)
+      blocking_for: |
+        treating this YAML as an INDEPENDENT spec for execution-firewall
+        review purposes. Until HoQR + CTO have signed off, this
+        TradeIntent functions as a transcription artifact, not a spec-
+        of-record. PR reviewers using it as a check-against-implementation
+        gate must read the implementation alongside, not just the YAML.
+
+  amendment_1_authored_by: quant-researcher
+  amendment_1_review_status:
+    hoqr: PENDING_REVIEW
+    cto: PENDING_REVIEW

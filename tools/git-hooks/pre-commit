@@ -8,6 +8,9 @@
 #          strategy/sizer/engine commits must pass the engine-vs-canonical-
 #          script Sharpe-equivalence test. Closes the failure mode that
 #          consumed five paper-trading days on vol_target_carry.
+# Gate 3 — Kill-switch threshold gate (CRO binding constraint #3,
+#          CONSENSUS_2026-04-28.md): newly-added pre-registration markdown
+#          files must declare kill_switch_threshold: <value> before commit.
 #
 # INSTALL (one-time, from project root):
 #   cp tools/git-hooks/pre-commit .git/hooks/pre-commit
@@ -59,6 +62,19 @@ if [ ! -f "tools/check_equivalence_gate.py" ]; then
     exit 1
 fi
 if ! $PYTHON tools/check_equivalence_gate.py --staged; then
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Gate 3: kill-switch threshold in pre-registrations
+# ---------------------------------------------------------------------------
+if [ ! -f "tools/check_kill_switch_threshold.py" ]; then
+    echo "[kill-switch gate] ERROR: tools/check_kill_switch_threshold.py not found."
+    echo "[kill-switch gate] Gate is OFFLINE -- BLOCKING commit (fail-closed)."
+    echo "[kill-switch gate] Restore the checker or bypass with: git commit --no-verify"
+    exit 1
+fi
+if ! $PYTHON tools/check_kill_switch_threshold.py --staged; then
     exit 1
 fi
 

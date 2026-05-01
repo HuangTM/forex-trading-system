@@ -11,7 +11,7 @@
 This pre-registration is filed retroactively for a strategy developed and
 validated on the same day (2026-04-20). This is a known methodological
 limitation. The binding falsification conditions (T1–T8 below) are derived from
-the CONSENSUS.md arson-test evidence, not from cherry-picking post-hoc.
+the docs/decisions/CONSENSUS.md arson-test evidence, not from cherry-picking post-hoc.
 
 Future strategies MUST file pre-registrations BEFORE validation runs.
 
@@ -85,6 +85,6 @@ Sharpe diverges materially from 0.76, the divergence is a finding (not a pass).
 
 ## Approval
 
-- Quant Researcher: filed by HoQR authority per CONSENSUS.md
+- Quant Researcher: filed by HoQR authority per docs/decisions/CONSENSUS.md
 - CTO: conditions C1–C2 satisfied before first harness run
 - NHT: p=0.005 from 200-shuffle permutation test

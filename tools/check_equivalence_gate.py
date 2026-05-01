@@ -200,7 +200,7 @@ def main() -> int:
             "  the firm's PROCESS-G1 tolerance (|Sharpe-Delta| < 0.10 OR correlation > 0.95).\n"
             "  Root-cause the divergence before committing -- DO NOT --no-verify a\n"
             "  failed equivalence test (this is the exact failure mode that consumed\n"
-            "  5 paper-trading days on vol_target_carry; CONSENSUS_2026-04-25)."
+            "  5 paper-trading days on vol_target_carry; docs/decisions/CONSENSUS_2026-04-25.md)."
         )
         log_policy_violation("equivalence_test_failed", triggering)
         return 1

@@ -524,7 +524,7 @@ Tracks 5 and 6 are already the firm's binding next priorities (per CONSENSUS Dec
 ## Appendix A — Cross-references
 
 - `docs/architecture.md` (esp. §4.7 Execution Layer Live, §4.8 Analysis Layer, §8 Risk Architecture, §10 Phase 2/3 priority table) — Path B is a Phase 2 extension that pre-stages the Phase 3 multi-strategy execution path
-- `CONSENSUS.md` (esp. §"Top improvements" #6, #7, #10, #11, #12) — Path B is the structural home for these
+- `docs/decisions/CONSENSUS.md` (esp. §"Top improvements" #6, #7, #10, #11, #12) — Path B is the structural home for these
 - `RETIREMENT_DECISION_2026-04-25.md` (esp. §4 VTC-T9, §8 PROCESS-G1, L1-L5 lessons) — binding firm-wide invariants Path B must enforce
 - `scripts/run_paper_trading_vt.py` — single-strategy pattern Path B extends
 - `scripts/run_multi_strategy.py` — existing multi-strategy *blender* (different architecture: blends N signals into 1 trade per pair). Path B is the *competitor* (N independent strategies, N independent slices). The blender is NOT Path B's predecessor; they may coexist as different tools for different research questions.

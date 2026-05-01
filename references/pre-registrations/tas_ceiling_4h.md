@@ -142,7 +142,7 @@ The 4H TAS-ceiling mean-reversion mechanism on the USDJPY/EURUSD/GBPUSD universe
 
 ## Approval
 
-- **Quant Researcher:** pre-registered prospectively per CONSENSUS.md R2 action item; mechanism specified to engineer-implementable precision before any backtest run.
+- **Quant Researcher:** pre-registered prospectively per docs/decisions/CONSENSUS.md R2 action item; mechanism specified to engineer-implementable precision before any backtest run.
 - **Head of Quant Research:** dispatch authorized in `hoqr-week-ahead-prioritization.yaml` 2026-04-26T20:35:00Z; H2 hard-gated on this file's existence + mtime predating any 4H backtest invocation.
 - **NHT:** Bonferroni denominator handling per N2 ruling (count-of-trials = 17 unless NHT escalates); dissent on Bet #1 testability does NOT extend to this pre-reg (Bet #2 has a clean OOS window with no regime-overlap claim — but see Amendment 1).
 - **CTO:** PROCESS-IMPL-1 and PROCESS-IMPL-2 added on top of CONSENSUS's BET2-T1..T6 to close WS-05 risk ahead of dispatch.
@@ -182,7 +182,7 @@ Rationale: prevents single-bar churn in trending markets where price oscillates 
 3. **IS fixture invariant:** The canonical script MUST include a small in-sample fixture window (e.g., 2018-01 → 2018-12) with its computed Sharpe committed as a comment or YAML sidecar. The engine implementer reads the canonical fixture Sharpe BEFORE running the engine and is bound to match it within Δ=0.05 on the same window. Deviation = HARD STOP, escalate to HoQR + CTO.
 4. **Cost stress co-runs:** Both engine AND canonical script must be re-run with 2× costs (BET2-T3 stress test) and produce the same Sharpe-Δ < 0.10 invariant.
 
-This rule operationalizes the lesson from `vol_target_carry` (5 paper-trading days lost on the equivalence reconciliation; CONSENSUS_2026-04-25 §NHT). T4 is empty without it.
+This rule operationalizes the lesson from `vol_target_carry` (5 paper-trading days lost on the equivalence reconciliation; docs/decisions/CONSENSUS_2026-04-25.md §NHT). T4 is empty without it.
 
 ### A1-3. Cost model: explicit 4H proration; new config file required (closes critic Issue #3)
 

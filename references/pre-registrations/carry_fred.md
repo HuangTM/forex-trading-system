@@ -122,6 +122,6 @@ research thread at this capacity scale.
 
 ## Approval
 
-- Quant Researcher: pre-registered prospectively per CONSENSUS.md Bet #1 conditions
+- Quant Researcher: pre-registered prospectively per docs/decisions/CONSENSUS.md Bet #1 conditions
 - NHT: OOS holdout enforced in harness; no data snooping permitted after this file commit
 - CTO: per-pair plus portfolio tests required before declaring pass/fail

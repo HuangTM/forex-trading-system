@@ -5,7 +5,7 @@ cycle, containing the consensus-pinned fields: cycle_id, pair, signal, vol,
 equity, price, target_units, current_units, action.
 
 This is the HARD-BLOCKER instrumentation for paper-cycle resumption per
-CONSENSUS.md gate chain (A1 → A2 → A3 → Q2 → cycle resume). If this test
+docs/decisions/CONSENSUS.md gate chain (A1 → A2 → A3 → Q2 → cycle resume). If this test
 fails, the trace contract has regressed and paper trading must NOT resume.
 """
 

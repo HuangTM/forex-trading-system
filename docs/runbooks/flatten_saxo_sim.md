@@ -175,4 +175,4 @@ After this runbook completes successfully:
 ## References
 - **Saxo SIM Token:** https://www.developer.saxo/openapi/token
 - **Saxo OpenAPI Docs:** https://www.developer.saxo/openapi/
-- **Kill-switch policy:** See `CONSENSUS.md` and commit `70e3cc7`
+- **Kill-switch policy:** See `docs/decisions/CONSENSUS.md` and commit `70e3cc7`

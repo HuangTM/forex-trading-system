@@ -110,6 +110,71 @@ def _append_trial(entry: dict) -> None:
         f.write(json.dumps(entry, default=_json_default) + "\n")
 
 
+def record_trial_rejection(
+    trial_id: str,
+    strategy: str,
+    rejection_reason: str,
+    falsification_criterion: str,
+    *,
+    registry: Path | None = None,
+) -> dict:
+    """Append a status='rejected' entry to trials.jsonl.
+
+    Called when a completed trial fails its pre-registered OOS gate, making the
+    falsification of the null hypothesis explicit and machine-checkable.
+
+    Parameters
+    ----------
+    trial_id:
+        The trial_id of the completed trial being rejected (must already exist
+        in the registry with status='complete').
+    strategy:
+        Strategy name (e.g. 'vol_target_carry').
+    rejection_reason:
+        Human-readable string describing why the trial was rejected
+        (e.g. 'OOS Sharpe 0.12 < VTC-T1 threshold 0.30').
+    falsification_criterion:
+        The pre-registered trigger/threshold that was evaluated
+        (e.g. 'VTC-T1', 'FRED-T2').  Machine-checkable — must match a
+        trigger defined in the strategy's pre-registration document.
+    registry:
+        Override trials.jsonl path (default: .fintech-org/trials.jsonl).
+        Use a temp path in tests to avoid corrupting production data.
+
+    Decision trace
+    --------------
+    Emits ``trial.rejected`` log event so a future reader can reconstruct
+    when and why each rejection occurred from logs alone (no debugger needed).
+
+    Returns
+    -------
+    dict
+        The appended entry (for test assertions / caller inspection).
+    """
+    target = registry if registry is not None else _TRIALS_REGISTRY
+    entry = {
+        "trial_id": trial_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "git_hash": _git_hash(),
+        "strategy": strategy,
+        "status": "rejected",
+        "rejection_reason": rejection_reason,
+        "falsification_criterion": falsification_criterion,
+    }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    _log_event(
+        "trial.rejected",
+        trial_id=trial_id,
+        strategy=strategy,
+        rejection_reason=rejection_reason,
+        falsification_criterion=falsification_criterion,
+        registry=str(target),
+    )
+    return entry
+
+
 def _build_cost_model(config: SystemConfig, pair_symbol: str) -> RealisticCostModel:
     """Build RealisticCostModel from config. Raises ConfigError if pair not found."""
     pair_info = config.get_pair_info(pair_symbol)

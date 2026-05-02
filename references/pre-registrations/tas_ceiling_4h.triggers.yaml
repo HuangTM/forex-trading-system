@@ -1,0 +1,44 @@
+# Sidecar triggers for tas_ceiling_4h pre-registration.
+# Paired with: references/pre-registrations/tas_ceiling_4h.md
+# Strategy: tas_ceiling_4h | Pairs: EURUSD, USDJPY, GBPUSD (4H universe)
+# Created: 2026-05-01 (sub-wave 3c.3; Quant Developer implementation)
+# Source: tas_ceiling_4h.md (grandfathered pre-reg) + CONSENSUS 2026-04-26 BET2-T1..T6
+# Note: gate_threshold (older convention in pre-reg) = 0.30, surfaced here as
+#   kill_switch_threshold per Path-B sidecar pattern.
+#
+# DATA NOTE: 4H bars in data/processed/{PAIR}_4h.parquet (verified present).
+# timeframe and data_dir fields instruct run_falsification_trial.py to load 4H data
+# rather than the default daily frequency.
+# oos_overlap: false — OOS-2022 window (2022-01-01 to 2023-12-31) does not overlap
+#   with the validated strategies' OOS (vol_target_carry, carry_fred both validated
+#   pre-2022 in-sample). Independent OOS window confirmed.
+
+strategy: tas_ceiling_4h
+pair:
+  - EURUSD
+  - USDJPY
+  - GBPUSD
+hypothesis_summary: >
+  4H mean-reversion counter to TAS-ceiling/floor envelope around rolling log-linear
+  trend produces equal-weighted portfolio OOS Sharpe >= 0.30 net of realistic costs
+  on 4H OOS-2022 window.
+kill_switch_threshold: 0.30
+oos_overlap: false
+oos_window_start: "2022-01-01"
+oos_window_end: "2023-12-31"
+timeframe: "4h"
+data_dir: "data"
+
+triggers:
+  - label: "BET2-T1"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.30
+    raw_text: "OOS portfolio Sharpe (equal-weighted USDJPY+EURUSD+GBPUSD 4H) < 0.30 net of costs on pre-registered OOS holdout — retire family"
+# NOTE: BET2-T2 (n_negative_pair_sharpes >= 2), BET2-T3 (cost_stress_sharpe < 0.20),
+# and BET2-T6 (avg_trade_hold_bars < 6) are pre-registered triggers that require
+# metrics not computed by the current falsification harness (no per-pair Sharpe
+# disaggregation, no cost-stress rerun, no trade-holding-period metric).
+# These triggers are NOT evaluated in this run. BET2-T1 is the primary gate and
+# fires first (OOS Sharpe -0.245 < 0.30); the additional triggers are advisory.
+# Harness extension to support T2/T3/T6 is tracked as a future work item.

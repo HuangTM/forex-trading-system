@@ -142,6 +142,8 @@ class PreRegistrationSpec:
     oos_overlap: bool
     oos_window_start: str
     oos_window_end: str
+    timeframe: str = "daily"
+    data_dir: str = "data"
 
 
 # ---------------------------------------------------------------------------
@@ -293,13 +295,23 @@ def _parse_sidecar(sidecar_path: Path, markdown_raw_texts: dict[str, str]) -> di
             )
         )
 
-    return {
+    result: dict = {
         "triggers": triggers,
         "pair_resolved": pair_resolved,
         "oos_overlap": bool(raw["oos_overlap"]),
         "oos_window_start": str(raw["oos_window_start"]),
         "oos_window_end": str(raw["oos_window_end"]),
     }
+
+    # Optional fields: surface to caller if present (used by grandfathered pre-regs).
+    if "kill_switch_threshold" in raw:
+        result["kill_switch_threshold"] = str(raw["kill_switch_threshold"])
+    if "timeframe" in raw:
+        result["timeframe"] = str(raw["timeframe"])
+    if "data_dir" in raw:
+        result["data_dir"] = str(raw["data_dir"])
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -356,20 +368,18 @@ def parse_pre_registration(
         )
 
     pair = _extract_field(text, r"\*\*Pair:\*\*\s*(\S+)", "pair")
-    if not pair:
-        raise ConfigError(
-            f"Could not parse '**Pair:**' from: {pre_reg_path}\n"
-            "Add a line '**Pair:** <PAIR>' to the pre-reg."
-        )
+    # pair may be None for grandfathered pre-regs without a **Pair:** line;
+    # the sidecar's pair_resolved list is the authoritative source in that case.
+    # We defer the fallback until after sidecar parsing.
 
     kill_switch_threshold = _extract_field(
         text, r"kill_switch_threshold:\s*(\S+)", "kill_switch_threshold"
     )
-    if not kill_switch_threshold:
-        raise ConfigError(
-            f"Could not parse 'kill_switch_threshold:' from: {pre_reg_path}\n"
-            "Add 'kill_switch_threshold: <value>' to the Falsification Criteria section."
-        )
+    # Note: kill_switch_threshold may be absent in grandfathered pre-regs that use
+    # older gate_threshold convention (e.g. tas_ceiling_4h.md). If absent from
+    # markdown, we fall back to the sidecar's kill_switch_threshold field after
+    # sidecar parsing below. Do NOT raise here for absent kill_switch_threshold;
+    # the check is deferred to post-sidecar.
 
     gate_threshold_str = _extract_field(text, r"gate_threshold:\s*([\d.]+)", "gate_threshold")
     gate_threshold = float(gate_threshold_str) if gate_threshold_str is not None else None
@@ -379,6 +389,23 @@ def parse_pre_registration(
     # --- Parse sidecar ---
     markdown_raw_texts = _extract_trigger_raw_texts(text)
     sidecar_data = _parse_sidecar(sidecar_path=sidecar_path, markdown_raw_texts=markdown_raw_texts)
+
+    # kill_switch_threshold fallback: if absent from markdown, accept from sidecar
+    # (Path B for grandfathered pre-regs like tas_ceiling_4h that use gate_threshold).
+    if not kill_switch_threshold:
+        sidecar_kst = sidecar_data.get("kill_switch_threshold")
+        if sidecar_kst:
+            kill_switch_threshold = str(sidecar_kst)
+    if not kill_switch_threshold:
+        raise ConfigError(
+            f"Could not parse 'kill_switch_threshold:' from: {pre_reg_path}\n"
+            "Add 'kill_switch_threshold: <value>' to the pre-reg markdown or "
+            "to the paired .triggers.yaml sidecar (Path B for grandfathered pre-regs)."
+        )
+
+    # Pair fallback: if markdown has no **Pair:** line, synthesize from sidecar pair_resolved.
+    if not pair:
+        pair = ", ".join(sidecar_data["pair_resolved"])
 
     spec = PreRegistrationSpec(
         strategy=strategy,
@@ -391,6 +418,8 @@ def parse_pre_registration(
         oos_overlap=sidecar_data["oos_overlap"],
         oos_window_start=sidecar_data["oos_window_start"],
         oos_window_end=sidecar_data["oos_window_end"],
+        timeframe=sidecar_data.get("timeframe", "daily"),
+        data_dir=sidecar_data.get("data_dir", "data"),
     )
 
     _log_event(

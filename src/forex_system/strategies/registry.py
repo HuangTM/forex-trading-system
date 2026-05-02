@@ -8,6 +8,7 @@ from forex_system.strategies.carry_momentum import CarryMomentumStrategy
 from forex_system.strategies.fred_carry_stripped import FredCarryStrippedStrategy
 from forex_system.strategies.ma_crossover import MACrossoverStrategy
 from forex_system.strategies.momentum import MomentumStrategy
+from forex_system.strategies.tas_ceiling_4h import TasCeiling4hStrategy
 from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
@@ -19,6 +20,7 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "carry_momentum": CarryMomentumStrategy,
     "fred_carry_stripped": FredCarryStrippedStrategy,
     "vol_target_carry": VolTargetCarryStrategy,
+    "tas_ceiling_4h": TasCeiling4hStrategy,
 }
 
 

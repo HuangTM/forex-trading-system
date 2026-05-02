@@ -280,6 +280,8 @@ def _run_single_pair(
     oos_start: str,
     oos_end: str,
     config_path: Path,
+    timeframe: str = "daily",
+    data_dir: str | None = None,
 ) -> dict:
     """Run the backtest engine for one strategy+pair on the OOS window.
 
@@ -300,7 +302,9 @@ def _run_single_pair(
     sizer = _build_sizer(config)
 
     # Load full history — we filter to OOS window after indicators are computed.
-    data = load_parquet(pair, "daily", config.data_dir)
+    # data_dir and timeframe may be overridden for non-daily strategies (e.g. tas_ceiling_4h).
+    effective_data_dir = data_dir if data_dir is not None else config.data_dir
+    data = load_parquet(pair, timeframe, effective_data_dir)
 
     _log(
         "backtest.data.loaded",
@@ -530,6 +534,10 @@ def run_falsification_trial(
          trial_id=trial_id, strategy=strategy_name, pairs=pairs_to_run,
          oos_start=oos_start, oos_end=oos_end)
 
+    # Sidecar-authoritative timeframe and data_dir (default to daily / config.data_dir).
+    pre_reg_timeframe = getattr(pre_reg, "timeframe", "daily")
+    pre_reg_data_dir = getattr(pre_reg, "data_dir", None)
+
     pair_results: list[dict] = []
     for pair in pairs_to_run:
         try:
@@ -539,6 +547,8 @@ def run_falsification_trial(
                 oos_start=oos_start,
                 oos_end=oos_end,
                 config_path=config_path,
+                timeframe=pre_reg_timeframe,
+                data_dir=pre_reg_data_dir,
             )
             pair_results.append(result)
             _log("falsification_trial.pair.done", trial_id=trial_id,

@@ -85,10 +85,22 @@ trial execution.
 
 - [x] **HoQR** — confirms non-overlap with all existing validated-strategy OOS
       windows; signed 2026-05-01 by filing 6 pre-regs against this window
-- [ ] **NHT** — formal sign-off pending; orchestrator will dispatch a focused
-      NHT review concurrently with sub-wave 3b commit. Sub-wave 3c BLOCKED until
-      NHT either approves or formally dissents
+- [x] **NHT** — APPROVED WITH CAVEAT 2026-05-01 (artifact:
+      `.fintech-org/artifacts/2026-05-01T-phase2-falsification-trials/nht-oos-2022-signoff.yaml`,
+      decision: `approve-with-caveat`, confidence: high). Caveat (preserved
+      verbatim, append-only): "candidate selection may carry indirect exposure
+      to 2022–2023 data from vol_target_carry's exploration. Treat 6-candidate
+      OOS-2022 results as a joint family: apply multiple-comparisons correction
+      (Bonferroni-style) before declaring any single candidate falsified or
+      validated." This caveat binds sub-wave 3d verification.
 - [x] Window ID `OOS-2022` is referenced verbatim in all 6 sub-wave 3b pre-reg
       sidecar YAMLs (`oos_window_start: "2022-01-01"`, `oos_window_end: "2023-12-31"`)
 
-Until NHT sign-off is complete, sub-wave 3c MUST NOT execute trials.
+Sub-wave 3c is UNBLOCKED. Sub-wave 3d MUST apply NHT's joint-family multiple-
+comparisons correction (e.g., Bonferroni alpha = 0.05/6 ≈ 0.008 per single test)
+before any single-candidate verdict is declared.
+
+**Stop trigger (per NHT):** evidence that any org member ran backtests on
+2022–2023 data for any of the 6 candidates prior to pre-reg filing, OR that
+candidate selection was filtered on observed 2022–2023 outcomes (git log or
+session log showing such runs) — would flip NHT's decision to formal dissent.

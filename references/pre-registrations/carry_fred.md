@@ -146,4 +146,4 @@ research thread at this capacity scale.
 - **HoQR (HuangTM):** CF-T9 added as binding falsification criterion per CONSENSUS 2026-04-26
   Section 5 and Wave-5 Round-1 closure mandate. Clauses A+B are operationalised;
   Clause C gap is flagged and documented. Amendment signed 2026-05-01.
-- **NHT:** Co-sign pending — required before paper launch (Wave-5 Round-3 per closure consensus).
+- **NHT:** Co-signed 2026-05-02 (Wave-5 Round-3, artifact: `.fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml`). Binding on Clauses A+B only. Clause C gap accepted as known-incomplete deferral. Conditions: (1) paper-launch communications must state CF-T9 is A+B binding with C pending; (2) Clause C must be ratified within 60 trading days of paper launch or NHT re-review is mandatory; (3) sizing must not use 0.80 regime-active Sharpe as base case — use ~0.07 for regime-inactive periods.

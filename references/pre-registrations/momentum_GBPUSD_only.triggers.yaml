@@ -1,0 +1,42 @@
+# Sidecar triggers for momentum_GBPUSD_only pre-registration.
+# Paired with: references/pre-registrations/momentum_GBPUSD_only.md
+# Strategy: momentum (GBPUSD only via pair-restrict hook)
+# Created: 2026-05-01 (Wave-5 Round-2; QD implementation)
+# Source: HoQR Wave-5 R1 candidate queue §B candidate 3
+
+strategy: momentum
+pair: all
+hypothesis_summary: "Momentum on GBPUSD only generates positive OOS Sharpe above 0.30 threshold."
+kill_switch_threshold: 0.30
+oos_overlap: false
+oos_window_start: "2022-01-01"
+oos_window_end: "2023-12-31"
+hook_config:
+  pair_restrict: GBPUSD
+
+triggers:
+  - label: "W5R2-3-T1"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.30
+    raw_text: "OOS Sharpe < 0.30 (R1 universal floor)"
+  - label: "W5R2-3-T2"
+    metric: "max_dd"
+    operator: ">"
+    threshold: 0.25
+    raw_text: "Max drawdown > 25% (R3 firm anchor)"
+  - label: "W5R2-3-T3"
+    metric: "dsr"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "DSR < 0.50 with N=n_trials_at_spawn (R2 NHT frozen)"
+  - label: "W5R2-3-T4-trades"
+    metric: "n_trades"
+    operator: "<"
+    threshold: 30
+    raw_text: "n_trades < 30 (R6 sample-size floor)"
+  - label: "W5R2-3-T4-bars"
+    metric: "n_oos_bars"
+    operator: "<"
+    threshold: 252
+    raw_text: "n_oos_bars < 252 (R6 sample-size floor)"

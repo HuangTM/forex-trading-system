@@ -52,7 +52,25 @@ Usage
         --pre-reg references/pre-registrations/carry_baseline.md \\
         [--config config/default.yaml] \\
         [--registry .fintech-org/trials.jsonl] \\
-        [--dry-run]
+        [--dry-run] \\
+        [--cost-multiplier 3.0] \\
+        [--pair-restrict EURUSD]
+
+Hook flags (Wave-5 Round-2 extensions)
+---------------------------------------
+--cost-multiplier <float>
+    When set, multiply all cost-model spread/slippage/commission/swap
+    parameters by this factor before the backtest run. Used for cost-stress
+    falsification candidates (e.g. ma_crossover_3x_costs passes 3.0).
+    Default: 1.0 (no multiplier). Flag must be explicitly passed; never
+    silently applied.
+
+--pair-restrict <comma-separated-pairs>
+    When set, override the sidecar's pair_resolved field with the specified
+    subset. Must be a non-empty subset of the sidecar's pair_resolved list.
+    Used for single-pair falsification candidates (e.g. bollinger_rsi_EURUSD_only
+    passes EURUSD). If a pair is specified that does not appear in the sidecar's
+    pair_resolved list, raises ConfigError.  No silent default.
 
 Exit codes
 ----------
@@ -81,6 +99,8 @@ from forex_system.backtest.engine import run_backtest
 from forex_system.backtest.metrics import calculate_metrics
 from forex_system.core.config import load_config
 from forex_system.core.errors import ConfigError, DataError
+from forex_system.core.types import PairInfo
+from forex_system.costs.model import RealisticCostModel
 from forex_system.data.storage import load_parquet
 from forex_system.features.registry import compute_indicators
 from forex_system.harness.dsr import compute_dsr
@@ -132,6 +152,90 @@ def _log(event: str, **fields: object) -> None:
         **fields,
     }
     logger.info(json.dumps(entry, default=_json_default))
+
+
+# ---------------------------------------------------------------------------
+# Hook helpers: cost-multiplier and pair-restrict
+# ---------------------------------------------------------------------------
+
+
+def _build_scaled_cost_model(
+    config: object,
+    pair_symbol: str,
+    cost_multiplier: float,
+) -> RealisticCostModel:
+    """Build a RealisticCostModel with all cost parameters scaled by cost_multiplier.
+
+    Sources cost parameters from config (via _build_cost_model), then scales
+    spread_pips, slippage_pips, commission_pips, and swap rates by the multiplier.
+    This is the sole hook for the cost-stress falsification candidates.
+
+    Parameters
+    ----------
+    config:
+        Loaded SystemConfig (from load_config()).
+    pair_symbol:
+        Currency pair, e.g. "EURUSD".
+    cost_multiplier:
+        Scaling factor for all cost parameters (e.g. 3.0 for 3× cost stress).
+        Must be explicitly passed — never silently default.
+
+    Returns
+    -------
+    RealisticCostModel
+        A new model with scaled cost parameters for this pair.
+    """
+    base_model = _build_cost_model(config, pair_symbol)
+    base_pair_info = base_model.pairs[pair_symbol.upper()]
+    scaled_pair_info = PairInfo(
+        symbol=base_pair_info.symbol,
+        pip_value=base_pair_info.pip_value,
+        spread_pips=base_pair_info.spread_pips * cost_multiplier,
+        slippage_pips=base_pair_info.slippage_pips * cost_multiplier,
+        commission_pips=base_pair_info.commission_pips * cost_multiplier,
+        swap_long_pips_per_day=base_pair_info.swap_long_pips_per_day * cost_multiplier,
+        swap_short_pips_per_day=base_pair_info.swap_short_pips_per_day * cost_multiplier,
+    )
+    return RealisticCostModel(pair_configs={pair_symbol.upper(): scaled_pair_info})
+
+
+def _apply_pair_restrict(
+    sidecar_pair_resolved: tuple[str, ...],
+    pair_restrict: str,
+    pre_reg_path: object,
+) -> tuple[str, ...]:
+    """Validate and apply a pair-restrict override to the sidecar's pair_resolved list.
+
+    The pair_restrict must be a non-empty subset of sidecar_pair_resolved.
+    Raises ConfigError if any requested pair is absent from the sidecar list.
+
+    Parameters
+    ----------
+    sidecar_pair_resolved:
+        The authoritative pair list from the pre-reg sidecar.
+    pair_restrict:
+        Comma-separated string of pairs to restrict to (e.g. "EURUSD,GBPUSD").
+    pre_reg_path:
+        Path of the pre-reg (for error messages).
+
+    Returns
+    -------
+    tuple[str, ...]
+        Validated restricted pair list.
+    """
+    requested = tuple(p.strip().upper() for p in pair_restrict.split(",") if p.strip())
+    if not requested:
+        raise ConfigError(
+            f"--pair-restrict: empty value after parsing '{pair_restrict}'. "
+            "Provide at least one valid pair symbol."
+        )
+    unknown = [p for p in requested if p not in sidecar_pair_resolved]
+    if unknown:
+        raise ConfigError(
+            f"--pair-restrict: {unknown} not in sidecar pair_resolved {list(sidecar_pair_resolved)} "
+            f"for {pre_reg_path}. Restriction must be a subset of the sidecar's authoritative list."
+        )
+    return requested
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +386,19 @@ def _run_single_pair(
     config_path: Path,
     timeframe: str = "daily",
     data_dir: str | None = None,
+    cost_model_override: RealisticCostModel | None = None,
 ) -> dict:
     """Run the backtest engine for one strategy+pair on the OOS window.
 
     Returns a dict with keys: oos_sharpe, max_dd, n_trades, n_oos_bars,
     skewness, excess_kurtosis (used for DSR), and the raw equity_curve series.
+
+    Parameters
+    ----------
+    cost_model_override:
+        When provided, use this cost model instead of building one from config.
+        Used by the cost-stress hook (--cost-multiplier). Must be None for
+        standard runs (no silent override).
 
     Raises
     ------
@@ -297,8 +409,11 @@ def _run_single_pair(
     """
     config = load_config(config_path)
 
-    # Build cost model for this pair.
-    cost_model = _build_cost_model(config, pair)
+    # Build cost model for this pair — use override if provided (cost-stress hook).
+    if cost_model_override is not None:
+        cost_model = cost_model_override
+    else:
+        cost_model = _build_cost_model(config, pair)
     sizer = _build_sizer(config)
 
     # Load full history — we filter to OOS window after indicators are computed.
@@ -321,7 +436,10 @@ def _run_single_pair(
     # do NOT inject rate_data for it — it would receive already-renamed columns
     # and fail its internal column lookup for "{PAIR}_diff".
     # Strategies that need explicit injection: CarryStrategy, CarryMomentumStrategy.
-    _SELF_LOADING_RATE_STRATEGIES = {"fred_carry_stripped", "carry_fred", "vol_target_carry"}
+    _SELF_LOADING_RATE_STRATEGIES = {
+        "fred_carry_stripped", "carry_fred", "vol_target_carry",
+        "vol_target_carry_no_vol_scaling",
+    }
     from forex_system.strategies.registry import STRATEGY_REGISTRY
     strategy_cls = STRATEGY_REGISTRY.get(strategy_name)
     if strategy_cls is None:
@@ -455,17 +573,20 @@ def run_falsification_trial(
     config_path: Path = _DEFAULT_CONFIG,
     registry: Path = _DEFAULT_REGISTRY,
     dry_run: bool = False,
+    cost_multiplier: float = 1.0,
+    pair_restrict: str | None = None,
 ) -> dict:
     """Run a Phase 2 falsification trial end-to-end.
 
     Steps:
       1. Parse pre-reg + sidecar.
       2. Load NHT rubric.
-      3. Run backtest on OOS window (single-pair or multi-pair per sidecar).
-      4. Compute DSR.
-      5. Resolve dominance benchmark if T5 trigger present.
-      6. Evaluate verdict via falsification_evaluator.evaluate().
-      7. Write trial entry (rejected or complete) to trials.jsonl.
+      3. Apply hook overrides (cost_multiplier, pair_restrict) if set.
+      4. Run backtest on OOS window (single-pair or multi-pair per sidecar).
+      5. Compute DSR.
+      6. Resolve dominance benchmark if T5 trigger present.
+      7. Evaluate verdict via falsification_evaluator.evaluate().
+      8. Write trial entry (rejected or complete) to trials.jsonl.
 
     Parameters
     ----------
@@ -477,6 +598,14 @@ def run_falsification_trial(
         trials.jsonl path (default: .fintech-org/trials.jsonl).
     dry_run:
         If True, all computation runs but nothing is written to registry.
+    cost_multiplier:
+        When != 1.0, multiply all cost-model parameters by this factor.
+        Sourced from --cost-multiplier CLI flag. Default 1.0 (no scaling).
+        Explicitly passed — never silently applied.
+    pair_restrict:
+        When set, restrict pairs to this comma-separated subset of the sidecar's
+        pair_resolved list. Sourced from --pair-restrict CLI flag. None = use
+        full sidecar pair list.
 
     Returns
     -------
@@ -526,9 +655,37 @@ def run_falsification_trial(
     # --- Step 3: Run backtest ---
     strategy_name = pre_reg.strategy
 
-    # Use sidecar-authoritative pair_resolved list (Bug-2 fix: sidecar is
-    # the structured source-of-truth; markdown **Pair:** is informational only).
-    pairs_to_run = list(pre_reg.pair_resolved)
+    # --- Step 2b: Apply hook overrides ---
+    # cost_multiplier hook: log if != 1.0 so the decision trace is unambiguous.
+    if cost_multiplier != 1.0:
+        _log(
+            "hook.cost_multiplier.applied",
+            trial_id=trial_id,
+            cost_multiplier=cost_multiplier,
+            note="All cost-model parameters will be scaled by this factor; "
+                 "sourced from --cost-multiplier flag (no silent default).",
+        )
+
+    # pair_restrict hook: override sidecar pair_resolved with a subset.
+    if pair_restrict is not None:
+        restricted = _apply_pair_restrict(
+            sidecar_pair_resolved=pre_reg.pair_resolved,
+            pair_restrict=pair_restrict,
+            pre_reg_path=pre_reg_path,
+        )
+        _log(
+            "hook.pair_restrict.applied",
+            trial_id=trial_id,
+            sidecar_pair_resolved=list(pre_reg.pair_resolved),
+            restricted_pairs=list(restricted),
+            note="Pair list overridden by --pair-restrict flag; "
+                 "must be subset of sidecar pair_resolved (no silent default).",
+        )
+        pairs_to_run = list(restricted)
+    else:
+        # Use sidecar-authoritative pair_resolved list (Bug-2 fix: sidecar is
+        # the structured source-of-truth; markdown **Pair:** is informational only).
+        pairs_to_run = list(pre_reg.pair_resolved)
 
     _log("falsification_trial.backtest.start",
          trial_id=trial_id, strategy=strategy_name, pairs=pairs_to_run,
@@ -538,9 +695,27 @@ def run_falsification_trial(
     pre_reg_timeframe = getattr(pre_reg, "timeframe", "daily")
     pre_reg_data_dir = getattr(pre_reg, "data_dir", None)
 
+    # Pre-load config once for cost-multiplier hook (avoids re-loading per pair).
+    _config_for_costs = load_config(config_path) if cost_multiplier != 1.0 else None
+
     pair_results: list[dict] = []
     for pair in pairs_to_run:
         try:
+            # Build per-pair cost model override when cost-stress hook is active.
+            cost_model_override: RealisticCostModel | None = None
+            if cost_multiplier != 1.0 and _config_for_costs is not None:
+                cost_model_override = _build_scaled_cost_model(
+                    config=_config_for_costs,
+                    pair_symbol=pair,
+                    cost_multiplier=cost_multiplier,
+                )
+                _log(
+                    "hook.cost_multiplier.pair_model",
+                    trial_id=trial_id,
+                    pair=pair,
+                    cost_multiplier=cost_multiplier,
+                )
+
             result = _run_single_pair(
                 strategy_name=strategy_name,
                 pair=pair,
@@ -549,6 +724,7 @@ def run_falsification_trial(
                 config_path=config_path,
                 timeframe=pre_reg_timeframe,
                 data_dir=pre_reg_data_dir,
+                cost_model_override=cost_model_override,
             )
             pair_results.append(result)
             _log("falsification_trial.pair.done", trial_id=trial_id,
@@ -711,6 +887,22 @@ def main() -> None:
         "--dry-run", action="store_true", dest="dry_run",
         help="Run everything but skip writes to trials.jsonl and dominance cache.",
     )
+    parser.add_argument(
+        "--cost-multiplier", type=float, default=1.0, dest="cost_multiplier",
+        help=(
+            "Scale all cost-model parameters (spread, slippage, commission, swap) "
+            "by this factor. Default 1.0 (no scaling). Pass 2.0 for 2× cost stress, "
+            "3.0 for 3× cost stress. Used for cost-stress falsification candidates."
+        ),
+    )
+    parser.add_argument(
+        "--pair-restrict", default=None, dest="pair_restrict",
+        help=(
+            "Restrict backtest to a comma-separated subset of the sidecar's "
+            "pair_resolved list (e.g. 'EURUSD' or 'EURUSD,GBPUSD'). "
+            "Must be a non-empty subset of sidecar pairs. No silent default."
+        ),
+    )
     args = parser.parse_args()
 
     pre_reg_path = Path(args.pre_reg)
@@ -723,6 +915,8 @@ def main() -> None:
             config_path=config_path,
             registry=registry_path,
             dry_run=args.dry_run,
+            cost_multiplier=args.cost_multiplier,
+            pair_restrict=args.pair_restrict,
         )
     except (ConfigError, DataError) as exc:
         _log("falsification_trial.fatal", error=str(exc), error_type=type(exc).__name__)
@@ -743,6 +937,10 @@ def main() -> None:
     if not verdict["passed"]:
         print(f"  Criterion:   {verdict['falsification_criterion']}")
         print(f"  Reason:      {verdict['rejection_reason']}")
+    if args.cost_multiplier != 1.0:
+        print(f"  CostMult:    {args.cost_multiplier}× (cost-stress hook active)")
+    if args.pair_restrict:
+        print(f"  PairRestr:   {args.pair_restrict} (pair-restrict hook active)")
     if args.dry_run:
         print("  [DRY RUN — no registry writes]")
     print(f"{'=' * 60}\n")

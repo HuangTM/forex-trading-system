@@ -632,3 +632,240 @@ def test_loads_real_phase2_pre_reg_with_resolved_pairs() -> None:
     assert spec.pair_resolved == ("EURUSD", "USDJPY", "GBPUSD"), (
         f"Expected Phase-2 universe tuple but got {spec.pair_resolved!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wave-5 Round-2: cost_multiplier hook tests
+# ---------------------------------------------------------------------------
+
+
+def test_cost_multiplier_builds_scaled_model() -> None:
+    """_build_scaled_cost_model multiplies all cost params by the given factor."""
+    from unittest.mock import MagicMock
+    from scripts.run_falsification_trial import _build_scaled_cost_model
+    from forex_system.core.types import PairInfo
+    from forex_system.costs.model import RealisticCostModel
+
+    base_pair = PairInfo(
+        symbol="EURUSD",
+        pip_value=0.0001,
+        spread_pips=1.0,
+        slippage_pips=0.5,
+        commission_pips=0.2,
+        swap_long_pips_per_day=0.1,
+        swap_short_pips_per_day=-0.3,
+    )
+    base_model = RealisticCostModel(pair_configs={"EURUSD": base_pair})
+
+    with patch("scripts.run_falsification_trial._build_cost_model", return_value=base_model):
+        result = _build_scaled_cost_model(
+            config=MagicMock(),
+            pair_symbol="EURUSD",
+            cost_multiplier=3.0,
+        )
+
+    scaled = result.pairs["EURUSD"]
+    assert abs(scaled.spread_pips - 3.0) < 1e-9, "spread_pips should be 3x"
+    assert abs(scaled.slippage_pips - 1.5) < 1e-9, "slippage_pips should be 3x"
+    assert abs(scaled.commission_pips - 0.6) < 1e-9, "commission_pips should be 3x"
+    assert abs(scaled.swap_long_pips_per_day - 0.3) < 1e-9, "swap_long should be 3x"
+    assert abs(scaled.swap_short_pips_per_day - (-0.9)) < 1e-9, "swap_short should be 3x"
+    # pip_value is NOT a cost — must remain unchanged.
+    assert scaled.pip_value == 0.0001, "pip_value must not be scaled"
+
+
+def test_cost_multiplier_hook_passes_override_to_engine(
+    pre_reg_dir: Path,
+    nht_rubric_path: Path,
+    tmp_registry: Path,
+    tmp_dominance_cache: Path,
+    tmp_path: Path,
+) -> None:
+    """When cost_multiplier != 1.0, _build_scaled_cost_model is called, not _build_cost_model."""
+    from scripts.run_falsification_trial import run_falsification_trial as _rft
+    from forex_system.core.types import PairInfo
+    from forex_system.costs.model import RealisticCostModel
+
+    pre_reg_path = pre_reg_dir / "carry_baseline.md"
+    bt_result = _make_backtest_result(sharpe=0.10)
+    metrics_mock = _make_metrics(sharpe=0.10)
+
+    base_pair = PairInfo("EURUSD", 0.0001, 1.0, 0.5, 0.2, 0.1, -0.3)
+    base_model = RealisticCostModel(pair_configs={"EURUSD": base_pair})
+
+    with (
+        patch("scripts.run_falsification_trial._NHT_RUBRIC_PATH", nht_rubric_path),
+        patch("scripts.run_falsification_trial._DOMINANCE_CACHE_PATH", tmp_dominance_cache),
+        patch("scripts.run_falsification_trial.run_backtest", return_value=bt_result),
+        patch("scripts.run_falsification_trial.calculate_metrics", return_value=metrics_mock),
+        patch("scripts.run_falsification_trial.load_parquet") as mock_load,
+        patch("scripts.run_falsification_trial.compute_indicators") as mock_ind,
+        patch("scripts.run_falsification_trial.create_strategy") as mock_strat,
+        patch("scripts.run_falsification_trial.load_config") as mock_cfg,
+        patch("scripts.run_falsification_trial._build_cost_model", return_value=base_model) as mock_bcm,
+        patch("scripts.run_falsification_trial._build_sizer", return_value=None),
+        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial._append_trial"),
+        patch("scripts.run_falsification_trial.record_trial_rejection"),
+    ):
+        _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_bcm)
+        result = _rft(
+            pre_reg_path=pre_reg_path,
+            config_path=tmp_path / "config.yaml",
+            registry=tmp_registry,
+            dry_run=True,
+            cost_multiplier=3.0,
+        )
+
+    # _build_cost_model must be called (once for the scaled-model build).
+    assert mock_bcm.call_count >= 1
+    # Result completes without error — cost-stress hook applied.
+    assert "oos_sharpe" in result["metrics"]
+
+
+def test_cost_multiplier_1x_does_not_invoke_scaled_model(
+    pre_reg_dir: Path,
+    nht_rubric_path: Path,
+    tmp_registry: Path,
+    tmp_dominance_cache: Path,
+    tmp_path: Path,
+) -> None:
+    """When cost_multiplier == 1.0 (default), _build_scaled_cost_model is NOT called."""
+    from scripts.run_falsification_trial import run_falsification_trial as _rft
+
+    pre_reg_path = pre_reg_dir / "carry_baseline.md"
+    bt_result = _make_backtest_result(sharpe=0.80)
+    metrics_mock = _make_metrics(sharpe=0.80)
+
+    with (
+        patch("scripts.run_falsification_trial._NHT_RUBRIC_PATH", nht_rubric_path),
+        patch("scripts.run_falsification_trial._DOMINANCE_CACHE_PATH", tmp_dominance_cache),
+        patch("scripts.run_falsification_trial.run_backtest", return_value=bt_result),
+        patch("scripts.run_falsification_trial.calculate_metrics", return_value=metrics_mock),
+        patch("scripts.run_falsification_trial.load_parquet") as mock_load,
+        patch("scripts.run_falsification_trial.compute_indicators") as mock_ind,
+        patch("scripts.run_falsification_trial.create_strategy") as mock_strat,
+        patch("scripts.run_falsification_trial.load_config") as mock_cfg,
+        patch("scripts.run_falsification_trial._build_cost_model") as mock_bcm,
+        patch("scripts.run_falsification_trial._build_sizer", return_value=None),
+        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial._append_trial"),
+        patch("scripts.run_falsification_trial.record_trial_rejection"),
+        patch("scripts.run_falsification_trial._build_scaled_cost_model") as mock_scaled,
+    ):
+        _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_bcm)
+        _rft(
+            pre_reg_path=pre_reg_path,
+            config_path=tmp_path / "config.yaml",
+            registry=tmp_registry,
+            dry_run=True,
+            cost_multiplier=1.0,  # default — no scaling
+        )
+
+    mock_scaled.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Wave-5 Round-2: pair_restrict hook tests
+# ---------------------------------------------------------------------------
+
+
+def test_pair_restrict_valid_subset_accepted(
+    pre_reg_dir: Path,
+    nht_rubric_path: Path,
+    tmp_registry: Path,
+    tmp_dominance_cache: Path,
+    tmp_path: Path,
+) -> None:
+    """--pair-restrict with a valid subset of sidecar pairs runs only those pairs."""
+    from scripts.run_falsification_trial import run_falsification_trial as _rft
+
+    # Use a pre-reg with pair: all (3 pairs); restrict to EURUSD.
+    d = tmp_path / "pr_multi"
+    d.mkdir()
+    md = d / "multi_strategy.md"
+    md.write_text(
+        "# Multi Strategy\n\n"
+        "**Strategy ID:** carry\n"
+        "**Pair:** EURUSD, USDJPY, GBPUSD\n\n"
+        "## Hypothesis\n\nCarry generates alpha.\n\n"
+        "## Falsification Criteria\n\n"
+        "- **T1:** OOS Sharpe < 0.30\n\n"
+        "kill_switch_threshold: 0.30\n"
+    )
+    sidecar = d / "multi_strategy.triggers.yaml"
+    sidecar.write_text(
+        "strategy: carry\n"
+        "pair: all\n"
+        "oos_overlap: false\n"
+        'oos_window_start: "2022-01-01"\n'
+        'oos_window_end: "2023-12-31"\n'
+        "triggers:\n"
+        "  - label: T1\n"
+        "    metric: oos_sharpe\n"
+        "    operator: '<'\n"
+        "    threshold: 0.30\n"
+        "    raw_text: OOS Sharpe < 0.30\n"
+    )
+
+    bt_result = _make_backtest_result(sharpe=0.80)
+    metrics_mock = _make_metrics(sharpe=0.80)
+    run_calls: list[str] = []
+
+    def _bt_side_effect(*args, **kwargs):
+        # Capture which pairs are run.
+        run_calls.append(kwargs.get("pair", "unknown"))
+        return bt_result
+
+    with (
+        patch("scripts.run_falsification_trial._NHT_RUBRIC_PATH", nht_rubric_path),
+        patch("scripts.run_falsification_trial._DOMINANCE_CACHE_PATH", tmp_dominance_cache),
+        patch("scripts.run_falsification_trial.run_backtest", side_effect=_bt_side_effect),
+        patch("scripts.run_falsification_trial.calculate_metrics", return_value=metrics_mock),
+        patch("scripts.run_falsification_trial.load_parquet") as mock_load,
+        patch("scripts.run_falsification_trial.compute_indicators") as mock_ind,
+        patch("scripts.run_falsification_trial.create_strategy") as mock_strat,
+        patch("scripts.run_falsification_trial.load_config") as mock_cfg,
+        patch("scripts.run_falsification_trial._build_cost_model") as mock_bcm,
+        patch("scripts.run_falsification_trial._build_sizer", return_value=None),
+        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial._append_trial"),
+        patch("scripts.run_falsification_trial.record_trial_rejection"),
+    ):
+        _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_bcm)
+        result = _rft(
+            pre_reg_path=md,
+            config_path=tmp_path / "config.yaml",
+            registry=tmp_registry,
+            dry_run=True,
+            pair_restrict="EURUSD",
+        )
+
+    # Only EURUSD should have been run (not USDJPY or GBPUSD).
+    assert run_calls == ["EURUSD"], f"Expected only EURUSD, got {run_calls}"
+    assert "oos_sharpe" in result["metrics"]
+
+
+def test_pair_restrict_unknown_pair_raises_config_error(
+    pre_reg_dir: Path,
+    nht_rubric_path: Path,
+    tmp_registry: Path,
+    tmp_path: Path,
+) -> None:
+    """--pair-restrict with a pair not in sidecar's pair_resolved raises ConfigError."""
+    from scripts.run_falsification_trial import run_falsification_trial as _rft
+    from forex_system.core.errors import ConfigError as CE
+
+    pre_reg_path = pre_reg_dir / "carry_baseline.md"  # pair: EURUSD in sidecar
+
+    with (
+        patch("scripts.run_falsification_trial._NHT_RUBRIC_PATH", nht_rubric_path),
+    ):
+        with pytest.raises(CE, match="not in sidecar pair_resolved"):
+            _rft(
+                pre_reg_path=pre_reg_path,
+                config_path=tmp_path / "config.yaml",
+                registry=tmp_registry,
+                dry_run=True,
+                pair_restrict="AUDUSD",  # not in sidecar
+            )

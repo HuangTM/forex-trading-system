@@ -1,0 +1,117 @@
+# Sidecar triggers for carry_fred pre-registration.
+# Paired with: references/pre-registrations/carry_fred.md
+# Strategy: carry_fred | Pair: all (multi-pair)
+# Created: 2026-05-01 (wave-5 round-1 sub-task 5a; QD implementation)
+#
+# NOTE on pair: "all" resolution — the parser expands "all" to the Phase-2
+# universe ["EURUSD", "USDJPY", "GBPUSD"] per _PHASE2_UNIVERSE in
+# preregistration.py. carry_fred's true universe is 12 pairs (see carry_fred.md
+# ## Universe). pair_resolved is the harness evaluation scope; it does not
+# truncate the pre-registered 12-pair universe for in-strategy computation.
+#
+# NOTE on unimplemented metrics — CF-T2, CF-T5, CF-T6, CF-T7 reference metrics
+# that are NOT currently computed by the trial harness. Per Phase-2 known-gaps
+# treatment (mirroring BET2-T2/T3/T6), the sidecar still declares them so the
+# formal contract is documented. When the QD evaluator encounters them it must
+# log a "metric not implemented; trigger advisory only" warning and NOT treat
+# absence as a pass. These triggers are advisory until the metric is wired.
+#
+# NOTE on CF-T9 operator — FalsificationTrigger requires operator in
+# {<, >, <=, >=}; "==" is not supported. CF-T9 is a boolean-outcome trigger
+# where the monitor emits cf_t9_status_triggered as 0 or 1. We encode as
+# cf_t9_status_triggered >= 1 (fires when monitor exits 1 / triggered).
+#
+# NOTE on CF-T9 Clause C gap — monitor_regime_triggers.py docstring references
+# "ALL three clauses" but implements only Clauses A and B. Clause C text does
+# not exist in the implementation or CONSENSUS 2026-04-26 record. CF-T9 is
+# therefore binding on A+B only until NHT or CEO ratifies a Clause C text.
+# Gap sourced from: carry_fred.md CF-T9 amendment (HoQR inspection 2026-05-01).
+
+strategy: carry_fred
+pair: all
+# kill_switch_threshold provided here (Path B fallback) because carry_fred.md
+# uses the older "gate_threshold:" key rather than "kill_switch_threshold:".
+# Value sourced from carry_fred.md "gate_threshold: 0.30" field — NOT a silent default.
+kill_switch_threshold: "0.30"
+oos_overlap: false
+oos_window_start: "2023-04-25"
+oos_window_end: "2026-04-25"
+
+triggers:
+  - label: CF-T1
+    metric: oos_sharpe
+    operator: "<"
+    threshold: 0.30
+    # Sourced verbatim from carry_fred.md CF-T1 bullet.
+
+  - label: CF-T2
+    metric: n_negative_pair_sharpes
+    operator: ">"
+    threshold: 8
+    # ADVISORY ONLY — metric not implemented in current harness.
+    # Fires when more than 8 of 12 per-pair Sharpes are negative in OOS period.
+    # Sourced verbatim from carry_fred.md CF-T2 bullet.
+
+  - label: CF-T3
+    metric: signal_nonvarying_pairs
+    operator: ">"
+    threshold: 0
+    # ADVISORY ONLY — metric not implemented in current harness.
+    # Fires when any pair has a constant rate differential over multi-month periods
+    # (degenerate/stale FRED data). threshold > 0 = at least one non-varying pair.
+    # Sourced verbatim from carry_fred.md CF-T3 bullet.
+
+  - label: CF-T4
+    metric: max_drawdown
+    operator: ">"
+    threshold: 0.40
+    # Sourced verbatim from carry_fred.md CF-T4 bullet.
+
+  - label: CF-T5
+    metric: cross_sectional_carry_ttest_p
+    operator: ">"
+    threshold: 0.10
+    # ADVISORY ONLY — metric not implemented in current harness.
+    # Fires when one-sample t-test p-value (OOS Sharpe distribution vs 0) > 0.10.
+    # Sourced verbatim from carry_fred.md CF-T5 bullet.
+
+  - label: CF-T6
+    metric: cost_stress_sharpe
+    operator: "<"
+    threshold: 0.20
+    # ADVISORY ONLY — metric not implemented in current harness.
+    # Fires when doubling measured costs reduces in-sample portfolio Sharpe < 0.20.
+    # Sourced verbatim from carry_fred.md CF-T6 bullet.
+
+  - label: CF-T7
+    metric: rank_vs_raw_sharpe_delta
+    operator: ">"
+    threshold: 0.30
+    # ADVISORY ONLY — metric not implemented in current harness.
+    # Fires when removing cross-sectional ranking reduces portfolio Sharpe by > 0.30
+    # vs the ranked version (ranking provides no edge over raw signal).
+    # Sourced verbatim from carry_fred.md CF-T7 bullet.
+
+  - label: CF-T8
+    metric: in_sample_pre_2023_04_25_sharpe
+    operator: "<"
+    threshold: 0.40
+    # Sourced verbatim from carry_fred.md CF-T8 bullet.
+
+  - label: CF-T9
+    metric: cf_t9_status_triggered
+    operator: ">="
+    threshold: 1
+    # Encoding note: cf_t9_status_triggered is 1 (triggered) or 0 (not triggered),
+    # sourced from scripts/monitor_regime_triggers.py exit code / output JSON.
+    # Operator ">=" used because FalsificationTrigger forbids "==".
+    # Per CONSENSUS 2026-04-26 amendment: retire carry_fred within 5 trading days
+    # when ALL active clauses hold simultaneously within 90-trading-day window.
+    # Clause A: BoJ policy rate (FRED IRSTCB01JPM156N) >= 0.50% for >= 2 consecutive
+    #   quarter-end observations.
+    # Clause B: vol-weighted 60-day basket Sharpe across {AUDJPY, CADJPY, EURJPY,
+    #   GBPJPY, NZDJPY, USDJPY} < 0.20 net of costs.
+    # Clause C: NOT IMPLEMENTED — monitor docstring references "ALL three clauses"
+    #   but only A and B exist in monitor_regime_triggers.py. CF-T9 is binding on
+    #   A+B only until NHT/CEO ratifies a Clause C text.
+    # Canonical implementation: scripts/monitor_regime_triggers.py (commit 61ea022).

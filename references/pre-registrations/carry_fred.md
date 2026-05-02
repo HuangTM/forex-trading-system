@@ -105,6 +105,21 @@ research thread at this capacity scale.
   no edge over raw signal
 - **CF-T8:** In-sample period (pre-2023-04-25) portfolio Sharpe < 0.40 — if
   even in-sample Sharpe is weak, there is no edge to hold out
+- **CF-T9:** BoJ policy-rate regime trigger — retire carry_fred within 5 trading
+  days when ALL of the following clauses hold simultaneously within a
+  90-trading-day window:
+  - **(A)** BoJ policy rate (FRED series IRSTCB01JPM156N) >= 0.50% for >= 2
+    consecutive quarter-end observations
+  - **(B)** Aggregate equal-vol-weighted 60-trading-day rolling Sharpe across
+    {AUDJPY, CADJPY, EURJPY, GBPJPY, NZDJPY, USDJPY} drops below 0.20 net of
+    costs
+  - **(C — KNOWN GAP):** The monitor docstring in `scripts/monitor_regime_triggers.py`
+    references "ALL three clauses" but only implements clauses A and B. No third
+    clause text exists in the implementation or in the CONSENSUS 2026-04-26
+    record as of HoQR inspection 2026-05-01. CF-T9 is therefore binding on
+    clauses A+B only until NHT or CEO amends this record with a ratified
+    Clause C. Operationalisation: `scripts/monitor_regime_triggers.py` (commit
+    61ea022) + `scripts/auto_retire_on_trigger.py` wiring.
 
 ---
 
@@ -125,3 +140,10 @@ research thread at this capacity scale.
 - Quant Researcher: pre-registered prospectively per docs/decisions/CONSENSUS.md Bet #1 conditions
 - NHT: OOS holdout enforced in harness; no data snooping permitted after this file commit
 - CTO: per-pair plus portfolio tests required before declaring pass/fail
+
+### CF-T9 Amendment — 2026-05-01
+
+- **HoQR (HuangTM):** CF-T9 added as binding falsification criterion per CONSENSUS 2026-04-26
+  Section 5 and Wave-5 Round-1 closure mandate. Clauses A+B are operationalised;
+  Clause C gap is flagged and documented. Amendment signed 2026-05-01.
+- **NHT:** Co-sign pending — required before paper launch (Wave-5 Round-3 per closure consensus).

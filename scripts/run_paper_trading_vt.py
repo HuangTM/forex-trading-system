@@ -40,6 +40,12 @@ from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
 from forex_system.core.config import load_config
 from forex_system.core.types import Direction
+from forex_system.risk.exposure_aggregator import (
+    AggregationGateBlocked,
+    check_dispatch_allowed,
+    compute_exposure,
+)
+from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
 from forex_system.risk.kill_switch import KillSwitch, TriggerReason
 from forex_system.saxo.client import SaxoClient
 from forex_system.saxo.execution import SaxoExecutionBackend
@@ -55,6 +61,22 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)
 
 WS01_TRACE_PATH = "data/ws01_trace.log"
+
+# ---------------------------------------------------------------------------
+# CRO binding constraints — sourced from CONSENSUS_2026-04-28 + CRO Wave-4
+# artifact .fintech-org/artifacts/2026-05-01T-phase2-falsification-trials/
+# cro-bet1-sizing-revision.yaml. These are NOT silent defaults; they are
+# named constants that must match the typed consensus artifact.
+# ---------------------------------------------------------------------------
+
+# CRO binding constraint #1 (exposure_aggregator): JPY-correlated notional ≤15% of book
+CRO_MAX_CORRELATED_PCT: float = 0.15
+# CRO Phase-1 envelope: max concurrent active paper strategies
+CRO_MAX_ACTIVE_STRATEGIES: int = 4
+# CRO Phase-1 envelope: max concurrent open positions
+CRO_MAX_CONCURRENT_POSITIONS: int = 6
+# CRO binding constraint #2 (heartbeat_watchdog): ≤5 min timeout on paper-trading loop
+CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
 
 
 def _attach_ws01_file_handler(path: str = WS01_TRACE_PATH) -> None:
@@ -263,6 +285,32 @@ def log_monitor_signals(
             print(f"  [monitor {mp}] FAILED: {e}")
 
 
+def halt_paper_loop(reason: str) -> None:
+    """Mark the paper loop for halt by setting a module-level flag.
+
+    Called by the HeartbeatWatchdog on_timeout callback (CRO binding
+    constraint #2). Does NOT auto-unwind positions — per CRO 2026-04-30
+    design, existing positions are flagged for human review, not force-closed.
+    The main loop checks ``_HALT_REQUESTED`` at the top of each cycle and
+    exits gracefully.
+    """
+    global _HALT_REQUESTED, _HALT_REASON
+    _HALT_REQUESTED = True
+    _HALT_REASON = reason
+    logger.critical(
+        "paper_loop_halt_requested",
+        extra={
+            "event": "HALT_REQUESTED",
+            "reason": reason,
+        },
+    )
+
+
+# Module-level halt flag — set by halt_paper_loop; read at loop entry.
+_HALT_REQUESTED: bool = False
+_HALT_REASON: str = ""
+
+
 def run_cycle(
     client: SaxoClient,
     backend: SaxoExecutionBackend,
@@ -279,6 +327,18 @@ def run_cycle(
     monitor_pairs: list[str] | None = None,
     cycle_id: int | None = None,
 ) -> dict:
+    # --- CRO binding constraint #2: watchdog halt check ---
+    # The HeartbeatWatchdog callback sets _HALT_REQUESTED if the loop went
+    # idle for > CRO_WATCHDOG_TIMEOUT_SECONDS.  Check at cycle entry so no
+    # new dispatch is initiated after a watchdog fire.
+    if _HALT_REQUESTED:
+        logger.critical(
+            "run_cycle blocked — watchdog halt active",
+            extra={"event": "CYCLE_BLOCKED_WATCHDOG_HALT", "halt_reason": _HALT_REASON},
+        )
+        _emit_ws01(cycle_id, pair, "HALT_WATCHDOG_BLOCKED")
+        return {"_action": "HALT_WATCHDOG"}
+
     if kill_switch.is_triggered:
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, "urgent")
@@ -312,6 +372,38 @@ def run_cycle(
         return {"_action": "KILL_HALTED"}
 
     current_positions = backend.get_positions()
+
+    # --- CRO binding constraint #1: pre-trade aggregation gate ---
+    # Compute exposure across all currently open positions and check that
+    # JPY-correlated notional, active-strategy count, and position count are
+    # within CRO envelope before issuing any new dispatch.
+    # Thresholds sourced explicitly from CRO CONSENSUS_2026-04-28 + Wave-4
+    # artifact; no silent defaults (per hard rule).
+    _open_pos_list = list(current_positions.values())
+    _exposure = compute_exposure(_open_pos_list)
+    try:
+        check_dispatch_allowed(
+            _exposure,
+            max_correlated_pct=CRO_MAX_CORRELATED_PCT,         # 0.15 — CRO binding #1
+            max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,   # 4 — CRO Phase-1 envelope
+            max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,  # 6 — CRO Phase-1 envelope
+        )
+    except AggregationGateBlocked as exc:
+        logger.warning(
+            "dispatch_blocked_aggregation_gate",
+            extra={
+                "event": "DISPATCH_BLOCKED_AGGREGATION_GATE",
+                "reason": str(exc),
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "jpy_correlated_pct": _exposure.jpy_correlated_pct,
+                "active_strategies": _exposure.active_paper_strategies,
+                "open_positions": _exposure.concurrent_open_positions,
+            },
+        )
+        _emit_ws01(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity)
+        return {"_action": "SKIP_AGGREGATION_GATE"}
+
     print("\n" + "=" * 60)
     print(f"  Vol-Target Cycle — {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
     print(f"  Account equity: {equity:,.2f}")
@@ -545,12 +637,38 @@ def main():
     last_signal: float | None = None
     last_action: str | None = None
 
+    # --- CRO binding constraint #2: HeartbeatWatchdog instantiation ---
+    # Timeout sourced from CRO CONSENSUS_2026-04-28 binding constraint #2.
+    # on_timeout halts new dispatches; does NOT auto-unwind (per CRO 2026-04-30).
+    def _on_watchdog_timeout(seconds_idle: float) -> None:
+        logger.critical(
+            "heartbeat_watchdog fired",
+            extra={
+                "event": "WATCHDOG_TIMEOUT_FIRED",
+                "seconds_idle": seconds_idle,
+            },
+        )
+        halt_paper_loop(reason=f"watchdog_timeout_{seconds_idle:.1f}s")
+        notify(
+            args.ntfy,
+            "WATCHDOG TIMEOUT — trades halted",
+            f"Paper loop idle {seconds_idle:.1f}s > {CRO_WATCHDOG_TIMEOUT_SECONDS}s limit",
+            "urgent",
+        )
+
+    watchdog = HeartbeatWatchdog(
+        timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS,  # 300.0 — CRO binding #2, explicit
+        on_timeout=_on_watchdog_timeout,
+    )
+    watchdog.start()
+
     if args.loop:
         print(f"\nLoop mode (every {args.interval}s). Ctrl+C to stop.")
         cycle_id = 0
         try:
             while True:
                 cycle_id += 1
+                watchdog.tick()  # CRO binding #2: dead-man tick each cycle
                 write_heartbeat(HEARTBEAT_PATH, cycle_id, loop_start,
                                 last_signal=last_signal, last_action=last_action)
                 result = run_cycle(client, backend, sizer, strategy, pair,
@@ -564,19 +682,32 @@ def main():
                 last_action = result.get("_action")
                 pred_log.flush()
                 trade_log.flush()
+                if _HALT_REQUESTED:
+                    logger.critical(
+                        "paper_loop_exiting — halt requested by watchdog",
+                        extra={"event": "LOOP_EXIT_WATCHDOG_HALT", "reason": _HALT_REASON},
+                    )
+                    print(f"\nPaper loop HALTED by watchdog: {_HALT_REASON}")
+                    break
                 print(f"\nNext check in {args.interval}s...")
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             print("\nStopped by operator.")
+        finally:
+            watchdog.stop()
     else:
-        write_heartbeat(HEARTBEAT_PATH, 1, loop_start,
-                        last_signal=last_signal, last_action=last_action)
-        run_cycle(client, backend, sizer, strategy, pair,
-                  pred_log, trade_log, kill_switch,
-                  rebal_threshold=rebal_threshold,
-                  auto_mode=args.auto, ntfy_topic=args.ntfy,
-                  horizon=args.timeframe,
-                  cycle_id=1)
+        try:
+            watchdog.tick()  # CRO binding #2: tick even for single-shot run
+            write_heartbeat(HEARTBEAT_PATH, 1, loop_start,
+                            last_signal=last_signal, last_action=last_action)
+            run_cycle(client, backend, sizer, strategy, pair,
+                      pred_log, trade_log, kill_switch,
+                      rebal_threshold=rebal_threshold,
+                      auto_mode=args.auto, ntfy_topic=args.ntfy,
+                      horizon=args.timeframe,
+                      cycle_id=1)
+        finally:
+            watchdog.stop()
 
     pred_log.close()
     trade_log.close()

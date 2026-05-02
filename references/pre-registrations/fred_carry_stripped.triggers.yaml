@@ -1,0 +1,48 @@
+# Sidecar triggers for fred_carry_stripped pre-registration.
+# Paired with: references/pre-registrations/fred_carry_stripped.md
+# Strategy: fred_carry_stripped | Pair: all Phase-2 pairs
+# Created: 2026-05-01 (sub-wave 3b; QD implementation)
+# Source: HoQR Wave-2 prioritization sketch (R7) + NHT frozen rubric (R1-R6)
+# Note: R7 falsification logic is inverted — if stripped Sharpe >= 0.60, the
+# BoJ-divergence regime filter in carry_fred is FAIL-TO-FALSIFY (regime provides
+# no incremental alpha). T5 captures this special inverted trigger.
+
+strategy: fred_carry_stripped
+pair: all
+hypothesis_summary: "FRED-carry without regime filter has OOS Sharpe < 0.60; if >= 0.60 the regime conditioning in carry_fred fails to falsify (R7)."
+kill_switch_threshold: 0.60
+oos_overlap: false
+oos_window_start: "2022-01-01"
+oos_window_end: "2023-12-31"
+
+triggers:
+  - label: "fred_carry_stripped-T1"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.30
+    raw_text: "OOS Sharpe < 0.30 (R1 universal floor — strategy must show baseline alpha even without regime filter)"
+  - label: "fred_carry_stripped-T2"
+    metric: "max_dd"
+    operator: ">"
+    threshold: 0.25
+    raw_text: "Max drawdown > 25% (R3 firm anchor)"
+  - label: "fred_carry_stripped-T3"
+    metric: "dsr"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "DSR < 0.50 with N=n_trials_at_spawn (R2 NHT frozen)"
+  - label: "fred_carry_stripped-T4-trades"
+    metric: "n_trades"
+    operator: "<"
+    threshold: 30
+    raw_text: "n_trades < 30 (R6 sample-size floor)"
+  - label: "fred_carry_stripped-T4-bars"
+    metric: "n_oos_bars"
+    operator: "<"
+    threshold: 252
+    raw_text: "n_oos_bars < 252 (R6 sample-size floor)"
+  - label: "fred_carry_stripped-T5"
+    metric: "oos_sharpe"
+    operator: ">="
+    threshold: 0.60
+    raw_text: "OOS Sharpe >= 0.60 means regime conditioning FAILS to falsify (R7 inverted trigger: stripped version matches or exceeds carry_fred, so regime filter adds no alpha)"

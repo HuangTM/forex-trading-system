@@ -5,6 +5,7 @@ from forex_system.strategies.bollinger_rsi import BollingerRSIStrategy
 from forex_system.strategies.carry import CarryStrategy
 from forex_system.strategies.carry_fred import CarryFREDStrategy
 from forex_system.strategies.carry_momentum import CarryMomentumStrategy
+from forex_system.strategies.fred_carry_stripped import FredCarryStrippedStrategy
 from forex_system.strategies.ma_crossover import MACrossoverStrategy
 from forex_system.strategies.momentum import MomentumStrategy
 from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
@@ -16,6 +17,7 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "carry": CarryStrategy,
     "carry_fred": CarryFREDStrategy,
     "carry_momentum": CarryMomentumStrategy,
+    "fred_carry_stripped": FredCarryStrippedStrategy,
     "vol_target_carry": VolTargetCarryStrategy,
 }
 

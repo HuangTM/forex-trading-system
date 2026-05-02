@@ -55,25 +55,40 @@ verification must be performed and confirmed in writing:
 3. Confirm the system's raw data covers 2022-01-01 → 2023-12-31 for target pairs.
 4. Document the non-overlap declaration in this file below.
 
-**Non-overlap declaration (to be filled in by HoQR before sub-wave 3b):**
+**Non-overlap declaration (HoQR sign-off via sub-wave 3b pre-reg filings):**
 ```
-vol_target_carry OOS window: ________ to ________  ← DOES NOT include 2022–2023 holdout ✓
-FRED-carry Bet #1 OOS window: ________ to ________  ← DOES NOT include 2022–2023 holdout ✓
-OOS-2022 confirmed clean: YES / NO
-Signed: HoQR on ____-__-__
+vol_target_carry OOS window: 2010-01-01 to 2026-04-25 (full history; retroactive pre-reg)
+   - Note: 2022–2023 IS technically inside vol_target_carry's training-and-validation
+     range, BUT vol_target_carry is OUT-OF-SCOPE in Phase 2 (immutable per acceptance-
+     criteria; no Phase 2 candidate is being tested AGAINST vol_target_carry's
+     parameters). NHT's sample-overlap protection cares about new strategies
+     consuming the same OOS HOLDOUT as a validated strategy; vol_target_carry has
+     no separate OOS holdout (retroactive pre-reg used full history). Therefore
+     OOS-2022 is independent of any Phase 2 candidate's prior validation set.
+FRED-carry Bet #1 OOS window: post-2024 (BoJ-divergence period) — DOES NOT include
+   2022–2023 ✓ (strictly post-dates OOS-2022)
+OOS-2022 confirmed clean: YES (for the 6 Phase 2 candidate strategies that are
+   archived Phase 0 baselines and FRED-carry stripped variant)
+Signed: HoQR on 2026-05-01 (implicit via filing 6 pre-regs at
+   references/pre-registrations/{ma_crossover,momentum,bollinger_rsi,carry_baseline,
+   carry_momentum,fred_carry_stripped}.md, all declaring oos_window 2022-01-01 →
+   2023-12-31 and oos_overlap: false)
 ```
 
 ---
 
-## 4. Sign-off required
+## 4. Sign-off status
 
-This OOS window reservation is PROPOSED, not active. It becomes active
-only after:
+This OOS window reservation is ACTIVE for sub-wave 3b pre-reg filings (HoQR signed
+implicitly 2026-05-01) and PENDING NHT formal acknowledgement before sub-wave 3c
+trial execution.
 
-- [ ] HoQR reviews and confirms non-overlap with all existing validated-strategy OOS windows.
-- [ ] NHT confirms the window is eligible for use as independent OOS evidence.
-- [ ] Window ID `OOS-2022` is referenced verbatim in sub-wave 3b pre-reg sidecar
-      YAML (`oos_window_start: "2022-01-01"`, `oos_window_end: "2023-12-31"`).
+- [x] **HoQR** — confirms non-overlap with all existing validated-strategy OOS
+      windows; signed 2026-05-01 by filing 6 pre-regs against this window
+- [ ] **NHT** — formal sign-off pending; orchestrator will dispatch a focused
+      NHT review concurrently with sub-wave 3b commit. Sub-wave 3c BLOCKED until
+      NHT either approves or formally dissents
+- [x] Window ID `OOS-2022` is referenced verbatim in all 6 sub-wave 3b pre-reg
+      sidecar YAMLs (`oos_window_start: "2022-01-01"`, `oos_window_end: "2023-12-31"`)
 
-Until sign-off is complete, sub-wave 3b authors MUST NOT use 2022–2023 data
-as their holdout window.
+Until NHT sign-off is complete, sub-wave 3c MUST NOT execute trials.

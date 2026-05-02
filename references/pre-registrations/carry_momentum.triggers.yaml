@@ -1,0 +1,51 @@
+# Sidecar triggers for carry_momentum pre-registration.
+# Paired with: references/pre-registrations/carry_momentum.md
+# Strategy: carry_momentum | Pair: all Phase-2 pairs
+# Created: 2026-05-01 (sub-wave 3b; QD implementation)
+# Source: HoQR Wave-2 prioritization sketch (R6b) + HoQR Wave-3b raised-threshold +
+#         NHT frozen rubric (R1-R6)
+# Note: kill_switch_threshold raised from 0.40 (Wave-2 sketch) to 0.50 (Wave-3b
+# authoritative HoQR call): "carry is a component; blended strategy must clear at
+# minimum the carry baseline bar." Sidecar updated by orchestrator-side sync check
+# to match HoQR markdown verbatim. T5 dominance trigger ADDED with -0.30 margin
+# (wider than R6a's -0.20, reflecting cost of added complexity).
+
+strategy: carry_momentum
+pair: all
+hypothesis_summary: "Carry-momentum composite generates OOS Sharpe >= 0.50 and is dominated by carry_fred by no worse than -0.30 Sharpe points."
+kill_switch_threshold: 0.50
+oos_overlap: false
+oos_window_start: "2022-01-01"
+oos_window_end: "2023-12-31"
+
+triggers:
+  - label: "carry_momentum-T1"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "OOS Sharpe < 0.50 (this pre-reg's kill_switch_threshold supersedes R1 floor; carry_momentum must clear at minimum the carry baseline bar since carry is a component)"
+  - label: "carry_momentum-T2"
+    metric: "max_dd"
+    operator: ">"
+    threshold: 0.25
+    raw_text: "Max drawdown > 25% (R3 firm anchor)"
+  - label: "carry_momentum-T3"
+    metric: "dsr"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "DSR < 0.50 with N=n_trials_at_spawn (R2 NHT frozen)"
+  - label: "carry_momentum-T4-trades"
+    metric: "n_trades"
+    operator: "<"
+    threshold: 30
+    raw_text: "n_trades < 30 (R6 sample-size floor; NOTE: agreement_only filter may reduce trade count materially)"
+  - label: "carry_momentum-T4-bars"
+    metric: "n_oos_bars"
+    operator: "<"
+    threshold: 252
+    raw_text: "n_oos_bars < 252 (R6 sample-size floor)"
+  - label: "carry_momentum-T5"
+    metric: "sharpe_minus_carry_fred_sharpe"
+    operator: "<"
+    threshold: -0.30
+    raw_text: "carry_momentum OOS Sharpe minus carry_fred OOS Sharpe < -0.30 (R6b dominance test: wider margin than R6a's -0.20 to reflect the cost of the added momentum overlay; if blend cannot come within 0.30 Sharpe of carry_fred, the overlay provides no arch advantage)"

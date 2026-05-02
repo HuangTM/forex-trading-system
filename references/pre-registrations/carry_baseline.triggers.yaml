@@ -1,0 +1,47 @@
+# Sidecar triggers for carry_baseline pre-registration.
+# Paired with: references/pre-registrations/carry_baseline.md
+# Strategy: carry | Pair: all Phase-2 pairs
+# Created: 2026-05-01 (sub-wave 3b; QD implementation)
+# Source: HoQR Wave-2 prioritization sketch (R6a) + NHT frozen rubric (R1-R6)
+# Note: carry_baseline has elevated Sharpe floor (0.50) per R6a and a dominance
+# trigger (T5) testing whether carry_baseline beats carry_fred by >= -0.20 Sharpe.
+
+strategy: carry
+pair: all
+hypothesis_summary: "Carry baseline generates OOS Sharpe >= 0.50 and outperforms FRED-carry by no worse than -0.20 Sharpe points."
+kill_switch_threshold: 0.50
+oos_overlap: false
+oos_window_start: "2022-01-01"
+oos_window_end: "2023-12-31"
+
+triggers:
+  - label: "carry_baseline-T1"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "OOS Sharpe < 0.50 (R6a elevated floor for carry strategies)"
+  - label: "carry_baseline-T2"
+    metric: "max_dd"
+    operator: ">"
+    threshold: 0.25
+    raw_text: "Max drawdown > 25% (R3 firm anchor)"
+  - label: "carry_baseline-T3"
+    metric: "dsr"
+    operator: "<"
+    threshold: 0.50
+    raw_text: "DSR < 0.50 with N=n_trials_at_spawn (R2 NHT frozen)"
+  - label: "carry_baseline-T4-trades"
+    metric: "n_trades"
+    operator: "<"
+    threshold: 30
+    raw_text: "n_trades < 30 (R6 sample-size floor)"
+  - label: "carry_baseline-T4-bars"
+    metric: "n_oos_bars"
+    operator: "<"
+    threshold: 252
+    raw_text: "n_oos_bars < 252 (R6 sample-size floor)"
+  - label: "carry_baseline-T5"
+    metric: "sharpe_minus_carry_fred_sharpe"
+    operator: "<"
+    threshold: -0.20
+    raw_text: "carry_baseline OOS Sharpe minus carry_fred OOS Sharpe < -0.20 (R6a dominance test: carry_fred must not dominate by > 0.20 Sharpe points)"

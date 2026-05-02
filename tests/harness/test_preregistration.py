@@ -54,6 +54,7 @@ kill_switch_threshold: 0.60
 """
 
 VALID_SIDECAR = {
+    "pair": "USDJPY",
     "oos_overlap": False,
     "oos_window_start": "2020-01-01",
     "oos_window_end": "2026-04-25",
@@ -224,6 +225,11 @@ class TestPreRegErrors:
         spec = parse_pre_registration(md_path, sidecar_path=custom_sidecar)
         assert spec.strategy == "test_strategy"
 
+    def test_pair_resolved_single_string(self, pre_reg_dir: Path):
+        """VALID_SIDECAR declares pair: USDJPY → pair_resolved == ("USDJPY",)."""
+        spec = parse_pre_registration(pre_reg_dir / "test_strategy.md")
+        assert spec.pair_resolved == ("USDJPY",)
+
     def test_vol_target_carry_real_pre_reg(self):
         """vol_target_carry.md + .triggers.yaml parse correctly (regression).
 
@@ -248,3 +254,90 @@ class TestPreRegErrors:
         # Verify that parse raises ConfigError with a clear message, not a crash.
         with pytest.raises(ConfigError, match="kill_switch_threshold"):
             parse_pre_registration(md_path, sidecar_path=sidecar_path)
+
+
+# ---------------------------------------------------------------------------
+# Bug-fix regression tests (sub-wave 3c.1.1 parser bugfixes)
+# ---------------------------------------------------------------------------
+
+
+class TestParserBugfixes:
+    """Regression tests for the two bugs exposed by the 3c.1 dry-run."""
+
+    def test_kill_switch_threshold_strips_trailing_backtick(self, tmp_path: Path):
+        """Inline-code-formatted `kill_switch_threshold: 0.50` → "0.50" (no backtick)."""
+        md = tmp_path / "bt_test.md"
+        sidecar = tmp_path / "bt_test.triggers.yaml"
+        md.write_text(
+            "# Pre-Registration: bt_test\n\n"
+            "**Strategy ID:** bt_test\n"
+            "**Pair:** EURUSD\n\n"
+            "## Hypothesis\n\n"
+            "Backtick test.\n\n"
+            "## Falsification Criteria\n\n"
+            "`kill_switch_threshold: 0.50`\n"
+        )
+        sidecar_data = {**VALID_SIDECAR, "pair": "EURUSD"}
+        sidecar.write_text(yaml.dump(sidecar_data))
+        spec = parse_pre_registration(md, sidecar_path=sidecar)
+        assert spec.kill_switch_threshold == "0.50", (
+            f"Expected '0.50' but got {spec.kill_switch_threshold!r} — trailing backtick not stripped"
+        )
+
+    def test_sidecar_pair_all_expands_to_universe(self, tmp_path: Path):
+        """Sidecar pair: all → pair_resolved == ("EURUSD", "USDJPY", "GBPUSD")."""
+        md = tmp_path / "pair_all.md"
+        sidecar = tmp_path / "pair_all.triggers.yaml"
+        md.write_text(VALID_MARKDOWN)
+        sidecar_data = {**VALID_SIDECAR, "pair": "all"}
+        sidecar.write_text(yaml.dump(sidecar_data))
+        spec = parse_pre_registration(md, sidecar_path=sidecar)
+        assert spec.pair_resolved == ("EURUSD", "USDJPY", "GBPUSD")
+
+    def test_sidecar_pair_single_string(self, tmp_path: Path):
+        """Sidecar pair: USDJPY (single string) → pair_resolved == ("USDJPY",)."""
+        md = tmp_path / "pair_single.md"
+        sidecar = tmp_path / "pair_single.triggers.yaml"
+        md.write_text(VALID_MARKDOWN)
+        sidecar_data = {**VALID_SIDECAR, "pair": "USDJPY"}
+        sidecar.write_text(yaml.dump(sidecar_data))
+        spec = parse_pre_registration(md, sidecar_path=sidecar)
+        assert spec.pair_resolved == ("USDJPY",)
+
+    def test_sidecar_pair_list(self, tmp_path: Path):
+        """Sidecar pair: [EURUSD, USDJPY] → pair_resolved == ("EURUSD", "USDJPY")."""
+        md = tmp_path / "pair_list.md"
+        sidecar = tmp_path / "pair_list.triggers.yaml"
+        md.write_text(VALID_MARKDOWN)
+        sidecar_data = {**VALID_SIDECAR, "pair": ["EURUSD", "USDJPY"]}
+        sidecar.write_text(yaml.dump(sidecar_data))
+        spec = parse_pre_registration(md, sidecar_path=sidecar)
+        assert spec.pair_resolved == ("EURUSD", "USDJPY")
+
+    def test_real_phase2_pre_reg_loads_cleanly(self):
+        """ma_crossover.md + sidecar: pair_resolved expands all, kill_switch no backtick."""
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        md_path = repo_root / "references/pre-registrations/ma_crossover.md"
+        sidecar_path = repo_root / "references/pre-registrations/ma_crossover.triggers.yaml"
+        if not md_path.exists():
+            pytest.skip("ma_crossover.md not found in this environment")
+        if not sidecar_path.exists():
+            pytest.skip("ma_crossover.triggers.yaml not found in this environment")
+
+        spec = parse_pre_registration(md_path, sidecar_path=sidecar_path)
+        assert spec.pair_resolved == ("EURUSD", "USDJPY", "GBPUSD"), (
+            f"Expected Phase-2 universe but got {spec.pair_resolved!r}"
+        )
+        assert spec.kill_switch_threshold == "0.30", (
+            f"Expected '0.30' (no backtick) but got {spec.kill_switch_threshold!r}"
+        )
+
+    def test_missing_pair_in_sidecar_raises_config_error(self, tmp_path: Path):
+        """Sidecar without 'pair' field must raise ConfigError (no silent default)."""
+        md = tmp_path / "no_pair.md"
+        sidecar = tmp_path / "no_pair.triggers.yaml"
+        md.write_text(VALID_MARKDOWN)
+        no_pair_sidecar = {k: v for k, v in VALID_SIDECAR.items() if k != "pair"}
+        sidecar.write_text(yaml.dump(no_pair_sidecar))
+        with pytest.raises(ConfigError, match="pair"):
+            parse_pre_registration(md, sidecar_path=sidecar)

@@ -53,6 +53,7 @@ def _make_rubric(tmp_path: Path, **overrides) -> NhtRubric:
 def _make_pre_reg(
     strategy: str = "test_strategy",
     pair: str = "USDJPY",
+    pair_resolved: tuple[str, ...] = ("USDJPY",),
     kill_switch_threshold: str = "0.60",
     gate_threshold: float | None = 0.60,
     triggers: tuple[FalsificationTrigger, ...] = (),
@@ -63,6 +64,7 @@ def _make_pre_reg(
     return PreRegistrationSpec(
         strategy=strategy,
         pair=pair,
+        pair_resolved=pair_resolved,
         hypothesis_summary="Test hypothesis.",
         kill_switch_threshold=kill_switch_threshold,
         gate_threshold=gate_threshold,

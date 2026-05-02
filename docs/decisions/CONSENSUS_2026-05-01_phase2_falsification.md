@@ -264,6 +264,8 @@ bar for shifting that prior.
 
 **Blocked until 3a + 3b + Conflict 2 CEO decision:** Trial execution (3c). Candidates 6 and 7 additionally need NHT window approval and R2 finalization respectively.
 
+**Sub-wave 3c.1 — Entry-point delivered (2026-04-28):** `scripts/run_falsification_trial.py` integrates parser + evaluator + DSR into a single CLI; invoke as `python scripts/run_falsification_trial.py --pre-reg references/pre-registrations/<strategy>.md [--dry-run]`. Dominance benchmarks (T5 triggers) auto-computed and cached at `.fintech-org/dominance_benchmarks.json`. Sub-wave 3c.2 invokes this script for each of the 6 candidate pre-regs.
+
 **Automatic:** Tier A/B verification (3d) runs as trials complete; no separate dispatch.
 
 **Phase 2 ran clean.** No new policy violations in Wave 2. Phase 1's retail FX paper venue violation was surfaced in CONSENSUS_2026-04-28.md Section 10 and is not re-surfaced here.

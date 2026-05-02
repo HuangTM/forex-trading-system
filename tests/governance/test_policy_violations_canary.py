@@ -184,6 +184,11 @@ def test_end_to_end_detect_then_append_round_trip(tmp_path: Path):
     schema. Production log is never touched -- a temp copy is used.
     """
     scanner = _pick_scanner()
+    prod_lines_before = (
+        sum(1 for _ in PRODUCTION_VIOLATIONS_LOG.open(encoding="utf-8") if _.strip())
+        if PRODUCTION_VIOLATIONS_LOG.is_file()
+        else 0
+    )
     temp_log = tmp_path / "policy-violations.jsonl"
     if PRODUCTION_VIOLATIONS_LOG.is_file():
         shutil.copyfile(PRODUCTION_VIOLATIONS_LOG, temp_log)
@@ -219,7 +224,8 @@ def test_end_to_end_detect_then_append_round_trip(tmp_path: Path):
     prod_lines_after = sum(
         1 for _ in PRODUCTION_VIOLATIONS_LOG.open(encoding="utf-8") if _.strip()
     )
-    assert prod_lines_after == 2, (
-        f"Production log was modified by the test! Expected 2 lines, got "
-        f"{prod_lines_after}. This is a serious test-isolation bug."
+    assert prod_lines_after == prod_lines_before, (
+        f"Production log was modified by the test! Pre-test count was "
+        f"{prod_lines_before}, post-test count is {prod_lines_after}. "
+        f"This is a serious test-isolation bug."
     )

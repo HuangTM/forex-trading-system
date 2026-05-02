@@ -105,12 +105,20 @@ class PreRegistrationSpec:
     strategy:
         Strategy ID matching the trial registry (e.g. "vol_target_carry").
     pair:
-        Currency pair (e.g. "USDJPY").
+        Currency pair free-text from markdown **Pair:** field (informational;
+        e.g. "EURUSD, USDJPY, GBPUSD"). Authoritative pair list is in
+        ``pair_resolved``.
+    pair_resolved:
+        Authoritative list of currency pairs from the sidecar YAML ``pair``
+        field. Expanded from shorthand: ``all`` → Phase-2 universe
+        ["EURUSD", "USDJPY", "GBPUSD"]; single string → one-element list;
+        YAML list → list as-is. ConfigError raised if absent from sidecar.
     hypothesis_summary:
         First non-empty paragraph under ## Hypothesis section.
     kill_switch_threshold:
         Raw string from kill_switch_threshold: field (NOT cast to float;
         may be a label like "VTC-T1" or a numeric string like "0.60").
+        Trailing backticks and whitespace are stripped at parse time.
     gate_threshold:
         Parsed float from gate_threshold: field, or None if absent.
     triggers:
@@ -126,6 +134,7 @@ class PreRegistrationSpec:
 
     strategy: str
     pair: str
+    pair_resolved: tuple[str, ...]
     hypothesis_summary: str
     kill_switch_threshold: str
     gate_threshold: float | None
@@ -136,14 +145,29 @@ class PreRegistrationSpec:
 
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Phase-2 instrument universe — expanded when sidecar declares pair: all.
+_PHASE2_UNIVERSE: tuple[str, ...] = ("EURUSD", "USDJPY", "GBPUSD")
+
+
+# ---------------------------------------------------------------------------
 # Parsing helpers
 # ---------------------------------------------------------------------------
 
 
 def _extract_field(text: str, pattern: str, field_name: str) -> str | None:
-    """Extract first capture group from text using regex, or return None."""
+    """Extract first capture group from text using regex, or return None.
+
+    Strips surrounding backticks and whitespace from the captured value so that
+    inline-code-formatted values (e.g. ``kill_switch_threshold: 0.30``) are
+    returned as plain strings without trailing backticks.
+    """
     m = re.search(pattern, text)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    return m.group(1).strip("`").strip()
 
 
 def _extract_hypothesis_summary(text: str) -> str:
@@ -212,7 +236,7 @@ def _parse_sidecar(sidecar_path: Path, markdown_raw_texts: dict[str, str]) -> di
         )
 
     # Validate required fields.
-    for required in ("triggers", "oos_overlap", "oos_window_start", "oos_window_end"):
+    for required in ("triggers", "oos_overlap", "oos_window_start", "oos_window_end", "pair"):
         if required not in raw:
             raise ConfigError(
                 f"Pre-registration sidecar missing required field '{required}': {sidecar_path}"
@@ -221,6 +245,26 @@ def _parse_sidecar(sidecar_path: Path, markdown_raw_texts: dict[str, str]) -> di
     if not isinstance(raw["oos_overlap"], bool):
         raise ConfigError(
             f"Sidecar field 'oos_overlap' must be a boolean (true/false): {sidecar_path}"
+        )
+
+    # Resolve pair from sidecar (authoritative; DO NOT silently default).
+    sidecar_pair = raw["pair"]
+    if isinstance(sidecar_pair, str):
+        pair_str = sidecar_pair.strip()
+        if pair_str.lower() == "all":
+            pair_resolved: tuple[str, ...] = _PHASE2_UNIVERSE
+        else:
+            pair_resolved = (pair_str.upper(),)
+    elif isinstance(sidecar_pair, list):
+        if not sidecar_pair:
+            raise ConfigError(
+                f"Sidecar field 'pair' is an empty list: {sidecar_path}"
+            )
+        pair_resolved = tuple(str(p).strip().upper() for p in sidecar_pair)
+    else:
+        raise ConfigError(
+            f"Sidecar field 'pair' must be a string or list, got "
+            f"{type(sidecar_pair).__name__}: {sidecar_path}"
         )
 
     # Parse triggers list.
@@ -251,6 +295,7 @@ def _parse_sidecar(sidecar_path: Path, markdown_raw_texts: dict[str, str]) -> di
 
     return {
         "triggers": triggers,
+        "pair_resolved": pair_resolved,
         "oos_overlap": bool(raw["oos_overlap"]),
         "oos_window_start": str(raw["oos_window_start"]),
         "oos_window_end": str(raw["oos_window_end"]),
@@ -338,6 +383,7 @@ def parse_pre_registration(
     spec = PreRegistrationSpec(
         strategy=strategy,
         pair=pair,
+        pair_resolved=sidecar_data["pair_resolved"],
         hypothesis_summary=hypothesis_summary,
         kill_switch_threshold=kill_switch_threshold,
         gate_threshold=gate_threshold,
@@ -353,6 +399,7 @@ def parse_pre_registration(
         sidecar_path=str(sidecar_path),
         strategy=spec.strategy,
         pair=spec.pair,
+        pair_resolved=list(spec.pair_resolved),
         kill_switch_threshold=spec.kill_switch_threshold,
         gate_threshold=spec.gate_threshold,
         n_triggers=len(spec.triggers),

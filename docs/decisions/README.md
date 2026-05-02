@@ -12,6 +12,7 @@ on a specific decision.
 | [CONSENSUS_2026-04-25.md](CONSENSUS_2026-04-25.md) | 2026-04-25 | vol_target_carry validation + retirement contract VTC-T1..T8 |
 | [CONSENSUS_2026-04-28.md](CONSENSUS_2026-04-28.md) | 2026-04-28 | Direction v1 (12-week roadmap, carry thesis, NHT dissent preserved) |
 | [CONSENSUS_2026-05-01_phase2_falsification.md](CONSENSUS_2026-05-01_phase2_falsification.md) | 2026-05-01 | Phase 2 falsification trials — frozen rubric (R1–R6), 7-item queue, harness spec; awaiting CEO ratification |
+| [CONSENSUS_2026-05-01_phase2_closure.md](CONSENSUS_2026-05-01_phase2_closure.md) | 2026-05-01 | Phase 2 closure — 7-trial outcomes (6 REJECTs + 1 WEAK PASS), carry thesis validated (R7 NOT fired), Tier A satisfied, Tier B 6/10, Wave-5 BLOCKED on 3 conditions; awaiting CEO ratification |
 
 ## Migration history
 

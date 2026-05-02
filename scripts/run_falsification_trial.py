@@ -71,7 +71,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import inspect
+
 import numpy as np
+import pandas as pd
 
 # -- Project imports --
 from forex_system.backtest.engine import run_backtest
@@ -308,11 +311,55 @@ def _run_single_pair(
     )
 
     # Instantiate strategy — look up strategy name in registry, not config.
-    strategy = create_strategy(strategy_name, {"pair": pair.upper()})
+    # For carry-type strategies that accept rate_data, load it from the
+    # standard path so they run in dynamic mode (not zero-signal static fallback).
+    # FredCarryStrippedStrategy self-loads rate data internally (via _get_rate_data);
+    # do NOT inject rate_data for it — it would receive already-renamed columns
+    # and fail its internal column lookup for "{PAIR}_diff".
+    # Strategies that need explicit injection: CarryStrategy, CarryMomentumStrategy.
+    _SELF_LOADING_RATE_STRATEGIES = {"fred_carry_stripped", "carry_fred", "vol_target_carry"}
+    from forex_system.strategies.registry import STRATEGY_REGISTRY
+    strategy_cls = STRATEGY_REGISTRY.get(strategy_name)
+    if strategy_cls is None:
+        raise ConfigError(f"Unknown strategy: {strategy_name}")
+    base_params = {"pair": pair.upper()}
+    sig = inspect.signature(strategy_cls.__init__)
+    if "rate_data" in sig.parameters and strategy_name not in _SELF_LOADING_RATE_STRATEGIES:
+        _rate_data_path = "data/rates/rate_differentials.parquet"
+        try:
+            _rate_df = pd.read_parquet(_rate_data_path)
+            # rename columns: strip "_diff" suffix if present (matches run_phase1_revalidate.py)
+            _rate_df = _rate_df.rename(
+                columns={c: c.replace("_diff", "") for c in _rate_df.columns}
+            )
+            strategy = strategy_cls(base_params, rate_data=_rate_df)
+            _log(
+                "backtest.rate_data.loaded",
+                pair=pair,
+                strategy=strategy_name,
+                rate_path=_rate_data_path,
+                n_rows=len(_rate_df),
+            )
+        except FileNotFoundError:
+            strategy = strategy_cls(base_params)
+            _log(
+                "backtest.rate_data.missing",
+                pair=pair,
+                strategy=strategy_name,
+                note="rate_differentials.parquet not found; strategy uses static fallback",
+            )
+    else:
+        strategy = create_strategy(strategy_name, base_params)
 
     # Compute indicators on full history (avoid NaN at window boundary).
     enriched = compute_indicators(data, strategy.required_indicators())
-    enriched = enriched.dropna(subset=["atr_14"])
+    # Drop NaN rows only for the strategy's own required indicators, not a
+    # hardcoded atr_14.  atr_14 is only required when the strategy uses it
+    # (e.g. vol_target_carry) — hardcoding it causes KeyError for strategies
+    # like ma_crossover that do not include it in required_indicators().
+    req_cols = [c for c in strategy.required_indicators() if c in enriched.columns]
+    if req_cols:
+        enriched = enriched.dropna(subset=req_cols)
 
     # Filter to OOS window.
     oos_mask = (enriched.index >= oos_start) & (enriched.index <= oos_end)

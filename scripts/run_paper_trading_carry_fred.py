@@ -1,19 +1,37 @@
 #!/usr/bin/env python3
-"""Paper trading — vol-targeted long carry on USDJPY (single pair).
+"""Paper trading — Bet #1: carry_fred / BoJ-divergence regime (USDJPY).
 
-Validated 2026-04-20: Sharpe 0.76 vs B&H 0.58, MaxDD 13.5%.
+CRO Wave-4 binding constraints (sourced from CONSENSUS_2026-04-28 +
+.fintech-org/artifacts/2026-05-01T-phase2-falsification-trials/
+cro-bet1-sizing-revision.yaml):
+
+  BC-1  (regime-inactive no-trade): size_multiplier = 0.0 when BoJ-divergence
+        regime flag is FALSE; zero positions permitted when regime is inactive.
+  BC-2  (regime-active sizing): size_multiplier = 0.25 (0.5 envelope × 0.5
+        concentration haircut) when regime flag is TRUE.
+  BC-3  (CF-T9 pre-launch gate): CF-T9 monitor must be deployed and emitting
+        a heartbeat ≥1 per 5-min window before any trade is placed.
+  BC-4  (CF-T9 cold-start gate): CF-T9 must have observed BOTH TRUE and FALSE
+        regime states with ≥10 total readings before first trade.
+  BC-5  (CF-T9 heartbeat failure): If CF-T9 is silent >5 min, halt new trades.
+  DD-1  (drawdown halt-new): paper-equity DD ≥ 10% → halt new trial dispatch
+  DD-2  (drawdown reduce): paper-equity DD ≥ 15% → reduce all sizing to 0.5x
+  DD-3  (drawdown full-halt): paper-equity DD ≥ 20% → full halt pending CRO review
 
 Each cycle:
-  1. Fetch last 300 daily bars from Saxo (need 252 for vol window + buffer)
-  2. Compute realized vol (252-day rolling std × √252)
-  3. signal = clip(target_vol / realized_vol, 0, leverage_cap) / leverage_cap
-  4. target_units = signal × leverage_cap × (equity / current_price)
-  5. Open / rebalance / close vs current position with 20% threshold
-  6. Log everything; ntfy on trade + kill-switch events
+  1. CF-T9 status check via regime_active_status() (BC-1/BC-3/BC-4/BC-5)
+  2. If regime_active is False → SKIP_REGIME_INACTIVE (BC-1 hard zero; no trades)
+  3. Fetch account equity; kill-switch and drawdown-contract checks
+  4. Aggregation gate (JPY-correlated ≤15%, active strategies ≤4, positions ≤6)
+  5. Fetch last 300 daily bars for USDJPY
+  6. carry_fred strategy generates signal
+  7. Apply bet1_size_multiplier(regime_active) to target_units (BC-2)
+  8. Execute / rebalance / close within rebalance_threshold
+  9. WS02 structured-log line on every sizing decision (regime_active, size_multiplier)
 
 Usage:
     export SAXO_TOKEN=...
-    python scripts/run_paper_trading_vt.py --auto --loop --interval 1800 \\
+    python scripts/run_paper_trading_carry_fred.py --auto --loop --interval 1800 \\
         --ntfy tianmin_forex_signal
 """
 
@@ -40,6 +58,7 @@ from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
 from forex_system.core.config import load_config
 from forex_system.core.types import Direction
+from forex_system.risk.bet1_sizing import bet1_size_multiplier, regime_active_status
 from forex_system.risk.drawdown_contract import DrawdownContract, DrawdownLevel
 from forex_system.risk.exposure_aggregator import (
     AggregationGateBlocked,
@@ -52,22 +71,20 @@ from forex_system.saxo.client import SaxoClient
 from forex_system.saxo.execution import SaxoExecutionBackend
 from forex_system.saxo.history import bars_to_dataframe
 from forex_system.sizing.vol_target import VolTargetSizer
-from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
+from forex_system.strategies.carry_fred import CarryFREDStrategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = "config/vol_target_carry.yaml"
+DEFAULT_CONFIG = "config/carry_fred.yaml"
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)
 
-WS01_TRACE_PATH = "data/ws01_trace.log"
+WS02_TRACE_PATH = "data/ws02_trace.log"
 
 # ---------------------------------------------------------------------------
-# CRO binding constraints — sourced from CONSENSUS_2026-04-28 + CRO Wave-4
-# artifact .fintech-org/artifacts/2026-05-01T-phase2-falsification-trials/
-# cro-bet1-sizing-revision.yaml. These are NOT silent defaults; they are
-# named constants that must match the typed consensus artifact.
+# CRO binding constants — sourced from CONSENSUS_2026-04-28 + Wave-4 artifact.
+# All thresholds are explicit named constants; no silent defaults.
 # ---------------------------------------------------------------------------
 
 # CRO binding constraint #1 (exposure_aggregator): JPY-correlated notional ≤15% of book
@@ -79,50 +96,38 @@ CRO_MAX_CONCURRENT_POSITIONS: int = 6
 # CRO binding constraint #2 (heartbeat_watchdog): ≤5 min timeout on paper-trading loop
 CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
 
-# CRO binding constraints #DD-1/DD-2/DD-3 (drawdown contract ladder):
-# sourced verbatim from CONSENSUS_2026-04-28 + cro-bet1-sizing-revision.yaml.
-# DO NOT change without CONSENSUS amendment + NHT+HoQR co-sign.
+# CRO binding constraints DD-1/DD-2/DD-3 (drawdown contract ladder)
 CRO_DD_HALT_NEW_THRESHOLD: float = 0.10    # DD ≥ 10% → halt new dispatch
 CRO_DD_REDUCE_SIZING_THRESHOLD: float = 0.15  # DD ≥ 15% → 0.5x sizing
 CRO_DD_FULL_HALT_THRESHOLD: float = 0.20   # DD ≥ 20% → full halt pending CRO review
 
-# Sentinel return values for drawdown skip paths (used in tests to distinguish skip reasons)
+# Sentinel return values for skip paths
+SKIP_REGIME_INACTIVE: str = "SKIP_REGIME_INACTIVE"
 SKIP_DD_FULL_HALT: str = "SKIP_DD_FULL_HALT"
 SKIP_DD_HALT_NEW: str = "SKIP_DD_HALT_NEW"
 
 
-def _attach_ws01_file_handler(path: str = WS01_TRACE_PATH) -> None:
-    """Persist ws01 decision-trace lines to disk independently of stderr.
+# ---------------------------------------------------------------------------
+# WS02 file handler (audit trail — mirrors WS01 in vt loop)
+# ---------------------------------------------------------------------------
 
-    WS-01 (CTO consensus 2026-04-26) requires a durable signal-to-execution
-    audit trail. stderr alone is not durable: nohup/systemd/supervisor must
-    redirect it, and operators forget. A dedicated file handler on the module
-    logger guarantees the trace exists on disk regardless of how the process
-    is launched. Idempotent across re-imports.
-    """
+
+def _attach_ws02_file_handler(path: str = WS02_TRACE_PATH) -> None:
+    """Persist ws02 decision-trace lines to disk independently of stderr."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     for h in logger.handlers:
-        if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
+        if isinstance(h, logging.FileHandler) and getattr(h, "_ws02_marker", False):
             return
     handler = logging.FileHandler(path)
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    handler._ws01_marker = True  # type: ignore[attr-defined]
+    handler._ws02_marker = True  # type: ignore[attr-defined]
     logger.addHandler(handler)
-    # Make sure INFO records actually flow through this logger regardless of
-    # how the host configured logging (basicConfig in __main__ vs pytest's
-    # default WARNING root). Without this, the module logger's effective
-    # level can suppress ws01 emits silently.
     if logger.level == logging.NOTSET or logger.level > logging.INFO:
         logger.setLevel(logging.INFO)
 
 
 def _finite_or_none(v) -> float | None:
-    """Return v as float if finite, else None.
-
-    json.dumps raises ValueError on inf/-inf/nan by default; the WS-01 trace
-    must never be the source of an uncaught exception at the decision boundary.
-    """
     if v is None:
         return None
     try:
@@ -132,49 +137,39 @@ def _finite_or_none(v) -> float | None:
     return f if math.isfinite(f) else None
 
 
-def _emit_ws01(
+def _emit_ws02(
     cycle_id: int | None,
     pair: str,
     action: str,
     *,
     signal: float | None = None,
-    vol: float | None = None,
     equity: float | None = None,
     price: float | None = None,
     target_units: float | None = None,
     current_units: float | None = None,
+    regime_active: bool | None = None,
+    size_multiplier: float | None = None,
     strategy_params: dict | None = None,
 ) -> None:
-    """Emit one structured WS-01 decision-trace line.
+    """Emit one structured WS-02 decision-trace line.
 
-    Called at every cycle exit (early returns + main path) so ops can
-    reconstruct what the system saw and decided — including kill-halts,
-    equity-fetch failures, and data-unavailable cycles.
-
-    CTO 2026-04-27 conditional findings on Q1+Q2:
-      C1 (strategy_params): the trace must capture the parameters in force
-         when the decision was made. Without this, an audit reading
-         historical ws01 lines cannot tell whether a config drift between
-         cycles changed the decision -- the strategy module's params live
-         in memory only. Pass strategy.params at the main path; early-exit
-         paths pass None (the strategy hasn't computed yet).
-      C2 (decision_ts): the asctime in the formatter is the LOG-WRITE time,
-         not the DECISION time. On a slow cycle (network latency), these
-         differ. Capture the decision instant explicitly so latency
-         analysis is possible from the trace alone.
+    Includes regime_active and size_multiplier on EVERY cycle so the audit
+    trail can reconstruct the BC-1/BC-2 sizing decision from the log alone
+    (log-as-decision-trace principle).
     """
     logger.info(
-        "ws01 %s",
+        "ws02 %s",
         json.dumps({
             "decision_ts": datetime.now(timezone.utc).isoformat(),
             "cycle_id": cycle_id,
             "pair": pair,
             "signal": _finite_or_none(signal),
-            "vol": _finite_or_none(vol),
             "equity": _finite_or_none(equity),
             "price": _finite_or_none(price),
             "target_units": _finite_or_none(target_units),
             "current_units": _finite_or_none(current_units),
+            "regime_active": regime_active,
+            "size_multiplier": _finite_or_none(size_multiplier),
             "action": action,
             "strategy_params": strategy_params,
         }),
@@ -209,11 +204,7 @@ def write_heartbeat(
     last_signal: float | None = None,
     last_action: str | None = None,
 ) -> None:
-    """Write heartbeat.json atomically (write-then-rename).
-
-    A watcher process (check_heartbeat.py) reads this file to detect hangs.
-    Atomic rename ensures the reader never sees a half-written file.
-    """
+    """Write heartbeat.json atomically (write-then-rename)."""
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "cycle_id": cycle_id,
@@ -225,7 +216,7 @@ def write_heartbeat(
     path = Path(heartbeat_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".heartbeat_tmp_")
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".heartbeat_cf_tmp_")
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(payload, f)
@@ -240,7 +231,7 @@ def write_heartbeat(
         logger.warning("Failed to write heartbeat: %s", e)
 
 
-HEARTBEAT_PATH = "data/heartbeat.json"
+HEARTBEAT_PATH = "data/heartbeat_carry_fred.json"
 
 
 def fetch_recent_bars(client: SaxoClient, pair: str, count: int = 300,
@@ -270,41 +261,12 @@ def fetch_account_equity(client: SaxoClient, account_key: str) -> float | None:
         return None
 
 
-def log_monitor_signals(
-    client: SaxoClient,
-    monitor_pairs: list[str],
-    strategy_params: dict,
-    pred_log: PredictionLog,
-    horizon: str,
-) -> None:
-    """Fetch bars and log signals for monitor-only (no trade) pairs."""
-    for mp in monitor_pairs:
-        try:
-            ohlcv = fetch_recent_bars(client, mp, count=300, horizon=horizon)
-            if ohlcv.empty or len(ohlcv) < strategy_params.get("vol_window", 252) + 10:
-                print(f"  [monitor {mp}] insufficient data")
-                continue
-            ms = VolTargetCarryStrategy({**strategy_params, "pair": mp})
-            sigs = ms.generate_signals(ohlcv)
-            sig = float(sigs.iloc[-1])
-            rv = (ohlcv["close"].pct_change().rolling(strategy_params.get("vol_window", 252))
-                  .std().iloc[-1]) * (252 ** 0.5)
-            mid_price = float(ohlcv["close"].iloc[-1])
-            pred_log.log(sigs.iloc[-1:], "vol_target_carry_monitor", mp,
-                         parameters=strategy_params, source="paper")
-            print(f"  [monitor {mp}] signal={sig:.3f}  vol={rv:.1%}  price={mid_price:.4f}")
-        except Exception as e:
-            print(f"  [monitor {mp}] FAILED: {e}")
-
-
 def halt_paper_loop(reason: str) -> None:
-    """Mark the paper loop for halt by setting a module-level flag.
+    """Mark the paper loop for halt.
 
-    Called by the HeartbeatWatchdog on_timeout callback (CRO binding
-    constraint #2). Does NOT auto-unwind positions — per CRO 2026-04-30
-    design, existing positions are flagged for human review, not force-closed.
-    The main loop checks ``_HALT_REQUESTED`` at the top of each cycle and
-    exits gracefully.
+    Sets module-level _HALT_REQUESTED flag.  The main loop checks this flag
+    at the top of each cycle and exits gracefully.  Does NOT auto-unwind
+    positions — existing positions flagged for human review per CRO 2026-04-30.
     """
     global _HALT_REQUESTED, _HALT_REASON
     _HALT_REQUESTED = True
@@ -318,7 +280,6 @@ def halt_paper_loop(reason: str) -> None:
     )
 
 
-# Module-level halt flag — set by halt_paper_loop; read at loop entry.
 _HALT_REQUESTED: bool = False
 _HALT_REASON: str = ""
 
@@ -327,44 +288,72 @@ def run_cycle(
     client: SaxoClient,
     backend: SaxoExecutionBackend,
     sizer: VolTargetSizer,
-    strategy: VolTargetCarryStrategy,
+    strategy: CarryFREDStrategy,
     pair: str,
     pred_log: PredictionLog,
     trade_log: TradeLog,
     kill_switch: KillSwitch,
+    dd_contract: DrawdownContract,
     rebal_threshold: float,
-    dd_contract: DrawdownContract | None = None,
     auto_mode: bool = False,
     ntfy_topic: str | None = None,
     horizon: str = "daily",
-    monitor_pairs: list[str] | None = None,
     cycle_id: int | None = None,
 ) -> dict:
-    # --- CRO binding constraint #2: watchdog halt check ---
-    # The HeartbeatWatchdog callback sets _HALT_REQUESTED if the loop went
-    # idle for > CRO_WATCHDOG_TIMEOUT_SECONDS.  Check at cycle entry so no
-    # new dispatch is initiated after a watchdog fire.
+    """Execute one Bet #1 carry_fred cycle.
+
+    Returns a dict with '_action' sentinel indicating what the cycle decided.
+    Possible _action values: HALT_WATCHDOG, KILL_HALTED, SKIP (various reasons),
+    SKIP_REGIME_INACTIVE, SKIP_DD_FULL_HALT, SKIP_DD_HALT_NEW, SKIP_AGGREGATION_GATE,
+    HOLD, ENTER, EXIT, REBALANCE.
+    """
+    # --- Watchdog halt check (must be first) ---
     if _HALT_REQUESTED:
         logger.critical(
             "run_cycle blocked — watchdog halt active",
             extra={"event": "CYCLE_BLOCKED_WATCHDOG_HALT", "halt_reason": _HALT_REASON},
         )
-        _emit_ws01(cycle_id, pair, "HALT_WATCHDOG_BLOCKED")
+        _emit_ws02(cycle_id, pair, "HALT_WATCHDOG_BLOCKED")
         return {"_action": "HALT_WATCHDOG"}
 
     if kill_switch.is_triggered:
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, "urgent")
-        _emit_ws01(cycle_id, pair, "KILL_HALTED_PRECYCLE")
+        _emit_ws02(cycle_id, pair, "KILL_HALTED_PRECYCLE")
         return {"_action": "KILL_HALTED"}
 
+    # --- BC-1/BC-3/BC-4/BC-5: CF-T9 regime check ---
+    # MUST be the first substantive gate: if regime is inactive or CF-T9
+    # health gates are not cleared, no Bet #1 trade may be dispatched.
+    # bet1_size_multiplier(False) returns 0.0 (BC-1: hard zero).
+    regime_active = regime_active_status()
+    size_multiplier = bet1_size_multiplier(regime_active)
+
+    logger.info(
+        "ws02_sizing_decision",
+        extra={
+            "event": "BET1_SIZING_DECISION",
+            "regime_active": regime_active,
+            "size_multiplier": size_multiplier,
+            "bc_ref": "BC-1/BC-2 cro-bet1-sizing-revision.yaml",
+            "cycle_id": cycle_id,
+        },
+    )
+
+    if not regime_active:
+        # BC-1: size_multiplier = 0.0 means no trades when regime is inactive.
+        # This is not an error — it is the expected steady-state for Bet #1.
+        _emit_ws02(cycle_id, pair, SKIP_REGIME_INACTIVE,
+                   regime_active=False, size_multiplier=0.0)
+        return {"_action": SKIP_REGIME_INACTIVE}
+
+    # Regime is active; proceed with equity fetch and risk checks.
     equity = fetch_account_equity(client, backend.account_key)
     if equity is None:
         if kill_switch.record_equity_fetch_failure():
             print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
-            # Emit WS01 BEFORE the execution branch so the audit trace shows
-            # what the system saw at the decision point, not after it acted.
-            _emit_ws01(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH")
+            _emit_ws02(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH",
+                       regime_active=regime_active, size_multiplier=size_multiplier)
             backend.flatten_all()
             notify(ntfy_topic, "KILL SWITCH - equity fetch failures",
                    kill_switch.status_line, "urgent")
@@ -372,77 +361,62 @@ def run_cycle(
             remaining = (kill_switch.max_consecutive_fetch_failures
                          - kill_switch.consecutive_fetch_failures)
             print(f"\n  Skipping cycle — equity unavailable ({remaining} skips before halt)")
-            _emit_ws01(cycle_id, pair, "SKIP_EQUITY_FETCH_FAIL")
+            _emit_ws02(cycle_id, pair, "SKIP_EQUITY_FETCH_FAIL",
+                       regime_active=regime_active, size_multiplier=size_multiplier)
         return {"_action": "SKIP"}
     kill_switch.record_equity_fetch_success()
 
     if kill_switch.check_and_trigger(equity):
         print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
-        # Emit WS01 BEFORE flatten_all so the audit captures the decision
-        # state before the execution side-effect.
-        _emit_ws01(cycle_id, pair, "KILL_HALTED_DRAWDOWN", equity=equity)
+        _emit_ws02(cycle_id, pair, "KILL_HALTED_DRAWDOWN", equity=equity,
+                   regime_active=regime_active, size_multiplier=size_multiplier)
         backend.flatten_all()
         return {"_action": "KILL_HALTED"}
 
-    # --- CRO binding constraint DD-1/DD-2/DD-3: drawdown contract ladder ---
-    # Thresholds sourced from CRO CONSENSUS_2026-04-28 + cro-bet1-sizing-revision.yaml.
-    # DISTINCT from KillSwitch 2% daily-loss: this enforces peak-to-trough DD.
-    # dd_contract is instantiated ONCE in main() and passed per cycle (not
-    # re-created here) so peak tracking is maintained across cycles.
-    if dd_contract is not None:
-        _dd = dd_contract.assess(equity)
-        if _dd.level == DrawdownLevel.FULL_HALT:
-            logger.critical(
-                "drawdown_contract_full_halt",
-                extra={
-                    "event": "DD_FULL_HALT",
-                    "drawdown_pct": _dd.drawdown_pct,
-                    "equity": equity,
-                    "peak_equity": _dd.peak_equity,
-                    "cycle_id": cycle_id,
-                },
-            )
-            _emit_ws01(cycle_id, pair, f"SKIP_DD_FULL_HALT_{_dd.drawdown_pct:.4f}",
-                       equity=equity)
-            halt_paper_loop(reason=f"drawdown_full_halt_{_dd.drawdown_pct:.4f}")
-            return {"_action": SKIP_DD_FULL_HALT}
-        elif _dd.level == DrawdownLevel.HALT_NEW_DISPATCH:
-            logger.warning(
-                "drawdown_contract_halt_new_dispatch",
-                extra={
-                    "event": "DD_HALT_NEW_DISPATCH",
-                    "drawdown_pct": _dd.drawdown_pct,
-                    "equity": equity,
-                    "peak_equity": _dd.peak_equity,
-                    "cycle_id": cycle_id,
-                },
-            )
-            _emit_ws01(cycle_id, pair, f"SKIP_DD_HALT_NEW_{_dd.drawdown_pct:.4f}",
-                       equity=equity)
-            return {"_action": SKIP_DD_HALT_NEW}
-        # DrawdownLevel.REDUCE_SIZING: no early return; sizing_multiplier honored downstream
-        # at the target_units calculation (line ~500). _dd_sizing_multiplier captured
-        # here defaults to 1.0 when no dd_contract; downstream multiplication is unconditional.
-        _dd_sizing_multiplier = _dd.sizing_multiplier
-    else:
-        _dd_sizing_multiplier = 1.0
+    # --- CRO DD-1/DD-2/DD-3: drawdown contract ---
+    _dd = dd_contract.assess(equity)
+    if _dd.level == DrawdownLevel.FULL_HALT:
+        logger.critical(
+            "drawdown_contract_full_halt",
+            extra={
+                "event": "DD_FULL_HALT",
+                "drawdown_pct": _dd.drawdown_pct,
+                "equity": equity,
+                "peak_equity": _dd.peak_equity,
+                "cycle_id": cycle_id,
+            },
+        )
+        _emit_ws02(cycle_id, pair, f"SKIP_DD_FULL_HALT_{_dd.drawdown_pct:.4f}",
+                   equity=equity, regime_active=regime_active, size_multiplier=0.0)
+        halt_paper_loop(reason=f"drawdown_full_halt_{_dd.drawdown_pct:.4f}")
+        return {"_action": SKIP_DD_FULL_HALT}
+    elif _dd.level == DrawdownLevel.HALT_NEW_DISPATCH:
+        logger.warning(
+            "drawdown_contract_halt_new_dispatch",
+            extra={
+                "event": "DD_HALT_NEW_DISPATCH",
+                "drawdown_pct": _dd.drawdown_pct,
+                "equity": equity,
+                "peak_equity": _dd.peak_equity,
+                "cycle_id": cycle_id,
+            },
+        )
+        _emit_ws02(cycle_id, pair, f"SKIP_DD_HALT_NEW_{_dd.drawdown_pct:.4f}",
+                   equity=equity, regime_active=regime_active, size_multiplier=size_multiplier)
+        return {"_action": SKIP_DD_HALT_NEW}
+    # REDUCE_SIZING: honor _dd.sizing_multiplier downstream by multiplying
+    # target_units before execution.
 
+    # --- CRO #1: pre-trade aggregation gate ---
     current_positions = backend.get_positions()
-
-    # --- CRO binding constraint #1: pre-trade aggregation gate ---
-    # Compute exposure across all currently open positions and check that
-    # JPY-correlated notional, active-strategy count, and position count are
-    # within CRO envelope before issuing any new dispatch.
-    # Thresholds sourced explicitly from CRO CONSENSUS_2026-04-28 + Wave-4
-    # artifact; no silent defaults (per hard rule).
     _open_pos_list = list(current_positions.values())
     _exposure = compute_exposure(_open_pos_list)
     try:
         check_dispatch_allowed(
             _exposure,
-            max_correlated_pct=CRO_MAX_CORRELATED_PCT,         # 0.15 — CRO binding #1
-            max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,   # 4 — CRO Phase-1 envelope
-            max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,  # 6 — CRO Phase-1 envelope
+            max_correlated_pct=CRO_MAX_CORRELATED_PCT,
+            max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,
+            max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,
         )
     except AggregationGateBlocked as exc:
         logger.warning(
@@ -457,28 +431,32 @@ def run_cycle(
                 "open_positions": _exposure.concurrent_open_positions,
             },
         )
-        _emit_ws01(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity)
+        _emit_ws02(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity,
+                   regime_active=regime_active, size_multiplier=size_multiplier)
         return {"_action": "SKIP_AGGREGATION_GATE"}
 
     print("\n" + "=" * 60)
-    print(f"  Vol-Target Cycle — {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"  Account equity: {equity:,.2f}")
+    print(f"  Carry-Fred Cycle — {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  Account equity:  {equity:,.2f}")
+    print(f"  Regime active:   {regime_active}  |  size_multiplier: {size_multiplier}")
     print("=" * 60)
 
     ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
     if ohlcv.empty:
         print(f"  No data for {pair}")
-        _emit_ws01(cycle_id, pair, "SKIP_NO_DATA", equity=equity)
+        _emit_ws02(cycle_id, pair, "SKIP_NO_DATA", equity=equity,
+                   regime_active=regime_active, size_multiplier=size_multiplier)
         return {"_action": "SKIP"}
-    if len(ohlcv) < strategy.params.get("vol_window", 252) + 10:
-        print(f"  Not enough bars: {len(ohlcv)} (need ≥ vol_window + 10)")
-        _emit_ws01(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
-                   price=float(ohlcv["close"].iloc[-1]) if len(ohlcv) else None)
+    min_bars = strategy.params.get("lookback", 252) + 10
+    if len(ohlcv) < min_bars:
+        print(f"  Not enough bars: {len(ohlcv)} (need ≥ {min_bars})")
+        _emit_ws02(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
+                   regime_active=regime_active, size_multiplier=size_multiplier)
         return {"_action": "SKIP"}
 
     signals = strategy.generate_signals(ohlcv)
     sig = float(signals.iloc[-1])
-    pred_log.log(signals.iloc[-1:], "vol_target_carry", pair,
+    pred_log.log(signals.iloc[-1:], "carry_fred", pair,
                  parameters=strategy.params, source="paper")
 
     try:
@@ -489,40 +467,26 @@ def run_cycle(
         bid = ask = float(ohlcv["close"].iloc[-1])
     mid = (bid + ask) / 2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
 
-    # Use the same bars-per-year factor the strategy uses; otherwise the WS01
-    # trace would show a vol computed with hardcoded sqrt(252) while the
-    # signal was computed on the actual bar frequency (4h, 1h). For daily
-    # bars these are identical; for non-daily timeframes they diverge.
-    bars_per_year = VolTargetCarryStrategy._bars_per_year(ohlcv)
-    realized_vol = (ohlcv["close"].pct_change()
-                    .rolling(strategy.params.get("vol_window", 252))
-                    .std().iloc[-1]) * (bars_per_year ** 0.5)
-    _raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
-    # CRO Wave-4 + Phase-1 binding: when DrawdownLevel.REDUCE_SIZING is active,
-    # multiply target_units by 0.5 per the dd contract. dd_sizing_multiplier
-    # is 1.0 in NORMAL state and when no dd_contract is wired (test paths).
-    target_units = _raw_target_units * _dd_sizing_multiplier
-    if _dd_sizing_multiplier != 1.0:
-        logger.info(
-            "dd_reduce_sizing_applied",
-            extra={
-                "event": "DD_REDUCE_SIZING_APPLIED",
-                "raw_target_units": float(_raw_target_units),
-                "dd_sizing_multiplier": _dd_sizing_multiplier,
-                "adjusted_target_units": float(target_units),
-                "cycle_id": cycle_id,
-                "pair": pair,
-            },
-        )
+    # Compute raw target units from sizer then apply BC-2 size_multiplier.
+    # Also honor REDUCE_SIZING if the drawdown contract requires it
+    # (size_multiplier=0.5 from dd_contract takes precedence when active).
+    raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
+    # Effective multiplier is the MINIMUM of bet1_size_multiplier and dd sizing:
+    # (bc2_multiplier is already 0.25; dd may further reduce to 0.5 of that)
+    effective_dd_multiplier = _dd.sizing_multiplier   # 1.0/0.5/0.0 per DD level
+    target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier)
+
     cur_pos = current_positions.get(pair)
     cur_units = cur_pos.size if cur_pos else 0.0
     cur_dir = cur_pos.direction if cur_pos else None
 
-    print(f"  Signal:        {sig:>.3f}  (size fraction of leverage_cap)")
-    print(f"  Realized vol:  {realized_vol:>.1%} annualized")
-    print(f"  Mid price:     {mid:.4f}  (bid {bid:.4f} / ask {ask:.4f})")
-    print(f"  Target units:  {target_units:>10,.0f}")
-    print(f"  Current:       {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}")
+    print(f"  Signal:          {sig:>.3f}")
+    print(f"  Mid price:       {mid:.4f}  (bid {bid:.4f} / ask {ask:.4f})")
+    print(f"  Raw target:      {raw_target_units:>10,.0f}")
+    print(f"  BC-2 multiplier: {size_multiplier}  (regime_active={regime_active})")
+    print(f"  DD multiplier:   {effective_dd_multiplier}  (DD level: {_dd.level.value})")
+    print(f"  Target units:    {target_units:>10,.0f}")
+    print(f"  Current:         {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}")
 
     needs_action = False
     is_close = False
@@ -535,7 +499,6 @@ def run_cycle(
         needs_action = True
         action = f"OPEN LONG {target_units:.0f}"
     elif target_units > 0 and cur_pos and cur_dir == Direction.SHORT:
-        # Shouldn't happen — vt strategy is long-only. Defensive.
         needs_action = True
         action = f"REVERSE TO LONG {target_units:.0f}"
     elif target_units > 0 and cur_pos and cur_units > 0:
@@ -549,19 +512,19 @@ def run_cycle(
     else:
         action = "HOLD FLAT"
 
-    # WS-01 main-path emit: action determined, no execution branch yet taken.
-    _emit_ws01(
+    _emit_ws02(
         cycle_id, pair, action,
         signal=sig,
-        vol=float(realized_vol) if pd.notna(realized_vol) else None,
         equity=equity,
         price=mid,
         target_units=float(target_units),
         current_units=float(cur_units),
+        regime_active=regime_active,
+        size_multiplier=size_multiplier,
         strategy_params=dict(strategy.params),
     )
 
-    print(f"  Action:        {action}")
+    print(f"  Action:          {action}")
 
     if not needs_action:
         time.sleep(1)
@@ -571,49 +534,45 @@ def run_cycle(
             kill_switch.trigger(TriggerReason.RECONCILIATION,
                                 f"{len(discrepancies)} discrepancies", equity)
             backend.flatten_all()
-        if monitor_pairs:
-            print("\n  --- monitor-only signals ---")
-            log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
         return {pair: sig, "_action": "HOLD", "_signal": sig}
 
     if not auto_mode:
         response = input("  Execute? [y/N]: ").strip().lower()
         if response != "y":
-            print("  Result:        SKIPPED by operator")
+            print("  Result:          SKIPPED by operator")
             return {pair: sig, "_action": "SKIP", "_signal": sig}
 
     if is_close:
         result = backend.execute_signal(pair, 0, 0)
         status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        CLOSE — {status}")
-        trade_log.record(result, signal=0, strategy="vol_target_carry",
+        print(f"  Result:          CLOSE — {status}")
+        trade_log.record(result, signal=0, strategy="carry_fred",
                          source="paper", context={"equity": equity})
         notify(ntfy_topic, f"CLOSE: {pair}", f"Closed at {mid:.4f}", "high")
     elif is_rebalance:
-        # Flatten then re-open at target
         close_r = backend.execute_signal(pair, 0, 0)
-        trade_log.record(close_r, signal=0, strategy="vol_target_carry",
+        trade_log.record(close_r, signal=0, strategy="carry_fred",
                          source="paper", context={"equity": equity, "rebalance": True})
         if not close_r.success:
-            print(f"  Result:        REBALANCE CLOSE FAILED: {close_r.error}")
+            print(f"  Result:          REBALANCE CLOSE FAILED: {close_r.error}")
             return {pair: sig, "_action": "SKIP", "_signal": sig}
         time.sleep(1.5)
         result = backend.execute_signal(pair, sig, target_units)
         status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        REBALANCED — {status}")
-        trade_log.record(result, signal=sig, strategy="vol_target_carry",
+        print(f"  Result:          REBALANCED — {status}")
+        trade_log.record(result, signal=sig, strategy="carry_fred",
                          source="paper", context={"equity": equity, "rebalance": True})
         notify(ntfy_topic, f"REBALANCE {status}: {pair}",
                f"{cur_units:.0f} → {target_units:.0f} @ {mid:.4f}", "high")
     else:
         result = backend.execute_signal(pair, sig, target_units)
         status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        OPEN — {status}")
-        trade_log.record(result, signal=sig, strategy="vol_target_carry",
+        print(f"  Result:          OPEN — {status}")
+        trade_log.record(result, signal=sig, strategy="carry_fred",
                          source="paper", context={"equity": equity})
         notify(ntfy_topic, f"OPEN LONG {status}: {pair}",
-               f"{target_units:.0f} units @ {mid:.4f}\nVol={realized_vol:.1%}, sig={sig:.2f}",
-               "high")
+               f"{target_units:.0f} units @ {mid:.4f} (regime={regime_active}, "
+               f"mult={size_multiplier})", "high")
 
     time.sleep(2)
     discrepancies = backend.reconcile()
@@ -625,11 +584,6 @@ def run_cycle(
     else:
         print("\n  Reconciliation: OK")
 
-    if monitor_pairs:
-        print("\n  --- monitor-only signals ---")
-        log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
-
-    # Derive heartbeat action label from which branch we took
     if is_close:
         hb_action = "EXIT"
     elif is_rebalance:
@@ -640,7 +594,7 @@ def run_cycle(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Paper trading — vol-target carry")
+    parser = argparse.ArgumentParser(description="Paper trading — Bet #1 carry_fred")
     parser.add_argument("--token", default=os.environ.get("SAXO_TOKEN"))
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--auto", action="store_true")
@@ -648,24 +602,20 @@ def main():
     parser.add_argument("--interval", type=int, default=1800)
     parser.add_argument("--timeframe", default="daily", choices=["daily", "4h", "1h"])
     parser.add_argument("--ntfy", metavar="TOPIC")
-    parser.add_argument("--monitor-pairs", nargs="+", default=[],
-                        help="Pairs to log signals for without trading (e.g. GBPUSD AUDJPY)")
     args = parser.parse_args()
 
     if not args.token:
         print("Error: --token or SAXO_TOKEN required")
         sys.exit(1)
 
-    # WS-01: attach file handler before any cycle runs so the audit trail
-    # exists on disk independent of stderr redirection.
-    _attach_ws01_file_handler()
+    _attach_ws02_file_handler()
 
     config = load_config(args.config)
-    pair = config.pair_symbols[0]  # single-pair vol-target deployment
-    strat_cfg = next(s for s in config.strategies if s.name == "vol_target_carry")
+    pair = config.pair_symbols[0]
+    strat_cfg = next(s for s in config.strategies if s.name == "carry_fred")
     strat_params = strat_cfg.params
     rebal_threshold = strat_params.get("rebalance_threshold", 0.20)
-    leverage_cap = strat_params.get("leverage_cap", 2.0)
+    leverage_cap = strat_params.get("leverage_cap", 1.0)
 
     client = SaxoClient(args.token, live=False)
     backend = SaxoExecutionBackend(client)
@@ -674,7 +624,7 @@ def main():
         min_order_size=config.backtest.position_sizing.get("min_order_size", 100)
             if hasattr(config.backtest, "position_sizing") else 100,
     )
-    strategy = VolTargetCarryStrategy({**strat_params, "pair": pair})
+    strategy = CarryFREDStrategy({**strat_params, "pair": pair})
     pred_log = PredictionLog(output_dir="data/predictions")
     trade_log = TradeLog(output_dir="data/trades")
 
@@ -684,12 +634,12 @@ def main():
         sys.exit(1)
     kill_switch = KillSwitch(
         initial_equity=initial_equity,
-        audit_log_path="data/kill_switch_audit.log",
+        audit_log_path="data/kill_switch_audit_cf.log",
     )
 
-    # --- CRO binding constraints DD-1/DD-2/DD-3 ---
-    # Instantiated ONCE; peak tracking persists across all cycles of this session.
-    # Thresholds explicit; no silent defaults (per hard rule).
+    # --- CRO DD-1/DD-2/DD-3: drawdown contract — instantiate ONCE ---
+    # Peak tracking persists across all cycles of this session.
+    # Thresholds explicit from CRO binding constants above; no silent defaults.
     dd_contract = DrawdownContract(
         halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,        # 0.10 — CRO DD-1
         reduce_threshold=CRO_DD_REDUCE_SIZING_THRESHOLD, # 0.15 — CRO DD-2
@@ -697,30 +647,23 @@ def main():
     )
 
     print("=" * 60)
-    print("  PAPER TRADING — Vol-Target Carry (USDJPY)")
+    print("  PAPER TRADING — Bet #1 Carry-Fred (USDJPY)")
     print(f"  Config: {args.config}")
     print(f"  Mode: {'SUPERVISED (auto)' if args.auto else 'MANUAL (approval)'}")
-    print(f"  Pair: {pair}  |  leverage_cap: {leverage_cap}x  |  "
-          f"target_vol: {strat_params.get('target_vol', 0.10):.0%}")
+    print(f"  Pair: {pair}  |  leverage_cap: {leverage_cap}x")
     print(f"  Account: {backend.account_key}")
     print(f"  Equity: {initial_equity:,.2f}")
-    print(f"  Kill switch: {kill_switch.status_line} "
-          f"(max daily loss: {kill_switch.max_daily_loss_pct:.1%})")
+    print(f"  Kill switch: {kill_switch.status_line}")
+    print(f"  DD thresholds: halt_new={CRO_DD_HALT_NEW_THRESHOLD:.0%}  "
+          f"reduce={CRO_DD_REDUCE_SIZING_THRESHOLD:.0%}  "
+          f"full_halt={CRO_DD_FULL_HALT_THRESHOLD:.0%}")
     print("=" * 60)
-
-    positions = backend.get_positions()
-    if positions:
-        print("\nExisting positions:")
-        for p, pos in positions.items():
-            print(f"  {p}: {pos.direction.name} {pos.size:.0f} @ {pos.entry_price:.4f}")
 
     loop_start = time.monotonic()
     last_signal: float | None = None
     last_action: str | None = None
 
-    # --- CRO binding constraint #2: HeartbeatWatchdog instantiation ---
-    # Timeout sourced from CRO CONSENSUS_2026-04-28 binding constraint #2.
-    # on_timeout halts new dispatches; does NOT auto-unwind (per CRO 2026-04-30).
+    # --- CRO #2: HeartbeatWatchdog instantiation ---
     def _on_watchdog_timeout(seconds_idle: float) -> None:
         logger.critical(
             "heartbeat_watchdog fired",
@@ -733,12 +676,12 @@ def main():
         notify(
             args.ntfy,
             "WATCHDOG TIMEOUT — trades halted",
-            f"Paper loop idle {seconds_idle:.1f}s > {CRO_WATCHDOG_TIMEOUT_SECONDS}s limit",
+            f"Carry-Fred loop idle {seconds_idle:.1f}s > {CRO_WATCHDOG_TIMEOUT_SECONDS}s limit",
             "urgent",
         )
 
     watchdog = HeartbeatWatchdog(
-        timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS,  # 300.0 — CRO binding #2, explicit
+        timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS,
         on_timeout=_on_watchdog_timeout,
     )
     watchdog.start()
@@ -749,27 +692,27 @@ def main():
         try:
             while True:
                 cycle_id += 1
-                watchdog.tick()  # CRO binding #2: dead-man tick each cycle
+                watchdog.tick()
                 write_heartbeat(HEARTBEAT_PATH, cycle_id, loop_start,
                                 last_signal=last_signal, last_action=last_action)
-                result = run_cycle(client, backend, sizer, strategy, pair,
-                                   pred_log, trade_log, kill_switch,
-                                   rebal_threshold=rebal_threshold,
-                                   dd_contract=dd_contract,
-                                   auto_mode=args.auto, ntfy_topic=args.ntfy,
-                                   horizon=args.timeframe,
-                                   monitor_pairs=args.monitor_pairs,
-                                   cycle_id=cycle_id)
+                result = run_cycle(
+                    client, backend, sizer, strategy, pair,
+                    pred_log, trade_log, kill_switch, dd_contract,
+                    rebal_threshold=rebal_threshold,
+                    auto_mode=args.auto, ntfy_topic=args.ntfy,
+                    horizon=args.timeframe,
+                    cycle_id=cycle_id,
+                )
                 last_signal = result.get("_signal")
                 last_action = result.get("_action")
                 pred_log.flush()
                 trade_log.flush()
                 if _HALT_REQUESTED:
                     logger.critical(
-                        "paper_loop_exiting — halt requested by watchdog",
-                        extra={"event": "LOOP_EXIT_WATCHDOG_HALT", "reason": _HALT_REASON},
+                        "paper_loop_exiting — halt requested",
+                        extra={"event": "LOOP_EXIT_HALT", "reason": _HALT_REASON},
                     )
-                    print(f"\nPaper loop HALTED by watchdog: {_HALT_REASON}")
+                    print(f"\nPaper loop HALTED: {_HALT_REASON}")
                     break
                 print(f"\nNext check in {args.interval}s...")
                 time.sleep(args.interval)
@@ -779,16 +722,16 @@ def main():
             watchdog.stop()
     else:
         try:
-            watchdog.tick()  # CRO binding #2: tick even for single-shot run
-            write_heartbeat(HEARTBEAT_PATH, 1, loop_start,
-                            last_signal=last_signal, last_action=last_action)
-            run_cycle(client, backend, sizer, strategy, pair,
-                      pred_log, trade_log, kill_switch,
-                      rebal_threshold=rebal_threshold,
-                      dd_contract=dd_contract,
-                      auto_mode=args.auto, ntfy_topic=args.ntfy,
-                      horizon=args.timeframe,
-                      cycle_id=1)
+            watchdog.tick()
+            write_heartbeat(HEARTBEAT_PATH, 1, loop_start)
+            run_cycle(
+                client, backend, sizer, strategy, pair,
+                pred_log, trade_log, kill_switch, dd_contract,
+                rebal_threshold=rebal_threshold,
+                auto_mode=args.auto, ntfy_topic=args.ntfy,
+                horizon=args.timeframe,
+                cycle_id=1,
+            )
         finally:
             watchdog.stop()
 

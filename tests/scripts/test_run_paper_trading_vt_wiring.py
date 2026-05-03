@@ -32,6 +32,7 @@ from forex_system.risk.bet1_sizing import (
     bet1_size_multiplier,
     regime_active_status,
 )
+from forex_system.risk.drawdown_contract import DrawdownContract, DrawdownLevel
 from forex_system.risk.exposure_aggregator import (
     AggregationGateBlocked,
     check_dispatch_allowed,
@@ -378,6 +379,162 @@ class TestBet1Sizing:
         assert BET1_SIZE_MULTIPLIER_REGIME_ACTIVE == 0.25
         assert CF_T9_HEARTBEAT_MAX_AGE_SECONDS == 300.0
         assert CF_T9_MIN_REGIME_READINGS == 10
+
+
+# ---------------------------------------------------------------------------
+# D4: DrawdownContract wiring in run_paper_trading_vt (Gap B)
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_run_cycle_mocks():
+    """Return (client, backend, kill_switch) mocks for a healthy, flat-book cycle."""
+    import pandas as pd
+
+    kill_switch = MagicMock()
+    kill_switch.is_triggered = False
+    kill_switch.check_and_trigger.return_value = False
+    kill_switch.record_equity_fetch_failure.return_value = False
+    kill_switch.consecutive_fetch_failures = 0
+    kill_switch.max_consecutive_fetch_failures = 3
+    kill_switch.record_equity_fetch_success.return_value = None
+
+    backend = MagicMock()
+    backend.get_positions.return_value = {}   # flat book — won't trigger aggregation gate
+    backend.account_key = "TEST_ACCOUNT"
+
+    client = MagicMock()
+    return client, backend, kill_switch
+
+
+class TestDrawdownContractWiring:
+    """D4 (Gap B): Verify DrawdownContract skip paths inside run_cycle."""
+
+    def test_full_halt_path_returns_skip_dd_full_halt(self):
+        """When DD ≥ 20%, run_cycle must return SKIP_DD_FULL_HALT and halt the loop."""
+        import scripts.run_paper_trading_vt as loop_mod
+
+        loop_mod._HALT_REQUESTED = False
+        loop_mod._HALT_REASON = ""
+
+        client, backend, kill_switch = _make_minimal_run_cycle_mocks()
+
+        # Contract with peak established at 100k; current = 80k → 20% DD
+        contract = DrawdownContract(
+            halt_threshold=0.10,
+            reduce_threshold=0.15,
+            full_halt_threshold=0.20,
+        )
+        contract.assess(100_000.0)   # sets peak
+
+        with patch.object(loop_mod, "fetch_account_equity", return_value=80_000.0):
+            result = loop_mod.run_cycle(
+                client=client,
+                backend=backend,
+                sizer=MagicMock(),
+                strategy=MagicMock(),
+                pair="USDJPY",
+                pred_log=MagicMock(),
+                trade_log=MagicMock(),
+                kill_switch=kill_switch,
+                rebal_threshold=0.20,
+                dd_contract=contract,
+                auto_mode=True,
+                cycle_id=1,
+            )
+
+        assert result.get("_action") == loop_mod.SKIP_DD_FULL_HALT
+        # halt_paper_loop must have been called → module flag set
+        assert loop_mod._HALT_REQUESTED is True
+
+        # Reset
+        loop_mod._HALT_REQUESTED = False
+        loop_mod._HALT_REASON = ""
+
+    def test_halt_new_dispatch_path_returns_skip_dd_halt_new(self):
+        """When 10% ≤ DD < 15%, run_cycle must return SKIP_DD_HALT_NEW (no dispatch)."""
+        import scripts.run_paper_trading_vt as loop_mod
+
+        loop_mod._HALT_REQUESTED = False
+        loop_mod._HALT_REASON = ""
+
+        client, backend, kill_switch = _make_minimal_run_cycle_mocks()
+
+        contract = DrawdownContract(
+            halt_threshold=0.10,
+            reduce_threshold=0.15,
+            full_halt_threshold=0.20,
+        )
+        contract.assess(100_000.0)   # peak = 100k
+
+        # 90k = exactly 10% DD → HALT_NEW_DISPATCH
+        with patch.object(loop_mod, "fetch_account_equity", return_value=90_000.0):
+            result = loop_mod.run_cycle(
+                client=client,
+                backend=backend,
+                sizer=MagicMock(),
+                strategy=MagicMock(),
+                pair="USDJPY",
+                pred_log=MagicMock(),
+                trade_log=MagicMock(),
+                kill_switch=kill_switch,
+                rebal_threshold=0.20,
+                dd_contract=contract,
+                auto_mode=True,
+                cycle_id=2,
+            )
+
+        assert result.get("_action") == loop_mod.SKIP_DD_HALT_NEW
+        # Loop must NOT be halted for HALT_NEW_DISPATCH (only FULL_HALT halts)
+        assert loop_mod._HALT_REQUESTED is False
+
+    def test_normal_dd_does_not_skip(self):
+        """When DD < 10%, run_cycle must NOT return a DD skip action."""
+        import scripts.run_paper_trading_vt as loop_mod
+
+        loop_mod._HALT_REQUESTED = False
+        loop_mod._HALT_REASON = ""
+
+        client, backend, kill_switch = _make_minimal_run_cycle_mocks()
+
+        contract = DrawdownContract(
+            halt_threshold=0.10,
+            reduce_threshold=0.15,
+            full_halt_threshold=0.20,
+        )
+        contract.assess(100_000.0)
+
+        # 95k = 5% DD → NORMAL (below halt threshold)
+        # We also need to mock out the rest of run_cycle (data fetch) to avoid
+        # needing a real strategy; we let it reach SKIP_NO_DATA instead.
+        with patch.object(loop_mod, "fetch_account_equity", return_value=95_000.0), \
+             patch.object(loop_mod, "fetch_recent_bars", return_value=__import__("pandas").DataFrame()):
+            result = loop_mod.run_cycle(
+                client=client,
+                backend=backend,
+                sizer=MagicMock(),
+                strategy=MagicMock(),
+                pair="USDJPY",
+                pred_log=MagicMock(),
+                trade_log=MagicMock(),
+                kill_switch=kill_switch,
+                rebal_threshold=0.20,
+                dd_contract=contract,
+                auto_mode=True,
+                cycle_id=3,
+            )
+
+        assert result.get("_action") not in (
+            loop_mod.SKIP_DD_FULL_HALT,
+            loop_mod.SKIP_DD_HALT_NEW,
+        )
+
+    def test_dd_contract_constants_exported(self):
+        """Module must export the CRO DD threshold constants (no silent defaults)."""
+        import scripts.run_paper_trading_vt as loop_mod
+
+        assert loop_mod.CRO_DD_HALT_NEW_THRESHOLD == 0.10
+        assert loop_mod.CRO_DD_REDUCE_SIZING_THRESHOLD == 0.15
+        assert loop_mod.CRO_DD_FULL_HALT_THRESHOLD == 0.20
 
 
 # ---------------------------------------------------------------------------

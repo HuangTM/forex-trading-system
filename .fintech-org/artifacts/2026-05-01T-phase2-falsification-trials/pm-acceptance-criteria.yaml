@@ -1,0 +1,81 @@
+role: pm
+artifact_type: acceptance-criteria
+generated: "2026-05-01"
+phase: "Phase 2 — Operational Falsification Trials"
+
+task-statement: >
+  Run backtest-only OOS trials against existing/archived strategies to produce
+  ≥10 rejected entries in trials.jsonl and satisfy NHT discipline window.
+
+deliverable-type: spec-completion
+deliverable-type-justification: >
+  Wave 2 produces specs (HoQR prioritization + NHT pre-registered thresholds +
+  QD harness extension spec). Actual trial execution and backtest-eval results
+  land in Wave 3. Tagging spec-completion is more accurate; Wave 3 would be
+  tagged backtest-eval.
+
+deadline: "2026-05-15T23:59:00Z"
+deadline-note: >
+  Tier A hard deadline (NHT discipline window ≥5 rejections by 2026-05-15).
+  Tier B (CONDITION-1 ≥10 rejections) has no fixed deadline but gates
+  paper-launch; target before 2026-07-21 horizon end.
+
+instrument-universe:
+  - EURUSD
+  - USDJPY
+  - GBPUSD
+
+hard-constraints:
+  - "no_paper_trading: true (Phase 2 is backtest only)"
+  - "no_live_capital: true"
+  - "inherits_cro_envelope_from_consensus_2026-04-28: true (size_multiplier=0.5, max_active_paper_strategies=4, max_correlated_exposure_pct=0.15, paper_only=true)"
+  - "phase1_infra_complete_no_re_decisions: true (all A-list/Q-list gates cleared 2026-04-27; 488 tests passing)"
+  - "kill_switch_threshold_required_in_new_preregs: true (Gate 3 enforces; existing 3 pre-regs grandfathered)"
+  - "no_strategy_design: true (only existing-strategy OOS falsification; no new alpha research)"
+  - "validated_strategies_immutable: true (vol_target_carry and FRED-carry Bet#1 must not be modified or re-used as rejection candidates)"
+  - "nht_discipline_window_deadline: 2026-05-15"
+  - "condition_1_target: trials_jsonl_status_rejected_count_>=10"
+  - "current_status_rejected_count: 0"
+  - "current_total_trials: 22"
+  - "horizon_end: 2026-07-21"
+  - "rejection_path_only_via: record_trial_rejection() in harness/run_trial.py (commit b56bd1a)"
+
+criteria:
+  # Tier A — NHT discipline window (hard deadline 2026-05-15)
+  - "TIER-A-1: ≥5 trials.jsonl entries with status=rejected logged by 2026-05-15"
+  - "TIER-A-2: Each rejection references a pre-registered falsification criterion (field: falsification_criterion) declared BEFORE evaluation run"
+  - "TIER-A-3: NHT artifact (null-test-report) delivered and frozen before any Wave-3 QD evaluation begins"
+  - "TIER-A-4: HoQR prioritization artifact delivered listing ≥5 ranked candidate hypotheses with falsification criterion sketches"
+
+  # Tier B — CONDITION-1 (gates paper launch)
+  - "TIER-B-1: ≥10 trials.jsonl entries with status=rejected"
+  - "TIER-B-2: Archived Phase 0 baselines (ma_crossover, bollinger_rsi, momentum, carry, carry_momentum) are IN-SCOPE as low-cost explicit-falsification candidates — HoQR decides whether to include; PM does not prejudge"
+  - "TIER-B-3: Each rejection record includes: trial_id, strategy, rejection_reason, falsification_criterion (all fields per commit b56bd1a API)"
+  - "TIER-B-4: Sacred no_lookahead test continues passing after any QD harness changes"
+  - "TIER-B-5: QD harness-extension spec (implementation-report) delivered before Wave 3 execution begins"
+
+out-of-scope:
+  - Paper trading (any mode)
+  - Broker integration or live order routing
+  - New strategy design or alpha research
+  - Modifying vol_target_carry or FRED-carry Bet#1
+  - Re-opening Phase 1 architectural decisions (CTO lane closed)
+  - Re-deciding CRO envelope (inherited immutably from CONSENSUS_2026-04-28)
+  - Wiring watchdog or paper-trading gates
+  - Generating passing/validated entries in trials.jsonl (Phase 2 targets rejections only)
+
+roles-staffed:
+  PM:
+    rationale: "Acceptance-criteria artifact; schedule coordination; no-CRO-dispatch gate owner"
+  HoQR:
+    rationale: "Sequences which strategies to attack; ranks by expected-falsification-rate-per-research-cost; owns prioritization artifact"
+  NHT:
+    rationale: "Pre-declares exact falsification criteria and thresholds before QD evaluates; owns null-test-report; LAST goalpost-lock before Wave 3"
+  QD:
+    rationale: "Specs harness extension for rejection-logging workflow; does NOT execute trials in Wave 2 (Wave 3 executes)"
+  CTO:
+    absent: true
+    rationale: "Phase 1 architecture complete; no re-decisions in scope"
+  CRO:
+    absent: true
+    rationale: "Risk envelope inherited from CONSENSUS_2026-04-28 and immutable for Phase 2; returns only if Phase 2 trial results require posture change (e.g., validated strategy fails OOS)"

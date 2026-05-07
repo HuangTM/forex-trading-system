@@ -1,0 +1,481 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: approve-with-conditions
+timestamp: "2026-05-06T00:00:00Z"
+subtask_ref: wave9-precommit-review
+subtask_id: "qd-wave9-impl-review-001"
+
+no-capital-instruction: true
+web_research_conducted: false
+sources: []
+websearch_used: 0
+webfetch_used: 0
+
+bash_blocked: false
+
+sacred_test_status: pass
+# Evidence: .venv/bin/pytest tests/backtest/test_engine.py::test_no_lookahead -v → 1 passed in 0.02s
+
+tests_passing:
+  tests_run: 686
+  passed: 686
+  failed: 0
+  blocked: 0
+  # Evidence: .venv/bin/pytest --tb=short -q → "686 passed in 27.42s"
+  # Baseline: 686. No regression.
+
+ruff_error_count: 19
+ruff_baseline: 19
+ruff_regression: false
+# Evidence: .venv/bin/ruff check src/ → "Found 19 errors." (exit 1, same as baseline)
+
+claimed_domains:
+  - implementation-correctness
+  - python-code-review
+  - cost-model-parity
+  - unit-conversion-verification
+  - test-quality-review
+
+# ── Per-criterion findings ────────────────────────────────────────────────────
+
+findings:
+
+  # F-001: USDJPY cost-formula closure
+  - id: F-001
+    gate: A-F001
+    verdict: FAIL
+    severity: critical
+    title: "F-001 NOT CLOSED: paper loops do NOT apply _to_engine_units JPY division before cost_usd"
+    description: |
+      Both run_paper_trading_carry_fred.py (line 648) and run_paper_trading_vt.py (line 689)
+      compute cost_usd as:
+        _cost_usd = _cost_pips * _pip_v * _trade_units
+      where _trade_units is the USD-nominal output from sizer.calculate_size() (e.g., 100_000 USD
+      for a 1x leverage USDJPY entry at 100k equity).
+
+      The engine's _to_engine_units (engine.py line 544-573) divides USD-nominal by price for JPY
+      pairs BEFORE multiplying by pip_value in all cost computations:
+        target_units = usd_nominal / price   # e.g., 100_000 / 150 ≈ 666.67 JPY-convention units
+        cost_dollars = cost_pips * pip_value * target_units   # 0.75 * 0.01 * 666.67 ≈ 5.0 USD
+
+      The paper loops skip this division. With _trade_units = 100_000 (raw USD nominal):
+        _cost_usd = 0.75 * 0.01 * 100_000 = 750 USD   (paper loop, WRONG)
+        expected  = 0.75 * 0.01 * (100_000/150) ≈ 5.0 USD  (engine, CORRECT)
+
+      This is a 150× overstatement when mid ≈ 150 (USDJPY). The paper_equity_bt_equiv written to
+      EQUITY_LOG_PATH (carry_fred.py:659-666, vt.py:704-711) is therefore NOT backtest-equivalent
+      for USDJPY; equity is understated by ~745 USD per 100k-unit entry cycle.
+
+      The fix noted in the PM AC was to apply _to_engine_units (divide by price) before multiplying
+      pip_v * trade_units. This division is ABSENT from both scripts.
+
+    evidence:
+      - "carry_fred.py:634: `_pip_v = 0.01 if 'JPY' in pair.upper() else 0.0001`"
+      - "carry_fred.py:634-648: _trade_units set to raw sizer output (USD nominal); no / price"
+      - "carry_fred.py:648: `_cost_usd = _cost_pips * _pip_v * _trade_units`  — missing JPY division"
+      - "vt.py:674: same heuristic; same absent division"
+      - "vt.py:689: `_cost_usd = _cost_pips * _pip_v * _trade_units` — missing JPY division"
+      - "engine.py:544-573: _to_engine_units divides usd_nominal by price for endswith('JPY')"
+      - "engine.py:299: `target_units = _to_engine_units(usd_nominal, pair, price)`"
+      - "engine.py:332: `equity -= cost_pips * pip_value * abs(delta)` — delta is engine units (post-division)"
+    verdict-per-pm-ac: do-not-commit (Group A) per criterion A-F001 fail-condition
+
+  - id: F-001-TEST-BYPASS
+    gate: A-F001
+    verdict: FAIL-BY-PROXY
+    severity: high
+    title: "TestCostModelParity uses fabricated SHARED_SIZE that bypasses the unit-conversion path"
+    description: |
+      TestCostModelParity (test_wave8_high_remediation.py lines 38-231) defines:
+        PAIR = "USDJPY"; SIZE = 10_000.0
+      and calls cost_model.entry_cost("USDJPY", 10_000) directly (lines 59, 72).
+      The size value 10_000 is a hand-chosen constant that is NOT derived from
+      sizer.calculate_size(). It happens to be small enough that _cost_usd = 0.75 * 0.01 * 10_000 = 75.0
+      matches the expected value in the test assertion (line 112-117).
+
+      But the actual paper loop calls sizer.calculate_size() which returns USD-nominal
+      (e.g., 100_000 for 100k equity, 1x leverage, signal=1.0). The test never exercises
+      the path where _trade_units = sizer_output (USD nominal) and the missing division causes
+      a 150× overstatement. The test passes even with F-001 unfixed.
+
+    evidence:
+      - "test_wave8_high_remediation.py:53: `SIZE = 10_000.0` — hardcoded, not derived from sizer"
+      - "test_wave8_high_remediation.py:57-73: _paper_loop_entry_cost_dollars hardcodes pip_v and SIZE"
+      - "test_wave8_high_remediation.py:102-118: asserts engine_cost == paper_cost at SIZE=10_000"
+      - "This test would also PASS with the unit-conversion bug present (sizes match by coincidence)"
+
+  # F-002: USDJPY E2E parity test
+  - id: F-002
+    gate: B-F002
+    verdict: FAIL
+    severity: high
+    title: "F-002 NOT CLOSED: TestE2EParity drives EURUSD only; no USDJPY E2E parity test present"
+    description: |
+      TestE2EParity (test_wave8_high_remediation.py line 334) explicitly avoids USDJPY.
+      The class docstring (lines 337-344) states:
+        "Uses EURUSD (not USDJPY) to avoid the engine's JPY unit-convention conversion
+        (_to_engine_units divides USD nominal by price for JPY pairs)."
+
+      The PM AC requires at least one test that drives the engine AND paper-loop cost path
+      with a USDJPY trade tuple (price ~150, JPY-pair convention) and asserts a concrete
+      numeric cost_usd that exercises the _to_engine_units conversion path.
+
+      TestSwapAndDeltaFixes (line 454) uses PAIR="USDJPY" for swap and delta-cost tests,
+      but these do NOT assert engine.equity_curve parity with paper_equity_bt_equiv —
+      they only assert cost_usd and swap_usd are correct given the paper-loop's heuristic
+      _pip_v value. They do NOT demonstrate that the paper-loop matches the engine for USDJPY.
+
+      Therefore F-002 remains open: no USDJPY E2E parity test exists in the submitted file.
+
+    evidence:
+      - "test_wave8_high_remediation.py:334: class TestE2EParity — PAIR = 'EURUSD' (line 346)"
+      - "test_wave8_high_remediation.py:337-344: explicit comment explains EURUSD chosen to avoid JPY conversion"
+      - "test_wave8_high_remediation.py:454: class TestSwapAndDeltaFixes PAIR='USDJPY' — not a parity test"
+      - "No test class in file asserts engine equity_curve == paper_equity_bt_equiv for USDJPY"
+    verdict-per-pm-ac: commit-after-fixes (Group B) per criterion B-F002 fail-condition
+
+  # F-005: pip_v heuristic vs PairInfo.pip_value
+  - id: F-005
+    gate: none-explicit
+    verdict: FAIL
+    severity: medium
+    title: "F-005: pip_v computed via heuristic string check, not from canonical PairInfo.pip_value"
+    description: |
+      Both scripts compute pip value via:
+        _pip_v = 0.01 if "JPY" in pair.upper() else 0.0001
+      This is a heuristic, not a lookup against the canonical PairInfo dataclass
+      (src/forex_system/core/types.py line 26: `pip_value: float`).
+
+      The engine uses _get_pip_value(pair) (engine.py:537-541) which applies the same
+      heuristic, so for USDJPY the numeric result is correct today. However, the paper
+      loops are fragile: any pair not ending in "JPY" but having a different pip convention
+      (hypothetical future pair, or a mislabeled config) would silently compute the wrong
+      pip value. The canonical approach is to look up PairInfo from the cost model or config.
+
+      This is a non-blocking finding (correct for current pairs) but introduces fragility.
+
+    evidence:
+      - "carry_fred.py:634: `_pip_v = 0.01 if 'JPY' in pair.upper() else 0.0001`"
+      - "vt.py:674: same heuristic"
+      - "src/forex_system/core/types.py:22-26: PairInfo has pip_value field"
+      - "engine.py:537-541: _get_pip_value also uses heuristic — consistent fragility"
+    verdict-if-fail: non-blocking (fragile but correct for current deployment pairs)
+
+  # F-006: Saxo TotalValue double-counting
+  - id: F-006
+    gate: none-explicit
+    verdict: PASS-WITH-NOTE
+    severity: low
+    title: "F-006: TotalValue is single source for operational equity; no double-counting detected"
+    description: |
+      fetch_account_equity (carry_fred.py:351-365, vt.py:361-375) reads only
+      `balance.get("TotalValue", 0.0)` and falls back to `CashBalance` if TotalValue is zero.
+      It does NOT sum TotalValue + realized_pnl + unrealized_pnl from separate API fields.
+      Saxo's TotalValue is defined as the consolidated net account value (cash + open P&L),
+      so using it as the sole equity source is correct and does not double-count.
+
+      The double-counting risk would arise if code added separate P&L fields ON TOP of TotalValue.
+      No such addition is present in either script.
+
+    evidence:
+      - "carry_fred.py:353-360: single-source TotalValue, fallback to CashBalance only"
+      - "vt.py:363-374: identical pattern"
+      - "No addition of unrealized_pnl or realized_pnl fields to the equity value"
+    verdict-if-fail: n/a (pass)
+
+  # NHT NEW-2: cost-feedback into operational equity
+  - id: NHT-NEW-2
+    gate: CROSS-cost-feedback-routing
+    verdict: DOCUMENTED
+    title: "NHT NEW-2: Code uses RAW broker equity (TotalValue) for dd_contract and kill_switch"
+    description: |
+      Explicit position statement (QD role):
+
+      The submitted code implements the CRO recommended architecture (log-only parity),
+      NOT the NHT NEW-2 proposed architecture (cost-feedback into operational equity).
+
+      Evidence:
+        1. kill_switch.check_and_trigger(equity) at carry_fred.py:473, vt.py:484 — equity is
+           the raw TotalValue from Saxo, not cost-adjusted.
+        2. dd_contract.assess(equity) at carry_fred.py:481, vt.py:498 — same raw equity.
+        3. The cost-adjusted value (paper_equity_bt_equiv) is computed AFTER risk checks
+           and written only to EQUITY_LOG_PATH (carry_fred.py:658-666, vt.py:704-711).
+           It is never fed back into dd_contract or kill_switch thresholds.
+
+      Architecture classification: raw-broker-equity-for-risk-primitives (CRO recommended).
+      NHT NEW-2 remains UNRESOLVED: the code takes the CRO position, not a CEO ruling.
+      This finding must be surfaced to NHT and CRO for explicit sign-off or CEO ruling.
+
+    evidence:
+      - "carry_fred.py:473: kill_switch.check_and_trigger(equity) — equity = TotalValue"
+      - "carry_fred.py:481: dd_contract.assess(equity) — equity = TotalValue"
+      - "carry_fred.py:658-666: paper_equity_bt_equiv written to log only (not fed back)"
+      - "vt.py:484: kill_switch.check_and_trigger(equity) — same pattern"
+      - "vt.py:498: dd_contract.assess(equity) — same pattern"
+      - "vt.py:704-711: paper_equity_bt_equiv written to log only"
+
+  # BC-8: cross-process race gate
+  - id: BC-8
+    gate: A-BC8
+    verdict: FAIL
+    title: "BC-8: Neither per-strategy 7.5% budget ticket nor cross-process advisory fcntl file-lock present in carry_fred.py"
+    description: |
+      The carry_fred loop contains an O_CREAT|O_EXCL account_key parity gate
+      (carry_fred.py:149) but this is NOT the BC-8 cross-process advisory file-lock
+      specified in the PM AC. BC-8 requires that the sequence
+        [get_positions → compute_exposure → check_dispatch_allowed → execute_signal]
+      be wrapped in a cross-process advisory lock (fcntl O_CREAT|O_EXCL) to prevent
+      two loops from simultaneously passing the aggregation gate and doubling exposure.
+
+      No such lock wraps the dispatch sequence. No per-strategy 7.5% budget ticket
+      logic is present. The CRO veto on BC-8 from Wave-8 therefore remains in effect.
+
+    evidence:
+      - "carry_fred.py:149: O_CREAT|O_EXCL used only for account_key_parity (one-time startup gate)"
+      - "carry_fred.py:515-539: aggregation gate check_dispatch_allowed → execute_signal not protected by cross-process lock"
+      - "No fcntl import or advisory lock wrapping the dispatch sequence in either script"
+      - "No 7.5% budget ticket or per-strategy notional cap logic present"
+    verdict-per-pm-ac: |
+      Per PM AC criterion A-BC8: carry_fred.py may commit as engineering artifact;
+      second-loop authorization remains BLOCKED pending CRO re-evaluation.
+
+  # F-003: LoC cap deviation
+  - id: F-003
+    gate: A-F003
+    verdict: FLAG-FOR-CEO
+    title: "F-003: Net insertions are 388 LoC across Group A modified files; 681 LoC for Group B (new)"
+    description: |
+      Modified Group A files (4 files with diffs):
+        monitor_regime_triggers.py: +21 lines
+        run_paper_trading_carry_fred.py: +159 lines
+        run_paper_trading_vt.py: +173 lines
+        tests/scripts/test_cf_t9_monitor.py: +37 lines
+      Total modified: +388 insertions, -2 deletions (net +386).
+
+      Untracked Group B file:
+        tests/scripts/test_wave8_high_remediation.py: 681 lines (entirely new).
+
+      Total new LoC this wave: 386 (modified) + 681 (new) = 1,067 LoC net new.
+
+      Original Wave-8 PM AC declared a 50-LoC hard constraint. The current wave is
+      6.6× to 21× over the constraint depending on whether Group B is included.
+      CEO ratification of this deviation is required per PM AC criterion A-F003
+      before this commit gates as fully authorized.
+
+    evidence:
+      - "git diff --stat HEAD: 388 insertions, 2 deletions across 4 modified files"
+      - "wc -l tests/scripts/test_wave8_high_remediation.py: 681 lines (untracked, new)"
+      - "PM AC criterion A-F003: LoC delta >50 with no CEO ratification → commit-after-fixes"
+    verdict-per-pm-ac: commit-after-fixes (pending CEO ratification of deviation)
+
+  # Forbidden phrases scan
+  - id: FORBIDDEN-PHRASES
+    gate: A-forbidden-phrases B-forbidden-phrases C-forbidden-phrases
+    verdict: PASS
+    title: "Forbidden phrases: 0 matches across all Group A, B, C files"
+    description: |
+      Scanned all 13 files (Group A: 4, Group B: 1, Group C: 8) against
+      .fintech-org/forbidden-phrases.json live_capital_phrases and broker_names.
+      Result: 0 matches in all files.
+    evidence:
+      - "python3 scan script: '0 matches across all files'"
+
+  # Group B test quality (check 9)
+  - id: GROUP-B-TEST-QUALITY
+    gate: none-explicit
+    verdict: PASS-WITH-CONDITIONS
+    title: "Group B test quality: adequate but USDJPY E2E coverage absent (see F-002)"
+    description: |
+      TestCostModelParity: clear invariant (cost formula parity). Has entry, exit,
+        module-import, equity-log-fields tests. No explicit non-entry/invalidation tests
+        but the subject (cost model formula) is not a branching decision; adequate.
+        CONCERN: tests use hardcoded SIZE=10_000 (not sizer output), which means the
+        unit-conversion bug (F-001) is NOT caught by these tests.
+
+      TestAccountKeyParity: clear invariant. Has: first-call-writes-lock, same-key-succeeds,
+        divergent-key-exits-1, parity-fires-before-dispatch. TOCTOU race test in
+        TestAtomicLockAndReset uses threading.Barrier — genuine concurrency test. Good.
+
+      TestE2EParity: clear invariant (paper_equity_bt_equiv == engine equity_curve[entry_bar]).
+        Single test (entry cost parity). No rebalance or exit parity test. Uses EURUSD only
+        — JPY conversion path not exercised (see F-002).
+
+      TestSwapAndDeltaFixes: three parametrized scenarios (swap nonzero, delta cost, fresh entry).
+        Concrete numeric assertions. Uses USDJPY with price=150. Good for swap/delta paths.
+        However sizer_mock returns 5_000 directly — bypasses sizer.calculate_size() USD-nominal
+        path, so F-001 bug also not caught here.
+
+      TestAtomicLockAndReset: two tests for TOCTOU and reset-without-confirm. Adequate.
+
+      Mocking concern: KillSwitch and backend are mocked throughout — appropriate since
+        these are unit/integration tests of the cost path, not Saxo integration tests.
+        run_backtest and the engine are NOT mocked in TestE2EParity — correct, the real
+        engine is exercised. Strategy is mocked with fixed signal — acceptable.
+
+    evidence:
+      - "test_wave8_high_remediation.py:38-231: TestCostModelParity — 5 tests, USDJPY hardcoded SIZE"
+      - "test_wave8_high_remediation.py:239-326: TestAccountKeyParity — 5 tests, concrete assertions"
+      - "test_wave8_high_remediation.py:334-446: TestE2EParity — 1 test, EURUSD only"
+      - "test_wave8_high_remediation.py:454-611: TestSwapAndDeltaFixes — 3 tests, USDJPY, sizer mocked"
+      - "test_wave8_high_remediation.py:619-681: TestAtomicLockAndReset — 2 tests"
+
+  # Logging at decision boundaries (check 10)
+  - id: LOGGING-DECISION-TRACE
+    gate: none-explicit
+    verdict: PASS-WITH-CONDITIONS
+    title: "Decision-trace logging: adequate for most boundaries; skip paths have structured logs"
+    description: |
+      Strengths:
+        - _emit_ws01 / _emit_ws02 emit one structured JSON line per cycle outcome at every
+          early-exit path (HALT_WATCHDOG, KILL_HALTED, SKIP_EQUITY_FETCH_FAIL, SKIP_REGIME_INACTIVE,
+          SKIP_DD_FULL_HALT, SKIP_DD_HALT_NEW, SKIP_AGGREGATION_GATE_BLOCKED, SKIP_NO_DATA,
+          SKIP_INSUFFICIENT_BARS, main-path action).
+        - Each WS emit includes: decision_ts, cycle_id, pair, signal, equity, price,
+          target_units, current_units, action. Satisfies log-as-decision-trace items 1, 2, 5, 6, 10.
+        - dd_contract and kill_switch events have structured logger.critical/warning calls
+          with named fields (event, drawdown_pct, equity, peak_equity, cycle_id).
+        - regime_active and size_multiplier included in EVERY ws02 emit (carry_fred.py:619-629),
+          enabling BC-1/BC-2 audit from log alone.
+
+      Gaps:
+        - _emit_ws01 does not include source of equity (always "TotalValue" but not logged).
+          Fails log-as-decision-trace item 3 (source of parameter not named).
+        - cost_usd and swap_usd are written to EQUITY_LOG_PATH (separate file) but NOT
+          included in the ws01/ws02 structured decision-trace line. An auditor must join
+          two log files to reconstruct the full cycle state.
+        - decision_ts is the time of WS emit, not time equity was fetched or price was observed.
+          Minor lag possible on slow cycles.
+
+    evidence:
+      - "carry_fred.py:244-280: _emit_ws02 definition — all key fields included"
+      - "carry_fred.py:619-629: main-path emit with regime_active, size_multiplier"
+      - "vt.py:240-286: _emit_ws01 definition"
+      - "vt.py:657-667: main-path emit before execution branch"
+      - "Neither file logs cost_usd in the ws01/ws02 line (only in EQUITY_LOG_PATH)"
+
+  # Execution firewall self-review (check 11)
+  - id: FIREWALL-SELF-REVIEW
+    gate: none-explicit
+    verdict: PASS
+    title: "Execution firewall: Group A is implementation code; Group C is research-only, no trading path"
+    description: |
+      Group A files are production execution code (paper loop + regime monitor).
+      No research-role artifacts (threshold tuning, regime logic, signal transformations)
+      introduced by the implementer beyond what is specified in the CONSENSUS artifacts.
+      The BC-1/BC-2 constants (size_multiplier=0/0.25) are sourced to named CONSENSUS
+      artifacts in comments. The CF-T9 thresholds are sourced to pre-registered carry_fred.md.
+
+      Group C scripts classification:
+        buy_and_hold_baseline.py  — diagnostic/research (backtest, no live/Saxo path)
+        buy_and_hold_sharpe.py    — diagnostic/research (metrics computation only)
+        characterize_drawdowns.py — diagnostic/research (drawdown analysis on parquet data)
+        diagnose_carry_momentum.py — diagnostic/research (signal investigation)
+        long_only_carry_redesign.py — diagnostic/research (strategy parameter sweep)
+        run_phase1_revalidate.py  — diagnostic/research (revalidation backtest)
+        vol_target_portfolio.py   — diagnostic/research (portfolio backtest, no execution)
+        vol_targeting.py          — diagnostic/research (strategy research script)
+
+      None of Group C scripts import or invoke SaxoClient, SaxoExecutionBackend,
+      execute_signal, or any live/paper order dispatch path. All are research-only.
+      No file is a production-candidate per this scan.
+
+    evidence:
+      - "grep across all 8 Group C scripts: 0 matches for execute_signal|place_order|SaxoClient|SaxoExecution"
+      - "All Group C scripts import from forex_system.data.storage, backtest.engine, or core only"
+      - "carry_fred.py constants sourced to CONSENSUS_2026-04-28 + cro-bet1-sizing-revision.yaml"
+      - "monitor_regime_triggers.py CF-T9 constants pre-registered at carry_fred.md (constants block lines 60-66)"
+
+firewall-self-review:
+  rubric-applied: execution-firewall-review
+  decision: approve-with-conditions
+  sections:
+    A1-5: |
+      No unauthorized hardcoded thresholds beyond CONSENSUS-specified constants.
+      BC-2 size_multiplier=0.25 sourced to named artifact. DD thresholds sourced to CONSENSUS.
+    B: |
+      Spec completeness: TradeIntent artifacts (CONSENSUS_2026-04-28, cro-bet1-sizing-revision.yaml)
+      are complete for Group A scope. No missing mandatory fields blocking implementation.
+    C: |
+      All numeric literals sourced to named CONSENSUS artifacts or pre-registration docs.
+      The _pip_v heuristic is a fragility finding (F-005) but not a spec-deviation.
+    D: |
+      WS01/WS02 log runtime parameters (signal, equity, price, regime_active, size_multiplier).
+      Gap: source of equity not logged per item 3 of log-as-decision-trace.
+    E: |
+      Section A/B/C covered by TestCostModelParity, TestE2EParity, TestSwapAndDeltaFixes,
+      TestAccountKeyParity. USDJPY E2E parity test absent (F-002 open).
+
+# ── Per-group verdicts ────────────────────────────────────────────────────────
+
+verdicts:
+  group-A:
+    verdict: do-not-commit
+    reason: |
+      F-001 (critical): USDJPY cost-formula still overcounts by ~150× in both
+      run_paper_trading_carry_fred.py and run_paper_trading_vt.py. The _to_engine_units
+      JPY division is absent. paper_equity_bt_equiv is not backtest-equivalent for USDJPY.
+      Per PM AC criterion A-F001 fail-condition: verdict is do-not-commit for Group A.
+
+      F-003 (flag): 388 LoC net delta in modified files; CEO ratification required.
+      BC-8: CRO veto remains in effect; carry_fred.py may commit as engineering artifact
+      but second-loop authorization is blocked.
+
+  group-B:
+    verdict: commit-after-fixes
+    reason: |
+      F-002 (high): TestE2EParity uses EURUSD only; no USDJPY E2E parity test present.
+      TestCostModelParity uses hardcoded SIZE=10_000 that bypasses sizer USD-nominal output
+      and would not catch F-001 regression. A USDJPY parity test driving sizer → run_cycle
+      → paper_equity_bt_equiv == engine equity_curve[entry_bar] is required.
+      All 686 tests pass; forbidden phrases clean; test suite is otherwise adequate.
+
+  group-C:
+    verdict: commit-as-is
+    reason: |
+      All 8 scripts classified as diagnostic/research. Forbidden phrases clean.
+      No script invokes any trading path. No production-candidate reclassification required.
+
+  group-D:
+    verdict: commit-as-is
+    reason: |
+      Governance documents in docs/decisions/ are ratified artifacts. Forbidden
+      phrases scan not run here (out of QD scope), but PM AC assigns to CRO.
+
+  group-E:
+    verdict: commit-as-is
+    reason: |
+      Data/audit directories are session artifacts. Credential/token check is
+      out of QD scope (PM AC assigns to CRO/security scan).
+
+# ── Summary ────────────────────────────────────────────────────────────────────
+
+summary: |
+  Wave-9 QD implementation review complete.
+
+  BLOCKING findings:
+    F-001 (critical): USDJPY cost overstatement ~150× persists in both paper loops.
+      carry_fred.py:648 and vt.py:689 compute _cost_usd = _cost_pips * _pip_v * _trade_units
+      where _trade_units is raw USD-nominal from sizer (not divided by price).
+      Fix: apply _to_engine_units division (usd_nominal / price for JPY pairs) before
+      multiplying pip_v * trade_units.
+
+    F-002 (high): No USDJPY E2E parity test. TestE2EParity explicitly avoids JPY.
+      TestSwapAndDeltaFixes uses USDJPY but does not assert engine vs paper parity.
+      Fix: add one TestE2EParity test with pair="USDJPY", price=150, driving
+      sizer.calculate_size() (not a mocked constant) through run_cycle, asserting
+      paper_equity_bt_equiv == engine equity_curve[entry_bar].
+
+  NON-BLOCKING findings:
+    F-005: pip_v heuristic is fragile but correct for current USDJPY deployment.
+    F-003: LoC cap deviation requires CEO ratification artifact.
+    BC-8: CRO veto remains in effect; carry_fred second-loop auth blocked.
+    NHT-NEW-2: Code implements CRO log-only architecture; CEO ruling required to resolve.
+
+  Green lights:
+    Sacred test: PASS
+    Full pytest suite: 686/686 PASS (no regression)
+    Ruff: 19 errors (no regression from baseline)
+    Forbidden phrases: 0 matches across all groups
+    Account_key parity gate: correctly implemented with O_CREAT|O_EXCL atomicity
+    WS01/WS02 decision-trace: adequate coverage of all major decision boundaries
+    Group C: all research-only, no trading path, safe to commit

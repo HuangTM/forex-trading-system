@@ -1,0 +1,178 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-05-01T00:00:00Z"
+subtask_ref: "phase2-wave2-falsification-prioritization"
+
+ranked-alternatives:
+  - "carry_momentum full OOS run — considered but DEFER: dominance-vs-carry_fred is already the stated arch thesis; produces a rejection OR a complication, not a clean rejection; schedule only after Tier A is closed."
+  - "FRED-carry Bet #1 stripped (no macro filter, no BoJ flag) — novel, high-value, but requires its own pre-reg (R3) and a second OOS window distinct from the one used in Bet #1 validation; capacity-limited to Week 4+ slot."
+  - "bollinger_rsi on GBPUSD only — considered as a sub-universe slice; rejected in favor of full-universe run for comparability."
+
+evidence:
+  - "docs/decisions/CONSENSUS_2026-04-28.md — Section 2 (archived verdicts), Section 8 (NHT dissent), Section 9 (kill criteria), Section 11 (gate chain)"
+  - ".fintech-org/trials.jsonl — 22 trials, 0 rejections (atomic data; not re-read)"
+  - "references/pre-registrations/ — 3 grandfathered pre-regs: vol_target_carry, carry_fred, tas_ceiling_4h (atomic data; not re-read)"
+
+retirement-criteria: "Not applicable to falsification candidates. Applies to validated strategies per CONSENSUS Section 6 (vol_target_carry: rolling-60-bar Sharpe < 0.30 OR DD > 25%; FRED-carry Bet #1: CF-T9 trigger OR BoJ flag inactive > 30 days with Sharpe < 0.40)."
+
+assumptions:
+  - "NHT will lock exact thresholds in pre-regs; falsification-criterion sketches here are directional only."
+  - "All archived baselines run on the SAME OOS window (post-2024 holdout used in Phase 0 validation) for comparability — NHT to confirm window boundaries in pre-regs."
+  - "Trial budget ceiling is 36 (CRO binding constraint); current 22 + this queue of 7 = 29 post-run, inside budget."
+  - "Each new trial pre-reg requires kill_switch_threshold field per Gate 3 (CRO CONDITION-3)."
+  - "max_trial_budget_12wk = 36 leaves 14 slots for Waves 2–3; this queue consumes 7 new slots (4 archived baselines + 3 novel), leaving 7 for Wave 3 and Bet #2."
+  - "Carry and carry_momentum are treated as two separate trials despite family resemblance; NHT may merge into a single pre-reg if thresholds are identical."
+
+confidence: medium
+
+body: |
+  ## A. Falsification queue (ranked top-7, by expected-falsification-rate-per-research-cost)
+
+  1. ma_crossover — OOS falsification of trend-following alpha on EURUSD/USDJPY/GBPUSD
+     - Strategy: Phase 0 ma_crossover baseline (SMA crossover, existing code, no changes)
+     - Null hypothesis: ma_crossover achieves OOS Sharpe ≥ 0.30 on the post-2024 holdout
+     - Falsification criterion (sketch): OOS Sharpe < 0.30 on full holdout OR bootstrap p-value > 0.10
+     - Kill-switch threshold (sketch): halt if paper DD > 15% within first 20 bars of any live evaluation
+     - Capacity: N/A (backtest-only OOS run)
+     - Expected completion: Week 1 (lowest implementation cost; code already exists)
+     - Type: ARCHIVED BASELINE — mechanical. See Section B.
+
+  2. momentum — OOS falsification of pure momentum alpha on the same universe
+     - Strategy: Phase 0 momentum baseline (rate-of-change signal, existing code)
+     - Null hypothesis: momentum achieves OOS Sharpe ≥ 0.30 on post-2024 holdout
+     - Falsification criterion (sketch): same as ma_crossover; threshold 0.30
+     - Kill-switch threshold (sketch): halt if paper DD > 15% within first 20 bars
+     - Capacity: N/A
+     - Expected completion: Week 1 (parallel with ma_crossover)
+     - Type: ARCHIVED BASELINE — mechanical. See Section B.
+
+  3. bollinger_rsi — OOS falsification of mean-reversion alpha on the same universe
+     - Strategy: Phase 0 bollinger_rsi baseline (BB + RSI signal, existing code)
+     - Null hypothesis: bollinger_rsi achieves OOS Sharpe ≥ 0.30 on post-2024 holdout
+     - Falsification criterion (sketch): OOS Sharpe < 0.30 OR fails to beat flat-carry benchmark
+     - Kill-switch threshold (sketch): halt if paper DD > 15% within first 20 bars
+     - Capacity: N/A
+     - Expected completion: Week 1 (parallel batch with #1 and #2)
+     - Type: ARCHIVED BASELINE — mechanical. CAUTION: bollinger_rsi may fail-to-reject (mean-reversion
+       is not obviously noise on EURUSD). NHT may log this as "fail-to-falsify," not a rejection.
+       Budgeting it as a probable rejection is correct directionally but not guaranteed.
+
+  4. carry (unaugmented) — OOS falsification of raw carry signal subsumed by carry_fred
+     - Strategy: Phase 0 carry baseline (interest-rate differential, no FRED conditioning)
+     - Null hypothesis: raw carry achieves OOS Sharpe ≥ carry_fred (0.80) on same holdout period
+     - Falsification criterion (sketch): carry OOS Sharpe < 0.50 OR < carry_fred by margin ≥ 0.20
+     - Kill-switch threshold (sketch): halt if paper DD > 15% within first 20 bars
+     - Capacity: N/A
+     - Expected completion: Week 2
+     - Type: ARCHIVED BASELINE — partially novel. Testing the DOMINANCE claim (carry_fred > carry)
+       on OOS data is a real falsification of an explicit arch thesis, not pure box-checking.
+
+  5. carry_momentum — OOS falsification of carry+momentum combo pending FRED dominance confirmation
+     - Strategy: Phase 0 carry_momentum (carry signal + momentum overlay, existing code)
+     - Null hypothesis: carry_momentum achieves OOS Sharpe ≥ 0.50 (above noise threshold)
+     - Falsification criterion (sketch): OOS Sharpe < 0.40 on post-2024 holdout
+     - Kill-switch threshold (sketch): halt if paper DD > 15% within first 20 bars
+     - Capacity: N/A
+     - Expected completion: Week 2 (parallel with carry)
+     - Type: ARCHIVED BASELINE — partially novel (pending-dominance-confirmation status makes this
+       a genuine decision node, not pure box-checking).
+
+  6. FRED-carry stripped (no regime filter) — falsification of BoJ-divergence regime conditioning
+     - Strategy: carry_fred with FRED macro filter and BoJ flag REMOVED; pure interest-rate diff + vol-target
+     - Null hypothesis: The regime conditioning (BoJ-divergence flag) is the marginal source of lift in
+       FRED-carry Bet #1; stripped version OOS Sharpe < 0.50 (i.e., conditioning IS load-bearing)
+     - Falsification criterion (sketch): if stripped version OOS Sharpe ≥ 0.60, the regime conditioning
+       is NOT the source of lift → FRED-carry Bet #1 arch thesis is partially falsified
+     - Kill-switch threshold (sketch): halt if paper DD > 20% at any point; smaller threshold because
+       this is a live-relevant question
+     - Capacity: N/A (backtest OOS run on independent window)
+     - Expected completion: Week 3-4 (requires QD to implement stripped variant; ROUTE_TO quant-developer)
+     - Type: NOVEL falsification — this is the highest-value item in the queue. It directly addresses
+       NHT's DSR concern about Bet #1 and the multiple-comparison worry about regime-filter selection.
+       A rejection here is evidence that the 0.80 Sharpe is regime-conditional as claimed. A fail-to-
+       falsify is a red flag requiring Bet #1 re-review before paper launch.
+
+  7. tas_ceiling_4h (Bet #2 pre-backtest hypothesis check) — falsification of TAS-ceiling alpha
+     - Strategy: tas_ceiling_4h as specified in grandfathered pre-reg (R2 must be locked first)
+     - Null hypothesis: TAS ceiling signal achieves OOS Sharpe ≥ 0.30 on EURUSD/USDJPY 4h bars
+     - Falsification criterion (sketch): per R2 pre-reg exact thresholds (NHT to lock); HoQR sketch = 0.30
+     - Kill-switch threshold (sketch): inherit from R2 pre-reg (grandfathered; no new pre-reg needed)
+     - Capacity: N/A
+     - Expected completion: Week 3-4 (blocked on R2 pre-reg per CTO CONDITION-4)
+     - Type: NOVEL — already pre-registered; high-value because it is genuinely new alpha territory
+       (microstructure-based, not carry family). If rejected, produces a clean falsification log entry
+       and preserves trial budget. If not rejected, triggers Phase 2 queue.
+
+  ## B. Archived-baselines decision
+
+  Four of the five archived baselines (#1–#4 above: ma_crossover, momentum, bollinger_rsi, carry) are
+  included. carry_momentum (#5) is included as a DECISION NODE (dominance pending), not pure box-checking.
+
+  HONEST ACCOUNTING:
+  - ma_crossover, momentum: BOX-CHECKING. We archived these because "no incremental alpha thesis versus
+    carry." Running explicit OOS to LOG that conclusion is consistent with NHT discipline but produces no
+    new information. Included because: (a) trivial cost, (b) NHT explicitly requires ≥5 logged rejections,
+    (c) TIER-B-2 permits them, (d) they will almost certainly reject cleanly (expected Sharpe near zero on
+    this universe vs carry benchmark). Risk: NHT Wave 3 flags goalpost-stuffing. Defense: the CONSENSUS
+    itself (Section 2) named them archived; logging the OOS verdict is completing a dangling hypothesis,
+    not stuffing a new one.
+  - bollinger_rsi: PARTIAL NOVEL. Mean-reversion may fail-to-reject (Sharpe might reach 0.30). If it
+    does, it becomes a "dominated but not noise" finding — data, not a rejection. Budget it as uncertain.
+  - carry (unaugmented): GENUINE FALSIFICATION. Testing the explicit dominance claim is not box-checking.
+  - carry_momentum: DECISION NODE. Not pure box-checking.
+
+  COUNT: 5 archived baselines included. NHT will likely accept 3–5 if each has a pre-reg with exact
+  thresholds. The risk of goalpost-stuffing accusation is real for ma_crossover and momentum; mitigate by
+  locking thresholds in pre-regs BEFORE running, not after.
+
+  ## C. New pre-regs needed
+
+  Existing grandfathered pre-regs (3): vol_target_carry, carry_fred, tas_ceiling_4h — NO new pre-reg needed.
+
+  NEW pre-regs required (4 files, each must include kill_switch_threshold field per Gate 3):
+
+  | Pre-reg ID | Covers | Kill-switch threshold (sketch) |
+  |------------|--------|-------------------------------|
+  | R3 | ma_crossover OOS falsification | OOS Sharpe < 0.30 → status: rejected; paper DD > 15% → halt |
+  | R4 | momentum OOS falsification | OOS Sharpe < 0.30 → status: rejected; paper DD > 15% → halt |
+  | R5 | bollinger_rsi OOS falsification | OOS Sharpe < 0.30 → status: rejected; paper DD > 15% → halt |
+  | R6 | carry + carry_momentum OOS falsification (joint pre-reg) | carry Sharpe < 0.50 OR < carry_fred by ≥0.20 → rejected; carry_momentum Sharpe < 0.40 → rejected |
+  | R7 | FRED-carry stripped (no regime filter) | stripped Sharpe ≥ 0.60 → "fail-to-falsify" flag; paper DD > 20% → halt |
+
+  NHT may collapse R3/R4/R5 into a single batch pre-reg if thresholds are identical. R6 covers two
+  archived baselines under one pre-reg to reduce overhead. R7 is the most important new pre-reg; NHT
+  should review the OOS window carefully to ensure it is INDEPENDENT of the window used to validate Bet #1.
+
+  ROUTE_TO quant-developer: implementation of FRED-carry stripped variant (R7) and all pre-reg markdown
+  files (R3–R7). Each markdown must include kill_switch_threshold verbatim.
+
+  ## D. DSR awareness
+
+  Post-queue org-wide N = 22 (current) + 7 (this queue) = 29 trials.
+
+  DSR-adjusted Sharpe deflation increases with N. At N=29 and a target Sharpe of 0.30, the deflated
+  threshold rises (exact value: ROUTE_TO ml-researcher for CPCV/DSR computation). Qualitative rankings:
+
+  - ma_crossover, momentum: expected naive Sharpe ≈ 0.00–0.10 on this universe. Post-DSR survival is
+    unambiguous REJECTION. These are the highest-rejection-rate candidates by design — cheap, clean.
+  - bollinger_rsi: expected naive Sharpe ≈ 0.15–0.35 (ambiguous). Post-DSR may be noise-indistinguishable
+    even if naive Sharpe clears 0.30. NHT should flag this as AMBIGUOUS in the pre-reg, not a guaranteed
+    rejection.
+  - carry (unaugmented): expected naive Sharpe ≈ 0.40–0.55 (dominated by carry_fred). Post-DSR the
+    question is dominance margin, not survival. Likely produces a "rejected on dominance criterion,"
+    which is a valid rejection type.
+  - carry_momentum: expected naive Sharpe ≈ 0.35–0.50. Post-DSR ambiguous. Decision-node value is in
+    the dominance comparison, not the absolute threshold.
+  - FRED-carry stripped: if stripped Sharpe ≥ 0.60, Bet #1 regime thesis is partially undermined.
+    Post-DSR this is the HIGHEST-STAKES result in the queue. Allocate NHT review time here.
+  - tas_ceiling_4h: unknown expected Sharpe (genuinely novel). Post-DSR cannot be pre-assessed without
+    prior backtest. Risk of fail-to-falsify is non-trivial.
+
+  NOTE: With N growing toward 29, each additional trial in Wave 3 should be pre-screened for expected
+  rejection probability > 50% before queue admission. The org is 0-for-22 on logged rejections; this
+  queue is designed to log 4–6 clean rejections by Week 2, satisfying NHT's 2-week window gate (≥5
+  logged rejections) and unblocking Phase 2 paper launch.
+
+knowledge_gaps: []
+policy_violations_detected: []

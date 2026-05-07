@@ -1,0 +1,469 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-05-06T09:00:00Z"
+subtask_ref: wave10-fix-and-amend
+subtask_id: b8191082-48d3-4794-bc06-ef95a9674415
+evidence:
+  - .agent-accountability/ratifications/wave9-precommit-review:phase1:task1.0.yaml
+  - .agent-accountability/ratifications/wave9-substeps:phase2:task2.0.yaml
+  - docs/decisions/CONSENSUS_2026-05-06_wave9_precommit_review.md
+  - .fintech-org/artifacts/wave9-precommit-review/principal-reviewer-review.yaml
+  - .fintech-org/artifacts/wave9-precommit-review/nht-adversarial-review.yaml
+  - .agent-accountability/dissents/wave9-precommit-review:nht.yaml
+  - .agent-accountability/dissents/wave9-precommit-review:cro.yaml
+assumptions:
+  - CEO sub-decisions 2/4/5 in wave9-substeps:phase2:task2.0.yaml are immutable inputs; PM does not revisit them.
+  - The combined-fix constraint (Decision 2) means F-001 + F-002 + F-008 must land in a SINGLE coherent commit; no staged partial commits are authorized.
+  - NHT verbatim dissent at .agent-accountability/dissents/wave9-precommit-review:nht.yaml is append-only; no role may modify it; it travels with all downstream artifacts.
+  - "Numeric closure check for F-001 (cost ≈5.0 USD not ≈750 USD for 100,000 USD-nominal USDJPY at price ~150) is the binding acceptance oracle for F-001 pass/fail."
+  - Ladder threshold values (10%/15%/20%) are currently calibrated against raw broker TotalValue per code-verified constants CRO_DD_HALT_NEW_THRESHOLD=0.10, CRO_DD_REDUCE_SIZING_THRESHOLD=0.15, CRO_DD_FULL_HALT_THRESHOLD=0.20. Recalibration semantics are a CRO technical decision; PM encodes the constraint, not the values.
+  - BC-8 lock file path data/dispatch_lock.flock is the canonical single shared path for both loops; any deviation requires PM amendment.
+  - Wave-11 refactor ticket is created by this artifact as the binding reference per Decision 4; the actual refactor is OUT OF Wave-10 scope.
+  - "Concurrent-process test for BC-8 must spawn actual subprocesses, not in-process mocks, to exercise the fcntl.flock contention path."
+confidence: high
+body: |
+  Fix F-001/F-002/F-008 cost-formula and test-theatre bugs, implement BC-8
+  option-B file-lock, and produce Decision-5 drawdown ladder amendment doc.
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+knowledge_gaps: []
+policy_violations_detected: []
+claimed_domains:
+  - acceptance-criteria-authoring
+  - signature-collection
+
+task-statement: >
+  Fix F-001/F-002/F-008 in one commit, add BC-8 fcntl file-lock, and
+  produce drawdown ladder amendment doc per CEO Decisions 2/4/5.
+
+deliverable-type: spec-completion
+deadline: 2026-05-07T23:59:59Z
+instrument-universe:
+  - USDJPY
+  - EURUSD
+
+# ── Hard constraints (one per scope item; machine-checkable strings) ──────────
+hard-constraints:
+
+  - id: HC-1
+    scope-item: F-001
+    constraint: >
+      scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py
+      MUST apply _to_engine_units (or equivalent JPY unit-conversion: divide
+      USD-nominal by price) at the sizer-output boundary BEFORE the cost-compute
+      lines. Numeric oracle: for USDJPY at price ~150 with USD-nominal 100,000,
+      paper-loop cost_usd MUST be within 1% of engine cost_usd (≈5.0 USD, NOT
+      ≈750 USD). Fail-condition: cost formula uses target_units = raw USD-nominal
+      with no price division for JPY pairs.
+
+  - id: HC-2
+    scope-item: F-002
+    constraint: >
+      tests/scripts/test_wave8_high_remediation.py MUST contain a USDJPY
+      end-to-end parity test that (a) calls run_backtest with a USDJPY trade
+      at price ~150, (b) drives the paper-loop equity-write path with the SAME
+      event tuple, and (c) asserts engine.equity_curve.iloc[entry_bar+1] ≈
+      paper_loop.paper_equity_bt_equiv within ≤0.1% tolerance. The SHARED_SIZE
+      pattern (identical hardcoded SIZE fed to both sides without conversion) is
+      EXPLICITLY DISALLOWED. Fail-condition: no USDJPY E2E parity test present,
+      or only a EURUSD parity test, or SHARED_SIZE bypass detected.
+
+  - id: HC-3
+    scope-item: F-008
+    constraint: >
+      tests/scripts/test_wave8_high_remediation.py:540-562 and :564-611 MUST be
+      rewritten to assert engine-parity values. Concrete oracle: for USDJPY at
+      price ~150 with rebalance delta of 1500 USD-nominal, expected cost ≈ 0.075
+      USD (= 0.75 * 0.01 * (1500/150)), NOT 11.25 USD (the F-001-buggy value).
+      Each test MUST derive its expected value from an explicit engine-units
+      calculation. Fail-condition: any test in this file asserts cost_usd ≈ 11.25
+      or ≈ 37.5 for a USDJPY trade at price ~150 where the delta in engine-units
+      is nominal/150.
+
+  - id: HC-4
+    scope-item: BC-8-option-B
+    constraint: >
+      Both scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py
+      MUST acquire fcntl.flock(fd, LOCK_EX | LOCK_NB) on data/dispatch_lock.flock
+      BEFORE get_positions and hold through execute_signal reconciliation. On
+      LOCK_NB failure the cycle MUST skip with sentinel SKIP_DISPATCH_LOCK_BUSY
+      logged as a structured WS01 line (not silent). The lock file path MUST be
+      data/dispatch_lock.flock (single shared file, both loops contend). Fail-
+      condition: lock acquired AFTER get_positions (race window preserved), lock
+      on different file per loop, or LOCK_NB failure silently dropped.
+
+  - id: HC-5
+    scope-item: BC-8-test
+    constraint: >
+      tests/scripts/test_wave10_dispatch_lock.py MUST exist and contain a test
+      that spawns TWO simultaneous subprocess run_cycle calls and asserts: (a)
+      exactly ONE acquires the lock, (b) the other emits SKIP_DISPATCH_LOCK_BUSY
+      in its output, (c) aggregate JPY-correlated exposure peak NEVER exceeds the
+      BC-8 cap of 15% at any point during the test. Fail-condition: test uses
+      in-process mocks instead of actual subprocesses, or does not assert all
+      three conditions.
+
+  - id: HC-6
+    scope-item: ladder-amendment-doc
+    constraint: >
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md MUST exist and contain:
+      (a) existing ladder thresholds (10%/15%/20%) and their original calibration
+      basis, (b) explicit re-anchoring statement that kill_switch.check_and_trigger()
+      and dd_contract.assess() consume raw broker TotalValue (NOT cost-adjusted
+      equity), (c) NHT NEW-2 dissent verbatim under a "preserved-not-resolved"
+      header, (d) CEO ruling reference citing wave9-substeps:phase2:task2.0.yaml
+      Decision 5, (e) updated code references so constants CRO_DD_HALT_NEW_THRESHOLD,
+      CRO_DD_REDUCE_SIZING_THRESHOLD, CRO_DD_FULL_HALT_THRESHOLD cite this amended
+      spec. Fail-condition: any of the five required elements is absent.
+      ROUTE_TO: CRO for ladder threshold recalibration values; PM encodes the
+      structural requirement only.
+
+  - id: HC-7
+    scope-item: commit-message-gating
+    constraint: >
+      The git commit message MUST cite: (a) F-003 ratification per
+      wave9-substeps:phase2:task2.0.yaml Decision 4, (b) Wave-11 refactor
+      binding (extract assert_account_key_parity + reset_account_key_lock to
+      shared module), (c) F-001/F-002/F-008/BC-8/NEW-2 closure summary
+      referencing Wave-10 CONSENSUS path. Fail-condition: any of the three
+      required citations is absent from the commit message.
+
+  - id: HC-8
+    scope-item: sacred-test-and-baselines
+    constraint: >
+      After Wave-10 changes: (a) tests/backtest/test_engine.py::test_no_lookahead
+      MUST PASS, (b) ruff check src/ MUST report ≤19 errors, (c) pytest MUST
+      report ≥686 + Wave-10 new tests passing, (d) all new Wave-10 tests in
+      test_wave10_dispatch_lock.py MUST pass, (e) rewritten tests in
+      test_wave8_high_remediation.py MUST pass. Fail-condition: sacred test
+      fails, ruff regression above 19, pytest count below 686 baseline, or any
+      new Wave-10 test fails.
+
+# ── Detailed criteria (one entry per fix/test) ────────────────────────────────
+criteria:
+
+  - id: A-F001
+    hard-constraint-ref: HC-1
+    group: F-001-fix
+    description: >
+      Apply JPY unit-conversion at the sizer-output boundary in both paper-loop
+      scripts. The conversion must match engine.py:544-573 (_to_engine_units:
+      usd_nominal / price for JPY-quoted pairs). The cost formula at the
+      corrected boundary must charge cost_pips * pip_value * engine_units
+      where engine_units = usd_nominal / price for USDJPY. Exact implementation
+      approach (reuse _to_engine_units import, inline division, or PairInfo
+      lookup) is a QD technical decision.
+      ROUTE_TO: quant-developer for implementation; ROUTE_TO: nht for re-verify.
+    pass-condition: >
+      For USDJPY at price ~150 with USD-nominal 100,000:
+        computed paper-loop cost_usd ∈ [4.95, 5.05] USD (within 1% of engine ≈5.0 USD).
+      The conversion must be applied BEFORE cost-compute lines (currently
+      vt.py:689 / carry_fred.py:648). Both scripts corrected.
+    fail-condition: >
+      cost_usd = cost_pips * pip_v * target_units with target_units = raw
+      USD-nominal (no price division for JPY pairs) → paper-loop cost ~750 USD
+      vs engine ~5 USD for 100,000 USD-nominal at price 150.
+    verdict-if-fail: do-not-commit
+
+  - id: B-F002
+    hard-constraint-ref: HC-2
+    group: F-002-fix
+    description: >
+      Replace TestE2EParity and TestCostModelParity theatre with a real
+      run_backtest-exercising USDJPY E2E parity test. The test must:
+        (1) drive run_backtest with a synthetic USDJPY OHLCV bar at price ~150;
+        (2) drive the paper-loop equity-write path (run_cycle or equivalent)
+            with the SAME trade tuple (same price, same sizer output, same pair);
+        (3) assert engine.equity_curve.iloc[entry_bar+1] ≈
+            paper_loop.paper_equity_bt_equiv within ≤0.1% of equity;
+        (4) NOT use SHARED_SIZE (identical hardcoded SIZE fed to both sides
+            bypassing unit-conversion) — the SHARED_SIZE pattern is the
+            explicit failure mode this criterion closes.
+      Tolerance value (≤0.1%) is a QD technical calibration; PM encodes the
+      requirement, not the exact epsilon. ROUTE_TO: quant-developer.
+    pass-condition: >
+      At least one test in test_wave8_high_remediation.py calls run_backtest
+      with PAIR="USDJPY" and price≈150 AND asserts numerical parity between
+      engine equity curve and paper-loop paper_equity_bt_equiv. Test PASSES
+      after F-001 is fixed (i.e., it would have FAILED against the pre-fix code).
+      No SHARED_SIZE bypass present.
+    fail-condition: >
+      Only a EURUSD E2E test exists, OR test uses SHARED_SIZE (SIZE fed directly
+      to both engine helper and paper-loop helper without _to_engine_units
+      conversion path being exercised), OR no call to run_backtest with USDJPY
+      is present.
+    verdict-if-fail: do-not-commit
+
+  - id: B-F008
+    hard-constraint-ref: HC-3
+    group: F-008-fix
+    description: >
+      Rewrite tests at test_wave8_high_remediation.py:540-562
+      (test_rebalance_cost_charged_on_delta_not_full_target) and :564-611
+      (test_full_entry_cost_not_delta_when_opening) to assert engine-parity
+      cost values derived from engine-units, not F-001-buggy USD-nominal values.
+      For USDJPY at price ~150: delta of 1500 USD-nominal → engine_units = 10
+      → expected_cost = 0.75 * 0.01 * 10 = 0.075 USD. The rewritten tests
+      must PASS after F-001 fix and FAIL against the pre-fix code. Derivation
+      of expected values is a QD technical decision. ROUTE_TO: quant-developer.
+    pass-condition: >
+      Both rewritten tests:
+        (1) derive expected_cost from an engine-units formula (not from
+            USD-nominal * pip_v with no price division);
+        (2) for the delta=1500 case, expected_cost ≈ 0.075 USD (not 11.25 USD);
+        (3) for the full-entry=5000 case, expected_cost ≈ 0.25 USD
+            (not 37.5 USD);
+        (4) PASS when run against corrected F-001 code.
+    fail-condition: >
+      Any test in this file asserts cost_usd ≈ 11.25 USD or cost_usd ≈ 37.5 USD
+      for a USDJPY rebalance/entry at price ~150 (the F-001-buggy values),
+      OR test does not derive expected value from an engine-units calculation.
+    verdict-if-fail: do-not-commit
+
+  - id: A-BC8-lock
+    hard-constraint-ref: HC-4
+    group: BC-8-fix
+    description: >
+      Add fcntl.flock(fd, LOCK_EX | LOCK_NB) advisory file-lock around the
+      per-cycle critical section [get_positions → compute_exposure →
+      check_dispatch_allowed → execute_signal] in BOTH run_paper_trading_vt.py
+      and run_paper_trading_carry_fred.py. The lock file is data/dispatch_lock.flock
+      (single shared file). Lock must be acquired BEFORE get_positions (not after,
+      which would preserve the race window) and released after execute_signal
+      reconciliation. On LOCK_NB failure: cycle SKIPS with SKIP_DISPATCH_LOCK_BUSY
+      sentinel logged as a structured WS01 line. Implementation details (context
+      manager pattern, lock file open mode, release timing on exception) are QD
+      technical decisions. ROUTE_TO: quant-developer.
+    pass-condition: >
+      Both scripts import fcntl and include flock(fd, LOCK_EX | LOCK_NB) acquired
+      before get_positions and held through execute_signal. Lock file path =
+      data/dispatch_lock.flock (both scripts, same path). On contention: SKIP
+      sentinel logged, cycle skips cleanly. No silent lock failures.
+    fail-condition: >
+      Lock acquired AFTER get_positions (race window preserved), lock acquired on
+      different paths in each script, LOCK_NB failure silently ignored or causes
+      unhandled exception, or no fcntl import in either script.
+    verdict-if-fail: do-not-commit
+
+  - id: T-BC8-concurrent
+    hard-constraint-ref: HC-5
+    group: BC-8-test
+    description: >
+      tests/scripts/test_wave10_dispatch_lock.py must contain a concurrent-process
+      test that spawns two actual subprocesses executing run_cycle in parallel and
+      asserts the three required conditions: (a) exactly one acquires the flock
+      lock, (b) the other emits SKIP_DISPATCH_LOCK_BUSY in its captured output,
+      (c) aggregate JPY-correlated exposure peak never exceeds the BC-8 cap of
+      15% during the test. In-process threading or mock contention does NOT
+      satisfy this criterion — actual OS-level subprocess spawning is required to
+      exercise fcntl.flock cross-process semantics. ROUTE_TO: quant-developer
+      for subprocess test implementation.
+    pass-condition: >
+      File tests/scripts/test_wave10_dispatch_lock.py exists. Contains at least
+      one test that: spawns 2 subprocesses concurrently, captures both stdout/stderr,
+      asserts SKIP_DISPATCH_LOCK_BUSY appears in exactly one output, asserts JPY
+      exposure peak ≤15% across both processes. Test passes in CI.
+    fail-condition: >
+      File does not exist, OR test uses threading/mock instead of subprocesses, OR
+      SKIP_DISPATCH_LOCK_BUSY assertion absent, OR exposure-cap assertion absent.
+    verdict-if-fail: do-not-commit
+
+  - id: D-AMEND-LADDER
+    hard-constraint-ref: HC-6
+    group: Decision-5-amendment
+    description: >
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md must be produced as a
+      PM spec amendment per CEO Decision 5. Required sections:
+        (1) Existing ladder thresholds and original calibration basis;
+        (2) Explicit re-anchoring: kill_switch.check_and_trigger() and
+            dd_contract.assess() consume raw broker TotalValue (NOT cost-adjusted);
+        (3) NHT NEW-2 dissent verbatim under "NHT DISSENT — PRESERVED NOT RESOLVED"
+            header (copy verbatim from .agent-accountability/dissents/
+            wave9-precommit-review:nht.yaml, NEW-2 item only);
+        (4) CEO ruling citation referencing wave9-substeps:phase2:task2.0.yaml
+            Decision 5;
+        (5) Updated code-comments in CRO_DD_HALT_NEW_THRESHOLD,
+            CRO_DD_REDUCE_SIZING_THRESHOLD, CRO_DD_FULL_HALT_THRESHOLD constant
+            declarations citing this amended spec path.
+      Ladder threshold RECALIBRATION VALUES are a CRO technical decision.
+      ROUTE_TO: CRO for the recalibrated threshold values. PM produces the
+      document structure and routes the technical fields.
+    pass-condition: >
+      File exists at docs/specs/drawdown_ladder_amendment_2026-05-06.md.
+      All five required sections present. NHT NEW-2 dissent is verbatim (not
+      paraphrased). CEO ruling reference is present. Code-comment amendments
+      cite the spec in both run_paper_trading_vt.py and run_paper_trading_carry_fred.py
+      at the constant declarations.
+    fail-condition: >
+      File absent, or NHT dissent paraphrased instead of verbatim, or CEO
+      ruling citation missing, or code-comments not updated to cite amended spec,
+      or recalibration values stated without CRO sign-off.
+    verdict-if-fail: do-not-commit
+
+  - id: G-COMMIT-MSG
+    hard-constraint-ref: HC-7
+    group: commit-message-gating
+    description: >
+      The Wave-10 git commit message must contain all three required citations.
+      This is a gate enforced by the review wave (not by PM); PM encodes the
+      requirement here so QD knows what the commit message must include before
+      PR is opened.
+    pass-condition: >
+      Commit message contains all of:
+        (a) "F-003 ratification: wave9-substeps:phase2:task2.0.yaml Decision 4"
+            (or equivalent explicit citation);
+        (b) "Wave-11 binding: extract assert_account_key_parity +
+            reset_account_key_lock to shared module";
+        (c) Explicit closure summary mentioning F-001, F-002, F-008, BC-8,
+            NEW-2 and Wave-10 CONSENSUS path.
+    fail-condition: >
+      Any of the three citation elements is absent from the commit message.
+    verdict-if-fail: do-not-commit
+
+  - id: G-BASELINES
+    hard-constraint-ref: HC-8
+    group: sacred-test-and-baselines
+    description: >
+      All existing regression gates must hold after Wave-10 changes. These are
+      non-negotiable baselines that cannot be traded off against new features.
+    pass-condition: >
+      After applying all Wave-10 changes in a single commit:
+        (a) pytest tests/backtest/test_engine.py::test_no_lookahead → PASS;
+        (b) ruff check src/ → ≤19 errors (no new violations);
+        (c) pytest (all) → ≥686 + new Wave-10 test count passing;
+        (d) pytest tests/scripts/test_wave10_dispatch_lock.py → all PASS;
+        (e) pytest tests/scripts/test_wave8_high_remediation.py → all PASS
+            (including rewritten F-008 tests asserting engine-parity values).
+    fail-condition: >
+      Sacred test fails, ruff baseline exceeded above 19, any pre-existing test
+      regresses, or any new Wave-10 test fails.
+    verdict-if-fail: do-not-commit
+
+# ── QD success gate ───────────────────────────────────────────────────────────
+qd-success-gate: >
+  ALL of the following must be satisfied before Wave-10 is eligible for review:
+    HC-1 (F-001 numeric closure) PASS
+    HC-2 (F-002 USDJPY E2E parity test, no SHARED_SIZE) PASS
+    HC-3 (F-008 engine-parity values in rewritten tests) PASS
+    HC-4 (BC-8 fcntl file-lock wired in both scripts) PASS
+    HC-5 (concurrent-process test file created and passing) PASS
+    HC-6 (ladder amendment doc all five sections present) PASS
+    HC-7 (commit message all three citations present) PASS
+    HC-8 (sacred test + ruff ≤19 + pytest ≥686+new) PASS
+  ALL eight hard-constraints satisfied = QD implementation complete.
+  Any single HC failure = QD must fix before submitting for review.
+
+# ── Review-wave success gate ──────────────────────────────────────────────────
+review-wave-success-gate:
+  nht-clean-reverify: >
+    NHT re-verifies F-001 (numeric cost check at USDJPY price ~150),
+    F-002 (USDJPY E2E parity test present, no SHARED_SIZE), F-008 (tests
+    assert engine-parity values, not buggy formula), NEW-2 (ladder amendment
+    doc present and NHT dissent verbatim under preserved-not-resolved header),
+    BC-8 (fcntl flock wired before get_positions in both scripts). NHT clean
+    re-verification = all five items pass adversarial re-check. NHT dissent
+    on any item persists if not genuinely closed.
+  cro-bc8-closure: >
+    CRO verifies BC-8 option-B implementation satisfies the residual control
+    requirement from CONSENSUS_2026-05-05 Section 4. CRO sign-off on BC-8
+    LIFTS the CRO BC-8 veto IFF the concurrent-process test (HC-5) passes.
+    Second-loop (carry_fred concurrent with vt) authorization becomes
+    eligible ONLY after CRO BC-8 sign-off. CRO must also verify the
+    drawdown ladder amendment doc (D-AMEND-LADDER) including recalibrated
+    threshold values. ROUTE_TO: CRO for both sub-items.
+  pr-clean-review: >
+    Principal Reviewer re-verifies with zero blocking findings on F-001,
+    F-002, F-008, BC-8, and NEW-2. Lower-priority findings from Wave-9 PR
+    review (F-006 equity-log path, F-007 regime-inactive trace gap,
+    F-009 JPY pip heuristic) remain in scope for PR observation but are
+    NOT blocking Wave-10 commit per original verdict-if-fail designations.
+
+# ── Out of scope ──────────────────────────────────────────────────────────────
+out-of-scope:
+  - paper-loop launch authorization (separate decision after Wave-10 closure and CRO BC-8 sign-off)
+  - Saxo token rotation (manual user action; orchestrator cannot perform)
+  - any modification to kill_switch.check_and_trigger() input semantics (CEO Decision 5 settles — raw broker equity remains the input)
+  - any change to the Execution-Researcher Firewall scope
+  - Wave-11 refactor (binding ticket created by this artifact; refactor is deferred; out of Wave-10 scope)
+  - per-strategy 7.5% budget ticket alternative to BC-8 (CEO Decision 5 / CRO recommendation selects option-B file-lock; budget-ticket path is superseded)
+  - F-006 equity-log shared-path race (major, non-blocking per Wave-9 PR verdict; deferred to Wave-11 or standalone fix)
+  - F-007 carry_fred regime-inactive decision-trace gap (major, non-blocking; deferred)
+  - F-009 JPY pip heuristic vs PairInfo lookup (minor; deferred to Wave-11)
+  - F-010 equity-fetch schema-mismatch log clarity (minor; deferred)
+  - Group C/D/E commit authorization (authorized separately under wave9-substeps:phase2:task2.0.yaml Decision 3; not in Wave-10 scope)
+
+# ── Roles staffed ─────────────────────────────────────────────────────────────
+roles-staffed:
+  pm: >
+    Authors and gates this acceptance criteria; routes technical adjudication
+    to QD, CRO, and NHT; does not implement.
+  quant-developer: >
+    Implements F-001/F-002/F-008 code fixes, BC-8 fcntl file-lock, and all
+    new/rewritten tests; verifies baselines via pytest and ruff execution;
+    is the ONLY role that writes production code in Wave-10.
+  null-hypothesis-tester: >
+    Re-verifies all five Wave-9 dissent items (F-001, F-002, F-008, NEW-2,
+    BC-8) adversarially against the corrected code; dissent is append-only;
+    a clean NHT re-verify is required for Wave-10 closure.
+  cro: >
+    Verifies BC-8 option-B implementation satisfies CONSENSUS_2026-05-05
+    Section 4 residual-control requirement; provides recalibrated ladder
+    threshold values for the amendment doc; lifts BC-8 veto IFF concurrent-
+    process test passes.
+  principal-reviewer: >
+    Independent re-verify of Wave-10 changeset with zero blocking findings
+    required on F-001/F-002/F-008/BC-8/NEW-2; lower-priority findings
+    (F-006/F-007/F-009) are observations, not blockers for this wave.
+
+# ── Wave-11 binding ticket (Decision 4) ──────────────────────────────────────
+wave11-binding:
+  description: >
+    This artifact serves as the binding ticket for Wave-11 shared-module
+    extraction per CEO Decision 4 (wave9-substeps:phase2:task2.0.yaml).
+    Wave-11 scope: extract assert_account_key_parity and reset_account_key_lock
+    from scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py
+    into a shared module (~110 LoC of duplicate code). Target: eliminate
+    duplication introduced by the F-003-ratified scope expansion. Blocked-on:
+    Wave-10 closure. 50-LoC hard constraint is RETIRED; future PM AC for Wave-11
+    should declare a recalibrated cap (suggested 200 LoC scope-justified) per
+    Decision 4 instruction.
+  blocked-on: wave10-fix-and-amend closure
+
+# ── Technical routing log ─────────────────────────────────────────────────────
+# PM is forbidden from technical adjudication. The following items require
+# routing to the named technical roles.
+routing:
+  - item: exact tolerance for F-002 USDJPY E2E parity assertion
+    route-to: quant-developer
+    reason: >
+      PM declares ≤0.1% tolerance as the PM-level requirement; QD may tighten
+      further based on floating-point accumulation analysis.
+  - item: exact engine-units expected values for F-008 rewritten tests
+    route-to: quant-developer
+    reason: >
+      PM provides the derivation oracle (engine-units = USD-nominal / price for
+      JPY pairs). QD computes the precise expected values from the corrected
+      formula given the specific test parameters.
+  - item: drawdown ladder recalibrated threshold values
+    route-to: cro
+    reason: >
+      CEO Decision 5 directs ladder recalibration to broker-equity semantics.
+      The current thresholds (10%/15%/20%) were set against raw broker
+      TotalValue per code inspection. CRO must determine whether recalibration
+      changes the values or confirms they are already expressed in broker-equity
+      terms. PM encodes the structural requirement; CRO owns the values.
+  - item: BC-8 fcntl implementation details (context manager, exception handling)
+    route-to: quant-developer
+    reason: >
+      PM specifies the behavioral contract (lock before get_positions, hold
+      through execute_signal, SKIP on LOCK_NB failure). QD chooses the
+      implementation pattern.
+  - item: concurrent-process test subprocess invocation details
+    route-to: quant-developer
+    reason: >
+      PM requires actual subprocess spawning. QD designs the test harness
+      (subprocess.Popen vs multiprocessing, timeout, stdout capture, etc.).

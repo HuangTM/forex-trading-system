@@ -1,0 +1,738 @@
+role: cto
+artifact_type: checklist-result
+artifact_id: cto-SESSION-REVIEW-2026-04-27
+timestamp: 2026-04-27T00:00:00Z
+subtask_ref: "single-role CTO sign-off, session 2026-04-27"
+head_commit: 67752a4
+confidence: high
+
+# ============================================================================
+# Top-level assumptions (must be true for these rulings to hold)
+# ============================================================================
+assumptions:
+  - "A1: 397/397 tests pass at HEAD 67752a4 as stated by the task brief. No
+    independent test-run was possible in this review session; rulings treat
+    test-green as necessary but not sufficient, per guardrail."
+  - "A2: The kill_switch_audit.log on disk retains the correct format from
+    prior commits; no manual edits were made to audit-log files between
+    commits a934305 and 67752a4. (Verified indirectly: test_kill_switch.py
+    tests the round-trip, not the on-disk artifact.)"
+  - "A3: git hooks were installed at .git/hooks/pre-commit by the Quant
+    Developer (not auditable from a review session; the hook file at
+    tools/git-hooks/pre-commit is identical to .git/hooks/pre-commit per
+    the task brief -- assumed installation confirmed separately)."
+  - "A4: vol_target_carry retire-pending-reconciliation flag is STILL IN
+    EFFECT as of this review (A4 of CONSENSUS 2026-04-26). None of the
+    deliverables in this session lifts it; governance step remains pending."
+  - "A5: The R2 pre-reg mtime genuinely predates any 4H backtest invocation.
+    This is an audit-mtime claim that cannot be verified within the review
+    session; the pre-reg text asserts it and A1-2 adds enforcement structure."
+
+knowledge_gaps:
+  - "KG-1: Cannot verify live .git/hooks/pre-commit binary matches
+    tools/git-hooks/pre-commit without running a git-hook install check."
+  - "KG-2: test_cf_t9_monitor.py does not have an integration test against
+    a live FRED fetch or real parquet data; staleness-guard behavior under
+    actual stale data is untested."
+  - "KG-3: Actual audit log on disk (data/kill_switch_audit.log) may have
+    entries from prior sessions; the 'TRIGGER' entry format from Q3 has not
+    been confirmed in the on-disk artifact -- only in unit tests."
+  - "KG-4: A1-2 two-author rule for tas_ceiling_4h_canonical.py is not
+    yet enforceable by tooling; the R2 Amendment 1 states the requirement
+    but no mechanism exists to verify authorship at commit time."
+  - "KG-5: slippage_budget empirical data collection workflow (P50/P90/P99
+    per regime) is not yet implemented; the plan depends on TradeLog.record
+    capturing intended_price field, which has not been independently
+    confirmed at code review depth here."
+
+# ============================================================================
+# Item rulings
+# ============================================================================
+
+items:
+
+  - id: "Q1+Q2"
+    commits: [4c3618c]
+    decision: approve-with-conditions
+    rubric_applied:
+      - log-as-decision-trace
+      - deploy-checklist-trading (Phase 1 items 4, 6, 7 only -- paper script, not live)
+
+    evidence:
+      - "scripts/run_paper_trading_vt.py:60-84 -- _attach_ws01_file_handler()
+        creates durable FileHandler with _ws01_marker; idempotent across re-imports."
+      - "scripts/run_paper_trading_vt.py:101-133 -- _emit_ws01() emits structured
+        JSON via json.dumps; fields: cycle_id, pair, signal, vol, equity, price,
+        target_units, current_units, action. _finite_or_none() guards inf/nan."
+      - "scripts/run_paper_trading_vt.py:267-297 -- early-exit paths (KILL_HALTED_PRECYCLE,
+        KILL_HALTED_EQUITY_FETCH, SKIP_EQUITY_FETCH_FAIL, SKIP_NO_DATA,
+        SKIP_INSUFFICIENT_BARS) each emit exactly one ws01 line."
+      - "scripts/run_paper_trading_vt.py:373-382 -- main-path ws01 emit at action
+        determination, before any execution branch."
+      - "scripts/run_paper_trading_vt.py:143-153 -- notify(): safe_title encodes
+        via ascii+replace; same for message bytes. Resolves C1 from prior artifact."
+      - "tests/scripts/test_notify.py:119-137 -- TestNotifyTitleSanitization covers
+        the Title-header em-dash path explicitly (was residual exposure in prior
+        cto-pre05-checklist-result.yaml)."
+      - "tests/scripts/test_ws01_decision_log.py:102-104 -- exactly-one-line invariant."
+      - "tests/scripts/test_ws01_decision_log.py:107-124 -- all 9 consensus-pinned
+        fields validated."
+      - "tests/scripts/test_ws01_decision_log.py:127-133 -- single-line JSON, no
+        embedded newlines."
+      - "tests/scripts/test_ws01_decision_log.py:185-243 -- 5 early-exit paths covered."
+
+    log_as_decision_trace_findings:
+      items_checked: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      pass: [1, 2, 5, 6, 8, 9, 10]
+      partial:
+        - "Item 3 (parameter source): vol_window, leverage_cap, target_vol are NOT
+          emitted in the ws01 line -- only runtime inputs (vol, equity, price). A
+          reviewer cannot reconstruct which parameter set drove the signal from the
+          log alone. Finding: minor, non-blocking."
+        - "Item 4 (time explicit): ws01 emits no exchange_ts / receive_ts / decision_ts
+          fields -- only the Python logging timestamp prefix from basicConfig formatter
+          (%asctime). Finding: minor, non-blocking for paper-trading-only deployment."
+      fail: []
+
+    failure_modes_considered:
+      - "FM-1: _attach_ws01_file_handler called after a log line is emitted (e.g., if
+        called inside run_cycle rather than main) → first cycle's ws01 lands only on
+        stderr. Verified: main() calls _attach_ws01_file_handler() at line 481 before
+        any cycle; not a risk in normal execution. Not a risk in --loop mode either."
+      - "FM-2: File handler accumulates without rotation; large deployments could exhaust
+        disk. ws01_trace.log is append-only with no rotation policy. Non-blocking
+        for paper trading at current cadence (1 line per 1800s cycle)."
+      - "FM-3: Title ASCII sanitization at notify() passes; C1 from prior review CLOSED.
+        Residual: run_multi_strategy.py and run_paper_trading.py still have unguarded
+        em-dashes (prior cto-pre05 finding). Out of scope for this Q1+Q2 item; should
+        not be treated as closed globally."
+      - "FM-4: quiet-hours logic (QUIET_HOURS = (20, 8)) suppresses ntfy during
+        kill-switch events when local hour is in [20, 24) or [0, 8). The condition
+        on line 140 is `quiet_start <= local_hour OR local_hour < quiet_end`, which
+        evaluates True for any hour outside [8, 20). This IS the intended quiet-hours
+        behavior. HOWEVER: ntfy is NOT the kill-switch itself; kill_switch.trigger()
+        and backend.flatten_all() execute regardless. ntfy suppression during quiet
+        hours is expected and non-blocking."
+
+    conditions:
+      - "C1 (non-blocking): Add strategy-parameter fields (vol_window, leverage_cap,
+        target_vol, config_version) to _emit_ws01 payload so a reviewer can reconstruct
+        the full parameter set from logs alone. Route to Quant Developer."
+      - "C2 (non-blocking): Add decision_ts field to ws01 payload (wall-clock monotonic
+        at emit time). Low cost; materially improves incident reconstruction."
+      - "C3 (track for hygiene): Extend ASCII sanitization to scripts/run_multi_strategy.py:61
+        and scripts/run_paper_trading.py:72, which retain the original unguarded em-dash
+        exposure. Not blocking this item but should not remain open indefinitely."
+
+    what_you_refused_to_do:
+      - "Write or suggest code to add parameter fields to _emit_ws01. Route to Quant Developer."
+      - "Run the paper trading script to verify ws01 output in production."
+
+  # --------------------------------------------------------------------------
+
+  - id: Q3
+    commits: [7d37c44]
+    decision: approve
+    rubric_applied:
+      - log-as-decision-trace
+
+    evidence:
+      - "src/forex_system/risk/kill_switch.py:252-307 -- trigger() appends structured
+        JSON-line via _write_audit_entry(); fields: timestamp, event, operator, reason,
+        detail, equity_at_trigger, previous_state, new_state."
+      - "src/forex_system/risk/kill_switch.py:287-307 -- best-effort write: IOError
+        caught, logger.critical emitted, trigger state still flips (is_triggered=True
+        at line 269). Audit failure does NOT prevent halt."
+      - "src/forex_system/risk/kill_switch.py:300 -- new_state = HALTED_{reason.value.upper()}
+        which ensures _new_state_is_halted() on next startup fires for all trigger reasons."
+      - "tests/risk/test_kill_switch.py:334-436 -- TestWS03TriggerAuditAppend: 7 tests
+        covering trigger append, per-reason new_state, audit-disabled path, idempotency,
+        parsability by _last_audit_entry, write-failure resilience, and RESET/TRIGGER
+        format co-existence."
+      - "tests/risk/test_kill_switch.py:176-265 -- TestKillSwitchAuditOnStartup: 8 tests
+        covering HALTED-state refusal, FORCE_RESET override, RUNNING state pass-through."
+
+    log_as_decision_trace_findings:
+      items_checked: [1, 2, 3, 5, 7, 8, 9]
+      pass: [1, 2, 3, 5, 7, 8, 9]
+      not_applicable: [4, 6, 10]
+      notes:
+        - "Item 4: audit log entries carry ISO timestamp (pd.Timestamp.now(tz=UTC).isoformat())
+          which is adequate for forensic reconstruction. No exchange_ts; not applicable for
+          a circuit-breaker event (not order-routing)."
+        - "Item 6 (skipped path): trigger() is idempotent -- the second call returns early
+          without logging. This is correct behavior per the design; the first trigger's
+          audit entry is the definitive record. No finding."
+        - "Item 10: one entry per trigger event. Correct."
+
+    failure_modes_considered:
+      - "FM-1: Audit log path not set (audit_log_path=None in KillSwitch). trigger() returns
+        early at line 287 without writing. is_triggered still flips. Behavior documented;
+        paper runner passes 'data/kill_switch_audit.log' (line 507-508). Not a risk for
+        production use."
+      - "FM-2: Full disk during trigger(). Exception caught at line 303-306; logger.critical
+        emitted; is_triggered=True. In-memory event preserved. Risk: audit trail lost,
+        operator may not notice until restart. Mitigation: restart guard reads audit log --
+        if no HALTED entry, it does not block startup, so a disk-full audit failure
+        could allow a silent restart. Severity: low for paper trading; would be higher
+        for live. Non-blocking for current paper scope."
+      - "FM-3: Multiple processes writing to the same audit log concurrently. _write_audit_entry
+        opens in append mode with no file lock. Race condition possible but paper runner
+        is single-process. Non-blocking."
+      - "FM-4: _new_state_is_halted substring check at line 76-82 depends on the HALTED
+        substring being in new_state. Confirmed: HALTED_{reason.value.upper()} always
+        contains HALTED. All TriggerReason enum values confirmed to produce HALTED_*
+        strings."
+
+    conditions: []
+
+    what_you_refused_to_do:
+      - "Assess whether the 2% daily-loss threshold (MAX_DAILY_LOSS_PCT) is appropriately
+        calibrated -- that is CRO + HoQR domain."
+      - "Write code for multi-process file locking."
+
+  # --------------------------------------------------------------------------
+
+  - id: Q4
+    commits: [82f2e57]
+    decision: approve-with-conditions
+    rubric_applied:
+      - review-plan (correctness, completeness, risk, clarity, testing)
+      - execution-firewall-review Section A (mechanical changes from spec)
+
+    evidence:
+      - "tools/check_equivalence_gate.py:49-53 -- TRIGGER_PREFIXES covers strategies/,
+        sizing/, backtest/. TRIGGER_SCRIPTS includes scripts/vol_targeting.py."
+      - "tools/check_equivalence_gate.py:74-84 -- files_trigger_gate() excludes __init__.py
+        and registry.py (behavioral no-ops)."
+      - "tools/check_equivalence_gate.py:86-94 -- equivalence_tests_exist() returns
+        tests/equivalence/test_*.py; hard blocks if directory empty."
+      - "tools/check_equivalence_gate.py:165-181 -- HARD BLOCK when no equivalence
+        tests exist; logs policy violation to .fintech-org/policy-violations.jsonl."
+      - "tools/check_equivalence_gate.py:196-204 -- block message explicitly names the
+        vol_target_carry failure mode and instructs no --no-verify on failed tests."
+      - "tools/git-hooks/pre-commit:36-53 -- chained Gate 1 (pre-reg) and Gate 2
+        (equivalence); --no-verify bypass is logged by the Python checkers."
+      - "tests/tools/test_check_equivalence_gate.py:23-127 -- trigger detection, test
+        discovery, and policy-log tests all present."
+
+    review_plan_findings:
+      correctness:
+        verdict: PASS
+        evidence: "gate logic verified against the spec intent (block on strategy/sizer/engine
+          changes without equivalence tests). __init__.py and registry.py correctly excluded."
+      completeness:
+        verdict: NEEDS_WORK
+        evidence: |
+          "TRIGGER_SCRIPTS (line 54-56) only includes scripts/vol_targeting.py. As new
+          canonical scripts land (e.g., scripts/tas_ceiling_4h_canonical.py per R2 A1-2),
+          they are NOT automatically gated unless added to TRIGGER_SCRIPTS. The gate has
+          a manual upkeep requirement that is not documented or enforced."
+      clarity:
+        verdict: PASS
+        evidence: "Bypass documented; error messages name the failure mode and block message."
+      risk:
+        verdict: NEEDS_WORK
+        evidence: |
+          "Bypass via --no-verify is logged to .fintech-org/policy-violations.jsonl but the
+          log write is inside the Python checker, not the shell hook. If the gate Python file
+          is missing (line 47-49 of the shell hook: WARNING + skip), no violation is logged.
+          A missing gate file is treated as a pass, not a block."
+      testing:
+        verdict: NEEDS_WORK
+        evidence: |
+          "No test for the 'gate file missing' path (tools/check_equivalence_gate.py not found
+          at hook execution). test_check_equivalence_gate.py has 127 lines across trigger
+          detection, test discovery, and policy log -- but does not test the shell hook's
+          warning-and-skip fallback."
+
+    firewall_section_A_findings:
+      A1: "No hardcoded thresholds introduced -- gate is structural, not a numeric threshold."
+      A4: "No regime or asset-class branching."
+      finding_A_bypass:
+        section: A (process guard)
+        severity: non-blocking
+        description: |
+          "The gate soft-bypasses when its own Python file is missing (tools/check_equivalence_gate.py
+          not found → shell emits WARNING and exits 0). This means the gate can be disabled by
+          deleting or renaming the Python file without triggering a block or a policy-violation log.
+          This is a structural gap: the enforcement mechanism is not itself protected."
+
+    failure_modes_considered:
+      - "FM-1: Equivalence tests in tests/equivalence/ exist but are trivially passing (no
+        assertion, wrong tolerance). Gate passes but provides false coverage. Mitigation: gate
+        blocks when NO tests exist; content quality is a separate review concern for each
+        strategy PR. The tests/equivalence/test_engine_vs_script.py is confirmed to exist
+        (tests/tools/test_check_equivalence_gate.py:99)."
+      - "FM-2: --no-verify bypass. Logged by Python checker IF the checker runs. Not logged if
+        checker file is missing. Non-blocking for current paper-trading-only scope."
+      - "FM-3: New canonical script (e.g., tas_ceiling_4h_canonical.py) not added to TRIGGER_SCRIPTS.
+        Gate silently skips it. This is the most likely failure mode as Bet #2 ships."
+
+    conditions:
+      - "C1 (non-blocking, pre-H2-dispatch): Add scripts/tas_ceiling_4h_canonical.py to
+        TRIGGER_SCRIPTS in check_equivalence_gate.py before H2 backtest dispatch (per R2
+        A1-2 requirement). Route to Quant Developer."
+      - "C2 (non-blocking): Shell hook should exit 1 (not 0) when the gate Python file is
+        missing, OR document the intended pass-through as an acknowledged risk. A WARNING
+        that becomes a no-op quietly removes the enforcement layer. Route to Quant Developer."
+      - "C3 (non-blocking): Add a test for the 'Python gate file missing' shell-hook path.
+        Route to Quant Developer."
+
+    what_you_refused_to_do:
+      - "Write the fix for the shell hook bypass path."
+      - "Run equivalence tests directly to verify tolerance thresholds in test_engine_vs_script.py."
+
+  # --------------------------------------------------------------------------
+
+  - id: Q6
+    commits: [61ea022]
+    decision: approve-with-conditions
+    rubric_applied:
+      - log-as-decision-trace
+      - review-plan (correctness, completeness, risk, testing)
+
+    evidence:
+      - "scripts/monitor_regime_triggers.py:52-77 -- all CF-T9 constants defined at module
+        level as named constants traceable to pre-reg spec."
+      - "scripts/monitor_regime_triggers.py:230-287 -- evaluate_cf_t9() returns a single
+        structured dict; both clause results, data freshness, pre_reg_reference, and
+        consensus_track_id included."
+      - "scripts/monitor_regime_triggers.py:294-298 -- write_audit_record() appends JSON-line
+        per invocation to AUDIT_LOG_PATH."
+      - "scripts/monitor_regime_triggers.py:386-392 -- exit-2 on stale data; exit-1 on triggered;
+        exit-0 otherwise. Stale-data path does NOT auto-retire."
+      - "tests/scripts/test_cf_t9_monitor.py:66-200 -- Clause A (4 tests), Clause B (3 tests),
+        combined evaluation (4 tests including both-clauses trigger), audit log (1 test)."
+
+    log_as_decision_trace_findings:
+      items_checked: [1, 2, 3, 5, 8, 9]
+      pass: [1, 2, 8]
+      findings:
+        - "Item 3 (parameter source): constants CF_T9_BOJ_RATE_THRESHOLD_PCT, CF_T9_ROLLING_SHARPE_WINDOW
+          etc. are emitted in the structured JSON output record. Source is named as 'binding pre-registered
+          constant' in comments but NOT emitted as a 'source' field in the audit record itself. A
+          reviewer reading the audit log alone cannot confirm which pre-reg version the thresholds
+          came from. Non-blocking but a future calibration concern."
+        - "Item 5 (correlation): no run_id or invocation_id in the audit record. Multiple cron
+          invocations on the same day produce identical evaluated_at-based entries with no
+          deduplication or linking key. Non-blocking for current manual-cron use."
+        - "Item 9 (event name): the audit record has 'monitor_id: CF-T9' which is enumerable.
+          Passes for the top-level event name."
+
+    review_plan_findings:
+      correctness:
+        verdict: PASS
+        evidence: "Clause A logic (consecutive quarter-end check, line 150-178) and Clause B
+          (rolling Sharpe < threshold in 90-day window, line 208-227) both match the CF-T9
+          spec. Staleness guard exits 2 (inconclusive) rather than triggering."
+      completeness:
+        verdict: NEEDS_WORK
+        evidence: |
+          "PAIR_DATA_DIR is hardcoded at line 55 to Path('data/processed'). If invoked from a
+          directory other than the repo root (e.g., cron with working-dir /), data paths fail
+          silently. The script uses relative paths throughout. A cron invocation without explicit
+          cd to repo root produces misleading exit-2 (pair data missing) rather than the correct
+          data-error indication."
+      risk:
+        verdict: NEEDS_WORK
+        evidence: |
+          "Missing pair handling (line 118-119): if any of the 6 JPY-cross pairs is absent, the
+          script WARNS and continues with the reduced universe. The rolling Sharpe on a 4-pair
+          universe is NOT equivalent to the 6-pair universe specified in the pre-reg. There is
+          no hard exit-2 when fewer than 6 pairs are available."
+
+    failure_modes_considered:
+      - "FM-1: FRED API key missing. fetch_boj_rate_series() raises RuntimeError at line 90;
+        main() catches and returns exit-2. Operator sees error message; does not auto-retire.
+        Correct behavior."
+      - "FM-2: Fewer than 6 JPY-cross pairs available (data missing for some pairs). Script
+        continues with reduced universe (line 118-119). Clause B evaluation on partial universe
+        violates the pre-reg spec (6-pair equal-vol-weighted basket). The trigger condition
+        could be falsely NOT-satisfied on a reduced universe. Severity: significant."
+      - "FM-3: Stale data across both FRED and pair parquets. exit-2 fires. No auto-retirement.
+        Correct: exit-2 means inconclusive, escalate to ops."
+      - "FM-4: CF-T9 TRIGGERED (exit-1) invoked from a cron but no alerting pipeline exists.
+        The script writes audit log and exits 1; without a cron-wrapper that reads exit code
+        and alerts the operator, the trigger is silent. This is an operational gap, not a code
+        bug."
+
+    conditions:
+      - "C1 (non-blocking, before production-cron deployment): Add a HARD EXIT-2 when fewer
+        than 6 pairs are available (len(closes) < len(JPY_CROSS_PAIRS)). Universe shrinkage is
+        not an acceptable fallback -- the trigger condition is undefined on a partial universe.
+        Route to Quant Developer."
+      - "C2 (non-blocking): Add REPO_ROOT-relative path resolution (e.g., Path(__file__).parent.parent
+        / 'data' / 'processed') so the script is cron-safe from any working directory."
+      - "C3 (route to HoQR/NHT): Clause B's sharpe_clause_satisfied() checks if the rolling Sharpe
+        has been BELOW threshold EVER in the 90-day window (line 217: below.any()). This is a
+        single-day dip criterion, not a sustained-deterioration criterion. Whether 'any day below
+        0.20' is the intended retirement trigger (vs. 'N consecutive days') is a research
+        interpretation question. ROUTE_TO: head-of-quant-research for pre-reg clarification."
+
+    what_you_refused_to_do:
+      - "Determine whether 'any day below 0.20' vs 'sustained below 0.20' is the correct
+        pre-reg interpretation -- ROUTE_TO HoQR."
+      - "Design the cron-wrapper alerting pipeline."
+      - "Compute whether the clause B sharpe math is statistically appropriate."
+
+  # --------------------------------------------------------------------------
+
+  - id: R1
+    commits: [bfa2fde, 67752a4]
+    decision: approve-with-conditions
+    rubric_applied:
+      - execution-firewall-review (Sections A through E)
+
+    evidence:
+      - "references/trade-intents/vol_target_carry.yaml:1-24 -- self-flags FM-2;
+        status: retroactive_transcription_pending_independent_review."
+      - "references/trade-intents/vol_target_carry.yaml:95 -- sizing formula
+        'units = signal * leverage_cap * account_equity' (v1.0.0); Amendment 1
+        A1_C2 expands to include confidence and ratchet_level multipliers."
+      - "references/trade-intents/vol_target_carry.yaml:150-185 -- slippage_budget
+        status: PARTIAL_CALIBRATION; per-regime P50/P90/P99 all marked TODO."
+      - "references/trade-intents/vol_target_carry.yaml:372-521 -- Amendment 1 filed
+        2026-04-27 closes 5 of 7 critic findings; A1_C4 and A1_C5 code fixes in
+        commit 5151da2."
+
+    firewall_review_sections:
+      section_A:
+        A1_thresholds: "PASS -- all thresholds traceable to parameters block (line 190-219);
+          each references sourced_from field naming config or code."
+        A2_data_cleaning: "PARTIAL -- signal formula includes .fillna(0.0) at output_signal
+          (line 80). Amendment 1 A1_C3 acknowledges but does not distinguish warmup-NaN
+          from corruption-NaN. Non-blocking for retroactive spec; a FUTURE TradeIntent
+          revision should make this distinction."
+        A3_lookbacks: "PASS -- vol_window=252 sourced_from: config. bars_per_year computed
+          dynamically (Amendment 1 A1_C5 fix confirmed in commit 5151da2)."
+        A4_regime_branching: "PASS -- optional_carry_filter is documented at line 82-84;
+          min_carry=-inf structurally disables it. Amendment 1 A1_C1 resolves contradiction
+          with pre-reg value of -0.10."
+        A5_signal_transformations: "PASS -- clip(0, leverage_cap) and /leverage_cap are
+          fully specified in the signal formula block."
+      section_B:
+        B1_slippage: |
+          "PARTIAL_CALIBRATION (spec's own declaration, line 150-185). P50/P90/P99 per
+          regime are TODO. Calibration plan exists (line 181-185); data collection
+          gated on trade log capturing intended_price. This is the A1_OPEN_B1 finding
+          routed to CTO. SEE RULING BELOW."
+        B2_sizing: "PASS (Amendment 1 A1_C2 closes). Formula now includes confidence and
+          ratchet_level with documented defaults and non-default-call-site rule."
+        B3_retirement_triggers: "PASS (Amendment 1 A1_C3 closes). VTC-T1..T8 reclassified
+          as 'condition machine-checkable; execution operator-mediated'. Retirement
+          workflow tracked as follow-up."
+        B4_invalidation: "PASS -- no_data, nan_signal, kill_switch_active all documented
+          in state_transitions (lines 137-147)."
+        B5_falsification: "PASS -- pre_reg_path cross-referenced; retroactive pre-reg
+          acknowledged with governance caveats."
+      section_C: "PASS -- all parameters have sourced_from fields. No magic numbers."
+      section_D: "PASS with minor gap: ws01 decision trace implemented (lines 280-296);
+        kill_switch_audit implemented (lines 293-297). Gap: parameter source fields
+        not in ws01 payload (same finding as Q1+Q2 C1)."
+      section_E: "PASS with partial note: integration_tests block documents all three
+        required categories. Retirement trigger path is PARTIAL (manual operator action)
+        per Amendment 1 A1_C3."
+
+    routed_to_cto_rulings:
+      A1_OPEN_B1_partial_calibration:
+        finding: |
+          "slippage_budget.status = PARTIAL_CALIBRATION with all per-regime P50/P90/P99
+          marked TODO. The firewall rubric Section B1 requires a CALIBRATED slippage
+          distribution before implementation proceeds. This is a retroactive TradeIntent;
+          implementation has already shipped. The question is whether the PARTIAL_CALIBRATION
+          status blocks the spec from being used as the spec-of-record for future paper
+          trading continuation."
+        cto_ruling: |
+          "CONDITIONAL PASS. Rationale:
+          (1) The implementation has shipped and the retroactive pre-reg is by definition
+              post-hoc -- blocking on Section B1 calibration completeness does not un-ship
+              the existing code.
+          (2) The paper-trading-only scope limits the cost of imprecise slippage budgets:
+              no real capital is at risk; fill data from paper sessions accumulates toward
+              the calibration plan.
+          (3) The calibration plan is documented and traceable (lines 181-185); it is not
+              an open-ended TODO but a concrete data-collection requirement with a named
+              data source.
+          CONDITION: slippage_budget per-regime P50/P90/P99 MUST be populated from actual
+          paper-trade fills BEFORE this strategy is considered for live capital. No capital
+          promotion is permitted with PARTIAL_CALIBRATION in the spec-of-record. This is a
+          hard gate, not a soft preference. Operator runbook: when data/trades/*.parquet
+          accumulates >= 50 fills per regime, HoQR files a spec amendment completing the
+          calibration. ROUTE_TO: HoQR to confirm data-collection trigger threshold."
+        blocking: false  # for paper-trading continuation; yes for live-capital promotion
+
+      A1_OPEN_FM2_self_acknowledgment:
+        finding: |
+          "The TradeIntent was authored by the same person who implemented the strategy.
+          FM-2 (firewall failure mode: spec as post-hoc transcription) is self-acknowledged
+          in the spec (line 16-18) but not remediated. The claimed mitigation is a
+          status flag plus 'retroactive_transcription_pending_independent_review'. The
+          rubric's correct mitigation is an INDEPENDENT-AUTHOR rewrite. The question
+          routed to CTO: does the self-acknowledgment + governance flag constitute
+          sufficient mitigation, or is an independent rewrite required before the spec
+          functions as a spec-of-record?"
+        cto_ruling: |
+          "CONDITIONAL PASS with scoped restrictions. Rationale:
+          (1) An independent rewrite is the correct mitigation. Requiring it NOW, however,
+              would block all downstream work (paper trading continuation, Bet #2) on a
+              governance formality for a strategy that has already been validated at the
+              engine-script level (Sharpe Delta = 0.0055, correlation confirmed).
+          (2) The retroactive nature is documented, not hidden. A reviewer can read the
+              YAML alongside the code, which is what the spec-of-record requirement
+              demands for THIS classification.
+          (3) The Amendment 1 adversarial review process (the 5 closed findings + 2 code
+              fixes) partially substitutes for independent authorship: an adversarial agent
+              challenged the spec and the spec was amended in response. This is weaker than
+              an independent rewrite but stronger than self-disclosure alone.
+          RESTRICTIONS:
+          (a) This TradeIntent MAY be used as the implementation contract for the current
+              paper-trading deployment and for the equivalence-gate tests.
+          (b) This TradeIntent MAY NOT be used as the sole artifact for a live-capital
+              launch review. At live-capital gate, an HoQR-independent verification of
+              the spec against the code is required.
+          (c) HoQR must sign the spec before it functions as 'spec-of-record' for
+              onboarding a new engineer/agent to implement a variant. Until HoQR signs,
+              the implementation must be read alongside the YAML for any review.
+          GOVERNANCE ACTION: HoQR review of vol_target_carry.yaml is the outstanding
+          blocking item; CTO cannot unilaterally close FM-2. Joint sign-off required."
+        blocking: false  # for paper trading with stated restrictions; yes for live-capital
+
+    failure_modes_considered:
+      - "FM-1: TradeIntent is treated as an independent spec by a future engineer who
+        does not read the status flag or Amendment 1. FM-2 restriction (c) above is the
+        mitigation -- HoQR sign-off gates independent use."
+      - "FM-2: Amendment 1 min_carry contradiction (A1_C1) is resolved in the YAML but
+        the pre-reg at references/pre-registrations/vol_target_carry.md:57 still reads
+        -0.10. Until HoQR amends the pre-reg, two competing authoritative values exist
+        in the repo. An engineer reading only the pre-reg would implement a carry filter."
+      - "FM-3: slippage_budget TODO fields could be silently interpreted as 'no slippage
+        budget' by a future reviewer applying Section B1 as a binary gate. The
+        PARTIAL_CALIBRATION status and calibration plan text mitigate this."
+
+    conditions:
+      - "C1 (HoQR action, non-blocking): Amend references/pre-registrations/vol_target_carry.md:57
+        to harmonize min_carry with TradeIntent (-inf). Tracked as Amendment 1 A1_C1 action."
+      - "C2 (HoQR sign-off required): HoQR must review and sign vol_target_carry.yaml before
+        it can function as spec-of-record for independent use."
+      - "C3 (hard gate for live capital): slippage_budget P50/P90/P99 per regime must be
+        populated before any live-capital promotion. Route to HoQR to define the data
+        threshold trigger."
+      - "C4 (Quant Developer, non-blocking): Add auto-retirement tool (scripts/auto_retire_on_trigger.py)
+        to complete the VTC-T1..T8 end-to-end machine-checkability claim."
+
+    what_you_refused_to_do:
+      - "Rewrite the TradeIntent as an independent spec -- this is HoQR's domain."
+      - "Compute the Deflated Sharpe Ratio or any statistical validity metric."
+      - "Assess whether target_vol=10% is appropriately calibrated for this pair."
+
+  # --------------------------------------------------------------------------
+
+  - id: R2
+    commits: [e3c4c27, 19f98fe]
+    decision: approve-with-conditions
+    rubric_applied:
+      - review-plan (CTO-domain items only: PROCESS-IMPL-1, PROCESS-IMPL-2, A1-6, A1-9)
+
+    evidence:
+      - "references/pre-registrations/tas_ceiling_4h.md:138-139 -- PROCESS-IMPL-1:
+        grep check for saxo/paper_trading imports in backtest path specified."
+      - "references/pre-registrations/tas_ceiling_4h.md:139 -- PROCESS-IMPL-2: IS-only
+        run must be committed as a separate git log entry before OOS run."
+      - "references/pre-registrations/tas_ceiling_4h.md:247-249 -- A1-6: H2 dispatch
+        hard-gated on Q4 hook in place OR HoQR+NHT waiver."
+      - "references/pre-registrations/tas_ceiling_4h.md:273-284 -- A1-9: checklist of
+        6 prerequisites, all must be TRUE before H2 dispatch."
+
+    cto_domain_review:
+      PROCESS_IMPL_1:
+        status: PLAN_PRESENT
+        verdict: NEEDS_WORK
+        evidence: |
+          "PROCESS-IMPL-1 specifies a grep command (line 139) but the grep syntax is
+          incomplete: 'grep -r \"saxo|paper_trading\" $(python -c \"import ast; ...\")'.
+          The $(python -c ...) subshell is a stub -- no valid Python expression follows
+          the 'import ast'. This grep as written would fail at execution. A CI check or
+          a pre-H2 verification script MUST exist; a non-runnable grep stub does not
+          close the WS-05 risk."
+      PROCESS_IMPL_2:
+        status: PLAN_PRESENT
+        verdict: CONDITIONAL_PASS
+        evidence: |
+          "IS-only run before OOS is a sound process control. The requirement that the
+          two invocations be separate git log entries is operationally clear. However:
+          no enforcement mechanism exists; it is an honor-system requirement. The Q4
+          pre-commit hook only gates strategy/sizer/engine code changes, not backtest
+          invocation sequencing. Condition: the Quant Developer must log the IS-run
+          commit hash in the H2 PR description before OOS can proceed, and the reviewer
+          (CTO or HoQR) must verify the commit ordering."
+      A1_6_Q4_gate:
+        status: PASS
+        verdict: PASS
+        evidence: |
+          "Q4 hook has landed at HEAD 67752a4. A1-6's H2 hard-gate condition ('Q4 in
+          place OR waiver') is met. The waiver path is no longer required."
+      A1_9_checklist:
+        status: PLAN_PRESENT
+        verdict: NEEDS_WORK
+        evidence: |
+          "A1-9 checklist (lines 273-284) has 6 items, all currently unchecked. This is
+          correct -- these are prerequisites, not post-hoc confirmations. However:
+          (1) Items 3 and 5 require tooling that does not yet exist: the grep for PROCESS-
+              IMPL-1 is incomplete (see above), and the canonical script authorship
+              verification has no automated check.
+          (2) Item 4 says 'Q4 hook in place' -- this IS satisfied (Q4 landed at 82f2e57).
+              The checklist item should be pre-checked now to reflect reality."
+
+    routed_to_hoqr: true
+    hoqr_scope:
+      - "Statistical validity of BET2-T1..T8 thresholds and Bonferroni accounting"
+      - "A1-2 two-author rule enforcement and IS fixture Sharpe binding"
+      - "A1-3 cost model proration correctness for 4H bars"
+      - "A1-4 signal price domain change (log(close) to cum_log_ret) -- research decision"
+      - "A1-5 trade-holding-period definition"
+      - "A1-7 OOS regime-overlap sub-window analysis"
+      - "A1-8 BET2-T5b degradation trigger"
+      - "NHT ruling on Bonferroni denominator"
+
+    failure_modes_considered:
+      - "FM-1: PROCESS-IMPL-1 grep stub runs and returns a non-error exit even though it
+        doesn't check what it claims to check. CTO verifies the item as done when it is not."
+      - "FM-2: IS and OOS backtest invocations committed in the same PR (single git log entry)
+        in violation of PROCESS-IMPL-2. No automated detection; relies on reviewer checking
+        commit order in the PR."
+      - "FM-3: A1-2 two-author rule for canonical script is unenforceable by tooling. A solo
+        author commits both files and BET2-T4 is vacated without detection."
+      - "FM-4: config/tas_ceiling_4h.yaml swap proration (A1-3) is computed incorrectly
+        by the Quant Developer without an independent check. The cost model implementation
+        'must verify total-per-day swap equals daily rate within 1e-6' (line 219) but this
+        test does not exist yet."
+
+    conditions:
+      - "C1 (blocking for H2): Complete PROCESS-IMPL-1 grep verification -- write a
+        runnable check (e.g., tools/check_no_saxo_import.py or CI step) that actually
+        executes and returns a verifiable result. Stub is not sufficient. Route to
+        Quant Developer."
+      - "C2 (blocking for H2): IS-only run must be committed with its git hash logged
+        in the H2 PR description before OOS run can proceed. PR reviewer must verify
+        commit ordering before approving OOS invocation."
+      - "C3 (blocking for H2): A1-9 checklist item 4 ('Q4 hook in place') should be
+        marked DONE now (Q4 confirmed at HEAD). Update the checklist before H2 dispatch
+        PR opens. Route to Quant Developer."
+      - "C4 (route to HoQR): All A1-1 through A1-8 statistical and research aspects of
+        Amendment 1 require HoQR review and explicit sign-off before H2 dispatch."
+
+    what_you_refused_to_do:
+      - "Review statistical aspects of BET2 triggers (Bonferroni, t-test power, Sharpe
+        degradation ratio) -- ROUTE_TO HoQR and NHT."
+      - "Verify A1-3 cost proration arithmetic -- ROUTE_TO HoQR / Mathematician."
+      - "Review A1-4 log-return vs log-close equivalence claim -- ROUTE_TO Mathematician."
+
+  # --------------------------------------------------------------------------
+
+  - id: WS01-fixes
+    commits: [5151da2]
+    decision: approve
+    rubric_applied:
+      - log-as-decision-trace
+
+    evidence:
+      - "scripts/run_paper_trading_vt.py:277-280 -- on equity-fetch-kill path: _emit_ws01
+        called BEFORE backend.flatten_all() (line 281). Comment at line 277-279 documents
+        the invariant explicitly."
+      - "scripts/run_paper_trading_vt.py:293-296 -- on drawdown-kill path: _emit_ws01
+        called BEFORE backend.flatten_all() (line 297). Comment at line 293-295 documents
+        the invariant."
+      - "scripts/run_paper_trading_vt.py:333-336 -- vol annualization uses
+        VolTargetCarryStrategy._bars_per_year(ohlcv) not hardcoded sqrt(252). Comment at
+        lines 329-332 explains the discrepancy that motivated the fix."
+      - "tests/scripts/test_ws01_decision_log.py:338-390 -- test_ws01_emitted_before_flatten_on_drawdown_kill
+        and test_ws01_emitted_before_flatten_on_equity_fetch_kill: use _OrderTracker to
+        verify ordering by position in events list, not by timestamp."
+      - "tests/scripts/test_ws01_decision_log.py:399-448 -- test_ws01_vol_uses_dynamic_bars_per_year_4h:
+        constructs 4H synthetic bars; verifies vol in ws01 payload matches
+        VolTargetCarryStrategy._bars_per_year() output and does NOT match sqrt(252)."
+
+    log_as_decision_trace_findings:
+      bug_a_trace_before_execution:
+        finding: "CLOSED -- ws01 now precedes flatten_all() on both kill paths."
+        rubric_item: 6 (logged path must precede its side-effect at the decision boundary)
+        verification: "test_ws01_emitted_before_flatten_on_drawdown_kill passes;
+          _OrderTracker confirms ws01 index < flatten_all index in events list."
+      bug_b_vol_annualization:
+        finding: "CLOSED -- vol field in ws01 now matches the strategy's own bars_per_year
+          computation. For daily bars (sqrt(252)) the fix is transparent; for 4H bars the
+          correction factor is sqrt(1512)/sqrt(252) ≈ 2.45."
+        rubric_item: 2 (all inputs that drove the outcome are in the entry, correctly computed)
+        verification: "test_ws01_vol_uses_dynamic_bars_per_year_4h: expected_bars_per_year
+          > 1000 (confirmed 4H path); payload vol matches expected_vol within rel=1e-6;
+          NOT equal to wrong_vol within rel=1e-3."
+
+    failure_modes_considered:
+      - "FM-1: _OrderTracker test only verifies ordering in the mock; an asyncio context
+        or thread could reorder events. Paper runner is synchronous; not a risk."
+      - "FM-2: VolTargetCarryStrategy._bars_per_year(ohlcv) is called twice in the main
+        path -- once inside strategy.generate_signals() and once explicitly in run_cycle().
+        If the method has side effects or is slow, this is a performance concern. For a
+        rolling-median computation on a 300-bar DataFrame it is negligible. No bug risk."
+      - "FM-3: The fix changes the vol value displayed in the ws01 trace for non-daily
+        timeframes. Any prior ws01 trace analysis tool calibrated to sqrt(252) would
+        produce incorrect vol readings on historical 4H traces. No mitigation exists for
+        historical logs; only forward logs are correct post-fix."
+
+    conditions: []
+
+    what_you_refused_to_do:
+      - "Verify the correctness of _bars_per_year() arithmetic -- ROUTE_TO Mathematician."
+
+# ============================================================================
+# Top-level session ruling
+# ============================================================================
+
+session_overall_state:
+  decision: approve-with-conditions
+  blocking_conditions_for_paper_cycle_resume:
+    - "NONE blocking from this session's deliverables. Q1+Q2 (WS-01 trace) is
+      approved; Q3 (WS-03 kill-switch audit) is approved; WS01-fixes close the
+      two audit-trace bugs. The Q2 hard-gate for paper-cycle resumption is CLOSED."
+    - "RESIDUAL BLOCKER (pre-existing, not from this session): retire-pending-
+      reconciliation flag (CONSENSUS 2026-04-26 A4) is still in effect. CEO + HoQR
+      governance sign-off is required before paper trading resumes. This review
+      does not lift that flag."
+
+  top_3_conditions_blockers:
+    - "BLOCK-1 (H2 dispatch): PROCESS-IMPL-1 grep stub is non-runnable. A working
+      check must exist before H2. Route to Quant Developer."
+    - "BLOCK-2 (R1 spec-of-record): HoQR must sign vol_target_carry.yaml before it
+      functions as an independent spec-of-record. Until signed, implementation must be
+      read alongside the YAML for any review."
+    - "BLOCK-3 (live capital gate): slippage_budget P50/P90/P99 per regime is TODO.
+      Paper trading may continue; live capital promotion is hard-gated on this data."
+
+  routed_to_cto_findings_summary:
+    A1_OPEN_B1_ruling: |
+      "CONDITIONAL PASS. Paper trading may continue with PARTIAL_CALIBRATION.
+      Live capital promotion is HARD GATED on per-regime fill data >= 50 fills
+      per regime. HoQR defines the data threshold trigger and files the spec amendment."
+    A1_OPEN_FM2_ruling: |
+      "CONDITIONAL PASS with restrictions: spec is usable as implementation contract
+      for current paper trading and equivalence gate. NOT usable as sole artifact for
+      live capital review or independent engineer onboarding until HoQR signs.
+      Joint HoQR + CTO sign-off required to close FM-2."
+
+  knowledge_gaps_surfaced:
+    - "KG-1: Cannot confirm .git/hooks/pre-commit install without running a git-hook test."
+    - "KG-2: CF-T9 partial-universe behavior (< 6 pairs) needs a hard exit-2 gate."
+    - "KG-3: Q6 Clause B 'any vs sustained below threshold' interpretation requires
+      HoQR pre-reg clarification."
+    - "KG-4: R2 A1-2 two-author enforcement has no tooling mechanism."
+
+  sign_off_for_next_steps:
+    paper_trading_resume: "PENDING CEO+HoQR governance on A4 (retire-pending-reconciliation).
+      This review confirms the technical instrumentation (WS-01, WS-03, WS01-fixes) is
+      sufficient to satisfy Q2 gate. The governance gate is the remaining blocker."
+    h2_dispatch: "BLOCKED on PROCESS-IMPL-1 runnable check + HoQR A1-2..A1-8 sign-off +
+      A1-9 checklist item 4 pre-checked."
+    carry_fred_conditional: "CF-T9 monitor (Q6) approved with conditions C1 (partial-universe
+      hard-exit) and C3 (HoQR clarification on Clause B criterion) before production-cron
+      deployment. Monitor may be run manually in the interim."

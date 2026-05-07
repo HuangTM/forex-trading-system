@@ -1,0 +1,56 @@
+role: cto
+artifact_type: checklist-result
+artifact_id: cto-PRE-05-2026-04-26
+timestamp: 2026-04-26T22:00:00Z
+subtask_ref: sunday-pre-open-prep-2026-04-26
+rubric-applied: log-as-decision-trace
+decision: approve-with-conditions
+
+summary: "All four log paths exist and are write-capable. Em-dash bug PARTIALLY remediated: message-body fix at run_paper_trading_vt.py:68; residual exposure in Title HTTP header at line 197 (untested). Log-as-decision-trace verdicts: all four session logs are NOISE or MIXED — none reaches decision-trace grade except kill_switch_audit.log (within its narrow scope)."
+
+log-path-check:
+  results:
+    - {path: data/paper_trading_session.log, exists: true, size_bytes: 5120, last_modified: "2026-04-19", write_capable: true}
+    - {path: data/vt_paper_session.log, exists: true, size_bytes: 6042, last_modified: "2026-04-23", write_capable: true}
+    - {path: data/multi_strategy_session.log, exists: true, size_bytes: 3482, last_modified: "2026-04-18", write_capable: true}
+    - {path: data/kill_switch_audit.log, exists: true, size_bytes: 555, last_modified: "2026-04-25", write_capable: true}
+  verdict: PASS
+
+em-dash-status:
+  vt_script_message_body: {file: scripts/run_paper_trading_vt.py, line: 68, status: FIXED, regression_test: tests/scripts/test_notify.py}
+  vt_script_title_header: {file: scripts/run_paper_trading_vt.py, line: 197, status: RESIDUAL_EXPOSURE, detail: "Title='KILL SWITCH — equity fetch failures' passed raw to headers; latin-1 encoding via urllib3 will raise UnicodeEncodeError. test_notify.py only covers message arg."}
+  multi_strategy_script: {file: scripts/run_multi_strategy.py, line: 61, status: utf-8_BODY_TITLE_UNGUARDED}
+  original_paper_trading_script: {file: scripts/run_paper_trading.py, line: 72, status: utf-8_BODY_TITLE_UNGUARDED}
+  verdict: PARTIALLY_FIXED
+  blocking: false  # quiet hours suppress at Sydney open; blocking only if ntfy is load-bearing for kill-switch path
+
+log-verdicts:
+  paper_trading_session.log: {verdict: noise, can_reconstruct_why_trade_happened: false, rubric_failures: "1,2,3,4,5,6,8,9,10"}
+  vt_paper_session.log: {verdict: noise, can_reconstruct_why_trade_happened: "false-for-sizing partial-for-hold", rubric_failures: "3,4,5,6,8,9"}
+  multi_strategy_session.log: {verdict: mixed, can_reconstruct_why_trade_happened: "partial — signal composition traceable; sizing arithmetic not", rubric_failures: "3,4,5,6,8,9"}
+  kill_switch_audit.log: {verdict: decision-trace, scope_note: "operator-authored RESET only; trigger() events absent — see WS-03"}
+
+conditions:
+  - "C1 (blocking for ntfy kill-switch path): Remediate Title-header em-dash at run_paper_trading_vt.py:197. Route to Quant Developer. Cost: S (<1 hr)."
+  - "C2 (non-blocking, week-ahead): No NEW log gaps since commit a5128e4. Pre-existing gaps addressed in WA-03."
+
+failure-modes-considered:
+  - "FM-1: Log path not writable at process start → PermissionError at KillSwitch.__init__. Not observed."
+  - "FM-2: Em-dash in Title header → urllib3 UnicodeEncodeError → notification drops silently → operator unaware kill switch triggered during non-quiet hours. Confirmed mechanism per multi_strategy_session.log:72."
+  - "FM-3: Session logs accumulate without rotation. Not currently risk (<6KB) but no policy defined."
+
+what-you-refused-to-do:
+  - "Write code to fix em-dash bug — routed to Quant Developer."
+  - "Interpret Sharpe / statistical validity — ROUTE_TO head-of-quant-research."
+  - "Make kill-switch state assertions beyond log content."
+  - "Clear PRE-02 — that is ops-engineer territory."
+
+evidence:
+  - data/paper_trading_session.log
+  - data/vt_paper_session.log
+  - "data/multi_strategy_session.log:72 (verbatim em-dash UnicodeEncodeError)"
+  - "data/kill_switch_audit.log (1 JSON line, 2026-04-25 timestamp)"
+  - "scripts/run_paper_trading_vt.py:68 ascii+replace fix"
+  - "scripts/run_paper_trading_vt.py:197 residual em-dash in Title"
+  - "scripts/run_paper_trading_vt.py:69 headers={'Title': title} passed raw"
+  - "tests/scripts/test_notify.py:75 only covers message arg"

@@ -1,0 +1,92 @@
+---
+# Wave-6 PM Consensus Draft Artifact
+# Produced: 2026-05-03
+
+# ---------------------------------------------------------------------------
+# Base schema fields (canonical typed-handoff schema)
+# ---------------------------------------------------------------------------
+role: pm
+artifact_type: consensus-draft
+decision: needs-CEO-ratification
+timestamp: "2026-05-03T08:30:00Z"
+subtask_ref: "Wave-6 preflight closure — PM consensus synthesis from 5 fan-out artifacts"
+subtask_id: "wave6-preflight-pm-consensus"
+
+evidence:
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/cto-architecture-review.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/cro-bc-wiring-verification.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/qd-implementation-closure.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/ops-engineer-verification.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/nht-cold-start-gate-adversarial.yaml"
+
+assumptions:
+  - "CONSENSUS_2026-05-02_paper_launch_authorization.md remains ratified and unmodified."
+  - "Paper loop has not been started by orchestrator (hard constraint honored across all 5 artifacts)."
+  - "NHT does_block:true is orchestrator-computed via deterministic lookup table per protocols/full-auto.md; severity material_concern maps to does_block:true."
+  - "Trial discipline does not apply (Wave-6 is operational verification, not a backtest task)."
+  - "Wave-7 small-fix dispatch scope is bounded by NHT fix proposal (≤30 LoC) and QD fix proposal (≤20 LoC)."
+  - "Items 9 and 10 are BLOCKED-CEO-action and cannot be pre-completed by engineering regardless of Wave-7 outcome."
+
+confidence: high
+
+body: >
+  PM synthesis complete. 6 of 10 Section-10 preflight items are verified-wired-and-tested
+  or verified-wired-as-code (items 1, 3, 4, 5, 6, 7). 2 items are BLOCKED-engineering
+  (item 2: NHT material_concern does_block:true; item 8: QD needs-implementation). 2 items
+  are BLOCKED-CEO-action (items 9 and 10). The human-facing consensus document is at
+  docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md. Auto-ratification is blocked
+  by NHT does_block:true; falls back to CEO sign-off path. Recommended action: authorize
+  Wave-7 (≤50 LoC total) to close items 2 and 8, then issue final pre-flight ratification.
+
+sources:
+  - "docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md"
+  - "docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/cto-architecture-review.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/cro-bc-wiring-verification.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/qd-implementation-closure.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/ops-engineer-verification.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/nht-cold-start-gate-adversarial.yaml"
+  - ".agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml"
+
+web_research_conducted: false
+no-capital-instruction: true
+
+# ---------------------------------------------------------------------------
+# Item terminal states (summary)
+# ---------------------------------------------------------------------------
+item-terminal-states:
+  item-1: "verified-wired-as-code"
+  item-2: "BLOCKED-engineering (NHT material_concern, does_block: true)"
+  item-3: "verified-wired-and-tested"
+  item-4: "verified-wired-and-tested"
+  item-5: "verified-wired-and-tested"
+  item-6: "verified-wired-as-code"
+  item-7: "verified-wired-and-tested"
+  item-8: "BLOCKED-engineering (QD needs-implementation)"
+  item-9: "BLOCKED-CEO-action"
+  item-10: "BLOCKED-CEO-action"
+
+# ---------------------------------------------------------------------------
+# Blocking artifacts
+# ---------------------------------------------------------------------------
+blocking-artifacts:
+  nht-dissent:
+    path: ".agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml"
+    severity: material_concern
+    does_block: true
+    item: 2
+  qd-needs-implementation:
+    path: ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/qd-implementation-closure.yaml"
+    item: 8
+    fix-scope: "≤20 LoC, ≤2 files"
+
+# ---------------------------------------------------------------------------
+# Recommended Wave-7 scope
+# ---------------------------------------------------------------------------
+wave-7-scope:
+  item-2-fix: "Amend evaluate_cf_t9() in scripts/monitor_regime_triggers.py to emit regime_active, n_readings, seen_regime_active_true, seen_regime_active_false; add persistence layer (≤30 LoC)"
+  item-8-fix: "Replace logging.FileHandler with RotatingFileHandler; add EQUITY_LOG_PATH write in both scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py (≤20 LoC)"
+  nht-re-verify: "NHT re-verifies item 2 after QD fix; re-verify closes the dissent"
+  total-scope: "≤50 LoC, no new strategies, no new backtests, no CONSENSUS modification"

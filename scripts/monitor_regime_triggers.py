@@ -71,6 +71,7 @@ VOL_WINDOW_DAYS = 252  # rolling vol estimate window
 # Output paths
 DEFAULT_OUTPUT_PATH = Path("data/cf_t9_status.json")
 AUDIT_LOG_PATH = Path("data/cf_t9_audit.log")
+CF_T9_STATE_PATH = Path("data/cf_t9_state.json")
 
 # Staleness guard: warn if FRED data older than this
 FRED_MAX_STALENESS_DAYS = 95   # ~3 months (FRED rates publish monthly)
@@ -246,6 +247,7 @@ def sharpe_clause_satisfied(rolling_sharpe_series: pd.Series) -> tuple[bool, dic
 def evaluate_cf_t9(
     boj_series: pd.Series,
     pair_returns: pd.DataFrame,
+    state_path: Path = CF_T9_STATE_PATH,
 ) -> dict:
     """Run both clauses and produce the monitor decision record."""
     quarterly = quarter_end_observations(boj_series)
@@ -256,6 +258,21 @@ def evaluate_cf_t9(
     clause_b_pass, clause_b_evidence = sharpe_clause_satisfied(rs)
 
     triggered = clause_a_pass and clause_b_pass
+    regime_active = clause_a_pass and clause_b_pass
+
+    # BC-4: persistent reading counter (read-modify-write across invocations).
+    _default_state = {"n_readings": 0, "seen_regime_active_true": False, "seen_regime_active_false": False}
+    try:
+        state = json.loads(state_path.read_text()) if state_path.exists() else dict(_default_state)
+    except (json.JSONDecodeError, OSError):
+        state = dict(_default_state)
+    state["n_readings"] += 1
+    if regime_active:
+        state["seen_regime_active_true"] = True
+    else:
+        state["seen_regime_active_false"] = True
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state))
 
     # Data freshness checks -- escalate to exit-2 if stale.
     boj_last = boj_series.index.max()
@@ -274,6 +291,10 @@ def evaluate_cf_t9(
         "monitor_id": "CF-T9",
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "triggered": triggered,
+        "regime_active": regime_active,
+        "n_readings": state["n_readings"],
+        "seen_regime_active_true": state["seen_regime_active_true"],
+        "seen_regime_active_false": state["seen_regime_active_false"],
         "clause_a_boj_rate": {
             "satisfied": clause_a_pass,
             "threshold_pct": CF_T9_BOJ_RATE_THRESHOLD_PCT,

@@ -1,0 +1,147 @@
+schema_version: "1.0"
+artifact_type: ratification
+track_id: wave9-precommit-review
+addressed_unit: wave9-substeps:phase2:task2.0
+parent_addressed_unit: wave9-precommit-review:phase1:task1.0
+artifact_under_ratification:
+  path: ./docs/decisions/CONSENSUS_2026-05-06_wave9_precommit_review.md
+  scope: |
+    Sub-decisions 2, 4, 5 enumerated in the parent CONSENSUS Decision section,
+    plus Saxo PII handling on data/. The parent CONSENSUS already ratified the
+    synthesized findings; this artifact records the explicit follow-on rulings
+    needed before Wave-10 dispatch could be coherently scoped.
+approver:
+  role_or_human: human
+  name: huangtm@gmail.com
+  authority_basis: |
+    CEO of the simulated firm per fintech-org orchestration contract.
+    Sub-decisions are CEO-authority (architectural risk-vs-hypothesis tradeoff,
+    LoC-cap deviation acceptance, scope binding) — none can be made by PM
+    (forbidden from technical adjudication per roles/pm.md + non-negotiable
+    rule 9 No role hybridization).
+decision:
+  outcome: ratified
+  rationale: |
+    CEO provided guiding principle "quality is top priority" and delegated
+    derivation to the orchestrator. Orchestrator translated principle into
+    specific decisions per option (preserving ALL THREE CEO actions as
+    explicit, not buried). CEO confirmed with "2/4/5: ack, pii: sanitize"
+    on 2026-05-06.
+sub_decisions:
+  decision_2_group_b_scope:
+    ruling: combined-fix
+    detail: |
+      Wave-10 fixes F-001 (cost-formula at sizer-output boundary) +
+      F-002 (replace TestE2EParity SHARED_SIZE / EURUSD-only theatre with
+      a real run_backtest USDJPY E2E parity test) + F-008 (rewrite tests
+      at lines 540-562 and 564-611 to assert engine-parity values, not
+      F-001-buggy paper-loop output) TOGETHER. No partial commit.
+    quality_rationale: |
+      Splitting creates a window where test suite and production code
+      are inconsistent. F-008 entrenches F-001; any commit before F-001
+      lands locks the wrong behavior into the regression suite.
+  decision_4_f003_loc_cap:
+    ruling: ratify-deviation-with-wave11-refactor-binding
+    detail: |
+      Net Group A delta of 351 added / 2 removed lines is ratified as
+      scope-driven (NHT-mandated closures: atomic lock + reset CLI +
+      cost-model block grew the legitimate scope beyond the original
+      50-LoC cap declared in Wave-8 PM AC). Wave-11 ticket created (this
+      artifact serves as the binding) for shared-module extraction of
+      ~110 byte-identical LoC: assert_account_key_parity and
+      reset_account_key_lock. Future PM AC must declare a recalibrated
+      cap (suggest 200 LoC scope-justified) — the 50-LoC cap is retired.
+    quality_rationale: |
+      Closure of legitimate NHT findings outranks adherence to a cap
+      that was set before scope was understood. Ratification alone
+      leaves duplicate code; pairing with binding refactor ticket
+      addresses long-term maintainability.
+  decision_5_new2_cost_feedback:
+    ruling: amend-ladder
+    detail: |
+      Wave-10 produces a PM spec amendment that:
+        (a) preserves the CRO-recommended log-only architecture
+            (kill_switch.check_and_trigger and dd_contract.assess
+            continue to consume raw broker TotalValue, NOT cost-adjusted
+            equity);
+        (b) explicitly recalibrates the pre-registered drawdown ladder
+            thresholds to match broker-equity semantics, so the ladder
+            is honest about what it triggers on (hypothesis-test fidelity
+            restored by ladder-recalibration, not by feedback path);
+        (c) closes NEW-2 as "accepted architectural decision with ladder
+            amendment," with NHT dissent preserved verbatim in CONSENSUS
+            and in this artifact's linked_dissents.
+    quality_rationale: |
+      Pure log-only leaves NHT material_concern open structurally.
+      Pure feed-cost creates the recursive trigger surface CRO warned
+      about (cost-model bugs would become risk-halt bugs). Amend-ladder
+      is the integration that quality-prioritization picks: both
+      structural skeptics get partial wins; the firm gets a coherent
+      architecture and an honest pre-registration.
+  decision_3_groups_cde_commit:
+    ruling: authorize-with-pii-sanitization
+    detail: |
+      Groups C/D/E commit-as-is authorized after operator credential scan
+      returned 0 token matches across 45 files. Saxo account-identifier
+      PII (AccountId REDACTED_ACCOUNT_ID, AccountKey/ClientKey kZdu...zw==,
+      AccountGroupKey dcKj...vUg==) was found in 4 data/saxo_*.{json,log}
+      files; these are NOT credentials but tie this repo to a real Saxo
+      account. CEO directed sanitization. Orchestrator replaced all
+      occurrences with REDACTED_* placeholders; JSON validation post-write
+      passed. Files are now safe to commit.
+    pii_files_sanitized:
+      - path: data/saxo_flatten_2026-04-26.log
+        replacements: {REDACTED_ACCOUNT_KEY: 2}
+      - path: data/saxo_positions_2026-04-25.json
+        replacements: {REDACTED_ACCOUNT_KEY: 1}
+      - path: data/saxo_positions_2026-04-26.json
+        replacements: {REDACTED_ACCOUNT_KEY: 1}
+      - path: data/saxo_positions_raw_2026-04-26.json
+        replacements: {REDACTED_ACCOUNT_ID: 2, REDACTED_ACCOUNT_KEY: 2, REDACTED_ACCOUNT_GROUP_KEY: 1}
+reservations: []
+linked_dissents:
+  - path: ./.agent-accountability/dissents/wave9-precommit-review:cro.yaml
+    note: |
+      CRO dissent on lifting BC-8 second-loop authorization preserved.
+      Wave-10 implements CRO-recommended option-B (fcntl advisory file-lock).
+      CRO's BC-8 veto becomes liftable AFTER Wave-10 closure verification by
+      CRO (concurrent-process test passing).
+  - path: ./.agent-accountability/dissents/wave9-precommit-review:nht.yaml
+    note: |
+      NHT dissent (does_block: true, severity: block-threshold) on F-001/F-002/
+      NEW-2/BC-8 PERSISTS verbatim. Decision-5 amend-ladder partially addresses
+      NHT NEW-2 concern by ladder recalibration. Decisions 2 + Wave-10 scope
+      address F-001/F-002/F-008. NHT will re-verify on Wave-10 return; if
+      closure is genuine this time, dissent on those specific items can be
+      retired (but the AUDIT TRAIL remains append-only — the dissent travels
+      with all downstream artifacts).
+linked_gaps: []
+follow_on_dispatches:
+  - track: wave10-fix-and-amend
+    addressed_unit: wave10-fix-and-amend:phase1:task1.0
+    scope:
+      - F-001-fix at sizer-output boundary in vt.py + carry_fred.py
+      - F-002-fix replace test theatre with run_backtest USDJPY E2E parity test
+      - F-008-fix rewrite tests at lines 540-562 / 564-611 to assert engine-parity values
+      - BC-8-option-B fcntl advisory file-lock around get_positions → check_dispatch_allowed → execute_signal
+      - PM spec amendment recalibrating pre-registered drawdown ladder thresholds to broker-equity semantics
+      - F-003 ratification logged in commit message + Wave-11 refactor ticket created (this artifact is the binding)
+    blocked-on: nothing — proceeds immediately
+  - track: wave11-shared-module-refactor
+    addressed_unit: wave11-shared-module-refactor:phase1:task1.0
+    scope:
+      - extract assert_account_key_parity + reset_account_key_lock from vt.py and carry_fred.py into shared module
+      - target reduction: ~110 LoC of duplicate code
+    blocked-on: wave10 closure
+timestamp: "2026-05-06T00:00:00Z"
+accountable_party:
+  role_or_human: human
+  name: huangtm@gmail.com
+routing_outcome_at_write:
+  computed_label: ratified
+  computed_at: "2026-05-06T00:00:00Z"
+write_metadata:
+  written_at: "2026-05-06T00:00:00Z"
+  written_by: fintech-org/orchestrator
+  consuming_skill: fintech-org
+  artifact_uuid: "c3d7a2f1-84e0-4b91-9c5a-1e6f83d0c251"

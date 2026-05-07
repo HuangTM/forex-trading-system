@@ -223,3 +223,40 @@ class TestAuditLog:
         import json
         for line in lines:
             json.loads(line)
+
+
+# --------------------------------------------------------------------------- #
+# BC-4: persistent reading counter + seen-state stickiness
+# --------------------------------------------------------------------------- #
+
+class TestBC4PersistentCounter:
+    """BC-4: n_readings increments per invocation; seen-state flags are sticky."""
+
+    def test_bc4_counter_and_sticky_flags(self, tmp_path):
+        """Two invocations: counter increments; seen-state flags are sticky once set.
+
+        First tick: regime_active=True (high BoJ + low Sharpe) sets seen_regime_active_true.
+        Second tick: regime_active=False (low BoJ) — n_readings grows and
+        seen_regime_active_true stays True (sticky).
+        All four BC-4 keys must be present on each invocation.
+        """
+        state_path = tmp_path / "cf_t9_state.json"
+        boj_active = _boj_series([("2010-01-01", 0.30), ("2024-10-01", 0.75)])
+        returns_active = _flat_returns_df(annual_sharpe=-0.3)
+        boj_inactive = _boj_series([("2010-01-01", 0.10)])
+        returns_inactive = _flat_returns_df(annual_sharpe=1.0)
+
+        rec1 = m.evaluate_cf_t9(boj_active, returns_active, state_path=state_path)
+        assert rec1["n_readings"] == 1
+        assert rec1["regime_active"] is True
+        assert rec1["seen_regime_active_true"] is True
+
+        rec2 = m.evaluate_cf_t9(boj_inactive, returns_inactive, state_path=state_path)
+        assert rec2["n_readings"] == 2                   # monotonic increment
+        assert rec2["n_readings"] > rec1["n_readings"]
+        assert rec2["regime_active"] is False
+        assert rec2["seen_regime_active_true"] is True   # sticky: not reverted
+        assert rec2["seen_regime_active_false"] is True  # set on second tick
+        for key in ("regime_active", "n_readings", "seen_regime_active_true",
+                    "seen_regime_active_false"):
+            assert key in rec1 and key in rec2

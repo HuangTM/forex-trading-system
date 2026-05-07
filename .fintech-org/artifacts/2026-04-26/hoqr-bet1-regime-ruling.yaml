@@ -1,0 +1,60 @@
+role: head-of-quant-research
+artifact_type: retirement-decision
+decision: approve-with-capacity-limit
+timestamp: 2026-04-26T20:30:00Z
+subtask_ref: GATE-02 carry_fred Bet#1 regime-OOS ruling
+confidence: medium
+
+evidence:
+  - "references/pre-registrations/carry_fred.md (lines 11-27, 78-108): pre-reg defines OOS as calendar window 2023-04-25→2026-04-25; gate threshold 0.30; CF-T1..T8 are all aggregate-level, none regime-stratified."
+  - "data/results/carry_fred_aggregate_2026-04-25.json: portfolio vol-weighted Sharpe 0.7964, max_dd 0.0644, 778 OOS bars, 12 pairs."
+  - "Per-pair OOS Sharpe split: 6/6 JPY crosses positive; non-JPY weak (only AUDUSD 0.28 ≥ 0.20). Top-5 OOS: EURJPY 1.03, GBPJPY 1.12, AUDJPY 0.88, CADJPY 0.84, USDJPY 0.80."
+  - "Pre-reg CF-T2 ('>8 of 12 per-pair Sharpes negative') NOT fired: actual 4/12 negative."
+  - "PM acceptance-criteria: 'carry_fred Bet#1 conditional pass only; HoQR ruling required.' This artifact discharges that constraint."
+
+assumptions:
+  - "BoJ has held policy rate ≤ 0.50% throughout OOS window 2023-04-25→2026-04-17."
+  - "FRED rate-differential signal forces structural long on JPY-funded carry under this regime — JPY-cross concentration is mechanistic, not coincidence."
+  - "Portfolio max_dd 6.4% over 778 bars consistent with sustained carry tailwind, not single-event spike."
+
+bet1-regime-ruling:
+  decision: conditional-pass
+  rationale: |
+    Aggregate result clears pre-registered gate decisively (Sharpe 0.7964 vs 0.30, max_dd 6.4% vs 40% trigger, 4/12 negative vs 8/12 trigger). Under pre-reg as written, this is full-pass — no falsification trigger fires. HOWEVER: pre-reg silence on regime stratification is a PROCESS gap, not justification for ignoring regime concentration. 6/6 JPY crosses positive vs only AUDUSD 0.28 in non-JPY is the mechanistic signature of BoJ-vs-G10 divergence, not diversified cross-sectional carry. Naïve full-pass conflates "passed the gate" with "will continue passing when regime mean-reverts" — exactly the anti-pattern HoQR is paid to call out. Lift is real and admissible; lift is also conditional on a regime that is observable, named, and reversible. Correct ruling: conditional-pass with binding machine-checkable retirement trigger CF-T9. Pre-reg amended in place (not replaced).
+  retirement_trigger_BoJ_hike:
+    id: CF-T9
+    binding_from: 2026-04-26
+    machine_checkable: true
+    condition_clauses_ALL_must_hold_for_retirement:
+      - {clause: BoJ_policy_rate_threshold, check: "FRED IRSTCB01JPM156N (or equivalent BoJ uncollateralized overnight call rate target) ≥ 0.50% for ≥ 2 consecutive quarter-end observations"}
+      - {clause: JPY_cross_basket_underperformance, check: "Aggregate equal-vol-weighted 60-trading-day rolling Sharpe across 6 JPY-cross pairs (AUDJPY, CADJPY, EURJPY, GBPJPY, NZDJPY, USDJPY) drops below 0.20 net of costs"}
+      - {clause: temporal_coincidence, check: "Both above hold simultaneously within 90-trading-day window"}
+    action_on_trigger: "Retire carry_fred within 5 trading days. Flatten any open positions. Audit log: data/audit/carry_fred_retirement_<ts>.jsonl. Strategy may NOT return without NEW pre-registration ≥30 calendar days before re-trial that explicitly addresses regime-stratified OOS."
+    monitoring_owner: "ops-engineer (CF-T9 monitor lives in scripts/monitor_regime_triggers.py — NEW, gap flagged)"
+    monthly_review: "HoQR reviews CF-T9 evaluation log on 1st trading day of each month."
+  pre_registration_amendment:
+    file: references/pre-registrations/carry_fred.md
+    action: "Append CF-T9 to §Falsification Triggers. Append §Amendment History. Original 8 triggers unchanged. Audit-logged in .fintech-org/artifacts/2026-04-26/."
+    binding: true
+  upgrade_path_to_full_pass:
+    condition: "If carry_fred sustains portfolio Sharpe ≥ 0.30 net of costs through ONE complete BoJ hiking cycle (entry to exit, ≥4 quarters of policy-rate change in either direction), HoQR may upgrade conditional-pass to full-pass."
+
+ranked-alternatives:
+  - {alternative: full-pass, rationale_for_rejection: "Regulatory-arbitrage logic ('the pre-reg didn't say I couldn't') ignores spirit of falsification. 6/6 JPY-cross positive vs 2/6 non-JPY ≥0.20 is regime fingerprint. Approving normalizes the 'regime not pre-declared' loophole."}
+  - {alternative: reject-and-re-register, rationale_for_rejection: "Gate cleared decisively; demanding re-registration on every prior pre-reg's silence creates infinite regress. Conditional-pass + binding amendment is proportionate."}
+
+retirement-criteria:
+  - "CF-T1 through CF-T8 (existing pre-reg, unchanged, binding)"
+  - "CF-T9 (NEW, this artifact, BoJ-divergence regime exit, machine-checkable per above)"
+
+knowledge_gaps:
+  - "CF-T5 (one-sample t-test on per-pair Sharpe distribution vs zero) NOT in aggregate JSON. ROUTE_TO null-hypothesis-tester before conditional-pass is final-final."
+  - "Drawdown profile inside 778 OOS bars not in artifact — ROUTE_TO quant-researcher for OOS sub-window decomposition."
+  - "BoJ rate observation method needs operationalization — ROUTE_TO ops-engineer to script CF-T9 monitor."
+
+policy_violations_detected: []
+
+body: |
+  Conditional-pass under existing CONSENSUS pre-reg. Aggregate gate cleared with margin (Sharpe 2.65x threshold). Regime concentration is not falsification — none of CF-T1..T8 fire — but it is a regulatory-arbitrage risk the pre-reg's silence creates. HoQR closes via in-place amendment CF-T9 rather than full re-registration.
+
+  Binding from now: any paper-trading enrollment of carry_fred carries CF-T9 as machine-checkable retirement trigger. The retire-pending-reconciliation flag for carry_fred is LIFTED to retire-pending-CF-T9-monitor-deployment — paper trading begins only after ops-engineer scripts the CF-T9 monitor and the monitor returns valid no-trigger reading.

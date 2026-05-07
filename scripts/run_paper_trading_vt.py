@@ -20,8 +20,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import math
 import os
 import sys
@@ -52,6 +54,7 @@ from forex_system.saxo.client import SaxoClient
 from forex_system.saxo.execution import SaxoExecutionBackend
 from forex_system.saxo.history import bars_to_dataframe
 from forex_system.sizing.vol_target import VolTargetSizer
+from forex_system.costs.model import RealisticCostModel
 from forex_system.strategies.vol_target_carry import VolTargetCarryStrategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -62,6 +65,20 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)
 
 WS01_TRACE_PATH = "data/ws01_trace.log"
+EQUITY_LOG_PATH = "data/paper_trading_session.log"
+ACCOUNT_KEY_LOCK_PATH = "data/paper_account_key_lock.json"
+# BC-8 option-B: cross-process advisory file-lock (shared with carry_fred loop).
+# Lock acquired BEFORE get_positions; held through execute_signal + reconciliation.
+# See docs/specs/drawdown_ladder_amendment_2026-05-06.md and CRO Wave-9 ruling.
+DISPATCH_LOCK_PATH = "data/dispatch_lock.flock"
+
+# HIGH-1: Cost model instance — deduct spread/slippage/commission/swap on each
+# trade so paper equity curve is backtest-equivalent.  Mirrors usage in engine.py.
+_COST_MODEL = RealisticCostModel()
+
+# HIGH-1 swap accrual: track the wall-clock timestamp of the most recent
+# equity-write so per-cycle days-elapsed can be derived.  None until first cycle.
+_last_cycle_ts: datetime | None = None
 
 # ---------------------------------------------------------------------------
 # CRO binding constraints — sourced from CONSENSUS_2026-04-28 + CRO Wave-4
@@ -79,16 +96,112 @@ CRO_MAX_CONCURRENT_POSITIONS: int = 6
 # CRO binding constraint #2 (heartbeat_watchdog): ≤5 min timeout on paper-trading loop
 CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
 
-# CRO binding constraints #DD-1/DD-2/DD-3 (drawdown contract ladder):
-# sourced verbatim from CONSENSUS_2026-04-28 + cro-bet1-sizing-revision.yaml.
-# DO NOT change without CONSENSUS amendment + NHT+HoQR co-sign.
-CRO_DD_HALT_NEW_THRESHOLD: float = 0.10    # DD ≥ 10% → halt new dispatch
-CRO_DD_REDUCE_SIZING_THRESHOLD: float = 0.15  # DD ≥ 15% → 0.5x sizing
-CRO_DD_FULL_HALT_THRESHOLD: float = 0.20   # DD ≥ 20% → full halt pending CRO review
+# CRO binding constraints DD-1/DD-2/DD-3 (drawdown contract ladder).
+# Calibrated against raw broker TotalValue per
+# docs/specs/drawdown_ladder_amendment_2026-05-06.md (CEO Decision 5 amendment).
+# DO NOT change without CRO + CEO CONSENSUS amendment.
+CRO_DD_HALT_NEW_THRESHOLD: float = 0.10    # DD ≥ 10% (broker TotalValue) → halt new dispatch
+CRO_DD_REDUCE_SIZING_THRESHOLD: float = 0.15  # DD ≥ 15% (broker TotalValue) → 0.5x sizing
+CRO_DD_FULL_HALT_THRESHOLD: float = 0.20   # DD ≥ 20% (broker TotalValue) → full halt
 
 # Sentinel return values for drawdown skip paths (used in tests to distinguish skip reasons)
 SKIP_DD_FULL_HALT: str = "SKIP_DD_FULL_HALT"
 SKIP_DD_HALT_NEW: str = "SKIP_DD_HALT_NEW"
+# BC-8 sentinel: emitted when the per-cycle dispatch lock is busy (another loop holds it).
+SKIP_DISPATCH_LOCK_BUSY: str = "SKIP_DISPATCH_LOCK_BUSY"
+
+
+def assert_account_key_parity(
+    account_key: str,
+    lock_path: str = ACCOUNT_KEY_LOCK_PATH,
+) -> None:
+    """HIGH-2: Startup account_key parity gate (atomic O_EXCL acquire).
+
+    Attempts an atomic O_CREAT|O_EXCL open to write this process's account_key
+    to the shared lock file on first call.  If the file already exists
+    (FileExistsError), re-reads and compares; raises SystemExit(1) on mismatch.
+
+    Uses O_CREAT|O_EXCL (not Path.exists()+write_text) so two simultaneous
+    launches cannot both silently succeed when pointing at divergent accounts.
+
+    To reset: run with --reset-account-key-lock NEW_KEY --confirm-account-reset
+    (see main()).  Do NOT delete the lock file manually — operator deletion is
+    a documented bypass that bypasses the gate entirely under stress.
+
+    Must be called before any order-dispatch path is reachable.
+    """
+    import json as _json
+    p = Path(lock_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = _json.dumps({
+        "account_key": account_key,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    try:
+        # Atomic create: raises FileExistsError if another process beat us here.
+        fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        try:
+            os.write(fd, payload.encode())
+        finally:
+            os.close(fd)
+        return  # We created the lock — we are first; proceed normally.
+    except FileExistsError:
+        pass  # Lock already exists — fall through to parity check.
+    locked = _json.loads(p.read_text()).get("account_key", "")
+    if locked != account_key:
+        msg = (
+            f"ACCOUNT_KEY_PARITY_VIOLATION: vt loop has account_key={account_key!r} "
+            f"but lock file records {locked!r}. "
+            "Both paper loops must target the same Saxo paper account. "
+            "To reset: pass --reset-account-key-lock NEW_KEY --confirm-account-reset "
+            "and restart — do NOT delete the lock file manually."
+        )
+        print(f"FATAL: {msg}")
+        logger.critical(
+            "account_key_parity_violation",
+            extra={"event": "ACCOUNT_KEY_PARITY_VIOLATION",
+                   "account_key": account_key, "locked_key": locked},
+        )
+        sys.exit(1)
+
+
+def reset_account_key_lock(new_key: str, lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None:
+    """Atomically replace the account-key lock with a new key.
+
+    Called only when both --reset-account-key-lock and --confirm-account-reset
+    are passed.  Prints the old and new keys, replaces atomically, then exits.
+    This is the ONLY sanctioned way to change the locked account key.
+    """
+    import json as _json
+    p = Path(lock_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    old_key = "NONE (no lock file)"
+    if p.exists():
+        try:
+            old_key = _json.loads(p.read_text()).get("account_key", "UNKNOWN")
+        except Exception:
+            old_key = "UNREADABLE"
+    print("  Resetting account-key lock:")
+    print(f"    OLD key: {old_key!r}")
+    print(f"    NEW key: {new_key!r}")
+    payload = _json.dumps({
+        "account_key": new_key,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "reset_by": "cli_reset",
+    })
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".aklock_reset_")
+    try:
+        os.write(fd, payload.encode())
+        os.close(fd)
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    print(f"  Lock reset successfully to {new_key!r}. Exiting.")
+    sys.exit(0)
 
 
 def _attach_ws01_file_handler(path: str = WS01_TRACE_PATH) -> None:
@@ -104,7 +217,7 @@ def _attach_ws01_file_handler(path: str = WS01_TRACE_PATH) -> None:
     for h in logger.handlers:
         if isinstance(h, logging.FileHandler) and getattr(h, "_ws01_marker", False):
             return
-    handler = logging.FileHandler(path)
+    handler = RotatingFileHandler(path, maxBytes=10 * 1024 * 1024, backupCount=5)
     handler.setLevel(logging.INFO)
     handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     handler._ws01_marker = True  # type: ignore[attr-defined]
@@ -427,216 +540,333 @@ def run_cycle(
     else:
         _dd_sizing_multiplier = 1.0
 
-    current_positions = backend.get_positions()
-
-    # --- CRO binding constraint #1: pre-trade aggregation gate ---
-    # Compute exposure across all currently open positions and check that
-    # JPY-correlated notional, active-strategy count, and position count are
-    # within CRO envelope before issuing any new dispatch.
-    # Thresholds sourced explicitly from CRO CONSENSUS_2026-04-28 + Wave-4
-    # artifact; no silent defaults (per hard rule).
-    _open_pos_list = list(current_positions.values())
-    _exposure = compute_exposure(_open_pos_list)
+    # BC-8 option-B: acquire advisory cross-process file-lock BEFORE get_positions.
+    # Held through execute_signal + reconciliation; released in finally on any exit.
+    # CRO Wave-9 ruling: without this lock two concurrent loops can both pass
+    # check_dispatch_allowed with stale exposure snapshots, doubling JPY exposure.
+    # docs/specs/drawdown_ladder_amendment_2026-05-06.md; CRO Wave-9 option-B.
+    _dl_path = Path(DISPATCH_LOCK_PATH)
+    _dl_path.parent.mkdir(parents=True, exist_ok=True)
+    _dl_fd = os.open(str(_dl_path), os.O_CREAT | os.O_WRONLY, 0o644)
+    _dl_acquired = False
     try:
-        check_dispatch_allowed(
-            _exposure,
-            max_correlated_pct=CRO_MAX_CORRELATED_PCT,         # 0.15 — CRO binding #1
-            max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,   # 4 — CRO Phase-1 envelope
-            max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,  # 6 — CRO Phase-1 envelope
-        )
-    except AggregationGateBlocked as exc:
-        logger.warning(
-            "dispatch_blocked_aggregation_gate",
-            extra={
-                "event": "DISPATCH_BLOCKED_AGGREGATION_GATE",
-                "reason": str(exc),
-                "cycle_id": cycle_id,
-                "pair": pair,
-                "jpy_correlated_pct": _exposure.jpy_correlated_pct,
-                "active_strategies": _exposure.active_paper_strategies,
-                "open_positions": _exposure.concurrent_open_positions,
-            },
-        )
-        _emit_ws01(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity)
-        return {"_action": "SKIP_AGGREGATION_GATE"}
-
-    print("\n" + "=" * 60)
-    print(f"  Vol-Target Cycle — {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
-    print(f"  Account equity: {equity:,.2f}")
-    print("=" * 60)
-
-    ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
-    if ohlcv.empty:
-        print(f"  No data for {pair}")
-        _emit_ws01(cycle_id, pair, "SKIP_NO_DATA", equity=equity)
-        return {"_action": "SKIP"}
-    if len(ohlcv) < strategy.params.get("vol_window", 252) + 10:
-        print(f"  Not enough bars: {len(ohlcv)} (need ≥ vol_window + 10)")
-        _emit_ws01(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
-                   price=float(ohlcv["close"].iloc[-1]) if len(ohlcv) else None)
-        return {"_action": "SKIP"}
-
-    signals = strategy.generate_signals(ohlcv)
-    sig = float(signals.iloc[-1])
-    pred_log.log(signals.iloc[-1:], "vol_target_carry", pair,
-                 parameters=strategy.params, source="paper")
-
-    try:
-        pi = client.get_info_price(pair)
-        quote = pi.get("Quote", {})
-        bid, ask = quote.get("Bid", 0), quote.get("Ask", 0)
-    except Exception:
-        bid = ask = float(ohlcv["close"].iloc[-1])
-    mid = (bid + ask) / 2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
-
-    # Use the same bars-per-year factor the strategy uses; otherwise the WS01
-    # trace would show a vol computed with hardcoded sqrt(252) while the
-    # signal was computed on the actual bar frequency (4h, 1h). For daily
-    # bars these are identical; for non-daily timeframes they diverge.
-    bars_per_year = VolTargetCarryStrategy._bars_per_year(ohlcv)
-    realized_vol = (ohlcv["close"].pct_change()
-                    .rolling(strategy.params.get("vol_window", 252))
-                    .std().iloc[-1]) * (bars_per_year ** 0.5)
-    _raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
-    # CRO Wave-4 + Phase-1 binding: when DrawdownLevel.REDUCE_SIZING is active,
-    # multiply target_units by 0.5 per the dd contract. dd_sizing_multiplier
-    # is 1.0 in NORMAL state and when no dd_contract is wired (test paths).
-    target_units = _raw_target_units * _dd_sizing_multiplier
-    if _dd_sizing_multiplier != 1.0:
+        fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _dl_acquired = True
         logger.info(
-            "dd_reduce_sizing_applied",
+            "dispatch_lock.acquired",
             extra={
-                "event": "DD_REDUCE_SIZING_APPLIED",
-                "raw_target_units": float(_raw_target_units),
-                "dd_sizing_multiplier": _dd_sizing_multiplier,
-                "adjusted_target_units": float(target_units),
+                "event": "DISPATCH_LOCK_ACQUIRED",
                 "cycle_id": cycle_id,
                 "pair": pair,
+                "lock_path": DISPATCH_LOCK_PATH,
+                "acquire_ts": datetime.now(timezone.utc).isoformat(),
             },
         )
-    cur_pos = current_positions.get(pair)
-    cur_units = cur_pos.size if cur_pos else 0.0
-    cur_dir = cur_pos.direction if cur_pos else None
+    except BlockingIOError:
+        os.close(_dl_fd)
+        logger.warning(
+            "dispatch_lock.busy",
+            extra={
+                "event": SKIP_DISPATCH_LOCK_BUSY,
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "lock_path": DISPATCH_LOCK_PATH,
+                "decision_ts": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY)
+        return {"_action": SKIP_DISPATCH_LOCK_BUSY}
 
-    print(f"  Signal:        {sig:>.3f}  (size fraction of leverage_cap)")
-    print(f"  Realized vol:  {realized_vol:>.1%} annualized")
-    print(f"  Mid price:     {mid:.4f}  (bid {bid:.4f} / ask {ask:.4f})")
-    print(f"  Target units:  {target_units:>10,.0f}")
-    print(f"  Current:       {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}")
+    # Lock held — the finally below releases it on ALL exit paths (return or exception).
+    try:
+        # --- CRO binding constraint #1: pre-trade aggregation gate ---
+        # Compute exposure across all currently open positions and check that
+        # JPY-correlated notional, active-strategy count, and position count are
+        # within CRO envelope before issuing any new dispatch.
+        # Thresholds sourced explicitly from CRO CONSENSUS_2026-04-28 + Wave-4
+        # artifact; no silent defaults (per hard rule).
+        current_positions = backend.get_positions()
+        _open_pos_list = list(current_positions.values())
+        _exposure = compute_exposure(_open_pos_list)
+        try:
+            check_dispatch_allowed(
+                _exposure,
+                max_correlated_pct=CRO_MAX_CORRELATED_PCT,         # 0.15 — CRO binding #1
+                max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,   # 4 — CRO Phase-1 envelope
+                max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,  # 6 — CRO Phase-1 envelope
+            )
+        except AggregationGateBlocked as exc:
+            logger.warning(
+                "dispatch_blocked_aggregation_gate",
+                extra={
+                    "event": "DISPATCH_BLOCKED_AGGREGATION_GATE",
+                    "reason": str(exc),
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "jpy_correlated_pct": _exposure.jpy_correlated_pct,
+                    "active_strategies": _exposure.active_paper_strategies,
+                    "open_positions": _exposure.concurrent_open_positions,
+                },
+            )
+            _emit_ws01(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity)
+            return {"_action": "SKIP_AGGREGATION_GATE"}
 
-    needs_action = False
-    is_close = False
-    is_rebalance = False
-    if target_units == 0 and cur_pos:
-        needs_action = True
-        is_close = True
-        action = "CLOSE"
-    elif target_units > 0 and not cur_pos:
-        needs_action = True
-        action = f"OPEN LONG {target_units:.0f}"
-    elif target_units > 0 and cur_pos and cur_dir == Direction.SHORT:
-        # Shouldn't happen — vt strategy is long-only. Defensive.
-        needs_action = True
-        action = f"REVERSE TO LONG {target_units:.0f}"
-    elif target_units > 0 and cur_pos and cur_units > 0:
-        delta = abs(target_units - cur_units) / cur_units
-        if delta > rebal_threshold:
+        print("\n" + "=" * 60)
+        print(f"  Vol-Target Cycle — {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d %H:%M UTC')}")
+        print(f"  Account equity: {equity:,.2f}")
+        print("=" * 60)
+
+        ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
+        if ohlcv.empty:
+            print(f"  No data for {pair}")
+            _emit_ws01(cycle_id, pair, "SKIP_NO_DATA", equity=equity)
+            return {"_action": "SKIP"}
+        if len(ohlcv) < strategy.params.get("vol_window", 252) + 10:
+            print(f"  Not enough bars: {len(ohlcv)} (need ≥ vol_window + 10)")
+            _emit_ws01(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
+                       price=float(ohlcv["close"].iloc[-1]) if len(ohlcv) else None)
+            return {"_action": "SKIP"}
+
+        signals = strategy.generate_signals(ohlcv)
+        sig = float(signals.iloc[-1])
+        pred_log.log(signals.iloc[-1:], "vol_target_carry", pair,
+                     parameters=strategy.params, source="paper")
+
+        try:
+            pi = client.get_info_price(pair)
+            quote = pi.get("Quote", {})
+            bid, ask = quote.get("Bid", 0), quote.get("Ask", 0)
+        except Exception:
+            bid = ask = float(ohlcv["close"].iloc[-1])
+        mid = (bid + ask) / 2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
+
+        # Use the same bars-per-year factor the strategy uses; otherwise the WS01
+        # trace would show a vol computed with hardcoded sqrt(252) while the
+        # signal was computed on the actual bar frequency (4h, 1h). For daily
+        # bars these are identical; for non-daily timeframes they diverge.
+        bars_per_year = VolTargetCarryStrategy._bars_per_year(ohlcv)
+        realized_vol = (ohlcv["close"].pct_change()
+                        .rolling(strategy.params.get("vol_window", 252))
+                        .std().iloc[-1]) * (bars_per_year ** 0.5)
+        _raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
+        # CRO Wave-4 + Phase-1 binding: when DrawdownLevel.REDUCE_SIZING is active,
+        # multiply target_units by 0.5 per the dd contract. dd_sizing_multiplier
+        # is 1.0 in NORMAL state and when no dd_contract is wired (test paths).
+        target_units = _raw_target_units * _dd_sizing_multiplier
+        if _dd_sizing_multiplier != 1.0:
+            logger.info(
+                "dd_reduce_sizing_applied",
+                extra={
+                    "event": "DD_REDUCE_SIZING_APPLIED",
+                    "raw_target_units": float(_raw_target_units),
+                    "dd_sizing_multiplier": _dd_sizing_multiplier,
+                    "adjusted_target_units": float(target_units),
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                },
+            )
+        cur_pos = current_positions.get(pair)
+        cur_units = cur_pos.size if cur_pos else 0.0
+        cur_dir = cur_pos.direction if cur_pos else None
+
+        print(f"  Signal:        {sig:>.3f}  (size fraction of leverage_cap)")
+        print(f"  Realized vol:  {realized_vol:>.1%} annualized")
+        print(f"  Mid price:     {mid:.4f}  (bid {bid:.4f} / ask {ask:.4f})")
+        print(f"  Target units:  {target_units:>10,.0f}")
+        print(f"  Current:       {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}")
+
+        needs_action = False
+        is_close = False
+        is_rebalance = False
+        if target_units == 0 and cur_pos:
             needs_action = True
-            is_rebalance = True
-            action = f"REBALANCE {cur_units:.0f} → {target_units:.0f} ({delta:+.0%})"
+            is_close = True
+            action = "CLOSE"
+        elif target_units > 0 and not cur_pos:
+            needs_action = True
+            action = f"OPEN LONG {target_units:.0f}"
+        elif target_units > 0 and cur_pos and cur_dir == Direction.SHORT:
+            # Shouldn't happen — vt strategy is long-only. Defensive.
+            needs_action = True
+            action = f"REVERSE TO LONG {target_units:.0f}"
+        elif target_units > 0 and cur_pos and cur_units > 0:
+            delta = abs(target_units - cur_units) / cur_units
+            if delta > rebal_threshold:
+                needs_action = True
+                is_rebalance = True
+                action = f"REBALANCE {cur_units:.0f} → {target_units:.0f} ({delta:+.0%})"
+            else:
+                action = f"HOLD (delta {delta:.0%} < {rebal_threshold:.0%})"
         else:
-            action = f"HOLD (delta {delta:.0%} < {rebal_threshold:.0%})"
-    else:
-        action = "HOLD FLAT"
+            action = "HOLD FLAT"
 
-    # WS-01 main-path emit: action determined, no execution branch yet taken.
-    _emit_ws01(
-        cycle_id, pair, action,
-        signal=sig,
-        vol=float(realized_vol) if pd.notna(realized_vol) else None,
-        equity=equity,
-        price=mid,
-        target_units=float(target_units),
-        current_units=float(cur_units),
-        strategy_params=dict(strategy.params),
-    )
+        # WS-01 main-path emit: action determined, no execution branch yet taken.
+        _emit_ws01(
+            cycle_id, pair, action,
+            signal=sig,
+            vol=float(realized_vol) if pd.notna(realized_vol) else None,
+            equity=equity,
+            price=mid,
+            target_units=float(target_units),
+            current_units=float(cur_units),
+            strategy_params=dict(strategy.params),
+        )
 
-    print(f"  Action:        {action}")
+        # HIGH-1 / F-001 fix: apply _to_engine_units JPY conversion before cost compute.
+        # For JPY pairs: engine_units = usd_nominal / price (engine.py:544-573).
+        # For non-JPY pairs: engine_units = usd_nominal (identity).
+        # WITHOUT this division the paper loop charges ~150x too much for USDJPY
+        # because pip_v=0.01 is sized for engine-units (e.g. 666), not USD-nominal (100_000).
+        # F-001 fix (Wave-10): docs/specs/drawdown_ladder_amendment_2026-05-06.md.
+        global _last_cycle_ts
+        _pip_v = 0.01 if "JPY" in pair.upper() else 0.0001
+        if needs_action and is_close:
+            _cost_pips = _COST_MODEL.exit_cost(pair, cur_units)
+            _trade_units_nom = cur_units
+        elif needs_action and is_rebalance:
+            # Fix 2: cost on |delta|, mirroring engine.py:331-332.
+            _rebal_delta = abs(target_units - cur_units)
+            _cost_pips = _COST_MODEL.entry_cost(pair, _rebal_delta)
+            _trade_units_nom = _rebal_delta
+        elif needs_action:
+            _cost_pips = _COST_MODEL.entry_cost(pair, target_units)
+            _trade_units_nom = target_units
+        else:
+            _cost_pips = 0.0
+            _trade_units_nom = 0.0
+        # F-001: convert USD-nominal to engine-units (divides by price for JPY pairs).
+        _engine_units = (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
+        _cost_usd = _cost_pips * _pip_v * _engine_units
+        # Fix 1: swap accrual — mirror engine.py:316-317 continuous-mode daily swap.
+        # holding_cost(pair, LONG, 1) returns -swap_long_pips_per_day (positive = cost).
+        # A positive carry (USDJPY long, swap_long=+0.8) means holding_cost returns -0.8
+        # which negated is +0.8 pips/day credit.  Units held = cur_units (before action).
+        _held_units_nom = cur_units  # USD-nominal position size before this cycle's action
+        _held_engine_units = (_held_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _held_units_nom
+        _now_ts = datetime.now(timezone.utc)
+        _swap_usd = 0.0
+        if _held_units_nom > 0 and _last_cycle_ts is not None:
+            _days_elapsed = (_now_ts - _last_cycle_ts).total_seconds() / 86_400.0
+            # holding_cost returns pips cost (positive = money lost).
+            # Negate to get net effect: negative holding_cost = carry credit.
+            _swap_pips_per_day = -_COST_MODEL.holding_cost(pair, Direction.LONG, 1)
+            _swap_usd = _swap_pips_per_day * _pip_v * _held_engine_units * _days_elapsed
+        _last_cycle_ts = _now_ts
+        logger.info(
+            "cost_compute.decision",
+            extra={
+                "event": "COST_COMPUTED",
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "trade_units_nom": round(_trade_units_nom, 4),
+                "engine_units": round(_engine_units, 4),
+                "mid_price": round(mid, 4),
+                "cost_pips": round(_cost_pips, 4),
+                "pip_v": _pip_v,
+                "cost_usd": round(_cost_usd, 4),
+                "swap_usd": round(_swap_usd, 4),
+                "decision_ts": _now_ts.isoformat(),
+            },
+        )
+        with open(EQUITY_LOG_PATH, "a") as _ef:
+            _ef.write(json.dumps({
+                "ts": _now_ts.isoformat(),
+                "strategy": "vt", "equity": equity,
+                "cost_pips": round(_cost_pips, 4), "cost_usd": round(_cost_usd, 4),
+                "swap_usd": round(_swap_usd, 4),
+                "paper_equity_bt_equiv": round(equity - _cost_usd + _swap_usd, 4),
+            }) + "\n")
 
-    if not needs_action:
-        time.sleep(1)
+        print(f"  Action:        {action}")
+
+        if not needs_action:
+            time.sleep(1)
+            discrepancies = backend.reconcile()
+            if discrepancies:
+                print(f"\n  RECONCILIATION WARNINGS: {discrepancies[0]}")
+                kill_switch.trigger(TriggerReason.RECONCILIATION,
+                                    f"{len(discrepancies)} discrepancies", equity)
+                backend.flatten_all()
+            if monitor_pairs:
+                print("\n  --- monitor-only signals ---")
+                log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
+            return {pair: sig, "_action": "HOLD", "_signal": sig}
+
+        if not auto_mode:
+            response = input("  Execute? [y/N]: ").strip().lower()
+            if response != "y":
+                print("  Result:        SKIPPED by operator")
+                return {pair: sig, "_action": "SKIP", "_signal": sig}
+
+        if is_close:
+            result = backend.execute_signal(pair, 0, 0)
+            status = "EXECUTED" if result.success else f"FAILED: {result.error}"
+            print(f"  Result:        CLOSE — {status}")
+            trade_log.record(result, signal=0, strategy="vol_target_carry",
+                             source="paper", context={"equity": equity})
+            notify(ntfy_topic, f"CLOSE: {pair}", f"Closed at {mid:.4f}", "high")
+        elif is_rebalance:
+            # Flatten then re-open at target
+            close_r = backend.execute_signal(pair, 0, 0)
+            trade_log.record(close_r, signal=0, strategy="vol_target_carry",
+                             source="paper", context={"equity": equity, "rebalance": True})
+            if not close_r.success:
+                print(f"  Result:        REBALANCE CLOSE FAILED: {close_r.error}")
+                return {pair: sig, "_action": "SKIP", "_signal": sig}
+            time.sleep(1.5)
+            result = backend.execute_signal(pair, sig, target_units)
+            status = "EXECUTED" if result.success else f"FAILED: {result.error}"
+            print(f"  Result:        REBALANCED — {status}")
+            trade_log.record(result, signal=sig, strategy="vol_target_carry",
+                             source="paper", context={"equity": equity, "rebalance": True})
+            notify(ntfy_topic, f"REBALANCE {status}: {pair}",
+                   f"{cur_units:.0f} → {target_units:.0f} @ {mid:.4f}", "high")
+        else:
+            result = backend.execute_signal(pair, sig, target_units)
+            status = "EXECUTED" if result.success else f"FAILED: {result.error}"
+            print(f"  Result:        OPEN — {status}")
+            trade_log.record(result, signal=sig, strategy="vol_target_carry",
+                             source="paper", context={"equity": equity})
+            notify(ntfy_topic, f"OPEN LONG {status}: {pair}",
+                   f"{target_units:.0f} units @ {mid:.4f}\nVol={realized_vol:.1%}, sig={sig:.2f}",
+                   "high")
+
+        time.sleep(2)
         discrepancies = backend.reconcile()
         if discrepancies:
             print(f"\n  RECONCILIATION WARNINGS: {discrepancies[0]}")
             kill_switch.trigger(TriggerReason.RECONCILIATION,
                                 f"{len(discrepancies)} discrepancies", equity)
             backend.flatten_all()
+        else:
+            print("\n  Reconciliation: OK")
+
         if monitor_pairs:
             print("\n  --- monitor-only signals ---")
             log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
-        return {pair: sig, "_action": "HOLD", "_signal": sig}
 
-    if not auto_mode:
-        response = input("  Execute? [y/N]: ").strip().lower()
-        if response != "y":
-            print("  Result:        SKIPPED by operator")
-            return {pair: sig, "_action": "SKIP", "_signal": sig}
-
-    if is_close:
-        result = backend.execute_signal(pair, 0, 0)
-        status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        CLOSE — {status}")
-        trade_log.record(result, signal=0, strategy="vol_target_carry",
-                         source="paper", context={"equity": equity})
-        notify(ntfy_topic, f"CLOSE: {pair}", f"Closed at {mid:.4f}", "high")
-    elif is_rebalance:
-        # Flatten then re-open at target
-        close_r = backend.execute_signal(pair, 0, 0)
-        trade_log.record(close_r, signal=0, strategy="vol_target_carry",
-                         source="paper", context={"equity": equity, "rebalance": True})
-        if not close_r.success:
-            print(f"  Result:        REBALANCE CLOSE FAILED: {close_r.error}")
-            return {pair: sig, "_action": "SKIP", "_signal": sig}
-        time.sleep(1.5)
-        result = backend.execute_signal(pair, sig, target_units)
-        status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        REBALANCED — {status}")
-        trade_log.record(result, signal=sig, strategy="vol_target_carry",
-                         source="paper", context={"equity": equity, "rebalance": True})
-        notify(ntfy_topic, f"REBALANCE {status}: {pair}",
-               f"{cur_units:.0f} → {target_units:.0f} @ {mid:.4f}", "high")
-    else:
-        result = backend.execute_signal(pair, sig, target_units)
-        status = "EXECUTED" if result.success else f"FAILED: {result.error}"
-        print(f"  Result:        OPEN — {status}")
-        trade_log.record(result, signal=sig, strategy="vol_target_carry",
-                         source="paper", context={"equity": equity})
-        notify(ntfy_topic, f"OPEN LONG {status}: {pair}",
-               f"{target_units:.0f} units @ {mid:.4f}\nVol={realized_vol:.1%}, sig={sig:.2f}",
-               "high")
-
-    time.sleep(2)
-    discrepancies = backend.reconcile()
-    if discrepancies:
-        print(f"\n  RECONCILIATION WARNINGS: {discrepancies[0]}")
-        kill_switch.trigger(TriggerReason.RECONCILIATION,
-                            f"{len(discrepancies)} discrepancies", equity)
-        backend.flatten_all()
-    else:
-        print("\n  Reconciliation: OK")
-
-    if monitor_pairs:
-        print("\n  --- monitor-only signals ---")
-        log_monitor_signals(client, monitor_pairs, strategy.params, pred_log, horizon)
-
-    # Derive heartbeat action label from which branch we took
-    if is_close:
-        hb_action = "EXIT"
-    elif is_rebalance:
-        hb_action = "REBALANCE"
-    else:
-        hb_action = "ENTER"
-    return {pair: sig, "_action": hb_action, "_signal": sig}
+        # Derive heartbeat action label from which branch we took
+        if is_close:
+            hb_action = "EXIT"
+        elif is_rebalance:
+            hb_action = "REBALANCE"
+        else:
+            hb_action = "ENTER"
+        return {pair: sig, "_action": hb_action, "_signal": sig}
+    finally:
+        if _dl_acquired:
+            fcntl.flock(_dl_fd, fcntl.LOCK_UN)
+            logger.info(
+                "dispatch_lock.released",
+                extra={
+                    "event": "DISPATCH_LOCK_RELEASED",
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "lock_path": DISPATCH_LOCK_PATH,
+                    "release_ts": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        os.close(_dl_fd)
 
 
 def main():
@@ -650,7 +880,27 @@ def main():
     parser.add_argument("--ntfy", metavar="TOPIC")
     parser.add_argument("--monitor-pairs", nargs="+", default=[],
                         help="Pairs to log signals for without trading (e.g. GBPUSD AUDJPY)")
+    # Fix 5: explicit reset path — operator must provide both flags; no trading loop starts.
+    parser.add_argument(
+        "--reset-account-key-lock", metavar="NEW_KEY",
+        help="Reset the account-key lock to NEW_KEY (requires --confirm-account-reset).",
+    )
+    parser.add_argument(
+        "--confirm-account-reset", action="store_true",
+        help="Second confirmation required with --reset-account-key-lock.",
+    )
     args = parser.parse_args()
+
+    # Fix 5: handle reset before anything else — no trading loop when resetting.
+    if args.reset_account_key_lock:
+        if not args.confirm_account_reset:
+            print(
+                "ERROR: --reset-account-key-lock requires --confirm-account-reset "
+                "(two flags required to prevent accidental lock replacement)."
+            )
+            sys.exit(1)
+        reset_account_key_lock(args.reset_account_key_lock)
+        # reset_account_key_lock calls sys.exit(0) on success; unreachable here.
 
     if not args.token:
         print("Error: --token or SAXO_TOKEN required")
@@ -669,6 +919,8 @@ def main():
 
     client = SaxoClient(args.token, live=False)
     backend = SaxoExecutionBackend(client)
+    # HIGH-2: account_key parity gate — must run before any order dispatch.
+    assert_account_key_parity(backend.account_key)
     sizer = VolTargetSizer(
         leverage_cap=leverage_cap,
         min_order_size=config.backtest.position_sizing.get("min_order_size", 100)

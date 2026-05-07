@@ -1,0 +1,104 @@
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: "2026-04-28T02:00:00Z"
+subtask_ref: "wave2-direction-v1"
+rubric-applied: ["review-plan", "execution-firewall-review", "log-as-decision-trace"]
+evidence:
+  - "MEMORY.md: vol_target_carry validated 2026-04-25, engine Sharpe 0.7594"
+  - "MEMORY.md: trial factory built 2026-04-25, 347 passing tests"
+  - "MEMORY.md: FRED-carry Bet #1 OOS Sharpe 0.80, BoJ-divergence concentration"
+  - "MEMORY.md: gate-chain A1+A2+A3+Q2 cleared 2026-04-27, 445 tests"
+  - "MEMORY.md: remaining gates A4/H1/R1-signoff/N1-N3 open"
+  - "git commit ca68903: KillSwitch per-strategy + reset CLI"
+  - "git commit e06bf55: auto_retire_on_trigger.py"
+  - "atomic data: .fintech-org/policy-violations.jsonl — 0 entries"
+  - "atomic data: 22 trials in trials.jsonl, ~0 falsifications logged"
+failure-modes-considered:
+  - "Regime concentration: Bet #1 alpha concentrated in BoJ-divergence; OOS performance may not persist post-regime"
+  - "Falsification drought: ~0 OOS rejections logged across 22 trials signals insufficient hypothesis culling, not genuine alpha density"
+  - "Audit log capture failure: 0 policy-violations entries may mean violations undetected, not absent — logging path may be broken"
+what-you-refused-to-do:
+  - "ROUTE_TO head-of-quant-research: opining on whether Sharpe 0.7594 or 0.80 is genuine alpha"
+  - "ROUTE_TO head-of-quant-research: regime analysis of BoJ-divergence concentration"
+  - "ROUTE_TO head-of-quant-research: signal validity of carry_fred, vol_target_carry strategies"
+  - "Declined to read CONSENSUS docs — atomic data sufficient for structural verdict"
+conditions:
+  - "CONDITION-1: falsified-hypothesis log must reach >=10 OOS-rejection entries in trials.jsonl before any new strategy enters paper trading"
+  - "CONDITION-2: policy-violations.jsonl logging path verified end-to-end (canary violation + confirm appears) within 3 days"
+  - "CONDITION-3: CONSENSUS docs migrated to docs/decisions/ and root cleaned within current sprint"
+  - "CONDITION-4: Bet #2 backtest pre-reg (R2) submitted and timestamped before any backtest run executes"
+  - "CONDITION-5: HoQR sign-off on Bet #1 regime-concentration risk documented in trials.jsonl before Bet #1 enters paper competition"
+assumptions:
+  - "Paper-trading logs (3 files, 3.4K-5.9K) are smoke-test only, not statistically meaningful equity curves"
+  - "KillSwitch and auto_retire_on_trigger are correctly wired to live paper-trading loop (not verified)"
+  - "0 policy-violations entries reflects a newly-initialized log, not a verified-clean system"
+  - "~0 falsifications is a logging gap, not evidence that all 22 trials passed OOS"
+confidence: medium
+body: |
+  ## A. Architectural goal (12-week)
+
+  The system succeeds architecturally when it can: (1) register a hypothesis pre-backtest,
+  (2) run OOS evaluation without lookahead, (3) log the result (pass or reject) to
+  trials.jsonl, and (4) paper-trade the passing strategy with KillSwitch and equity-curve
+  output - all within <=7 days end-to-end per trial cycle. That is the architectural unit
+  of production. At 12 weeks, the system must have completed >=5 full cycles with
+  >=3 OOS rejections logged, demonstrating the falsification pipe works, not just the
+  approval pipe. Sharpe >=0.5 paper-traded OOS is the alpha gate (not the architecture
+  gate). The architecture gate is: is the audit trail complete, tamper-evident, and
+  falsification-capable?
+
+  ## B. Per-item verdict
+
+  - vol_target_carry: KEEP - validated, pre-regged, gate-cleared. Anchor strategy.
+  - trial factory: KEEP, but verify logging - rip-it-out test: can it produce
+    trials.jsonl entry with status: rejected? If not, incomplete. Fix before next trial.
+  - FRED-carry Bet #1: ROUTE_TO: head-of-quant-research - regime-concentration is alpha.
+  - Bet #2 backtest: BLOCKED - hard gate on R2 pre-reg. No exceptions.
+  - Path B paper competition: DEFERRED - A4/H1/R1-signoff/N1-N3 gates not cleared.
+    Architectural prerequisite: >=1 complete paper-trading cycle with equity curve.
+  - CONSENSUS docs at root: ARCHIVE-TO-docs/decisions/ - root is for entry points.
+
+  ## C. 12-week phased sequencing (architectural ordering only)
+
+  Phase 1 (weeks 1-4): Close the falsification gap. Verify policy-violations logging
+  end-to-end. Confirm trial factory can emit status: rejected. Run vol_target_carry in
+  paper with full equity-curve write. Achieve >=3 OOS rejections in trials.jsonl. Clear
+  remaining governance gates (A4/H1/R1-signoff/N1-N3).
+
+  Phase 2 (weeks 5-8): With falsification pipe proven, allow Bet #1 into paper (post-HoQR
+  sign-off) and Bet #2 (post-R2 pre-reg). Run paper competition between >=2 strategies.
+  KillSwitch triggers must fire at least once (synthetic or real) to prove halt path.
+
+  Phase 3 (weeks 9-12): Culling cycle. Retire any strategy that has not beaten
+  vol_target_carry Sharpe in paper over >=30 days. Path B paper competition enters only
+  if >=2 surviving strategies exist. No new strategies without complete prior-cycle
+  rejection in trials.jsonl.
+
+  ## D. Maintenance discipline (machine-checkable weekly health)
+
+  - Weekly: wc -l .fintech-org/trials.jsonl - must increase; flat = no research, review
+  - Weekly: count status: rejected entries in trials.jsonl - must increase toward >=10 by
+    week 12; zero growth = falsification pipe broken, HALT new trials
+  - Weekly: paper equity curve file exists and has new bars - stale = paper loop dead, HALT
+  - Halt trigger: any KillSwitch fired but not logged in trials.jsonl within 24h - audit
+    gap, freeze all paper trading
+  - Kill trigger: policy-violations.jsonl has 0 entries after canary test fails - logging
+    broken, freeze until fixed
+
+  ## E. Kill criteria for the trading-system project itself
+
+  - kill_date: 2026-07-21
+  - kill_metric: "By 2026-07-21, if NOT (paper-traded equity curve exists with >=30 trading
+    days of bars AND trials.jsonl contains >=10 entries with status: rejected AND at least
+    1 strategy has paper Sharpe >=0.5 OOS) - then recommend project halt and full
+    post-mortem"
+  - Rationale: Sharpe alone is insufficient. A system that only approves is not a research
+    system. >=10 rejections requirement is the architectural proof that the falsification
+    pipe runs.
+
+knowledge_gaps:
+  - "KillSwitch wiring to paper-trading loop not verified from atomic data"
+  - "Whether policy-violations.jsonl write path is exercised or only initialized - canary required"
+  - "Actual bar count in paper-trading logs not inspected - flagged smoke-test only based on file size"
+policy_violations_detected: []

@@ -1,0 +1,63 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: "2026-05-01T00:00:00Z"
+subtask_ref: "phase2-wave4-cro-reentry-bet1-sizing-revision"
+size_multiplier: 0.0
+binding_constraints:
+  - "BC-1 (regime-inactive no-trade): size_multiplier for Bet #1 = 0.0 when BoJ-divergence regime flag is FALSE; zero positions permitted when regime is inactive."
+  - "BC-2 (regime-active sizing): size_multiplier for Bet #1 = 0.25 (not 0.5) when BoJ-divergence regime flag is TRUE; this is the product of the inherited Phase-1 envelope (0.5) multiplied by a 0.5 regime-concentration haircut, because the validated 0.80 Sharpe is concentrated in a single identified regime — applying the full 0.5 envelope to a regime-conditional strategy with only 7 OOS trades (n_trades per trials.jsonl line 28) is insufficient evidence for full sizing."
+  - "BC-3 (CF-T9 pre-launch gate): CF-T9 monitor MUST be deployed and emitting a heartbeat signal (minimum 1 heartbeat per 5-minute window, logged to a persistent audit file) BEFORE any paper trade is placed; launch is blocked until this is verified by CTO sign-off."
+  - "BC-4 (CF-T9 cold-start gate): CF-T9 must have emitted at least 10 regime-flag readings (both TRUE and FALSE values observed at least once each) before the first trade is permitted; a monitor that has only seen one regime state cannot be considered validated."
+  - "BC-5 (CF-T9 heartbeat failure action): If CF-T9 emits no heartbeat for >5 consecutive minutes, all NEW Bet #1 trades are halted immediately; existing open Bet #1 positions are NOT automatically unwound but are flagged for human review within 30 minutes."
+  - "BC-6 (regime-flag mid-trade deactivation): If regime flag transitions from TRUE to FALSE while a Bet #1 position is open, the position is exited at the next daily signal bar (not immediately intrabar); this prevents flash-crash forced exits while enforcing the regime discipline on a meaningful horizon."
+  - "BC-7 (n_trades minimum before regime-sizing): The 7-trade OOS count (trials.jsonl b7d1a65a) is insufficient for statistical confidence; Bet #1 must accumulate ≥ 20 paper trades under active regime before any upward size revision above 0.25x is considered."
+  - "BC-8 (JPY correlation cap, inherited): Bet #1 JPY-correlated notional must remain ≤ 15% of total book notional (inherited Phase-1 envelope max_correlated_exposure_pct = 0.15); this is binding regardless of regime state."
+  - "BC-9 (CF-T9 pre-reg gap — structural block): CF-T9 does not appear in the verified pre-registration artifact (references/pre-registrations/carry_fred.md lists CF-T1 through CF-T8 only). It does not exist in the implementation (src/forex_system/strategies/carry_fred.py has no regime filter or monitor wiring). Bet #1 paper launch is BLOCKED until CF-T9 is (a) formally added to carry_fred.md via a pre-reg amendment with NHT and HoQR co-sign, and (b) implemented and tested in carry_fred.py."
+regime_flags:
+  - "BoJ-divergence regime (was inactive throughout OOS-2022 window 2022-01-01 to 2023-12-31; source: atomic equivalence of carry_fred OOS-2022 Sharpe 0.07464 and fred_carry_stripped OOS-2022 Sharpe 0.07464 — zero filter effect confirms zero regime-active trades)"
+  - "USD-tightening regime (active throughout OOS-2022; contributed to USDJPY carry differential signal but generated only 7 trades with DSR 0.367; distinct from validation regime)"
+  - "Low-trade-count regime risk: n_trades=7 on OOS-2022 (trials.jsonl b7d1a65a) indicates the strategy is near-dormant outside its validated regime; tail risk from single large position cannot be diversified"
+evidence:
+  - ".fintech-org/dominance_benchmarks.json: carry_fred OOS-2022 Sharpe = 0.07463868395258728 (line 2)"
+  - ".fintech-org/trials.jsonl line 28: fred_carry_stripped trial b7d1a65a, oos_sharpe=0.07464, n_trades=7, dsr=0.367, status=rejected, rejection_reason includes R2-DSR and R6-Trades"
+  - "references/pre-registrations/carry_fred.md: lists CF-T1 through CF-T8 only; no CF-T9 present anywhere in the file (verified by Read)"
+  - "src/forex_system/strategies/carry_fred.py: no regime filter, no heartbeat monitor, no CF-T9 wiring present anywhere in the implementation (verified by Read, 227 lines)"
+blowup-analog: "LTCM"
+contamination-check: "clean"
+assumptions:
+  - "The BoJ-divergence regime definition and CF-T9 specification exist in CONSENSUS documents not read during this assessment (per 4-read budget constraint); their exact operational definition is assumed but not verified from source."
+  - "The validated 0.80 Sharpe is accepted as stated (post-2024 BoJ-divergence window per CONSENSUS memory); not re-verified in this assessment."
+  - "OOS-2022 is treated as the base-case (regime-inactive) measurement; no other regime-inactive window data available."
+confidence: medium
+body: |
+  ## 1. Base-case (regime-inactive) Sharpe for Bet #1
+  I accept 0.07 (confirmed 0.07464 from dominance_benchmarks.json and trials.jsonl
+  b7d1a65a). However, I do not use it to set a base-case position size — I use it
+  to confirm the strategy has NO edge outside its validated regime. A Sharpe of 0.07
+  with n_trades=7 and DSR=0.367 is statistically indistinguishable from zero and
+  would fail the harness's own thresholds. There is no base-case sizing. Bet #1
+  must NOT trade when regime is inactive.
+
+  ## 2. Conditional size_multiplier
+  Regime-inactive: 0.0 (no trades). Regime-active: 0.25, not 0.5. The LTCM analog
+  applies — high Sharpe concentrated in a single identifiable regime is not a license
+  for full sizing; it is a warning that the edge depends on a single structural factor
+  persisting. The 0.25 is the Phase-1 envelope 0.5 multiplied by a 0.5 concentration
+  haircut. JPY-correlation cap (15% book notional) remains binding and may further
+  constrain effective size below 0.25 when other JPY strategies are active.
+
+  ## 3. CF-T9 operational constraints
+  CRITICAL FINDING: CF-T9 does not exist in carry_fred.md (verified: CF-T1–CF-T8
+  only) and has no implementation in carry_fred.py (verified: 227 lines, no regime
+  filter). Paper launch is BLOCKED until CF-T9 is formally pre-registered (amendment
+  with NHT+HoQR co-sign) and implemented. Once deployed: heartbeat ≤ 5-min cadence
+  required; ≥ 10 regime readings (both states observed) before first trade; heartbeat
+  failure → halt new trades (human review within 30 min for existing positions);
+  regime-flag deactivation mid-trade → exit at next daily bar.
+knowledge_gaps:
+  - "CF-T9 exact definition not in any of the 4 files read; definition may exist in CONSENSUS_2026-04-28.md or other governance docs not read"
+  - "BoJ-divergence regime detection logic not verified from source; assumed external signal"
+  - "Only one OOS-2022 regime-inactive data point available; no other regime-inactive window measured"
+policy_violations_detected:
+  - "CF-T9 referenced in paper launch requirements but does not exist in pre-registration artifact (carry_fred.md) or implementation (carry_fred.py); launching with an unregistered, unimplemented monitoring criterion violates the pre-reg gate established in CONSENSUS"

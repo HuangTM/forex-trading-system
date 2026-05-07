@@ -1,0 +1,196 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: condition-1-satisfied
+timestamp: "2026-05-02T07:00:00Z"
+subtask_ref: "wave5-round3-5e-tier-b-reverify-bonferroni-stop-trigger-cf-t9-cosign"
+claim-tested: "CONDITION-1 (>=10 OOS rejections) is satisfied by trials.jsonl + Wave-5 Round-2 outcomes survive Bonferroni-adjusted family-wise correction; CF-T9 amendment is acceptable"
+tests-requested: []
+tests-results:
+  condition_1_count_unadjusted: 12
+  condition_1_count_bonferroni_adjusted: 8
+  condition_1_satisfied: true
+  vol_target_carry_no_vol_scaling_stop_trigger_decision: "B"
+  cf_t9_amendment_cosigned: true
+  cf_t9_clause_c_gap_acceptance: true
+  files_modified:
+    - "references/pre-registrations/carry_fred.md"
+matched-benchmark-sharpe: "n/a — re-verification, not new claim"
+permutation-results: "n/a — Bonferroni applied to per-candidate observed metrics"
+dsr-assessment: |
+  Wave-5 Round-2 Bonferroni DSR assessment (alpha=0.0083 per test):
+  ma_crossover_3x_costs (cef3c48d): dsr=0 — far below 0.50; R2 breach is not borderline. STRONG REJECT confirmed.
+  bollinger_rsi_EURUSD_only (15aa7521): R6-only rejection; no dsr field in record; firing criterion is deterministic sample-size gate. R6 gate is not a significance test; Bonferroni does not apply. WEAK REJECT.
+  momentum_GBPUSD_only (fdddc2b0): dsr=0.01913 — far below 0.50 AND Sharpe=0.001 < 0.30. Dual failure. STRONG REJECT.
+  carry_2x_costs (65041055): R6-only rejection (7 trades); Sharpe=0.347 above R1 floor. R6 gate deterministic. WEAK REJECT.
+  carry_momentum_3x_costs (9c9f545f): R6-only rejection (16 trades); Sharpe=0.315 above R1 floor. R6 gate deterministic. WEAK REJECT.
+  vol_target_carry_no_vol_scaling (9017fadb): R6-only rejection (1 trade); Sharpe=1.152 above R1 floor and above stop-condition 0.50. DEGENERATE — see Task C. WEAK REJECT on R6; stop trigger VOID on degeneracy.
+dissent-statement: |
+  This dissent is append-only per role charter. CEO sees it verbatim.
+
+  (1) R6-ONLY REJECTIONS ARE WEAK REJECTIONS — NOT EQUIVALENT TO R1/R2 REJECTIONS.
+  Four of the six Wave-5 Round-2 entries (bollinger_rsi_EURUSD_only, carry_2x_costs,
+  carry_momentum_3x_costs, vol_target_carry_no_vol_scaling) fired R6-Trades only.
+  Their OOS Sharpes are 0.387, 0.347, 0.315, and 1.152 — all above the R1 floor of
+  0.30. These are sample-size disqualifications, not performance disqualifications.
+  Under the 3d Bonferroni framework, I apply the same STRONG/WEAK lens:
+  — STRONG REJECT: fires on R1 or R2 (Sharpe or DSR failures that survive Bonferroni).
+    Count from Wave-5 R2: 2 (ma_crossover_3x_costs, momentum_GBPUSD_only).
+  — WEAK REJECT: fires on R6 only, with above-floor Sharpe. Count: 4.
+  The Bonferroni-adjusted rejection count (STRONG only) from Wave-5 R2 is 2.
+  Prior STRONG rejections (from 3d artifact, adjusted count=4) + tas_ceiling_4h
+  (STRONG: dsr=0, Sharpe=-0.245) = 5 prior STRONG.
+  Total STRONG rejections cumulative: 5 + 2 = 7.
+  WEAK rejections cumulative: 1 (carry_momentum from 3d) + 4 (Wave-5 R2 R6-only) = 5.
+  Total adjusted (STRONG+WEAK): 12. Total STRONG-only: 7.
+  CONDITION-1 is SATISFIED on unadjusted count (12 >= 10).
+  CONDITION-1 is NOT SATISFIED on STRONG-only count (7 < 10).
+  I adopt a conservative position: CONDITION-1 is satisfied for the mechanical gate
+  (12 >= 10), but the quality-adjusted evidence base is weaker than the raw count
+  implies. CEO should treat this as "gate cleared, confidence not high."
+
+  (2) STOP-TRIGGER FOR vol_target_carry_no_vol_scaling IS VOID — DECISION B.
+  Sharpe=1.152 with n_trades=1 is a degenerate result. One trade means the strategy
+  held a continuous buy-and-hold position for the entire OOS-2022 window with zero
+  rebalancing exits. This is not a vol-targeting strategy result — it is a
+  buy-and-hold result for the period that happened to coincide with favorable
+  BoJ-divergence regime. The 1.152 tells us nothing about whether vol-targeting is
+  load-bearing. However: the result IS data about the regime. A properly sampled
+  ablation test (longer OOS window, multiple regimes, n_trades >> 30) should be
+  HoQR's next-priority research item. I PARTIALLY CONCUR WITH QD. The carry thesis
+  interpretation is unchanged. The stop trigger is void on degeneracy (R6 filed
+  correctly). The ablation deserves a proper test, not dismissal.
+
+  (3) CF-T9 CLAUSE C GAP — ACCEPTED WITH CONDITIONS.
+  I co-sign the CF-T9 amendment binding on Clauses A+B. The Clause C gap is accepted
+  as a known-incomplete deferral. However: this acceptance is CONDITIONAL. CF-T9
+  as A+B-only must not be described to any external party as "fully implemented CF-T9."
+  Any paper-launch disclosure (CEO or HoQR) must state that CF-T9 is binding on A+B
+  with Clause C pending ratification. If Clause C is not ratified within 60 trading
+  days of paper launch, this NHT requires a mandatory CF-T9 re-review. This condition
+  is append-only and binding on all future NHT co-signs for carry_fred.
+
+  (4) CUMULATIVE CONCERN: R6-HEAVY REJECTION PORTFOLIO INFLATES CONDITION-1.
+  Of 12 total rejections, 5 are R6-only (sample-size disqualification). The rejection
+  portfolio's informational content about the null hypothesis (alpha does not exist) is
+  lower than a portfolio of 12 R1/R2 rejections. CEO should not interpret CONDITION-1
+  satisfaction as strong evidence for the carry thesis. It is evidence that the trial
+  harness is functioning and that many strategy variants fail to meet minimum data
+  requirements — a necessary but not sufficient finding.
+
+contamination-check: "clean"
+evidence:
+  - ".fintech-org/trials.jsonl: lines 23-35 verified; 12 status:rejected entries counted; lines 30-35 are Wave-5 Round-2 entries with rejection_reason fields confirming trigger codes"
+  - ".fintech-org/nht-rubric.yaml: r1_oos_sharpe_lt=0.30; r2_dsr_lt=0.50; r3_max_dd_gt=0.25; r6_n_trades_lt=30 confirmed"
+  - ".fintech-org/artifacts/2026-05-01T-phase2-falsification-trials/nht-3d-tier-verification.yaml: prior Bonferroni framework; STRONG/WEAK classification schema; 4 prior Bonferroni-adjusted rejections + 1 WEAK (carry_momentum)"
+  - "references/pre-registrations/carry_fred.md: CF-T9 amendment text read; Clause C gap explicitly documented; co-sign line updated"
+assumptions:
+  - "Bonferroni correction applies to DSR/p-value based gates (R2, R5); deterministic threshold gates (R1, R3, R6) are not significance tests and are not adjusted, but R6-only rejections are classified WEAK per 3d precedent"
+  - "STRONG REJECT requires at least one of R1 (Sharpe) or R2 (DSR) to fire; R6-only rejections are WEAK per 3d classification framework"
+  - "Prior STRONG count of 5 sourced from 3d artifact (4 Bonferroni-adjusted) plus tas_ceiling_4h (Sharpe=-0.245, dsr=0 — STRONG by dual criteria)"
+  - "vol_target_carry_no_vol_scaling stop trigger is void because R6 fired (n_trades=1 < 30); stop-condition Sharpe threshold of >=0.50 is not evaluated on degenerate samples"
+  - "CF-T9 Clause C gap: the amendment explicitly states no third clause text exists in implementation or CONSENSUS 2026-04-26 record; accepted on that basis"
+confidence: medium
+body: |
+  ## A. Tier B / CONDITION-1 re-verification
+
+  **CONDITION-1 SATISFIED (unadjusted).**
+
+  Verified from trials.jsonl lines 23-35: 12 entries with status: rejected.
+  - Lines 23, 25, 26, 27, 28: 5 Phase-2 subwave rejections (from 3d artifact)
+  - Line 29: tas_ceiling_4h rejection (Wave-5 Round-1)
+  - Lines 30, 31, 32, 33, 34, 35: 6 Wave-5 Round-2 rejections (confirmed)
+  Total: 12 >= 10. Gate is cleared mechanically.
+
+  **Quality-adjusted (STRONG-only Bonferroni) count: 7.**
+  STRONG REJECT requires R1 or R2 fire. Of 12 rejections:
+  - 7 STRONG (Sharpe or DSR below threshold)
+  - 5 WEAK (R6-only, sample-size disqualification with above-floor Sharpe)
+  STRONG-only count 7 < 10. Mechanical gate cleared; quality-adjusted gate not.
+  CEO should read this as "threshold met, evidence quality modest."
+
+  **R6-only question (Task A critical observation):** The 4 R6-only Wave-5 R2
+  rejections DO count toward the mechanical CONDITION-1 gate — R6 is a registered
+  rejection criterion in the rubric (r6_n_trades_lt: 30). However, per 3d precedent,
+  they are classified WEAK because they do not falsify the null on performance
+  grounds — they disqualify on statistical power grounds. The distinction matters:
+  R6-only rejections say "we cannot tell" not "the strategy fails." Only R1/R2/R3
+  rejections say "the strategy fails." Counting all 12 is mechanically correct;
+  treating all 12 as equivalent evidence is not.
+
+  ## B. Bonferroni per-candidate classification (Wave-5 R2 family of 6)
+
+  Family Bonferroni alpha = 0.05 / 6 = 0.0083 per test. Applied to DSR (R2).
+  Deterministic gates (R1, R3, R6) not adjusted.
+
+  ma_crossover_3x_costs: STRONG REJECT
+    Sharpe=-0.087 (vs floor 0.30), dsr=0, max_dd=27.47%, n_trades=9.
+    Four-criterion failure. Negative Sharpe, zero DSR, max_dd breach. Not borderline.
+    R2 breach (dsr=0) is extreme — Bonferroni cannot rescue at any reasonable alpha.
+
+  bollinger_rsi_EURUSD_only: WEAK REJECT
+    Sharpe=0.387 (ABOVE 0.30 floor), n_trades=3 (fires R6 only).
+    No R1 or R2 breach. Cannot falsify on performance. R6 disqualifies on
+    sample size. With 3 trades there is no statistical basis for any conclusion.
+    Bonferroni is irrelevant — no significance test was run. Sample is degenerate.
+
+  momentum_GBPUSD_only: STRONG REJECT
+    Sharpe=0.001 (vs floor 0.30), dsr=0.01913 (vs 0.50). Dual R1+R2 failure.
+    Sharpe essentially zero. DSR near zero. Not borderline. Bonferroni does not rescue.
+
+  carry_2x_costs: WEAK REJECT
+    Sharpe=0.347 (ABOVE 0.30 floor), n_trades=7 (fires R6 only).
+    No R1 breach. Cannot falsify on performance. R6 disqualifies on sample size.
+    Notable: 2x costs with n_trades=7 means the cost structure itself may suppress
+    trading activity — not a valid ablation of cost sensitivity.
+
+  carry_momentum_3x_costs: WEAK REJECT
+    Sharpe=0.315 (ABOVE 0.30 floor by 0.015), n_trades=16 (fires R6 only).
+    No R1 breach. R6 disqualification. Marginal Sharpe above floor is uninformative
+    with n_trades=16. If n_trades >= 30 this result would be a WEAK PASS near the
+    3d momentum WEAK PASS pattern. Sample-size driven.
+
+  vol_target_carry_no_vol_scaling: WEAK REJECT (degenerate; stop trigger void)
+    Sharpe=1.152 (fires stop-condition >= 0.50), n_trades=1 (fires R6 only).
+    R6 filed correctly. Stop trigger is void because R6 fires first — a degenerate
+    single-trade result is not a valid stop-trigger event. See Task C.
+
+  ## C. Stop-trigger adjudication for vol_target_carry_no_vol_scaling
+
+  Decision: **B** — Partial concur with QD. Degenerate for this sample; ablation
+  deserves a proper test.
+
+  Reasoning (≤80 words): n_trades=1 means one continuous position with zero exits —
+  structural buy-and-hold, not a vol-targeting strategy test. The 1.152 Sharpe cannot
+  distinguish vol-targeting from regime exposure. R6 correctly fires. Stop trigger is
+  void. However, dismissing the ablation entirely wastes signal: a properly sampled
+  test (n_trades >= 30, multi-regime OOS window) would determine whether vol-scaling
+  is load-bearing. This should be HoQR's next-priority item, not a closed question.
+
+  ## D. CF-T9 amendment co-sign
+
+  Co-sign: **Y**
+
+  Clause C gap acceptance: **Y** (conditional — see dissent item 3)
+
+  Amendment reviewed: Clauses A and B are operationalised in
+  `scripts/monitor_regime_triggers.py` (commit 61ea022) and
+  `scripts/auto_retire_on_trigger.py`. The Clause C gap is explicitly documented in
+  the amendment text as "KNOWN GAP" with the source of the discrepancy identified
+  (monitor docstring references three clauses; only two are implemented). This is
+  transparent and accurately filed. Co-sign is granted on that basis.
+
+  Conditions binding on this co-sign:
+  1. Paper-launch communications must state CF-T9 is A+B binding, C pending.
+  2. Clause C must be ratified within 60 trading days of paper launch or NHT
+     requires mandatory re-review of CF-T9 adequacy.
+  3. Sizing must not use the 0.80 regime-active Sharpe as the base case — use
+     ~0.07 for regime-inactive periods (dissent item 3 from prior 3d artifact,
+     carried forward).
+
+  File edit performed: carry_fred.md Approval section updated with NHT co-sign line.
+
+knowledge_gaps:
+  - "Wave-5 Round-2 trial records do not include dsr fields for R6-only rejections (bollinger_rsi_EURUSD_only, carry_2x_costs, carry_momentum_3x_costs, vol_target_carry_no_vol_scaling) — cannot assess DSR for these candidates"
+  - "Clause C of CF-T9: no third clause text exists anywhere in the codebase per HoQR inspection; NHT has not independently verified the monitor source code"
+  - "Prior STRONG count of 5 inferred from 3d artifact (4 adjusted + tas_ceiling_4h); NHT did not re-read the tas_ceiling_4h trial record directly to confirm dsr=0"
+policy_violations_detected: []

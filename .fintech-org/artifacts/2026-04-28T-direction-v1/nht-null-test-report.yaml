@@ -1,0 +1,107 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: "2026-04-28T02:00:00Z"
+subtask_ref: "wave2-direction-v1"
+claim-tested: "The trading-system project has produced enough INSIGHT (validated falsifications, repeatable signal vs noise, calibrated alpha attribution) to justify continuing for another 12 weeks. The alternative is that the project is producing only INFRASTRUCTURE (tests, harness, governance, gates, audits, trial-counter machinery) with no actual measurable insight per unit of effort."
+tests-requested:
+  - "DSR for vol_target_carry @ N=22 (ROUTE_TO: quant-developer for exact computation)"
+  - "DSR for FRED-carry Bet #1 @ N=22 (ROUTE_TO: quant-developer)"
+  - "Permutation test on falsification log: shuffle pass/fail labels in trials.jsonl; does the project's claimed-insight rate survive?"
+  - "Activity-vs-output ratio: lines of test/governance code vs lines of falsification log entries"
+tests-results:
+  - "trials.jsonl entries: 22"
+  - "falsifications-logged: ~0 (1 line of 22 mentions retire/falsif/kill)"
+  - "paper-traded-pnl-curve: NOT PRESENT (logs are 3-6KB smoke tests)"
+  - "validated-OOS-strategies: 2 (Sharpes 0.7594, 0.80)"
+  - "skill-kill-criterion check (paper-PnL AND >=20 falsifications): FAIL on falsifications, FAIL on paper PnL => structural-claim-NOT-supported by skill's own rubric"
+matched-benchmark-sharpe: "n/a - structural claim, not strategy claim"
+permutation-results: "ROUTE_TO: quant-developer for exact run; sketch suggests claimed insight is currently dominated by infrastructure activity"
+dsr-assessment: "vol_target_carry 0.7594 @ N=22 ~= DSR 0.4-0.6 (low-medium confidence sketch); FRED-carry 0.80 @ N=22 ~= DSR 0.5-0.7 (regime-flagged so further deflated). Both at edge of distinguishability. With >20 sweep configs searched, multiple-comparisons penalty likely pushes both toward the lower bound of these ranges."
+dissent-statement: |
+  DISSENT (append-only; survives regardless of CTO/HoQR/CRO agreement):
+
+  The skill's own kill criterion requires BOTH a paper-traded PnL curve AND >=20
+  falsifications logged after 8 weeks. This project fails BOTH conditions after ~4 days
+  of intensive activity: (a) No paper-traded PnL curve exists - the three log files total
+  14.3KB and are smoke tests, not longitudinal P&L records. (b) Of 22 trials, approximately
+  1 mentions retire/falsif/kill. This is not a minor shortfall. It is a categorical failure
+  of the falsification-archive hypothesis itself.
+
+  The meta-observation is damning: 22 trials WITHOUT falsifications is itself a falsification
+  of the claim that this org falsifies. An org that runs 22 trials and records 0 rejections
+  is not testing hypotheses - it is accumulating candidates. Candidate accumulation without
+  rejection logging IS the multiple-comparisons problem in organizational form.
+
+  The two validated strategies (Sharpe 0.7594, 0.80) survive DSR sketch ranges of 0.4-0.6
+  and 0.5-0.7 respectively - both at the edge of distinguishability from noise, not
+  comfortably above it. With >20 sweep configs executed, the effective trial count for
+  multiple-comparisons purposes likely exceeds 22, further deflating these estimates.
+
+  RECOMMENDATION: Before any new strategy enters the queue, a falsification-logging gate
+  must be enforced. Specifically: each trial must conclude with an explicit PASS or FAIL
+  verdict logged with the falsification criterion that was evaluated. Absence of
+  falsification logging is not evidence of a clean record - it is evidence of an
+  unaccountable process. The 12-week continuation cannot be justified on INSIGHT grounds
+  until this discipline is demonstrated for at least a 2-week window with >=5 logged
+  rejections.
+contamination-check: "clean"
+evidence:
+  - ".fintech-org/trials.jsonl (22 entries; 1 retire/falsif/kill mention)"
+  - "data/multi_strategy_session.log (3.4K; smoke-test only)"
+  - "data/paper_trading_session.log (5.0K)"
+  - "data/vt_paper_session.log (5.9K)"
+  - "src/forex_system/strategies/vol_target_carry.py (claimed Sharpe 0.7594)"
+  - "src/forex_system/strategies/carry_fred.py (Bet #1; claimed Sharpe 0.80, regime-flagged)"
+  - "tests/ (44 files)"
+  - ".fintech-org/sweep_configs/ (>20 sweep yamls; multiple-comparisons exposure)"
+  - "git log: heavy Q*/R* governance commits, few alpha-discovery commits"
+assumptions:
+  - "DSR sketch uses standard Lopez de Prado approximation; exact value requires QD computation"
+  - "Smoke-test paper logs are NOT equivalent to a paper-traded PnL curve under skill kill criterion"
+  - "Calibration target: false-negative cost (missing alpha) > false-positive cost (approving noise)"
+confidence: medium
+body: |
+  ## A. Verdict
+  Decision: noise-indistinguishable.
+
+  The skill's own kill criterion demands BOTH a paper-traded PnL curve AND >=20 falsification
+  log entries. Both conditions fail: paper logs are 3-6KB smoke tests, not longitudinal PnL
+  records; falsifications logged are approximately zero of 22 trials. Two strategies survive
+  backtest validation with Sharpes 0.76 and 0.80, but under N=22 with >20 sweep configs,
+  DSR estimates deflate both to the 0.4-0.6 range - at the edge of noise, not clearly above
+  it. The structural claim of INSIGHT is not supported. What is observable is INFRASTRUCTURE:
+  44 test files, governance machinery, sweep harness, CONSENSUS docs, and trial registration -
+  none of which constitutes falsification evidence. Decision is noise-indistinguishable by
+  the rubric the org itself adopted.
+
+  ## B. Tests run / requested
+  - Skill kill-criterion audit: FAIL (both conditions unmet). [run from atomic data]
+  - DSR sketch @ N=22: vol_target_carry ~0.4-0.6, FRED-carry ~0.5-0.7. [sketch; exact ROUTE_TO QD]
+  - Falsification log permutation: claimed 0/22 rejection rate; permutation p-value ROUTE_TO QD.
+  - Activity-vs-output ratio: 44 test files vs ~1 falsification log entry. Ratio ~44:1.
+
+  ## C. DSR under N=22
+  Standard DSR (Lopez de Prado) penalizes observed Sharpe for trial count N and OOS length T.
+  Approximate formula: DSR ~= SR_obs * (1 - gamma(T) * sqrt(N)) where gamma(T) captures
+  autocorrelation and non-normality adjustments. With N=22 and OOS window estimated at
+  ~500-750 bars, the deflation factor is roughly 0.5-0.7x. Applying to vol_target_carry
+  (0.7594) yields DSR ~0.38-0.53; applying to FRED-carry (0.80, regime-flagged) yields
+  DSR ~0.40-0.56 before the additional regime-conditioning deflation. The regime flag on
+  FRED-carry further reduces confidence because regime-conditional lift is itself a
+  multiple-comparison exposure. Both results are at the edge of distinguishability from
+  noise. Low-medium confidence. Exact computation must be ROUTE_TO quant-developer.
+
+  ## D. Calibration disclaimer
+  This role errs toward false-negatives (missing real alpha) over false-positives (approving
+  noise), per explicit mandate. Confidence is medium: the atomic data are clear, but DSR
+  bounds are sketched not computed. The 12-week cost of a false positive (pursuing noise
+  for 3 months) is assessed as higher than the cost of a false negative (delaying a real
+  alpha by requiring 2 more weeks of falsification discipline). This asymmetry supports
+  noise-indistinguishable as the conservative and correct verdict here.
+
+knowledge_gaps:
+  - "Exact DSR formula application requires quant-developer to run; sketch only here"
+  - "Permutation test on falsification log requires actual trials.jsonl pass/fail fields; atomic data shows ~0 rejections but field structure not confirmed"
+  - "OOS bar count for DSR denominator is estimated (500-750); actual window lengths per strategy not provided in atomic data"
+policy_violations_detected: []

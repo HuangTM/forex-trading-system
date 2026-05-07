@@ -1,0 +1,384 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: "2026-05-05T00:00:00Z"
+subtask_ref: wave8-independent-review
+subtask_id: 9ebc377f-993e-4f93-91f5-bf23df225f8d
+
+artifacts-reviewed:
+  - path: scripts/run_paper_trading_vt.py
+    type: production-code
+  - path: scripts/run_paper_trading_carry_fred.py
+    type: production-code
+  - path: tests/scripts/test_wave8_high_remediation.py
+    type: test-code
+  - path: .fintech-org/artifacts/2026-05-05T-wave8-high-remediation/pm-acceptance-criteria.yaml
+    type: spec-redacted
+
+verification-results:
+  pytest_total: 686
+  pytest_passed: 686
+  pytest_failed: 0
+  sacred_test_status: pass
+  ruff_check_count: 19
+  ruff_baseline_baseline: 19
+  git_diff_loc_delta: 330
+
+findings:
+  - id: F-001
+    severity: blocking
+    rubric: execution-firewall-review
+    rubric_clause: "Section A: hardcoded threshold/transformation in implementation not present in spec; engine-vs-paper-loop unit semantics diverge"
+    file: scripts/run_paper_trading_vt.py
+    lines: "684-689"
+    description: >
+      The paper-loop entry/exit cost formula computes
+      cost_usd = cost_pips * pip_v * target_units where target_units is the
+      USD-nominal value returned by VolTargetSizer.calculate_size (per
+      src/forex_system/sizing/vol_target.py:78 and the docstring at lines 8-13:
+      "1 unit = 1 USD of base-currency exposure"). For USDJPY the engine does
+      NOT use this product directly; instead, src/forex_system/backtest/engine.py:299
+      converts USD-nominal to engine-units via _to_engine_units which divides by
+      price for JPY pairs (line 571-572), then computes cost on the converted
+      quantity (engine.py:331-332, 491-492). For USDJPY at price 150 with a
+      $100,000 USD-nominal position, the engine deducts cost_pips * 0.01 *
+      (100_000/150) ≈ $5.00 from equity, while the paper loop deducts
+      cost_pips * 0.01 * 100_000 = $750. This is a ~150x divergence at
+      USDJPY entry — the opposite of "backtest-equivalent paper equity"
+      stated in HIGH-1a/HIGH-1b. The same defect applies to swap accrual at
+      lines 697-702 (swap_usd uses cur_units in USD-nominal, while
+      engine.py:316-317 uses engine-units). The carry_fred file mirrors this at
+      lines 643-648 and 654-656.
+    recommended-action-class: clarify-spec
+    quote: "_cost_usd = _cost_pips * _pip_v * _trade_units"
+
+  - id: F-002
+    severity: blocking
+    rubric: review-plan
+    rubric_clause: "Testing dimension: integration test bypasses the very semantics under test (HIGH-1c spec)"
+    file: tests/scripts/test_wave8_high_remediation.py
+    lines: "57-118"
+    description: >
+      HIGH-1c spec text requires "identical numeric result whether computed via
+      the paper-loop call path or via the backtest engine call path" on a
+      "concrete USDJPY trade tuple". The test
+      test_paper_loop_entry_cost_equals_engine_entry_cost asserts both formulas
+      return $75.00 — but the test fabricates a shared SIZE = 10_000.0 input
+      that bypasses the engine's _to_engine_units conversion (engine.py:544-573).
+      The actual engine pipeline is sizer.calculate_size() → _to_engine_units()
+      → cost_dollars; the test calls cost_pips * pip_value * SIZE on both sides
+      without ever exercising _to_engine_units, so it cannot detect the unit
+      mismatch in F-001. The TestE2EParity class explicitly switches to EURUSD
+      (lines 334-407 docstring: "Uses EURUSD (not USDJPY) to avoid the engine's
+      JPY unit-convention conversion"), leaving the actual instrument-universe
+      (per spec.instrument-universe: [USDJPY]) without an end-to-end parity
+      test. The test passes against a formula identity, not the spec contract.
+    recommended-action-class: add-test
+    quote: "# Uses EURUSD (not USDJPY) to avoid the engine's JPY unit-convention conversion"
+
+  - id: F-003
+    severity: blocking
+    rubric: review-plan
+    rubric_clause: "Completeness dimension: hard-constraint production_loc_budget_total: 50 violated"
+    file: scripts/run_paper_trading_vt.py
+    lines: "1-973"
+    description: >
+      pm-acceptance-criteria.yaml declares hard-constraints.production_loc_budget_total: 50.
+      `git diff --shortstat HEAD scripts/run_paper_trading_vt.py
+      scripts/run_paper_trading_carry_fred.py` returns "330 insertions(+),
+      2 deletions(-)" — net production LoC delta of 328 lines, 6.6x the
+      hard-constraint ceiling. The constraint is binding ("hard-constraints",
+      not soft target). vt.py grew by 172 insertions; carry_fred.py grew by
+      158 insertions. This is independent of whether the additions are
+      docstrings vs executable: the hard-constraint did not exclude
+      docstrings/comments. Re-derived from git working tree, not from the
+      QD artifact's diff stats.
+    recommended-action-class: clarify-spec
+    quote: "production_loc_budget_total: 50"
+
+  - id: F-004
+    severity: material
+    rubric: log-as-decision-trace
+    rubric_clause: "Item 2 + Item 10: equity-write decision boundary inputs (cost_pips, cost_usd, swap_usd) are emitted to a separate sink, not the WS01 trace"
+    file: scripts/run_paper_trading_vt.py
+    lines: "658-711"
+    description: >
+      The _emit_ws01 call at line 658-667 emits the action-decision trace
+      (signal, vol, equity, price, target_units, current_units, strategy_params,
+      action) but NOT the cost/swap/paper_equity_bt_equiv fields computed
+      immediately afterward at lines 689-710. The cost decision is written to
+      a separate file (EQUITY_LOG_PATH = "data/paper_trading_session.log",
+      lines 704-711) as a JSON line with no decision_ts, no cycle_id, and no
+      strategy_params. To reconstruct "why did paper equity diverge from
+      backtest equity at cycle N" from logs alone, an operator must JOIN the
+      WS01 trace (with cycle_id) against the equity log (which has only ts).
+      The equity-log entry is also missing the source-of-parameters fields:
+      pip_v=0.01 is computed inline (line 674) without naming the source as
+      _COST_MODEL or pair-config. Per log-as-decision-trace item 10, this
+      decision has TWO log entries (ws01 + equity) per cycle when the rubric
+      requires one structured entry per decision outcome. Same pattern in
+      carry_fred at lines 619-629 vs 658-666.
+    recommended-action-class: add-log
+    quote: "with open(EQUITY_LOG_PATH, \"a\") as _ef:"
+
+  - id: F-005
+    severity: material
+    rubric: execution-firewall-review
+    rubric_clause: "Section A2: silent default; pip_value 0.0001/0.01 derived from string match, not from PairInfo"
+    file: scripts/run_paper_trading_vt.py
+    lines: "674"
+    description: >
+      Line 674 computes _pip_v = 0.01 if "JPY" in pair.upper() else 0.0001 by
+      string-substring match. The canonical pip-value source is
+      src/forex_system/core/types.py PairInfo.pip_value (USDJPY: 0.01 per
+      constants.py confirmed via grep). The engine uses
+      _get_pip_value(pair) (engine.py:537-539) which performs the SAME string
+      match — but neither calls PairInfo. If a future pair (e.g. SGDJPY where
+      pip might differ, or a non-JPY pair with non-0.0001 pip) is added, both
+      sites silently mis-cost. The engine and paper loop use parallel
+      hardcoded defaults rather than a single shared lookup; per Section A2
+      this is a "silent default" pattern even though it is currently
+      consistent. The Section C parameter-sourcing question — "where does
+      0.01 come from?" — answers "string-match heuristic", which is on the
+      "unacceptable answers" list per the rubric. Same pattern at carry_fred.py:634.
+    recommended-action-class: tighten-invariant
+    quote: "_pip_v = 0.01 if \"JPY\" in pair.upper() else 0.0001"
+
+  - id: F-006
+    severity: material
+    rubric: execution-firewall-review
+    rubric_clause: "Section A2: paper_equity_bt_equiv conceptual semantics undefined — additive, not reconciliation"
+    file: scripts/run_paper_trading_vt.py
+    lines: "710"
+    description: >
+      paper_equity_bt_equiv = equity - _cost_usd + _swap_usd. `equity` is the
+      Saxo broker TotalValue (fetch_account_equity, line 466). Saxo paper
+      account fills already incorporate broker-side spread/slippage on the
+      execution side (the executed fill price already reflects cost). Adding
+      a separately-computed _cost_usd model deduction yields a quantity that
+      is neither (a) what Saxo would show, nor (b) what the engine would show
+      for the same trade sequence — it double-counts costs (Saxo fill is
+      cost-inclusive on its own, engine cost-inclusive on its own; this sums
+      them). HIGH-1a says "deducted from paper equity on each trading cycle,
+      making the paper equity curve backtest-equivalent" — but
+      backtest-equivalent requires the cost to be computed against the same
+      input the backtest sees (mid-price fills, cost-deducted), not subtracted
+      from a Saxo-paper-equity curve that already absorbed cost via fill
+      price. The semantic choice is a research-class judgment (which
+      cost-application semantics to use) appearing in implementation code
+      without a spec citation.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: head-of-quant-research
+    quote: "\"paper_equity_bt_equiv\": round(equity - _cost_usd + _swap_usd, 4)"
+
+  - id: F-007
+    severity: material
+    rubric: kill-switch-design
+    rubric_clause: "Property 4: testable in prod without staging the failure mode"
+    file: scripts/run_paper_trading_vt.py
+    lines: "106-157"
+    description: >
+      assert_account_key_parity is a Knight-class pre-trade gate (Property 1
+      out-of-band: filesystem lock; Property 2 operable: argparse flag pair;
+      Property 3 SLA: synchronous startup; Property 5 observable:
+      logger.critical at line 152). However, Property 4 (tested in prod
+      against live sessions on a schedule) has no concrete mechanism. The
+      only sanctioned reset is destructive (--reset-account-key-lock NEW_KEY
+      --confirm-account-reset, lines 803-810, then sys.exit per
+      reset_account_key_lock line 196). There is no read-only "verify the
+      gate fires" probe — to test the gate in prod, an operator must
+      stage a divergent key, observe sys.exit(1), and manually reset.
+      No .fintech-org/kill-switch-tests.jsonl entry exists for this gate.
+    recommended-action-class: add-edge-case-handling
+    quote: "Must be called before any order-dispatch path is reachable."
+
+  - id: F-008
+    severity: note
+    rubric: log-as-decision-trace
+    rubric_clause: "Item 6: skipped path logged; the no-action HOLD path emits cost_pips=0 / swap=0 entry"
+    file: scripts/run_paper_trading_vt.py
+    lines: "686-711"
+    description: >
+      Positive: the HOLD-FLAT branch at line 686-688 sets _cost_pips = 0.0,
+      _trade_units = 0.0 and STILL writes the equity-log entry (line 704-711).
+      This is correct per item-6 of log-as-decision-trace (skipped paths
+      logged). However, the "skipped" branches that early-return earlier in
+      run_cycle (KILL_HALTED at line 464, SKIP_EQUITY_FETCH_FAIL at line 481,
+      SKIP_DD_FULL_HALT at line 513, SKIP_DD_HALT_NEW at line 527,
+      SKIP_AGGREGATION_GATE at line 566) emit ws01 BUT do NOT write to
+      EQUITY_LOG_PATH. So an operator querying the equity log for a single
+      cycle's full state will see a gap on every skip-branch cycle, and
+      cannot tell from the equity log alone whether a missing entry means
+      "cycle ran but skipped" vs "process was down". Cross-correlation with
+      ws01 trace is required.
+    recommended-action-class: add-log
+    quote: "if _HALT_REQUESTED:"
+
+  - id: F-009
+    severity: note
+    rubric: review-plan
+    rubric_clause: "Risk dimension: account_key parity check uses property-access that may emit a network call"
+    file: scripts/run_paper_trading_vt.py
+    lines: "841-842"
+    description: >
+      assert_account_key_parity(backend.account_key) at line 842 evaluates
+      backend.account_key, which (per src/forex_system/saxo/execution.py:34-38)
+      is a property that triggers self.client.get_account_key() on first access
+      if _account_key is None. If the Saxo API is unreachable at startup, this
+      raises an exception BEFORE the parity gate runs, so the parity check is
+      moot in that failure mode (process exits via uncaught exception, not via
+      the parity-gate sys.exit(1) — same outcome but different audit trail).
+      The parity-gate decision-trace logger.critical at line 152 will not fire.
+      Same pattern at carry_fred.py:778.
+    recommended-action-class: add-edge-case-handling
+    quote: "assert_account_key_parity(backend.account_key)"
+
+  - id: F-010
+    severity: note
+    rubric: review-plan
+    rubric_clause: "Clarity dimension: vt run_cycle accepts dd_contract=None but no test exercises that branch"
+    file: scripts/run_paper_trading_vt.py
+    lines: "441-533"
+    description: >
+      vt run_cycle signature at line 441 has dd_contract: DrawdownContract |
+      None = None. The else branch (line 532-533) sets _dd_sizing_multiplier
+      = 1.0 silently. Tests for swap/delta in TestSwapAndDeltaFixes do not
+      pass dd_contract — they exercise the None branch implicitly. carry_fred
+      requires dd_contract (no Optional). The asymmetry is unmotivated — the
+      production path always passes a non-None dd_contract (vt main() line
+      864-868). Recommend tightening the signature to non-Optional or adding
+      a test that asserts the None branch behavior is intentional.
+    recommended-action-class: tighten-invariant
+    quote: "dd_contract: DrawdownContract | None = None"
+
+contamination-check: clean
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:56 (RealisticCostModel import)"
+  - "scripts/run_paper_trading_vt.py:72 (_COST_MODEL singleton)"
+  - "scripts/run_paper_trading_vt.py:106-157 (assert_account_key_parity)"
+  - "scripts/run_paper_trading_vt.py:160-196 (reset_account_key_lock)"
+  - "scripts/run_paper_trading_vt.py:240-286 (_emit_ws01)"
+  - "scripts/run_paper_trading_vt.py:669-711 (HIGH-1 equity-write block)"
+  - "scripts/run_paper_trading_vt.py:842 (parity-gate call site in main)"
+  - "scripts/run_paper_trading_carry_fred.py:62 (RealisticCostModel import)"
+  - "scripts/run_paper_trading_carry_fred.py:90 (_COST_MODEL singleton)"
+  - "scripts/run_paper_trading_carry_fred.py:121-172 (assert_account_key_parity)"
+  - "scripts/run_paper_trading_carry_fred.py:175-211 (reset_account_key_lock)"
+  - "scripts/run_paper_trading_carry_fred.py:631-666 (HIGH-1 equity-write block)"
+  - "scripts/run_paper_trading_carry_fred.py:778 (parity-gate call site)"
+  - "tests/scripts/test_wave8_high_remediation.py:38-231 (TestCostModelParity)"
+  - "tests/scripts/test_wave8_high_remediation.py:239-326 (TestAccountKeyParity)"
+  - "tests/scripts/test_wave8_high_remediation.py:334-447 (TestE2EParity, EURUSD-only)"
+  - "tests/scripts/test_wave8_high_remediation.py:454-611 (TestSwapAndDeltaFixes)"
+  - "tests/scripts/test_wave8_high_remediation.py:619-680 (TestAtomicLockAndReset)"
+  - "src/forex_system/backtest/engine.py:299 (_to_engine_units call)"
+  - "src/forex_system/backtest/engine.py:316-317 (engine swap accrual semantics)"
+  - "src/forex_system/backtest/engine.py:331-332 (engine entry cost on |delta|)"
+  - "src/forex_system/backtest/engine.py:491-492 (engine pnl_dollars/cost_dollars in _close_position)"
+  - "src/forex_system/backtest/engine.py:537-539 (_get_pip_value JPY heuristic)"
+  - "src/forex_system/backtest/engine.py:544-573 (_to_engine_units USDJPY conversion)"
+  - "src/forex_system/costs/model.py:11-51 (RealisticCostModel class)"
+  - "src/forex_system/sizing/vol_target.py:34-84 (VolTargetSizer USD-nominal output)"
+  - "src/forex_system/saxo/execution.py:34-38 (account_key lazy property with network call)"
+  - "src/forex_system/saxo/execution.py:88-95 (place_order amount=USD-nominal)"
+  - "src/forex_system/risk/exposure_aggregator.py:46 (_JPY_CORRELATED frozenset, out-of-scope)"
+  - "git diff --shortstat HEAD scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py: 330 insertions, 2 deletions"
+  - "pytest --no-header -q: 686 passed in 27.68s"
+  - "ruff check src/: 19 errors (pre-existing baseline; QD did not regress)"
+  - ".venv/bin/pytest tests/backtest/test_engine.py -k test_no_lookahead -v: 1 passed"
+  - ".venv/bin/pytest tests/scripts/test_wave8_high_remediation.py -v: 20 passed"
+
+assumptions:
+  - >
+    The engine semantics in src/forex_system/backtest/engine.py:_to_engine_units
+    (line 544) are the canonical "backtest-equivalent" reference. The
+    HIGH-1a/HIGH-1b spec text "backtest-equivalent paper equity" maps to engine
+    behavior, not to a hypothetical alternative cost convention. If a CONSENSUS
+    artifact has redefined "backtest-equivalent" to mean "USD-nominal pip
+    cost", that artifact would invalidate F-001 / F-002 — but I have not been
+    given access to such artifact and re-derived only from source.
+  - >
+    The hard-constraint production_loc_budget_total: 50 was meant to bound
+    production-script LoC delta (not test LoC). Test LoC is unbounded by
+    spec. Re-derived from spec field name "production_loc_budget_total".
+  - >
+    The PM body/task-statement prose was OBSERVED but the schema-restricted
+    fields (criteria, hard-constraints, out-of-scope, deliverable-type,
+    deadline, instrument-universe) are the binding contract. I did not
+    consume the body prose for stance/reasoning; I cite it only to
+    cross-check that the structured criteria themselves are intelligible.
+
+confidence: high
+
+body: |
+  Three blocking findings (F-001, F-002, F-003); five material findings
+  (F-004 through F-008, with F-007 also material); two notes (F-009, F-010).
+
+  The critical issue is F-001/F-002: the cost-deduction code computes
+  cost_usd as cost_pips * pip_v * USD_nominal_units. The backtest engine
+  computes it as cost_pips * pip_value * engine_units, where engine_units
+  for JPY pairs is USD_nominal/price (engine.py:544-573). At USDJPY price
+  150 with $100k USD-nominal target, the paper-loop cost is ~150x the
+  engine's. The HIGH-1c "parity test" passes because it feeds identical
+  literal SIZE inputs to a shared formula on both sides — bypassing the
+  unit conversion. The TestE2EParity test exists but DELIBERATELY uses
+  EURUSD (per its own docstring) to dodge the JPY conversion, leaving the
+  spec's instrument-universe (USDJPY) without genuine end-to-end parity
+  coverage. Whatever the live paper account economics actually are, the
+  acceptance-criteria text "identical numeric result" against "concrete
+  USDJPY trade tuple" is not satisfied.
+
+  F-003 is a hard-constraint violation: 330 production LoC added vs. 50
+  budgeted. The constraint was declared "hard" in the PM artifact, not
+  soft. If the actual budget needs to be 350, the spec needs amendment.
+
+  F-006 raises a separate concern that may render F-001 moot in the other
+  direction: the paper-loop subtracts model-computed costs from a Saxo
+  TotalValue that already reflects broker-side fill costs. This is a
+  research-class semantic choice (which cost convention reproduces a
+  backtest faithfully on a live broker) that should be answered by HoQR,
+  not picked silently in implementation. F-006 is the deepest finding —
+  even fixing F-001's unit math would not by itself produce a
+  "backtest-equivalent" curve if the broker has already charged fees.
+
+  Strengths worth noting (not findings, just balance): the atomic
+  O_CREAT|O_EXCL pattern (vt:134) is correct kill-switch-design
+  Property 1 implementation; the TOCTOU race test
+  (test_toctou_concurrent_different_keys_one_exits) is genuine; the
+  reset CLI requires two flags (Property 2 friendliness preserved); the
+  ws01 trace captures decision_ts and strategy_params per CTO Q1+Q2.
+  686/686 tests pass; sacred no-lookahead test passes; ruff baseline
+  preserved at 19; forbidden-phrases scanner result not independently
+  re-run by Reviewer (out of scope per role definition).
+
+  Decision: reject. F-001/F-002/F-003 are blocking; F-001 in particular
+  describes a code path that violates the central goal of HIGH-1
+  (backtest-equivalent paper equity) by approximately a factor of 150
+  on the spec's only instrument. The right next step (per role definition)
+  is to escalate F-006 to head-of-quant-research for semantic
+  resolution, then re-implement F-001 against the resolved semantics.
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps:
+  - >
+    The semantic question "what does backtest-equivalent paper equity mean
+    when the broker fills are already cost-inclusive" is unanswered in the
+    spec text I am permitted to read. F-006 escalates this to HoQR; a
+    Reviewer cannot resolve it without contaminating the role boundary.
+  - >
+    Whether the production_loc_budget_total: 50 hard-constraint was meant
+    to count comments and docstrings is not stated in the redacted spec.
+    F-003 cites the literal text; if the budget was net-executable LoC,
+    the verdict on F-003 may relax (it would still likely overrun).
+
+claimed_domains:
+  - independent-code-review
+  - hidden-bug-and-edge-case-surfacing
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review

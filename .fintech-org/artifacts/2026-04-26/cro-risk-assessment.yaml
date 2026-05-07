@@ -1,0 +1,78 @@
+role: cro
+artifact_type: risk-assessment
+dispatch_id: cro-pre-sydney-open-2026-04-26
+timestamp: 2026-04-26T22:00:00Z
+deadline: 2026-04-26T22:00:00Z
+
+decision: veto
+veto_scope: "all new paper-order activity until pre-open mechanical checklist clears (items P1-P4 below). Veto lifts automatically when each P-item is satisfied with system-verified evidence, not operator assertion."
+
+size_multiplier:
+  vol_target_carry: 0.0
+  carry_fred: 0.0
+  default: 0.0
+size_multiplier_note: |
+  Multipliers are 0.0 ONLY because pre-open attestation cannot be satisfied (SIM book state unknown).
+  When P1-P4 clear, conditional multipliers (BINDING, no re-dispatch needed):
+    vol_target_carry_conditional: 0.25
+    carry_fred_conditional: 0.25
+    default_conditional: 0.0
+
+binding_constraints:
+  - {id: BC-1, clause: "kill_switch_state must be FLAT_AND_HALTED with system-verified evidence before any paper order resumes", status: VIOLATED, evidence: "saxo_flatten_2026-04-25.log + saxo_positions_2026-04-25.json are PENDING stubs; kill_switch_audit.log cites stubs as evidence"}
+  - {id: BC-2, clause: "trial_count >= 14 triggers DSR deflation (n_trials = 14)", status: ACTIVE, rationale: "vol_target_carry Sharpe 0.7594 deflates materially under DSR with 14 sibling trials"}
+  - {id: BC-3, clause: "retire-pending-reconciliation flag on vol_target_carry NOT lifted by HoQR/CEO ratification", status: ACTIVE, rationale: "engine/script parity reached but retirement flag is separate governance decision"}
+  - {id: BC-4, clause: "carry_fred regime-flagged BoJ-divergence; HoQR ruling pending", status: ACTIVE, rationale: "single-regime alpha is fragile to regime shift; 0.25 is regime-switch insurance discount"}
+  - {id: BC-5, clause: "leverage_cap 2.0; max_drawdown_pct 2.0 daily must be enforced at portfolio level across all parallel strategies", status: ARCHITECTURALLY_NOT_ENFORCED, evidence: "see kill-switch-architecture-verdict gaps below"}
+  - {id: BC-6, clause: "fresh_token_required: true — Saxo SIM 24h bearer is operator-supplied", status: ACTIVE}
+
+regime_flags:
+  - boj_divergence_concentration: "carry_fred lift sourced primarily from BoJ-divergence regime"
+  - jpy_basket_long_concentration: "If snapshot positions still open, portfolio is single-factor-exposed to JPY weakness across 3 crosses"
+  - vol_target_carry_engine_script_parity_recent: "Achieved at commit a5128e4; bedding-in period not yet observed"
+
+evidence:
+  - {ref: docs/runbooks/flatten_saxo_sim.md, role: "flatten procedure spec - authoritative"}
+  - {ref: data/saxo_flatten_2026-04-25.log, role: "flatten execution log - STUB ONLY, event=PENDING"}
+  - {ref: data/saxo_positions_2026-04-25.json, role: "position inventory - STUB ONLY, fetched_at=null"}
+  - {ref: data/kill_switch_audit.log, role: "operator-authored RESET to FLAT_AND_HALTED 2026-04-25T00:00:00Z; cites the two stubs as evidence_paths"}
+  - {ref: .fintech-org/trials.jsonl, role: "trial counter - 14 events"}
+
+blowup-analog: "Knight Capital 2012 — pre-open state assumed correct based on operator/process assertion rather than system-verified flatness. The flatten-log-stub here is the same class: a placeholder marked PENDING, treated downstream as if it said COMPLETE."
+
+contamination-check: clean
+
+pre-open-attestation:
+  sim_flat: UNKNOWN_REQUIRES_OPERATOR
+  kill_switch_confirmed: OPERATOR_AUTHORED_NOT_SYSTEM_VERIFIED
+  orders_blocked: true
+  orders_blocked_basis: "this veto + fresh_token_required: true (no token in scope)"
+  jpy_basket_risk_present: UNKNOWN_REQUIRES_OPERATOR
+  jpy_basket_risk_note: "If still open, USDJPY 1.13M units dwarfs other two by ~1000x; effectively single concentrated LONG-USDJPY bet plus dust positions. Direction-correlated; NOT diversified."
+  attestation_basis: "Read-only inspection of flatten log, positions json, kill-switch audit log, runbook, trial counter. Bash denied; could not execute saxo inventory script."
+  pre_open_checklist_to_clear_veto:
+    P1: "Populate data/saxo_positions_*.json with system-fetched data dated 2026-04-26 showing positions=[]"
+    P2: "Populate flatten log with FLATTEN_COMPLETE+net_zero_confirmed=true OR document flatten unnecessary because P1 already shows flat"
+    P3: "Append data/kill_switch_audit.log entry dated 2026-04-26 with event=VERIFY citing P1 evidence"
+    P4: "Operator-supplied fresh SAXO_TOKEN in environment for the session"
+
+kill-switch-architecture-verdict:
+  adequate_for_path_b: false
+  citation_source_tag: "trading-platform-architectures/axes/oms-risk.md"
+  current_model_summary: "Single-process, operator-authored audit log. State transitions written by humans at the shell. No out-of-process daemon enforcing halt; no atomic check-and-set between strategy processes."
+  gaps:
+    - {id: G1, title: "No shared atomic halt primitive across N strategy processes"}
+    - {id: G2, title: "Shared Saxo SIM balance fetch is a race condition (double-spend)"}
+    - {id: G3, title: "No dead-man / heartbeat — halted state is not self-affirming"}
+    - {id: G4, title: "Operator-authored state transitions are not authenticated"}
+    - {id: G5, title: "No max-order-rate / max-notional-per-minute pre-trade gate"}
+    - {id: G6, title: "No per-strategy notional/risk budget enforcement (allocator)"}
+    - {id: G7, title: "Stub files used as evidence (the dispatch's own finding)"}
+  required_remediations:
+    - {id: R1, addresses: [G1,G3,G4], action: "Out-of-process kill-switch daemon owning single source of truth (file lock + heartbeat); strategies acquire permission-to-trade lease per order"}
+    - {id: R2, addresses: [G2,G6], action: "Portfolio risk allocator pre-allocates margin/notional per strategy at startup; strategies reserve via atomic decrement; Saxo balance fetched ONCE by allocator"}
+    - {id: R3, addresses: [G5], action: "Pre-trade gate: max-orders-per-minute and max-notional-per-minute, per-strategy AND aggregate; reject (don't queue) on breach"}
+    - {id: R4, addresses: [G4], action: "Audit log state transitions require two-key signoff + out-of-band notification + hash chain"}
+    - {id: R5, addresses: [G3], action: "Strategy boot must call kill-switch daemon GET_STATE; refuse to start if state != ARMED. No log-file fallback."}
+    - {id: R6, addresses: [G7], action: "Pre-commit lint: scan for evidence_paths and reject if target contains PENDING or fetched_at:null"}
+  gating_recommendation: "Path B MUST NOT dispatch until at minimum R1, R2, R5, R6 are implemented. Until then, run strategies serially."

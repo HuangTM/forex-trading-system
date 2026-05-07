@@ -1,0 +1,161 @@
+role: pm
+artifact_type: acceptance-criteria
+timestamp: 2026-04-26T20:00:00Z
+subtask_ref: sunday-pre-open-prep-2026-04-26
+task-statement: >
+  Prepare the org for FX market open: verify pre-open mechanical checklist,
+  assess week-ahead research dispatch readiness, and confirm risk controls are
+  binding before Sydney open.
+deliverable-type: spec-completion
+deadline:
+  pre-open: 2026-04-26T22:00:00Z
+  week-ahead-dispatch: 2026-04-27T13:00:00Z
+instrument-universe:
+  - USDJPY
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - CADJPY
+  - NZDJPY
+  - EURUSD
+  - GBPUSD
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - USDCHF
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "kill_switch_state: must be FLAT_AND_HALTED before any paper order resumes"
+  - "trial_counter_authoritative: .fintech-org/trials.jsonl (current count: 14)"
+  - "max_drawdown_pct: 2.0 (daily, kill-switch trigger)"
+  - "leverage_cap: 2.0"
+  - "flatten_runbook_authoritative: docs/runbooks/flatten_saxo_sim.md"
+  - "vol_target_carry retire-pending-reconciliation flag: NOT lifted until CEO+HoQR ratification"
+  - "carry_fred Bet#1: conditional pass only; HoQR ruling on regime-OOS required before full-pass"
+  - "no new trial registration without pre-reg gate (scripts/trial_factory/pre_register.py)"
+  - "Bonferroni correction applies to all NHT family-of-tests (14 trials registered)"
+
+criteria:
+  - id: PRE-01
+    owner: ops-engineer
+    check: "Saxo SIM position inventory confirms FLAT (USDJPY=0, GBPJPY=0, CADJPY=0). Evidence: scripts/saxo_position_inventory.py with fresh SIM token; OR data/saxo_flatten_2026-04-26.log populated with execution record."
+    verifiable_by: "data/saxo_positions_2026-04-26.json present + content empty; OR flatten log populated"
+  - id: PRE-02
+    owner: ops-engineer
+    check: "Kill-switch state file confirms FLAT_AND_HALTED. data/kill_switch_audit.log last entry must be timestamp 2026-04-26 (not yesterday's sentinel)."
+    verifiable_by: "grep FLAT_AND_HALTED data/kill_switch_audit.log; timestamp must be 2026-04-26"
+  - id: PRE-03
+    owner: ops-engineer
+    check: "All four session log paths exist and are appendable: data/paper_trading_session.log, data/vt_paper_session.log, data/multi_strategy_session.log, data/kill_switch_audit.log."
+    verifiable_by: "touch + append test on each log path; no PermissionError"
+  - id: PRE-04
+    owner: cro
+    check: "CRO issues a pre-open risk attestation: (a) SIM book is flat, (b) no JPY-basket correlation risk, (c) kill switch is in binding halt state, (d) no new paper orders execute before PRE-01..03 cleared."
+    verifiable_by: "CRO artifact: sim_flat=true, kill_switch=FLAT_AND_HALTED, orders_blocked=true"
+  - id: PRE-05
+    owner: cto
+    check: "Observability audit returns no NEW blocking log gaps since commit a5128e4. Confirm decision-trace events (not noise) on PRE-03 paths; em-dash encoding bug status."
+    verifiable_by: "CTO artifact with log-as-decision-trace verdict per file + em-dash status"
+
+  - id: GATE-01
+    owner: ceo + hoqr
+    check: "vol_target_carry retire-pending-reconciliation flag formally resolved. Engine Sharpe 0.7594 vs script 0.7619 (Δ=0.0055) per commit a5128e4. Ratification artifact written to .fintech-org/artifacts/."
+    verifiable_by: "ratification record with approver=hoqr AND approver=ceo"
+  - id: GATE-02
+    owner: hoqr
+    check: "Carry Bet #1 (commit c41212f) HoQR ruling: upgrade to full-pass OR downgrade to conditional with explicit retirement trigger if BoJ resumes hiking."
+    verifiable_by: "HoQR artifact: decision in {full-pass, conditional-pass, reject}; if conditional-pass, retirement_trigger_BoJ_hike defined"
+
+  - id: WA-01
+    owner: head-of-quant-research
+    check: "Three-way dispatch decision: Path B vs Bet #2 (4H TAS-ceiling) vs Bet #3 (vol-target 11 non-USDJPY pairs Bonferroni). Path B P3-P6 explicitly assessed."
+    verifiable_by: "HoQR dispatch artifact with three-way decision; P3-P6 pass/fail included"
+  - id: WA-02
+    owner: null-hypothesis-tester
+    check: "NHT falsification of 'production-ready for week 17': Bonferroni at N=14, regime-concentration deflation of independent-trial assumption, production-ready verdict."
+    verifiable_by: "NHT artifact: family_trial_count=14, bonferroni_corrected_threshold, production_ready verdict"
+  - id: WA-03
+    owner: cto
+    check: "Weak-spot inventory: ranked observability/firewall gaps; per-session log adequacy verdict; whether logs can answer 'why was this trade taken' from log alone."
+    verifiable_by: "CTO artifact: ranked gap list, per-log verdict, signal-to-execution coverage"
+
+out-of-scope:
+  - "untracked exploratory scripts from 2026-04-26 (8 scripts, CEO explicit OOS)"
+  - "live capital deployment (firm rule 1: paper-only during Phase 0)"
+  - "new code / refactoring this wave (CTO observability audit is read-only)"
+  - "new trial registration or new strategy backtests"
+  - "Bet #2 and Bet #3 implementation — dispatch decision only"
+  - "CONSENSUS.md authoring (post-wave PM responsibility)"
+  - "Phase 0 to Phase 1 transition (blocked on GATE-01 + GATE-02)"
+
+roles-staffed:
+  - {role: cro, rationale: "Residual SIM positions need independent risk attestation; CRO receives redacted-variant only", receives: redacted-variant-only}
+  - {role: null-hypothesis-tester, rationale: "Adversarial falsification of production-readiness with N=14 Bonferroni"}
+  - {role: head-of-quant-research, rationale: "Three-way dispatch authority + Bet #1 regime-OOS ruling owner"}
+  - {role: cto, rationale: "Log-as-decision-trace audit + execution-firewall review for weak-spot inventory"}
+  - {role: ops-engineer, rationale: "Sunday-night mechanical checklist; haiku tier; narrowest scope"}
+
+evidence:
+  - "commit a5128e4: Track 5 engine-script Sharpe gap close (Δ=0.0055)"
+  - "commit c41212f: Bet #1 FRED-rates carry, OOS Sharpe 0.80"
+  - "commit c131200: Path B design at docs/design/path_b_multi_strategy_competition.md"
+  - "data/kill_switch_audit.log: last FLAT_AND_HALTED 2026-04-25T00:00:00Z (sentinel)"
+  - "data/saxo_flatten_2026-04-25.log: PENDING stub"
+  - ".fintech-org/trials.jsonl: 14 lines"
+  - "CONSENSUS_2026-04-25.md: yesterday's NHT dissent preserved"
+  - "docs/runbooks/flatten_saxo_sim.md"
+  - "scripts/saxo_position_inventory.py + scripts/saxo_flatten_all.py"
+
+assumptions:
+  - "SIM positions still open (USDJPY 1125832 + GBPJPY 1334 + CADJPY 1258); flatten log is placeholder stub."
+  - "Kill-switch FLAT_AND_HALTED entry is operator-authored directive, not system-confirmed audit event."
+  - "Saxo SIM 24-hour bearer token from yesterday has expired; fresh token required from operator."
+  - "HoQR Bet #1 regime-OOS ruling not yet issued."
+  - "Path B P3 (SIM not flat) blocks dispatch until PRE-01 clears."
+  - "Trial count of 14 authoritative; Bonferroni in WA-02 must use N=14, not N=2."
+
+confidence: high
+
+knowledge_gaps:
+  - "Actual Saxo SIM position state as of 2026-04-26 (requires fresh API call)"
+  - "Whether em-dash encoding fix was applied after commit a5128e4 (no commit found)"
+  - "BoJ hiking threshold for carry_fred Bet #1 retirement (HoQR has not issued)"
+
+policy_violations_detected: []
+
+cro-redacted-dispatch:
+  deliverable-type: spec-completion
+  deadline: 2026-04-26T22:00:00Z
+  instrument-universe: [USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY, EURUSD, GBPUSD, AUDUSD, USDCAD, NZDUSD, USDCHF]
+  hard-constraints:
+    - "paper_only: true"
+    - "no_live_capital: true"
+    - "kill_switch_state: must be FLAT_AND_HALTED before any paper order resumes"
+    - "max_drawdown_pct: 2.0 (daily)"
+    - "leverage_cap: 2.0"
+    - "flatten_runbook_authoritative: docs/runbooks/flatten_saxo_sim.md"
+  portfolio-state-snapshot:
+    saxo-sim-positions:
+      - {pair: USDJPY, direction: LONG, units: 1125832, source: CONSENSUS_2026-04-25.md}
+      - {pair: GBPJPY, direction: LONG, units: 1334, source: CONSENSUS_2026-04-25.md}
+      - {pair: CADJPY, direction: LONG, units: 1258, source: CONSENSUS_2026-04-25.md}
+    flatten-runbook: docs/runbooks/flatten_saxo_sim.md
+    flatten-log-state: "PENDING stub — execution NOT confirmed in data/saxo_flatten_2026-04-25.log"
+    kill-switch-state: "FLAT_AND_HALTED operator-authored 2026-04-25T00:00:00Z; NOT system-verified today"
+    fresh-token-required: true
+    token-fetch-url: "https://www.developer.saxo/openapi/token"
+    trial-count: 14
+    validated-strategies:
+      - {name: vol_target_carry, gate-status: gate-passing, flag: "retire-pending-reconciliation NOT lifted"}
+      - {name: carry_fred, gate-status: gate-passing-conditional, flag: "regime-flagged BoJ-divergence; HoQR ruling pending"}
+  cro-required-output:
+    artifact-type: pre-open-risk-attestation
+    required-fields:
+      sim_flat: boolean
+      kill_switch_confirmed: "enum [FLAT_AND_HALTED, HALTED, ACTIVE, UNKNOWN]"
+      orders_blocked: boolean
+      jpy_basket_risk_present: boolean
+      attestation_basis: string
+    deadline: 2026-04-26T22:00:00Z
+    blocking: true

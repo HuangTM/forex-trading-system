@@ -1,0 +1,171 @@
+role: head-of-quant-research
+artifact_type: strategic-assessment
+decision: yellow
+timestamp: "2026-05-03T15:30:00Z"
+subtask_ref: "Project assessment — strategic lens, 5 questions"
+subtask_id: "assessment-2026-05-03-hoqr-1"
+trial_id: "n/a-assessment-not-trial-eligible"
+
+evidence:
+  - path: /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-04-28.md
+    note: "Direction v1 — carry-family thesis, kill criteria (Tier-1 2026-06-23, Tier-2 2026-07-21), HoQR retirement triggers (vol_target_carry: rolling 60-bar OOS Sharpe <0.30 OR DD >25%; Bet#1: CF-T9 trigger OR regime inactive >30 days w/ Sharpe <0.40)"
+  - path: /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+    note: "Authorized scope: vol_target_carry full sizing (size_mult=0.5) + Bet#1 regime-conditional (BC-1=0.0 inactive / BC-2=0.25 active). 60-trading-day Clause C deadline. STRONG-only 7/10."
+  - path: /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+    note: "Pre-flight 8/10 engineering-closed; items 9+10 BLOCKED-CEO-action; paper loop NOT started. 666 tests pass. Sacred test pass."
+  - path: /Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl
+    note: "35 trials, 12 status:rejected (5 R6-only sample-size disqualifications). vol_target_carry early trials show Sharpe collapse with single trades (n_trades=1 → Sharpe 0.065; n=6 → -0.076); validated 2026-04-25 only after harness fix."
+  - url: https://www.boj.or.jp/en/mopo/mpmdeci/mpr_2026/k260428a.pdf
+    note: "BoJ Statement on Monetary Policy 2026-04-28: rate held at 0.75%"
+  - url: https://www.cnbc.com/2026/04/28/bank-of-japan-keeps-policy-rate-steady-cpi-iran-war-gdp.html
+    note: "BoJ kept policy rate steady, raised inflation forecast (core 2.8% from 1.9%); cut growth (FY26 0.5% from 1.0%) — stagflationary"
+  - url: https://www.japantimes.co.jp/business/2026/04/28/economy/boj-meeting-april-2026/
+    note: "Three dissents (Nakagawa, Takata, Tamura) proposed rate hike to 1.0% — biggest hawkish split of Ueda era; raises June hike probability"
+  - url: https://www.mufgresearch.com/fx/fx-daily-snapshot-28-april-2026/
+    note: "MUFG: BoJ hawkish hold = currency-defence framing; USD/JPY 159, leveraged carry shorts rebuilding; intervention threats from MoF Katayama at 162 'line in the sand'"
+  - url: https://investinglive.com/centralbank/bank-of-japan-leaves-its-short-term-rate-at-075-as-expected-20260428/
+    note: "Confirms 6-3 split vote; rate held at 0.75% (highest since Sep 1995)"
+
+assumptions:
+  - "Paper-start lag: 2-7 trading days from 2026-05-03 (CEO must complete items 9+10 plus stale-log disposition + Saxo single-account confirmation)"
+  - "From 2026-05-03 to 2026-07-21 = ~58 calendar days ≈ ~52-55 trading days; net of 2-7 day lag → 45-53 trading days of paper data available before deadline"
+  - "Sharpe SE formula σ_Sharpe ≈ √((1+0.5·SR²)/N) for daily obs (Lo 2002, Mertens 2002 small-sample form)"
+  - "Backtest Sharpe 0.7594 (vol_target_carry) carries DSR-adjusted range 0.4-0.6 per NHT dissent in CONSENSUS_2026-04-28 Section 8"
+  - "Regime-inactive base case ~0.07 Sharpe for carry_fred per Section 5 NHT binding condition (3) — Bet#1 contributes near-zero in absence of BoJ-divergence flag"
+  - "Authorized scope is USDJPY-only; no expansion to cross-JPY pairs in the assessment window (CRO Assumption 1 deferred to Wave-8+)"
+  - "Tier-1 alpha-direction kill 2026-06-23 = T+51 from today, Tier-2 project halt 2026-07-21 = T+79"
+  - "CEO veto authority retained on auto-ratifications; no live capital under any circumstances"
+  - "Web research conducted within budget (2 WebSearch + 1 WebFetch used; 2 WebFetch unused)"
+
+confidence: medium
+
+body: |
+  Q1 — THESIS DEFENSIBILITY (DEFENSIBLE-WITH-NEW-EVIDENCE-COMPRESSING-EDGE):
+  The carry-family thesis remains defensible at T+5, but the macro tape since 2026-04-25 has
+  shifted in ways that BOTH partially confirm and partially undermine it. CONFIRMING: the BoJ
+  held at 0.75% on 2026-04-28 with a hawkish 6-3 split — three members (Nakagawa, Takata,
+  Tamura) proposed a hike to 1.0%, the biggest dissent of the Ueda era; the BoJ raised core
+  inflation forecast to 2.8% from 1.9%; USD/JPY trades ~159 with structural carry-trade
+  demand still intact (MUFG: leveraged funds rebuilding short-yen positions per IMM data).
+  This is precisely the BoJ-divergence regime that CF-T9 is built to detect, and it argues
+  FOR the regime-conditional Bet #1 thesis. UNDERMINING: the rate differential is structurally
+  compressing — analysts project the spread to fall from ~325bp today to ~250-275bp by Q4 2026
+  as BoJ hikes and Fed cuts. Compression is the textbook decay path for carry. Additionally,
+  MoF intervention risk near the 162 "line in the sand" creates left-tail price gap risk for
+  any USDJPY long position. NET VERDICT: defensible (the regime conditioning is precisely
+  designed to capture the current BoJ-divergence window) but the EDGE IS COMPRESSING and a
+  June BoJ hike — now materially more probable given the dissent vote — would mark a regime
+  inflection where Bet #1's regime-active phase may flip OFF mid-window.
+
+  Q2 — PROBABILITY OF SHARPE ≥0.5 OOS BY 2026-07-21 (~0.30-0.40):
+  Mechanically: with ~45-53 trading days of paper data after lag, σ_Sharpe ≈ √(1.125/50) ≈
+  0.15 if true SR=0.5. So even at the in-backtest Sharpe (0.76 vol_target_carry), realized
+  paper-Sharpe is a noisy point estimate with 95% CI roughly ±0.30. Three independent
+  pressures push the probability below the naive 50%: (a) NHT-dissent base case: DSR-adjusted
+  Sharpe range is 0.4-0.6, so true SR is more plausibly ~0.5 than ~0.76, giving ~50% before
+  any realized friction; (b) Bet #1 contributes essentially zero on regime-inactive days
+  (BC-1 size=0.0), so the portfolio Sharpe is dominated by vol_target_carry; (c) the rate-
+  differential compression and June BoJ-hike risk are precisely the regime shift that would
+  collapse carry alpha mid-window. Net estimate: 0.30-0.40. I record 0.35 as point estimate.
+  This is BELOW the 50% threshold a 'green' verdict would require but ABOVE the 0.20
+  threshold for 'red' — yellow is the correct light.
+
+  Q3 — EARLY-KILL SCENARIOS (probability assigned, action specified):
+  Scenario A: BoJ surprise rate hike at June meeting (probability 0.25). Per the 6-3 dissent
+  vote, the hawkish minority is one defection from majority. A hike to 1.0% mid-window would
+  compress the differential by 25bp instantaneously, likely trigger MoF tolerance for yen
+  appreciation, and structurally end the BoJ-divergence regime that Bet #1 is conditioned on.
+  ACTION: pull Tier-1 kill the day BoJ hikes; pivot review convened within 5 trading days.
+  Scenario B: USDJPY breaches 162 and triggers intervention (probability 0.20). MUFG flags
+  162 as the MoF "line in the sand"; 24/7 intervention readiness was reiterated by FM
+  Katayama. Intervention historically produces 3-5% gap moves against USDJPY; combined with
+  vol_target_carry's leverage profile (size_mult=0.5) this could cause >15% paper drawdown,
+  triggering CRO BC-9 (15% reduce-sizing) and HoQR retirement (DD >25% kill). ACTION: pull
+  Tier-1 kill if 60-bar OOS Sharpe falls below 0.30 OR if drawdown exceeds 25%, BEFORE the
+  2026-06-23 calendar trigger. Scenario C: 30+ consecutive regime-inactive days with Bet #1
+  Sharpe <0.40 (probability 0.15). This is the HoQR-pre-declared retirement trigger from
+  CONSENSUS_2026-04-28 Section 6. ACTION: retire Bet #1 immediately on trigger fire (already
+  machine-checkable via auto_retire_on_trigger.py per item 6 of pre-flight).
+
+  Q4 — VTC-NO-VOL-SCALING ABLATION SCOPING:
+  Per CONSENSUS_2026-05-02 Section 5 Decision B, the Wave-5 Round-2 trial 9017fadb (n_trades=1,
+  Sharpe=1.152) was VOID on degenerate sample. The properly-sampled ablation is HoQR's named
+  next-priority research item. STATUS: scoped in concept (R6 floor n_trades≥30, multi-regime
+  OOS window, not OOS-2022 exclusively) but NOT yet pre-registered or scheduled. SAMPLE-SIZE
+  REQUIREMENT: at minimum n_trades ≥30 per R6, and given that vol_target_carry's natural
+  trade frequency is ~1-2 trades/month on USDJPY daily bars, this requires roughly 18-30
+  months of OOS data to clear R6 mechanically. To distinguish the no-vol-scaling variant
+  from the base case at SE ≈ 0.15 (95% CI half-width 0.30), N ≥ 50 daily bars is needed for
+  the Sharpe SE alone, but n_trades ≥30 is the binding constraint. PLAN: defer pre-registration
+  until paper launch is confirmed (no new trials until falsification-discipline window
+  consolidates per NHT condition); target Wave-9 or later. This ablation is NOT on the
+  critical path for the 2026-07-21 north-star — it is risk-of-being-wrong-about-the-mechanism
+  research, scheduled post-launch.
+
+  Q5 — STRONG-ONLY 7/10 ALPHA CONFIDENCE (BORDERLINE):
+  Treating the rejection portfolio purely as alpha evidence (NOT governance): 7 STRONG
+  rejections (R1/R2 fires that survive Bonferroni) is informationally non-trivial but
+  thin. Lopez-de-Prado's framework requires rejection density to scale with the trial
+  count — 35 trials with only 7 STRONG rejections gives a STRONG-rejection density of
+  0.20, which is ABOVE pure-noise baseline (0.05 at α=0.05) but BELOW what a robust
+  multiple-testing-corrected pipeline would produce (0.30-0.40 typical for honest
+  research). The 5 R6-only WEAK rejections are sample-size disqualifications and contain
+  near-zero information about the null. FOR carry edge survival: vol_target_carry's
+  in-sample Sharpe 0.76 with DSR sketch 0.4-0.6 means after Bonferroni-equivalent
+  multiple-testing correction the PROBABILITY-TRUE-ALPHA is roughly 60-75%, not
+  the 95%+ a STRONG-only 10/10 would give. Verdict: BORDERLINE. WHAT WOULD CHANGE MY
+  MIND: (a) 3 additional STRONG rejections in the next 2 weeks lifting STRONG-only to
+  10/10 (target candidates: a Bet #2 R-class redo with proper R2 pre-reg, a vol_target_carry
+  no_vol_scaling ablation that fires R1, or a cross-pair carry test on EURJPY that fires
+  R1) — but these CANNOT proceed under current constraints (Bet #2 blocked, pre-reg
+  freeze active, USDJPY-only authorized scope); OR (b) 4+ weeks of paper data that
+  sustains rolling Sharpe ≥0.5 with regime-conditional contribution attribution
+  matching backtest within ±0.2 — this would be live evidence overriding the multiple-
+  testing concern. Until then, the alpha base is compatible with a positive but
+  noise-blurred edge, not a robust one.
+
+  OVERALL TRAFFIC LIGHT: YELLOW. The thesis is defensible, the engineering is closed,
+  the path to north-star is not blocked — but three independent pressures (compression,
+  June-hike risk, intervention left-tail) plus a borderline-but-not-comfortable evidence
+  base put my probabilistic estimate of hitting Sharpe ≥0.5 OOS by 2026-07-21 at 0.35,
+  not 0.5+. Action discipline matters more than speed: pull Tier-1 kill on early triggers
+  (BoJ hike, intervention drawdown) without waiting for 2026-06-23.
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-04-28.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl
+  - /Users/huangtm/Projects/forex-trading-system/CLAUDE.md
+  - https://www.boj.or.jp/en/mopo/mpmdeci/mpr_2026/k260428a.pdf
+  - https://www.cnbc.com/2026/04/28/bank-of-japan-keeps-policy-rate-steady-cpi-iran-war-gdp.html
+  - https://www.japantimes.co.jp/business/2026/04/28/economy/boj-meeting-april-2026/
+  - https://investinglive.com/centralbank/bank-of-japan-leaves-its-short-term-rate-at-075-as-expected-20260428/
+  - https://www.mufgresearch.com/fx/fx-daily-snapshot-28-april-2026/
+  - https://www.fxempire.com/forecasts/article/usdjpy-forecast-2026-policy-divergence-keeps-dollar-supported-1568591
+
+web_research_conducted: true
+websearch_used: 2
+webfetch_used: 1
+
+no-capital-instruction: true
+
+q1-thesis-defensible: weakening
+q2-prob-sharpe-ge-0.5-by-deadline: 0.35
+q2-justification: "Backtest Sharpe 0.76 has DSR-adjusted true range 0.4-0.6, so even before realized friction the naive probability is ~50%; rate-differential compression (325bp→250-275bp by Q4) and elevated June BoJ-hike probability (3-member dissent) push it down to 0.30-0.40 with 0.35 as point estimate."
+
+q3-early-kill-scenarios:
+  - scenario: "BoJ surprise rate hike at June 2026 meeting (one defection flips 6-3 hold to majority hike)"
+    probability: 0.25
+    action: "Pull Tier-1 alpha-direction kill day-of BoJ hike; convene pivot review within 5 trading days; flip Bet #1 size_multiplier to 0.0 immediately as regime ends; reassess vol_target_carry under compressed differential"
+  - scenario: "USDJPY breaches 162 triggering MoF intervention with 3-5% gap move"
+    probability: 0.20
+    action: "Pull Tier-1 kill if rolling 60-bar OOS Sharpe drops below 0.30 OR drawdown exceeds 25% (HoQR retirement trigger fires before 2026-06-23 calendar trigger); CRO BC-9 already wired to halt at 15% DD"
+  - scenario: "≥30 consecutive regime-inactive days for Bet #1 with Sharpe <0.40 (pre-declared retirement trigger)"
+    probability: 0.15
+    action: "Retire Bet #1 immediately on auto_retire_on_trigger fire (already machine-checkable per pre-flight item 6); vol_target_carry continues solo; reassess north-star feasibility with single-strategy paper book"
+
+q4-no-vol-scaling-ablation-status: "Scoped (n_trades≥30, multi-regime OOS, not OOS-2022-only) but NOT pre-registered or scheduled. Binding constraint is n_trades≥30 per R6 → ~18-30 months OOS data on USDJPY daily bars. SE-stabilization needs N≥50 daily bars for ±0.30 95% CI. Plan: defer to Wave-9+ post paper-launch consolidation; NOT on critical path for 2026-07-21 north-star (it is mechanism-of-alpha research, not alpha-existence research)."
+
+q5-strong-only-7-confidence: borderline
+q5-rationale: "STRONG-rejection density 7/35 = 0.20 is above pure-noise baseline (0.05) but below a robust multi-testing-corrected pipeline target (0.30-0.40); combined with vol_target_carry DSR sketch 0.4-0.6 the implied probability-true-alpha is 60-75%, not the 95%+ a STRONG-only 10/10 would deliver — the carry edge survives multiple-testing correction at the level of 'plausibly real, noise-blurred' rather than 'robustly demonstrated.'"

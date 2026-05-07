@@ -1,0 +1,88 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve
+timestamp: 2026-04-26T20:35:00Z
+subtask_ref: WA-01 three-way week-ahead dispatch decision
+confidence: high
+
+evidence:
+  - "PM acceptance-criteria.yaml WA-01: three-way decision required, P3-P6 explicitly assessed."
+  - ".fintech-org/trials.jsonl: 14 lines (single-strategy family — all vol_target_carry)."
+  - "docs/design/path_b_multi_strategy_competition.md §10: 'DISPATCH AFTER TRACKS 5 AND 6 LAND' — design doc itself recommends not-now."
+  - "Path B P-status: P1✓ P2✓ P3✗ (CRO redacted snapshot lines 139-142; depends on PRE-01) P4 partial(14/25) P5 missing P6 not built."
+  - "Bet #2 universe verified: data/processed/USDJPY_4h.parquet, EURUSD_4h.parquet, GBPUSD_4h.parquet exist; no other 4H pairs available."
+  - "Bet #3 universe = 11 non-USDJPY daily; Bonferroni denominator 14+11=25 if all 11 dispatched as separate trials."
+  - "Bet#1 ruling (companion artifact): conditional-pass with CF-T9 — Bet #1 effectively continues but is regime-flagged."
+
+assumptions:
+  - "PRE-01 (SIM flat) clears by 22:00Z OR fresh ops-engineer artifact confirms. If neither, dispatch branches per pre3_failure_handling."
+  - "Bet #2 counted as 3 within-family entries (per-pair tested independently with universe-level aggregation)."
+  - "4H parquet quality comparable to daily; ROUTE_TO data team to confirm."
+
+dispatch-pick:
+  pick:
+    name: "Bet #2 — 4H TAS-ceiling on USDJPY/EURUSD/GBPUSD"
+    rationale: |
+      Three independent reasons:
+      (1) PATH-DEPENDENT TRUST IN HARNESS — harness was rebuilt this week. Right next move: throw a SECOND, structurally-different strategy at it. Bet #2 (4H, mean-reversion, narrow universe) is maximally orthogonal to Bet #1 (daily, cross-sectional, carry-direction). If it clears, harness is proven on TWO independent strategy families.
+      (2) BONFERRONI HEAD-ROOM — Bet #2 adds at most 1-3 family entries; Bet #3 adds 11. Cheaper-Bonferroni first.
+      (3) PATH B PREREQUISITE GAP — Path B's P2 currently lists carry_fred (now regime-conditional). A second harness-cleared strategy from a structurally-different family materially strengthens P2.
+    dispatch_shape: "3 trial registrations (one per pair), pre-registered as ONE family with universe-level hypothesis, primary metric = equal-weighted portfolio Sharpe across 3 pairs, gate threshold = 0.30, Bonferroni-corrected per-pair = 0.05/14 = 0.0036 (within-family, not new-family)."
+
+  runner_up:
+    name: "Bet #3 — vol-target on 11 non-USDJPY pairs with Bonferroni"
+    deferral_rationale: |
+      (a) Bonferroni deflation: 11 trials → N=25; per-trial α drops to 0.002. Bet #2 first → smaller hit (14→17), Bet #3 next → 17→28.
+      (b) carry_fred's regime concentration is informative: CF-T9 says JPY-cross basket carries the lift. Bet #3 EXCLUDES USDJPY and includes 6 non-JPY-cross pairs. If carry edge is JPY-cross-concentrated, Bet #3 has material a-priori probability of failing.
+      (c) Operational: harness was last stressed at 1 simultaneous trial. Better 3 (Bet #2) first, then 11.
+    eta_dispatch: "week +2 (after Bet #2 reports out, ~5 trading days)."
+
+  third:
+    name: "Path B — multi-strategy paper competition"
+    deferral_rationale: |
+      Design doc §10 recommends not-now and binds firm to "veto rule: if ANY of P1-P6 missing at dispatch time, this design is rejected. No 'we'll fix it in milestone 1' carve-out." Three prereqs missing.
+      Concurrent unblocking work in PARALLEL with Bet #2 (zero HoQR-bandwidth cost):
+        - P4 backfill trial registry (CTO C-class, not HoQR)
+        - P5 implement equivalence-test pre-commit hook (quant-developer ~2 sessions)
+        - P6 implement per-strategy KillSwitch (quant-developer ~2 sessions)
+      P3 is upstream-dependent on PRE-01.
+    eta_dispatch: "week +3..+4 (after P3-P6 all clear AND Bet #2 + Bet #3 reports out)."
+
+  pre3_failure_handling:
+    if_PRE_01_fails_by_2026_04_26T22_00Z: |
+      Bet #2 dispatch UNAFFECTED — backtest-only research dispatch this week, does not require flat SIM book.
+      Path B remains BLOCKED on PRE-01 → P3 chain.
+      Changes if PRE-01 fails:
+        - HoQR escalates orphan-position remediation to CRO + CTO joint priority for next-week's first slot.
+        - CF-T9 monitor deployment for carry_fred inherits same blocker.
+        - Path B dispatch ETA slips one further week.
+      Hard line: HoQR will NOT approve any paper enrollment (Bet #1, Bet #2 promotion, Path B) onto a non-flat SIM book.
+
+  bonferroni_accounting:
+    current_family_N: 14
+    new_family_N_after_bet2_dispatch: 17
+    bet2_per_pair_threshold: "p < 0.05/17 = 0.0029"
+    bet2_universe_threshold: "Sharpe ≥ 0.30 net of costs on equal-weighted portfolio"
+    if_bet3_dispatched_at_week_plus_2: "N goes 17→28; per-pair = 0.05/28 = 0.0018"
+    note: "If NHT adopts stricter denominator (per Lopez-de-Prado), effective N is materially higher. HoQR DEFERS to NHT WA-02 ruling."
+
+retirement-criteria:
+  - {id: BET2-T1, condition: "OOS portfolio Sharpe (equal-weighted USDJPY+EURUSD+GBPUSD 4H) < 0.30 net of costs on pre-registered OOS holdout", action: "Retire family"}
+  - {id: BET2-T2, condition: "≥2 of 3 per-pair Sharpes negative on OOS", action: "Retire — TAS-ceiling not robust across G3 majors"}
+  - {id: BET2-T3, condition: "Doubling measured 4H costs reduces in-sample Sharpe below 0.20", action: "Retire — too thin to survive cost estimation error"}
+  - {id: BET2-T4, condition: "Engine output diverges from canonical reference script Sharpe-Δ > 0.10 OR correlation < 0.95", action: "HARD RETIRE per PROCESS-G1"}
+  - {id: BET2-T5, condition: "OOS per-pair Sharpe distribution does not differ from zero (one-sample t p > 0.10)", action: "Retire"}
+  - {id: BET2-T6, condition: "Average trade-holding-period < 6 4H bars (≤1 trading day)", action: "Retire — TAS-ceiling predicts multi-day hold; sub-day-hold falsifies mechanism"}
+
+knowledge_gaps:
+  - "TAS-ceiling pre-registration document not located in references/pre-registrations/. ROUTE_TO quant-researcher to author/locate before dispatch (binding: dispatch conditional on pre-reg artifact existing)."
+  - "BoJ rate observation operationalization (CF-T9 monitor) — ROUTE_TO ops-engineer."
+  - "4H data quality validation — ROUTE_TO data team / quant-developer."
+  - "NHT denominator ruling for WA-02 — Bonferroni numbers assume official 14; NHT may force stricter accounting."
+
+policy_violations_detected: []
+
+body: |
+  Bet #2 dispatched (HoQR-owned, ~5 trading days backtest + gate eval). Bet #1 paper-enrollment ready (waits on CF-T9 monitor + PRE-01). Bet #3 queued for week +2. Path B M1 (per-strategy KillSwitch) and P5 (pre-commit hook) proceed in PARALLEL — CTO/quant-developer-owned, zero HoQR research-bandwidth cost.
+
+  HoQR's strongest conviction is the ORDERING. Reordering to dispatch Path B now would recreate the vol_target_carry "registered ≠ validated" anti-pattern at scale. HoQR vetoes that reordering preemptively (authority: research-direction-unlikely-to-produce-capacity).

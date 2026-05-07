@@ -1,0 +1,60 @@
+---
+# CRO-redacted variant of Wave-6 acceptance-criteria
+# Per spawn-agent.md step 5: CRO receives ONLY structured fields.
+# Excluded: task-statement, body, assumptions, evidence narrative, roles-staffed rationale prose.
+
+role: pm
+artifact_type: acceptance-criteria-redacted-for-cro
+deliverable-type: spec-completion
+deadline: "2026-05-04T00:00:00Z"
+
+instrument-universe:
+  - USDJPY
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - NZDJPY
+
+hard-constraints:
+  no-live-capital: true
+  paper-only: true
+  no-paper-loop-start-by-orchestrator: true
+  preserve-CONSENSUS-2026-05-02-NHT-binding-conditions: true
+  no-backtest-tasks: true
+  no-new-strategy-registration: true
+  no-consensus-modification: true
+  no-live-trading-authorization: true
+
+# CRO scope items (structured field selection from full criteria list)
+cro-scope-items:
+  - item: 4
+    text: "exposure_aggregator.check_dispatch_allowed pre-trade gate active; JPY-correlated cap 15% enforced (BC-8)"
+    verification-evidence-required:
+      - "CRO reads `src/forex_system/risk/exposure_aggregator.py` and confirms `check_dispatch_allowed` is present and enforces the 15% JPY-correlated cap."
+      - "CRO confirms the cap value is not hardcoded as a magic number but sourced from config or a named constant."
+      - "Wiring evidence (QD-provided): `check_dispatch_allowed` is called in the actual trade dispatch path in `scripts/run_paper_trading_vt.py` and/or `scripts/run_paper_trading_carry_fred.py`."
+
+  - item: 5
+    text: "Bet #1 size_multiplier source verified to reach the actual trade-sizing code path (not just available as a helper function)"
+    status: "CLOSED via commit 6a5f5f9 (Gap C). CRO performs independent re-verification."
+    verification-evidence-required:
+      - "CRO confirms the 0.0/0.25 regime-conditional values from `src/forex_system/risk/bet1_sizing.py` reach the trade-sizing call in `scripts/run_paper_trading_carry_fred.py` (not imported-but-unused)."
+      - "CRO confirms BC-1 (regime-inactive 0.0) and CRO Wave-4 binding sizing constraint are honored verbatim in code."
+
+# Portfolio-state-snapshot (no live positions; pre-launch)
+portfolio-state-snapshot: "PRE-LAUNCH (no live or paper positions exist; first paper bar pending CEO authorization)"
+
+# CRO firm-level binding constraints to verify wiring of (BC-1 through BC-8 from CONSENSUS_2026-05-02 Section 6 — CRO already authored these)
+binding-constraints-for-verification:
+  - "BC-1: Bet #1 size_multiplier 0.0 regime-inactive / 0.25 regime-active"
+  - "BC-2: vol_target_carry full Phase-1 sizing"
+  - "BC-3: CF-T9 monitor data freshness ≤ 300s"
+  - "BC-4: CF-T9 cold-start gate (≥10 readings, both states observed)"
+  - "BC-5: drawdown ladder 10% halt-new / 15% reduce / 20% full halt"
+  - "BC-6: max 4 active paper strategies; max 36 trials in 12-week horizon"
+  - "BC-7: heartbeat watchdog 300s timeout"
+  - "BC-8: exposure aggregator JPY-correlated cap 15%"
+
+sources: []
+web_research_conducted: false
+no-capital-instruction: true

@@ -1,0 +1,73 @@
+role: null-hypothesis-tester
+artifact_type: re-verification
+decision: dissent-lifted
+timestamp: "2026-05-03T11:35:00Z"
+subtask_ref: "Wave-7 re-verification of item 2 cold-start gate after QD fix"
+subtask_id: wave7-nht-1
+evidence:
+  - "scripts/monitor_regime_triggers.py:263-275 — all 4 BC-4 keys emitted in output payload; state file read-modify-write implemented with json.loads/write_text cycle"
+  - "scripts/monitor_regime_triggers.py:290-297 — return dict includes regime_active, n_readings, seen_regime_active_true, seen_regime_active_false (all 4 BC-4 keys present at top level)"
+  - "tests/scripts/test_cf_t9_monitor.py:235-262 — TestBC4PersistentCounter.test_bc4_counter_and_sticky_flags asserts: n_readings==1 on first call, n_readings==2 on second call (monotonic), seen_regime_active_true sticky across regime flip, seen_regime_active_false set on inactive tick, all 4 keys present in both records"
+  - "pytest tests/scripts/test_cf_t9_monitor.py -v: 14 passed in 0.13s (0 failed)"
+  - "two-invocation evidence: covered by TestBC4PersistentCounter; Python harness step skipped as test already exercises the exact two-call pattern with tmp_path state file"
+assumptions:
+  - "QD fix in commits on current main branch is what is on disk now (read directly from files; not QD's narrative)"
+  - "Sacred test no_lookahead untouched — not in NHT scope this round"
+  - "Consumer read path at bet1_sizing.py:184-187 uses payload.get() with False defaults; type coercion via bool() and int() applied before gate checks"
+confidence: high
+body: |
+  All four BC-4 keys (regime_active, n_readings, seen_regime_active_true, seen_regime_active_false)
+  are present in the return dict of evaluate_cf_t9() at lines 291-297 of monitor_regime_triggers.py.
+  The state file implements a full read-modify-write cycle: on each invocation, n_readings increments
+  unconditionally, seen_regime_active_true is set True and never cleared when regime_active is True,
+  and seen_regime_active_false is set True and never cleared when regime_active is False. The state
+  defaults to {n_readings: 0, seen_seen_regime_active_true: False, seen_regime_active_false: False}
+  on first run or on state-file corruption/deletion.
+
+  Adversarial question answers:
+  A. Persistence (file deleted): YES, counter resets to 0. Lines 266-268 show the default state
+     is used when state_path does not exist or is unreadable. This is expected behavior; it means
+     a deleted state file restarts the cold-start gate from zero, which is the safe direction
+     (fail-closed, not fail-open).
+  B. Monotonicity (n_readings going DOWN): NO. Line 269 is an unconditional increment on the in-
+     memory state loaded from file; there is no decrement path in the code.
+  C. Stickiness (seen_state reset to false): NO code path in the producer resets seen_regime_active_true
+     or seen_regime_active_false to False once set. The only way to lose stickiness is file deletion
+     (answered in A above), which restarts the gate from scratch — fail-closed.
+  D. Concurrent-write: two overlapping cron ticks would cause a last-write-wins race. Both ticks
+     read the same state, both increment from the same n_readings, and the later write_text call
+     overwrites the earlier. The result is n_readings increments by 1 instead of 2 — a missed
+     count. This is a known class of race for file-based state; it does not cause
+     seen_state to flip back to False, so it is an undercounting issue rather than a safety hazard.
+     The cold-start gate (n_readings >= 10) makes an occasional missed count benign.
+  E. Schema/type-validation in consumer: YES in practice, NO formally. bet1_sizing.py:184-187 uses
+     payload.get() with safe defaults and bool()/int() coercion — not a schema validator. Missing
+     keys default to False/0 (fail-safe). There is no jsonschema or Pydantic validation.
+  F. Original adversarial "10 same-state readings": STILL REJECTED. The consumer at bet1_sizing.py:
+     213-222 checks both_states = seen_true AND seen_false. Ten readings all with regime_active=True
+     would set seen_regime_active_true=True but seen_regime_active_false would remain False.
+     both_states would be False and the cold-start gate would block. This is correctly handled.
+
+  Summary: the original dissent (BC-4 keys absent from producer output) is fully resolved. The
+  producer now emits all four keys and persists state across invocations. The consumer at
+  bet1_sizing.py:101-232 reads exactly these keys and the gate logic is correct. No new material
+  concerns were found during this re-verification.
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py (lines 263-297)"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/bet1_sizing.py (lines 101-232, constant CF_T9_MIN_REGIME_READINGS=10 at line 56)"
+  - "/Users/huangtm/Projects/forex-trading-system/tests/scripts/test_cf_t9_monitor.py (lines 232-262)"
+  - "pytest tests/scripts/test_cf_t9_monitor.py -v: 14 passed in 0.13s"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+original-dissent-resolved: true
+gate-implementation-status: implemented-and-correct
+bypass-vectors-found:
+  - "state-file deletion resets counter to 0 (fail-closed, not a bypass — trading correctly halts until 10+ readings accumulate again)"
+  - "concurrent cron ticks cause n_readings undercount by 1 per race (informational; not a safety bypass because gate threshold is 10)"
+new-findings:
+  - {finding: "No file-lock on state write (write_text is not atomic on all filesystems); concurrent cron ticks can lose one increment per race", category: future-hardening}
+  - {finding: "Consumer uses payload.get() with defaults rather than schema validation; a corrupt or truncated status file that still parses as valid JSON with wrong types would silently use defaults (False/0) rather than raising — this is fail-safe but not fail-loud", category: informational}
+does_block: false
+contamination-check: passed

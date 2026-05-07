@@ -1,0 +1,337 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: propose-acceptance-criteria
+timestamp: "2026-05-05T00:00:00Z"
+subtask_ref: wave8-high-remediation-acceptance-criteria
+subtask_id: befbabd4-c1a9-41e7-8a1a-70e776576922
+
+task-statement: >
+  Close two HIGH-priority pre-first-bar items: wire RealisticCostModel into
+  both paper loops; add account_key parity startup assertion.
+
+deliverable-type: spec-completion
+# Rationale: Wave-8 produces code AND must pass acceptance gates. "spec-completion"
+# captures the dual nature (implementation + verification gates) better than
+# "code-review", which implies a pre-existing PR is being reviewed rather than
+# new work being gated.
+
+deadline: "2026-05-08T23:59:59Z"
+
+instrument-universe:
+  - USDJPY
+
+hard-constraints:
+  paper_only: true
+  no_new_strategies: true
+  no_backtests_run: true
+  # Wave-8 is engineering remediation, not research. Trial counter must NOT increment.
+  sacred_test_must_pass: "tests/backtest/test_engine.py::test_no_lookahead"
+  total_test_count_must_not_decrease: 666
+  production_loc_budget_total: 50
+  # ~30 LoC for cost-model wiring across 2 files + ~10-20 LoC for account_key assertion;
+  # budget is tight to keep Wave-8 strictly remediation-scoped.
+  files_changed_max: 4
+  # At most: run_paper_trading_vt.py, run_paper_trading_carry_fred.py, and up to 2
+  # test files (one per HIGH item). No src/ production files should need modification.
+  policy_violation_count_must_not_increase: 0
+  ruff_new_errors_must_not_increase: true
+  # Pre-existing baseline per ASSESSMENT_2026-05-03 CTO finding: 59 F-errors across
+  # src/. Wave-8 must not introduce additional ruff errors. Existing 59 are out of
+  # scope for this wave.
+  no_paper_loop_start_by_orchestrator: true
+
+criteria:
+  - id: HIGH-1a
+    description: >
+      RealisticCostModel (or the equivalent cost-deduction primitive from
+      src/forex_system/costs/model.py) is imported and invoked in the equity-write
+      path of scripts/run_paper_trading_vt.py so that spread, slippage, commission,
+      and swap costs are deducted from paper equity on each trading cycle, making
+      the paper equity curve backtest-equivalent.
+    verification: >
+      Code review: grep or Read confirms import + invocation in run_paper_trading_vt.py
+      equity-write path (same path as the RotatingFileHandler equity-write wired in
+      Wave-7 Task B, scripts/run_paper_trading_vt.py:566-568 area).
+
+  - id: HIGH-1b
+    description: >
+      RealisticCostModel (or equivalent) is imported and invoked in the equity-write
+      path of scripts/run_paper_trading_carry_fred.py under the same equivalence
+      requirement as HIGH-1a.
+    verification: >
+      Code review: grep or Read confirms import + invocation in
+      run_paper_trading_carry_fred.py equity-write path (scripts/run_paper_trading_carry_fred.py:529-532 area,
+      the path wired in Wave-7 Task B).
+
+  - id: HIGH-1c
+    description: >
+      A unit test (or tests) verifies that a known-input cost deduction produces an
+      identical numeric result whether computed via the paper-loop call path or via
+      the backtest engine call path. Test must assert on a concrete USDJPY trade
+      tuple (price, direction, notional) against an expected cost_pips or cost_usd
+      value, not merely that "no exception was raised."
+    verification: >
+      pytest run confirms test passes; test code reviewed for specificity (concrete
+      numeric assertion, not just smoke-run).
+
+  - id: HIGH-2a
+    description: >
+      A startup account_key parity assertion exists that, when both paper-loop
+      processes (run_paper_trading_vt.py and run_paper_trading_carry_fred.py) are
+      launched, halts the process if a divergent Saxo paper account key is detected.
+      The concrete mechanism (shared state file, cross-process check, environment
+      variable comparison, or other) is to be designed by CRO + QD in Wave-2; this
+      criterion specifies the required behavioral outcome, not the implementation.
+    verification: >
+      Code review: startup assertion exists and raises or sys.exits with a clear
+      error message if account_key mismatch is detected; assertion fires before any
+      order dispatch path is reachable.
+
+  - id: HIGH-2b
+    description: >
+      A unit test simulates divergent account_keys (two processes / two invocations
+      with distinct account_key values) and asserts the parity assertion fires
+      (raises the expected exception or exits with non-zero code). The test must NOT
+      require a live Saxo connection.
+    verification: >
+      pytest run confirms test passes with a mock/stub backend; test code reviewed
+      to confirm it tests divergence, not just same-key parity.
+
+  - id: QUALITY-1
+    description: >
+      All 666 tests pass after Wave-8 changes. No new test marked xfail or skip
+      without written justification in this artifact (a comment in the test file is
+      not sufficient; the justification must appear in the QD artifact).
+    verification: >
+      pytest --no-header -q: exit 0; count reported >= 666; sacred test
+      tests/backtest/test_engine.py::test_no_lookahead explicitly confirmed PASSED.
+
+  - id: QUALITY-2
+    description: >
+      ruff check src/ does not introduce new errors beyond the pre-existing 59
+      F-errors documented in ASSESSMENT_2026-05-03 CTO finding. Wave-8 production
+      changes must not touch any file that adds to the error count.
+    verification: >
+      QD artifact reports ruff check src/ error count <= pre-Wave-8 baseline.
+      Principal Reviewer independently re-runs ruff check to confirm.
+
+  - id: QUALITY-3
+    description: >
+      policy-violations.jsonl has no new entries with timestamp >= the Wave-8 run
+      start time. The forbidden-phrases scanner must be run against all new/modified
+      files as part of QD's implementation closure artifact.
+    verification: >
+      QD artifact confirms scanner run result: zero new entries. Principal Reviewer
+      spot-checks the jsonl file timestamp range.
+
+out-of-scope:
+  - >
+    MEDIUM item 4 (constant_capital_sizing undocumented for validation run) — defer
+    to Wave-9+. Annotation work belongs with HoQR + QD jointly; not an engineering-only
+    closure.
+  - >
+    MEDIUM item 5 (fill model slippage_pips=0.0, no post-fill reconciliation at
+    execution.py:117-119) — defer to Wave-9+. Requires Saxo API research to determine
+    whether post-fill price is retrievable from the SIM response.
+  - >
+    MEDIUM item 6 (F-code count grew 24→59; ruff --fix cleanup) — defer to Wave-9+.
+    Wave-8 must not regress the count; mass auto-fix cleanup is a separate dispatch.
+  - >
+    NHT informational items: 5 re-config sweeps to force n_trades>=30; oos_window_start/end
+    REQUIRED schema amendment; strong_clean derived field in rejection records. These are
+    Wave-9+ research and schema governance items (route to HoQR + QD, not Wave-8 engineering).
+  - >
+    CEO-action items 9 and 10 (60-trading-day calendar reminder for CF-T9 Clause C;
+    launch communication with verbatim CF-T9 disclosure). Confirmed BLOCKED-CEO-action
+    from CONSENSUS_2026-05-03_wave7_closure.md Section 2. Outside engineering scope.
+  - >
+    Stale-log disposition for data/paper_trading_session.log — CEO operational action
+    per CONSENSUS_2026-05-03_wave7_closure.md Section 8(a). Engineering does not touch.
+  - >
+    Strategic early-kill trigger enumeration (3 scenarios: BoJ surprise hike, MoF
+    intervention, 30-day regime-inactive). HoQR + CRO joint design; separate dispatch.
+    Wave-8 does not create new monitoring rules or dispatch logic.
+  - >
+    Watchdog observer thread top-level exception handler (known non-blocking gap per
+    ASSESSMENT_2026-05-03 CRO section). Wave-8+ hardening item.
+  - >
+    _JPY_CORRELATED frozenset asymmetry (src/forex_system/risk/exposure_aggregator.py:46
+    — {USDJPY, GBPUSD} only). Non-binding at USDJPY-only launch; Wave-8+ before any
+    cross-JPY pair expansion.
+  - >
+    Any new strategy registration, backtest, sweep configuration, or trial
+    pre-registration. Wave-8 is engineering remediation only.
+  - >
+    Modification of CONSENSUS_2026-05-02_paper_launch_authorization.md,
+    CONSENSUS_2026-05-03_preflight_closure.md, or CONSENSUS_2026-05-03_wave7_closure.md.
+    These documents are ratified append-only history.
+  - >
+    Modification of any NHT dissent artifact. All NHT dissent artifacts are
+    append-only per Rule 6.
+
+roles-staffed:
+  - role: pm
+    rationale: >
+      Coordinator; acceptance-criteria author; CONSENSUS drafter in Wave-4;
+      signature collector across all roles. PM does NOT adjudicate technical
+      implementation choices — those are QD + CRO domain in Wave-2.
+
+  - role: quant-developer
+    rationale: >
+      Owns both HIGH-item implementations (~30 LoC cost-model wiring +
+      ~10-20 LoC account_key assertion). Receives full PM acceptance-criteria
+      plus (after Wave-2 returns) CRO + NHT structured artifacts. Python skill
+      loaded. Produces implementation-closure artifact with diff stats, pytest
+      summary, ruff check result, and forbidden-phrases scan result.
+    redacted_input: false
+
+  - role: cro
+    rationale: >
+      Risk re-verification: confirms HIGH-2 account_key parity mechanism satisfies
+      the ~15x over-exposure concern (BC-8 coverage). Designates whether the chosen
+      cross-process mechanism constitutes a durable risk control or requires
+      operational procedure supplement. Receives REDACTED PM input (deliverable-type,
+      deadline, instrument-universe, hard-constraints, out-of-scope only — no
+      task-statement, no body prose).
+    redacted_input: true
+    redacted_fields_delivered:
+      - deliverable-type
+      - deadline
+      - instrument-universe
+      - hard-constraints
+      - out-of-scope
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Adversarial review on two specific failure modes: (1) whether the cost-model
+      wiring actually achieves backtest-paper P&L parity or merely adds cost
+      logging without closing the divergence; (2) whether the account_key parity
+      gate is bypassable (e.g., via environment variable override, lazy evaluation,
+      or a path where order dispatch can be reached before the assertion runs).
+      NHT does not implement; NHT only adversarially reviews design + implementation.
+    redacted_input: false
+
+  - role: principal-reviewer
+    rationale: >
+      Wave-3 only; structurally independent code review against review-plan +
+      execution-firewall-review + log-as-decision-trace rubrics. Receives QD
+      implementation artifact + CRO + NHT artifacts from Wave-2. Does NOT receive
+      Wave-2 role outputs before Wave-2 is complete (structural independence).
+    wave: 3
+
+evidence:
+  - path: "docs/decisions/ASSESSMENT_2026-05-03.md"
+    sections:
+      - "Material risks before first paper bar (HIGH) — items 1 and 2"
+      - "Recommended next actions — rows 1 and 2 (HIGH priority)"
+      - "Per-role traffic-light table — QD YELLOW, CRO CONDITIONAL-APPROVE"
+      - "Engineering (CTO + QD) — HIGH-severity QD finding"
+  - path: "docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md"
+    sections:
+      - "Section 2 Per-Item Terminal-State Table — items 9/10 BLOCKED-CEO-action"
+      - "Section 5 QD Wave-7 diff stats (equity-write line numbers: vt.py:566-568, carry_fred.py:529-532)"
+      - "Section 6 What This Consensus Does NOT Do"
+      - "Section 8 Recommended CEO Actions"
+  - path: "src/forex_system/costs/model.py"
+    note: "RealisticCostModel confirmed at line 11; QD will reuse this class."
+  - path: "scripts/run_paper_trading_vt.py"
+    note: "account_key attribute confirmed at backend.account_key (lines 258, 363, 687, 711)."
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    note: "account_key attribute confirmed at backend.account_key (lines 249, 353, 638, 661)."
+  - path: "CLAUDE.md"
+    note: >
+      Architecture overview confirms RealisticCostModel in costs/ layer;
+      backtest engine applies it per-trade. No-lookahead invariant and sacred test
+      confirmed. Ruff line-length 100, Python 3.11 target.
+
+assumptions:
+  - >
+    src/forex_system/costs/model.py contains RealisticCostModel and it is the
+    canonical cost primitive — QD will reuse rather than reimplement. (Verified:
+    class RealisticCostModel at model.py:11.)
+  - >
+    USDJPY-only scope holds for Wave-8. No new pairs are introduced. The
+    _JPY_CORRELATED frozenset asymmetry is non-binding at USDJPY-only launch.
+  - >
+    The equity-write paths in both paper scripts (vt.py:566-568 and
+    carry_fred.py:529-532, wired in Wave-7 Task B) are the correct injection
+    points for cost deduction. CRO or QD may identify a different injection point
+    (e.g., pre-position-size vs post-fill) — if so, the design choice belongs to
+    Wave-2 and this acceptance criterion is satisfied by whatever injection point
+    QD + CRO agree achieves backtest-equivalent paper equity.
+  - >
+    The account_key parity mechanism will be designed by CRO + QD in Wave-2.
+    The PM acceptance criterion specifies behavioral outcome only (assertion fires
+    before order dispatch, halts with clear error on mismatch). Implementation
+    options (shared state file, environment variable, cross-process signal, startup
+    flag file) are QD + CRO domain and must not be prescribed here.
+  - >
+    The ruff error baseline is 59 errors as reported in ASSESSMENT_2026-05-03 CTO
+    finding. The PM's own venv invocation returned a different number (19) — this
+    discrepancy may reflect a different venv scope, ruff version, or src/ file set.
+    The authoritative pre-Wave-8 baseline for the hard-constraint is the ASSESSMENT
+    value (59). QD and Principal Reviewer must both establish the actual baseline by
+    running ruff check src/ in the project venv at the start of Wave-8 and use
+    that run-start value as the ceiling.
+  - >
+    Total test count will remain >= 666 after Wave-8 additions. New tests added
+    for HIGH-1c and HIGH-2b count toward the total; they may not be marked xfail
+    or skip without written justification in the QD artifact.
+  - >
+    Wave-8 does not start the paper loop. The hard constraint
+    no-paper-loop-start-by-orchestrator: true remains in force throughout Wave-8.
+    CEO retains exclusive authority to start the first paper bar.
+
+confidence: medium
+# Schema requires scalar (low|medium|high). Conservative pick across the two
+# axes the PM agent emitted: scope=high (HIGH items are crisply bounded — 2
+# script files, account_key attribute already present); loc_estimate=medium
+# (~40-50 LoC budget may run hot if account_key needs a shared-state module).
+# Inline schema-fix by orchestrator per rework-loop.md "fix the issue inline (small)";
+# original dict-form confidence was a single-field deviation, no domain content
+# was changed. Logged in spawns.jsonl with attempt=2 / inline-fix=true.
+
+body: >
+  Wave-8 is a targeted engineering remediation dispatch. Two HIGH-severity items
+  surfaced in ASSESSMENT_2026-05-03 must be closed before the first paper bar can
+  be authorized by the CEO:
+
+  HIGH-1 (QD lead): Wire RealisticCostModel into the equity-write path of both
+  paper-trading scripts so that paper P&L is backtest-equivalent. The current paper
+  loop absorbs costs implicitly via Saxo SIM fill prices without explicit logging,
+  causing the paper equity curve to diverge from the backtest curve over the 60-bar
+  CF-T9 Clause C window. The fix is ~30 LoC across run_paper_trading_vt.py and
+  run_paper_trading_carry_fred.py; it does not touch src/.
+
+  HIGH-2 (QD + CRO joint design): Add a startup account_key parity assertion that
+  halts the second paper-loop process if both loops detect different Saxo paper
+  accounts. Without this, combined USDJPY notional could silently reach ~225% of
+  single-account-equity vs. the 15% CRO BC-8 intent — a ~15x over-exposure. The
+  concrete mechanism (state file, env var, IPC) is a Wave-2 CRO + QD design
+  decision; the acceptance criterion specifies only the behavioral gate.
+
+  Fan-out sequence: Wave-1 (PM, this artifact) → Wave-2 parallel (QD implementation,
+  CRO risk re-verification, NHT adversarial review) → Wave-3 (Principal Reviewer
+  alone) → Wave-4 (PM CONSENSUS). CRO receives redacted input only (hard-constraints
+  + out-of-scope; no task-statement or body prose). NHT and QD receive full input.
+
+  Wave-8 does NOT start the paper loop, does NOT run backtests, does NOT register
+  new trials, and does NOT modify any ratified consensus document or NHT dissent
+  artifact.
+
+sources:
+  - "docs/decisions/ASSESSMENT_2026-05-03.md"
+  - "docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md"
+  - "src/forex_system/costs/model.py"
+  - "scripts/run_paper_trading_vt.py"
+  - "scripts/run_paper_trading_carry_fred.py"
+  - "CLAUDE.md"
+
+web_research_conducted: false
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps: []
+claimed_domains:
+  - acceptance-criteria-authoring
+  - debate-scheduling-and-bounding
+  - consensus-document-drafting

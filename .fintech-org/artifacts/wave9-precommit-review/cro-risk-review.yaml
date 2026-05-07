@@ -1,0 +1,557 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+size_multiplier: 0.5
+timestamp: 2026-05-06T22:35:00Z
+subtask_ref: wave9-precommit-review
+subtask_id: wave9-precommit-review:cro
+contamination-check: clean
+
+claimed_domains:
+  - bc8-residual-control
+  - cost-feedback-architecture
+  - kill-switch-adequacy
+  - drawdown-contract-enforcement
+  - cross-process-race-mitigation
+  - second-loop-authorization
+
+# ---------------------------------------------------------------------------
+# Required attestations (firm rules)
+# ---------------------------------------------------------------------------
+no-capital-instruction: true
+web_research_conducted: false
+sources: []
+websearch_used: 0
+webfetch_used: 0
+trial_id: null
+
+# ---------------------------------------------------------------------------
+# Binding constraints currently active (firm risk contract)
+# ---------------------------------------------------------------------------
+binding_constraints:
+  - "BC-1: regime-inactive size_multiplier = 0.0 (carry_fred only)"
+  - "BC-2: regime-active size_multiplier = 0.25 (carry_fred only)"
+  - "BC-3/BC-4/BC-5: CF-T9 heartbeat / cold-start / silence gates"
+  - "BC-8: aggregate JPY-correlated cap 15% — RESIDUAL RACE NOT ELIMINATED"
+  - "DD-1: paper-equity DD ≥ 10% halt-new-dispatch"
+  - "DD-2: paper-equity DD ≥ 15% sizing × 0.5"
+  - "DD-3: paper-equity DD ≥ 20% full halt"
+  - "Kill-switch: 2% daily-loss + 3-strike fetch-failure + reconciliation-mismatch"
+  - "Watchdog: 300s heartbeat timeout → halt new dispatch"
+  - "F-001: cost formula must apply to engine-units before deducting from equity-log"
+
+regime_flags:
+  - "BoJ-divergence-regime: dispatch-time evaluated each cycle via regime_active_status()"
+  - "CF-T9 cold-start gate: requires both TRUE and FALSE observations + ≥10 readings before first trade"
+  - "Drawdown ladder: NORMAL / HALT_NEW_DISPATCH / REDUCE_SIZING / FULL_HALT"
+
+blowup-analog: |
+  Knight Capital 2012 (kill-switch design failure mode applied here):
+  the residual cross-process race window described in #1 below is structurally
+  similar to the deploy-time dormant-code reactivation that escaped Knight's
+  pre-trade controls. Both share the property that the control surface is
+  CORRECT under single-process invariants and PERMEABLE when a second concurrent
+  actor is introduced. Magnitude is bounded here (paper, ~24-30% transient
+  exposure vs aggregate cap of 15%) but the structural lesson is identical:
+  pre-trade controls that assume single-actor semantics fail open under multi-
+  actor concurrency.
+
+# ===========================================================================
+# Subtask 1: BC-8 residual control
+# ===========================================================================
+bc8_residual_control:
+  finding: PARTIAL — STARTUP-TIME GATE PRESENT; PER-CYCLE RACE NOT ELIMINATED
+  per_strategy_7_5pct_budget_tickets:
+    present: false
+    evidence: "no per-strategy ticket logic in either run_paper_trading_*.py"
+  cross_process_advisory_file_lock_wrapping_read_check_dispatch:
+    present: false
+    evidence: |
+      The atomic O_CREAT|O_EXCL lock at run_paper_trading_carry_fred.py:121-172
+      and run_paper_trading_vt.py:106-157 is a STARTUP-TIME ACCOUNT-KEY PARITY
+      GATE, NOT a per-cycle dispatch lock. It runs ONCE at process start (called
+      from main() at line 778 / 842 respectively). The critical section
+      [get_positions → compute_exposure → check_dispatch_allowed → execute_signal]
+      at run_paper_trading_carry_fred.py:515-540, 687-716 and
+      run_paper_trading_vt.py:535-566, 734-765 is NOT wrapped in any cross-
+      process lock. Two loops sharing the same account_key (which the parity
+      gate enforces) can each independently call check_dispatch_allowed() with
+      stale exposure snapshots and race to execute_signal().
+  permits_24_30pct_transient_exposure: true
+  rationale: |
+    Both loops apply check_dispatch_allowed against `_exposure` computed from
+    backend.get_positions() at the head of run_cycle. If carry_fred's cycle
+    reads positions at T0 (sees 14% JPY exposure, gate passes), vt's cycle
+    reads positions at T0+epsilon (also sees 14% JPY exposure, gate passes),
+    and both then dispatch, both new positions can land — landing aggregate
+    notional well above 15%. The exposure_aggregator does not know the OTHER
+    loop is in flight because there is no shared state mutex between them.
+  verdict: BC-8 cap is not Knight-class permeable (it has fence at startup),
+           but it remains permeable on the per-cycle path. Second-loop
+           authorization REMAINS BLOCKED until either option-A (per-strategy
+           7.5% budget tickets) or option-B (cross-process advisory file-lock
+           around the per-cycle [read_positions → check_exposure →
+           execute_signal] critical section) is implemented.
+
+# ===========================================================================
+# Subtask 2: Cost-feedback architecture position
+# ===========================================================================
+cost_feedback_architecture:
+  position: LOG-ONLY ARCHITECTURE IS CORRECTLY IMPLEMENTED
+  evidence:
+    - "run_paper_trading_vt.py:484 — kill_switch.check_and_trigger(equity) with raw broker equity"
+    - "run_paper_trading_vt.py:498 — dd_contract.assess(equity) with raw broker equity"
+    - "run_paper_trading_vt.py:710 — paper_equity_bt_equiv = equity - cost_usd + swap_usd is WRITTEN to equity log file only, NEVER fed back into kill_switch or dd_contract"
+    - "run_paper_trading_carry_fred.py:473 — kill_switch.check_and_trigger(equity) with raw broker equity"
+    - "run_paper_trading_carry_fred.py:481 — dd_contract.assess(equity) with raw broker equity"
+    - "run_paper_trading_carry_fred.py:665 — paper_equity_bt_equiv written to log only"
+  cro_recommendation_restatement: |
+    The log-only architecture is the correct architecture. Risk primitives
+    (KillSwitch daily-loss trigger; DrawdownContract peak-tracking and ladder)
+    MUST trigger off the broker's reported equity, NOT off cost-adjusted equity.
+
+    Rationale (recursive trigger surface):
+      1. The broker's reported equity is the GROUND TRUTH for what we own,
+         what we owe, and what is at risk on the firm's account. It is the
+         number that matters in a real margin call or recovery scenario.
+      2. paper_equity_bt_equiv = equity - cost_usd + swap_usd is a synthetic
+         construct used for backtest-equivalence reporting. It depends on the
+         RealisticCostModel's per-pair spread/swap parameters being correct.
+      3. If risk primitives triggered off paper_equity_bt_equiv:
+         (a) An incorrect cost-model parameter directly shifts the trigger
+             surface — a bug in the cost model becomes a bug in the risk
+             halt logic. The cost model becomes load-bearing for safety.
+         (b) The trigger fires on a number that does not exist on the broker
+             account. In an incident, when an operator queries the broker
+             and sees equity X but the system halted on equity X-Y, the
+             post-mortem is "the system halted but the broker says we still
+             have full equity." This is exactly the scenario where operators
+             override the kill switch ("clearly a bug; reset and continue")
+             and re-enable a system that should remain halted.
+         (c) The drawdown ladder (10/15/20%) was sized against PEAK-TO-TROUGH
+             of the actual book. If peak is computed on cost-adjusted equity,
+             peak diverges from broker peak by accumulated cost drift; the
+             10% threshold no longer corresponds to what was pre-registered.
+      4. NHT NEW-2 disagreement surface (cost-adjusted equity into risk
+         primitives) recreates exactly this surface area. Logging is the
+         right place for the cost-adjusted view: it makes the comparison
+         visible to research without making it load-bearing for safety.
+  disagreement_with_NHT_NEW_2: |
+    PRESERVED. The CRO log-only architecture stands. The cost-adjusted equity
+    view is correctly written to data/paper_trading_session.log as an audit
+    record (not as a control input). NHT NEW-2 disagreement is preserved as
+    a NHT dissent artifact per agent-accountability rules; it is informational
+    here, not blocking.
+
+# ===========================================================================
+# Subtask 3: Kill-switch design rubric (kill-switch-design SKILL applied)
+# ===========================================================================
+kill_switch_rubric:
+  property_1_out_of_band:
+    status: PASS WITH GAP
+    evidence: |
+      The kill switch is in-process (KillSwitch dataclass at
+      src/forex_system/risk/kill_switch.py:94-403). It does NOT depend on
+      Saxo's network for activation: trigger conditions are evaluated
+      locally and the audit-log is on local disk. HOWEVER, the in-process
+      design means a hung process cannot self-halt — that responsibility
+      delegates to HeartbeatWatchdog (300s timeout) which calls
+      halt_paper_loop() in the SAME process. If the process is wedged at
+      the OS level (kernel I/O block), neither fires. There is no external
+      watchdog or external master-kill.
+    finding: PARTIAL — out-of-band relative to Saxo, NOT relative to the
+             python process itself.
+  property_2_operable_by_junior:
+    status: FAIL
+    finding: |
+      Operator path to halt: SIGINT (Ctrl+C) on the running process, or
+      KILL_SWITCH_FORCE_RESET=1 to start it. There is no big-red-button,
+      no halt-by-touching-a-file, no halt-via-API, no documented one-
+      command halt flow. A junior operator at 14:03 facing a runaway
+      paper loop would need to find the PID, send SIGINT, verify the
+      process exited, and confirm positions are flat. "Find the PID"
+      is a runbook step, not a one-button operation. Documented operator
+      flow is also missing for the case where the loop is detached (nohup,
+      systemd, supervisor).
+    severity: HIGH for live; MEDIUM for paper (no real money at stake)
+  property_3_known_sla:
+    status: FAIL
+    finding: |
+      No declared SLA for time-to-stop. KillSwitch.trigger() is synchronous
+      and idempotent; backend.flatten_all() is called immediately, but no
+      measured p99 time-to-flatten exists in the test corpus or audit log.
+      "Stops when it stops" pattern.
+    severity: HIGH for live; LOW for paper
+  property_4_tested_in_prod:
+    status: FAIL
+    finding: |
+      No record in .fintech-org/kill-switch-tests.jsonl (file does not
+      exist). Kill switch has unit-test coverage but has not been exercised
+      against a live Saxo session. No --self-test flag exists. No scheduled
+      test on the org calendar.
+    severity: BLOCKER for live; HIGH for paper
+  property_5_observable_attributable:
+    status: PASS
+    evidence: |
+      KillSwitch.trigger writes a structured JSON-line audit entry
+      (src/forex_system/risk/kill_switch.py:307-319) including timestamp,
+      reason enum, detail, equity_at_trigger, previous_state, new_state.
+      The audit log is the resumption gate (KillSwitch refuses to start
+      if last entry is HALTED unless KILL_SWITCH_FORCE_RESET=1 is set,
+      lines 157-206). This satisfies log-as-decision-trace requirements
+      for kill-switch invocations.
+  minimum_set_completeness:
+    a_master_kill: ABSENT (no firm-wide single-trigger halt)
+    b_per_strategy_kill: PRESENT (KillSwitch has strategy_id parameter; per-
+                          strategy audit-log namespacing at lines 153-154)
+    c_per_venue_kill: ABSENT (no Saxo-specific halt distinct from process exit)
+    d_pretrade_rate_notional_caps: PARTIAL
+      detail: |
+        check_dispatch_allowed enforces JPY-correlated 15%, active-strategies 4,
+        concurrent-positions 6 (CRO_MAX_CORRELATED_PCT etc.). NO max-order-rate
+        cap, NO max-notional-per-minute cap. A signal-flapping loop could
+        dispatch many rebalances in quick succession and the dispatch gate
+        would not cap rate of change.
+    e_dead_man_switch: PRESENT (HeartbeatWatchdog 300s timeout →
+                       halt_paper_loop). Watchdog is in-process, so this
+                       is a soft dead-man not a hard one (see Property 1).
+  knight_test_result: FAIL
+    gap: |
+      A junior at 14:03 cannot halt the running paper loop without finding
+      the PID. There is no big-red-button, no shared-file flag, no API
+      endpoint. In the Knight scenario where a deploy reactivates dormant
+      code at 09:25 ET, the runaway is paper-only here so blast-radius
+      is bounded, but the OPERATIONAL pattern of "find PID → kill" is the
+      same pattern that fails in a live emergency. This is the core
+      operational gap.
+  rubric_decision_for_paper: APPROVE-WITH-CONDITIONS
+  rubric_decision_for_live: REJECT (do NOT promote this kill-switch design
+                                    to a live-capital path; the gaps in
+                                    properties 2, 3, 4 are blockers)
+
+# ===========================================================================
+# Subtask 4: Forbidden-phrases scan
+# ===========================================================================
+forbidden_phrases_scan:
+  config: /Users/huangtm/Projects/forex-trading-system/.fintech-org/forbidden-phrases.json
+  group_a:
+    scripts/run_paper_trading_carry_fred.py: { match_count: 0, matches: [] }
+    scripts/run_paper_trading_vt.py: { match_count: 0, matches: [] }
+    scripts/monitor_regime_triggers.py: { match_count: 0, matches: [] }
+  group_c:
+    scripts/buy_and_hold_baseline.py: { match_count: 0, matches: [] }
+    scripts/buy_and_hold_sharpe.py: { match_count: 0, matches: [] }
+    scripts/characterize_drawdowns.py: { match_count: 0, matches: [] }
+    scripts/diagnose_carry_momentum.py: { match_count: 0, matches: [] }
+    scripts/long_only_carry_redesign.py: { match_count: 0, matches: [] }
+    scripts/run_phase1_revalidate.py: { match_count: 0, matches: [] }
+    scripts/vol_target_portfolio.py: { match_count: 0, matches: [] }
+    scripts/vol_targeting.py: { match_count: 0, matches: [] }
+  result: ALL CLEAN — no live-capital phrase matches across 11 files.
+  policy_violation_detected: false
+
+# ===========================================================================
+# Subtask 5: Drawdown contract enforcement
+# ===========================================================================
+drawdown_contract_enforcement:
+  is_machine_checkable: true
+  evidence: |
+    DrawdownContract at src/forex_system/risk/drawdown_contract.py:76-216
+    is a runtime class with assess() returning a DrawdownAssessment frozen
+    dataclass. Threshold validation in __post_init__ rejects bad ladders.
+    Both paper loops instantiate it ONCE in main() with explicit thresholds
+    (run_paper_trading_carry_fred.py:800-804, run_paper_trading_vt.py:864-868).
+    The cycle path queries dd_contract.assess(equity) and acts on the
+    returned level (run_paper_trading_carry_fred.py:481-512,
+    run_paper_trading_vt.py:498-533).
+  triggers_on_realized_drawdown_breach: true
+  triggers_on_cost_adjusted_equity: false
+  evidence_correct_input: |
+    Line 481 (cf) and 498 (vt) pass the raw broker equity. cost_usd / swap_usd
+    are computed and written to the equity log AFTER the dd assessment, never
+    fed back into dd_contract. peak_equity is therefore tracked in broker
+    equity terms — consistent with the pre-registered ladder thresholds and
+    with the log-only architecture position above.
+  verdict: CORRECT. Drawdown contract triggers on realized broker peak-to-
+           trough drawdown, not on cost-adjusted equity. NHT NEW-2 disagreement
+           surface NOT triggered by current code.
+
+# ===========================================================================
+# Subtask 6: Cross-system blast radius (incident-command-trading lens)
+# ===========================================================================
+blast_radius_if_bc8_race_fires:
+  scenario: |
+    Carry-fred loop and vt loop both running on the same Saxo paper account.
+    Both pass account-key parity gate at startup. carry_fred enters cycle
+    at T0, calls backend.get_positions(), sees JPY exposure 14%, gate
+    passes, computes target_units. Concurrently, vt loop at T0+50ms calls
+    backend.get_positions(), sees the same 14% JPY exposure (carry_fred
+    has not yet dispatched), gate passes, computes its own target_units.
+    Both call backend.execute_signal() in rapid succession. Both fills land.
+    Aggregate JPY-correlated exposure transient peak: ~24-30% (carry_fred's
+    intended ~7.5% post-haircut + vt's intended target, unconstrained
+    together). Exposure exceeds BC-8 cap by ~9-15 percentage points until
+    the next cycle re-evaluates and one of the loops trims.
+  blast_radius:
+    immediate: |
+      Paper account only — NO REAL CAPITAL AT RISK. The blast radius is:
+      (a) regulatory/audit cleanliness: paper run shows aggregate exposure
+          breach in audit logs, which contaminates the validation evidence
+          for subsequent live consideration;
+      (b) trial-counter pollution: the breach window will appear in equity
+          curve / monthly-return analyses, and any DSR-based promotion gate
+          will need to filter or annotate it;
+      (c) loss of confidence in the BC-8 control by stakeholders observing
+          the breach in production data.
+    delayed: |
+      If the same code architecture is later promoted toward live capital
+      (which would require a separate CONSENSUS), this race becomes a
+      Knight-class control failure mode in a live context. The blast
+      radius scales with leverage_cap and account size. This is why the
+      gap MUST be closed before any live consideration.
+  recovery_path: |
+    1. Detect: post-cycle reconciliation (already wired via
+       backend.reconcile() at lines 672-677 / 718-724) shows aggregate
+       JPY exposure > 15%. The dispatch gate on the NEXT cycle will block
+       all new dispatch on both loops (jpy_correlated_pct > 0.15
+       triggers AggregationGateBlocked). Existing positions are held
+       (per CRO 2026-04-30 hold-not-flatten policy).
+    2. Diagnose: operator inspects ws01_trace.log + ws02_trace.log audit
+       lines to determine which loop dispatched second. Compute the
+       window length where exposure was over the cap.
+    3. Trim: operator manually closes one loop's excess position (NOT
+       auto-flattened) to bring aggregate within 15%. The dispatch gate
+       re-opens automatically.
+    4. Postmortem: file the breach as a BC-8 confirmed-race incident.
+       Promote either option-A or option-B residual control to mainline
+       before re-authorizing concurrent loops.
+  containment_quality: |
+    Containment is SOFT: it relies on the next cycle's gate evaluation
+    (worst case 1800s = 30 min) and on operator action. There is NO
+    automated trim or fast-cancel. The watchdog 300s timeout will not
+    fire because both loops are responsive. The 2% daily-loss kill switch
+    will not fire because the breach is in EXPOSURE, not in P&L. This is
+    the rationale for blocking second-loop authorization until the residual
+    control is in place: the existing controls do not cover the failure
+    mode that BC-8 was meant to cover.
+
+# ===========================================================================
+# Per-file-group verdicts (PM acceptance-criteria mapping)
+# ===========================================================================
+per_file_group_verdicts:
+  group_a_paper_loop_scripts:
+    files:
+      - scripts/run_paper_trading_carry_fred.py
+      - scripts/run_paper_trading_vt.py
+      - scripts/monitor_regime_triggers.py
+    verdict: COMMIT-AS-IS
+    rationale: |
+      The Wave-7 + Wave-8 remediation work in these files (account-key
+      parity gate, drawdown contract wiring, BC-2 sizing, CF-T9 gating,
+      WS-01/WS-02 audit-trail emit at every cycle exit, swap-accrual fix,
+      rebalance-delta cost fix) is correctly implemented and matches CRO
+      binding constraints. F-001 cost formula is applied via _COST_MODEL
+      (RealisticCostModel) with engine-units fix; cost-feedback architecture
+      is correctly log-only. Forbidden-phrases scan: clean. These files
+      are ready to commit as the foundation; THE GAPS are operational
+      (kill-switch property 2/3/4 + BC-8 residual race), not code-quality
+      issues with the files themselves.
+  group_b_risk_primitives:
+    files:
+      - src/forex_system/risk/kill_switch.py
+      - src/forex_system/risk/drawdown_contract.py
+      - src/forex_system/risk/exposure_aggregator.py
+      - src/forex_system/risk/heartbeat_watchdog.py
+      - src/forex_system/risk/bet1_sizing.py
+    verdict: NOT-IN-WAVE9-SCOPE (already committed in prior waves; reviewed for
+                                 architectural consistency only)
+    rationale: |
+      The risk primitives are committed and tested. Architectural review
+      confirms they take RAW BROKER EQUITY as the trigger surface (correct
+      log-only architecture). No changes needed for Wave-9 commit.
+  group_c_research_scripts:
+    files:
+      - scripts/buy_and_hold_baseline.py
+      - scripts/buy_and_hold_sharpe.py
+      - scripts/characterize_drawdowns.py
+      - scripts/diagnose_carry_momentum.py
+      - scripts/long_only_carry_redesign.py
+      - scripts/run_phase1_revalidate.py
+      - scripts/vol_target_portfolio.py
+      - scripts/vol_targeting.py
+    verdict: COMMIT-AS-IS (forbidden-phrases scan only — no risk-architecture
+                           review on research scripts)
+    rationale: |
+      All 8 files clean on forbidden-phrases. CRO does not perform
+      research-quality review on these scripts (that is HoQR's lane).
+      Triage status: triage-only PASS.
+  group_d_governance_artifacts:
+    verdict: NOT-IN-CRO-SCOPE
+    rationale: PM owns the consensus / handoff artifacts.
+  group_e_tests_and_misc:
+    verdict: NOT-IN-CRO-SCOPE
+    rationale: CTO owns test-quality gates.
+
+# ===========================================================================
+# Second-loop authorization
+# ===========================================================================
+second_loop_authorization:
+  status: REMAINS BLOCKED
+  rationale: |
+    BC-8 cap remains permeable on the per-cycle dispatch path (see
+    bc8_residual_control above). The startup parity gate prevents the
+    "different accounts" failure mode but does NOT prevent the "same
+    account, concurrent dispatch" failure mode. The CRO veto on second-
+    loop authorization is NOT lifted by Wave-9 as currently structured.
+  to_lift_the_veto: |
+    Implement either:
+      (option-A) per-strategy 7.5% budget tickets — each loop gets a hard
+                 budget that sums to ≤15% before dispatch eligibility;
+                 budgets are enforced atomically against a shared ticket
+                 store (file-system or sqlite with row-level lock).
+      (option-B) cross-process advisory file-lock around the per-cycle
+                 critical section [backend.get_positions →
+                 compute_exposure → check_dispatch_allowed →
+                 execute_signal]. Lock file at e.g.
+                 data/dispatch_lock.flock with fcntl.flock() acquired
+                 with LOCK_EX|LOCK_NB; if NB acquire fails, the cycle
+                 SKIPs with sentinel SKIP_DISPATCH_LOCK_BUSY.
+
+    Either option needs:
+      - a unit test demonstrating that two concurrent processes cannot
+        both pass check_dispatch_allowed when aggregate would exceed BC-8
+      - a re-run of the BC-8 race scenario with the residual control
+        applied, showing transient exposure stays ≤ 15%
+      - a documented audit-log entry on each acquire/release so
+        log-as-decision-trace requirements are met
+
+  current_authorization: |
+    Single-loop paper authorization (vt loop alone) STANDS per Wave-5
+    CONSENSUS. carry_fred regime-conditional sizing (0.0 / 0.25) is
+    correctly wired and authorized for single-loop dispatch. The
+    second-loop start (running both vt + carry_fred concurrently against
+    the same paper account) is what remains blocked.
+
+# ===========================================================================
+# Top-level decision
+# ===========================================================================
+decision_rationale: |
+  decision = size-reduced (NOT approve, NOT veto).
+
+  Why not approve: BC-8 residual race is unmitigated on the per-cycle
+  dispatch path (BC-8-residual-control-required hard constraint not met).
+  Approve would imply lifting the second-loop veto, which I am not doing.
+
+  Why not veto: the code in scope is correctly designed for SINGLE-LOOP
+  operation. Forbidden-phrases scan is clean. Cost-feedback architecture
+  is log-only (correct). Drawdown contract is machine-checkable and
+  triggers on realized broker DD (correct). Kill-switch is property-5 PASS,
+  property-1 PARTIAL, property-2/3/4 FAIL but acceptable for paper context.
+  No live-capital instructions present anywhere. The work itself is good.
+
+  size-reduced = 0.5 captures: commit Group A and Group C (1.0 of those),
+  keep the existing single-loop authorization (1.0), but do NOT authorize
+  second-loop concurrent operation (0.0). Averaged across the
+  authorization decision, 0.5 reflects "commit the code; do not promote
+  to multi-strategy paper concurrency until the residual control is in."
+
+confidence: high
+
+evidence:
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 121-172
+    note: assert_account_key_parity — startup-only O_EXCL gate (NOT per-cycle dispatch lock)
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 473
+    note: kill_switch.check_and_trigger(equity) — raw broker equity (correct log-only architecture)
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 481
+    note: dd_contract.assess(equity) — raw broker equity (correct)
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 515-540
+    note: per-cycle critical section [get_positions → compute_exposure → check_dispatch_allowed] — NOT lock-protected
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 658-666
+    note: paper_equity_bt_equiv written to equity log only (NOT fed into risk primitives)
+  - file: scripts/run_paper_trading_vt.py
+    lines: 106-157
+    note: assert_account_key_parity — startup-only O_EXCL gate
+  - file: scripts/run_paper_trading_vt.py
+    lines: 484, 498
+    note: kill_switch and dd_contract called with raw broker equity
+  - file: scripts/run_paper_trading_vt.py
+    lines: 535-566
+    note: per-cycle critical section — NOT lock-protected
+  - file: scripts/run_paper_trading_vt.py
+    lines: 700-711
+    note: paper_equity_bt_equiv log-only
+  - file: src/forex_system/risk/kill_switch.py
+    lines: 94-403
+    note: KillSwitch design — property 1 partial, 2/3/4 fail for live, 5 pass
+  - file: src/forex_system/risk/drawdown_contract.py
+    lines: 76-216
+    note: machine-checkable ladder, triggers on broker peak-to-trough drawdown
+  - file: scripts/monitor_regime_triggers.py
+    lines: 247-324
+    note: CF-T9 evaluator with cold-start state at lines 264-275; exit-2 on stale data
+  - tool: forbidden_phrases_scan
+    target: 11 files (3 Group A + 8 Group C)
+    result: 0 matches across all files
+
+assumptions:
+  - "Saxo paper account is the only execution destination (no live route present in these scripts)"
+  - "RealisticCostModel parameters are correct enough for the cost-adjusted log to be meaningful as research artifact (does NOT need to be safety-critical because it is log-only)"
+  - "HeartbeatWatchdog 300s timeout is suitable for the 1800s loop interval (with watchdog.tick at the head of each cycle, the watchdog only fires if the loop is wedged for >2 cycles)"
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+body: |
+  This review applies six lenses (BC-8 residual control, cost-feedback
+  architecture, kill-switch rubric, forbidden-phrases scan, drawdown
+  contract enforcement, blast-radius) to the Wave-9 pre-commit code.
+
+  The headline: the code is good for what it is — single-loop paper
+  operation. The work that has been done in Waves 5-8 is correctly
+  reflected in the current state of the paper-loop scripts. F-001 is
+  resolved (cost formula applies engine-units fix). NHT NEW-2 cost-
+  feedback disagreement is correctly resolved by leaving risk primitives
+  on raw broker equity (log-only architecture) and writing the cost-
+  adjusted view to the equity log as a research artifact. CF-T9 gating
+  is wired correctly with cold-start enforcement. Forbidden-phrases
+  scan: 11/11 clean.
+
+  The headline GAP: BC-8 residual control. The cross-process race window
+  on the per-cycle dispatch path is NOT eliminated by the startup
+  account-key parity gate. The parity gate prevents two loops from
+  pointing at DIFFERENT accounts; it does NOT prevent two loops pointing
+  at the SAME account from each independently passing
+  check_dispatch_allowed with stale exposure snapshots and racing to
+  dispatch. The dispatch-cap permeability described in the firm risk
+  contract (24-30% transient aggregate JPY-correlated exposure) is still
+  the residual failure mode.
+
+  This is why the second-loop veto remains. To lift it, implement either
+  per-strategy 7.5% budget tickets (option-A) or a cross-process advisory
+  file-lock around the per-cycle [read_positions → check_exposure →
+  execute_signal] critical section (option-B). Both options have
+  precedent in the literature; option-B is the lower-friction path
+  because it requires no new shared ticket store — fcntl.flock()
+  on a single file in data/ is sufficient.
+
+  Kill-switch design: passes for paper, fails for live. Specifically:
+  property 2 (operable by junior) FAILS — there is no big-red-button or
+  one-command halt; halt is "find the PID and SIGINT". Property 3 (known
+  SLA) FAILS — no measured time-to-stop. Property 4 (tested in prod)
+  FAILS — no live test record exists. These are acceptable for paper
+  (no real money at stake) but BLOCKERS for any future live promotion.
+  The firm should not let the current kill-switch design carry forward
+  to live without these gaps closed.
+
+  Decision: size-reduced (0.5). Commit Group A (3 paper-loop / monitor
+  scripts) and Group C (8 research scripts) as-is. Group B (risk
+  primitives) is committed in prior waves and reviewed for architectural
+  consistency only. Single-loop authorization stands. Second-loop
+  authorization REMAINS BLOCKED until the BC-8 residual control is
+  in place.

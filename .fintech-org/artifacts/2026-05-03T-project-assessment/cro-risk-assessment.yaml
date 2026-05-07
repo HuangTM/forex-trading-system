@@ -1,0 +1,200 @@
+---
+role: cro
+artifact_type: veto
+decision: conditional-approve
+timestamp: "2026-05-03T00:00:00Z"
+subtask_ref: "Project assessment — risk lens, 5 questions"
+subtask_id: "assessment-2026-05-03-cro-1"
+contamination-check: passed
+
+evidence:
+  - "src/forex_system/risk/exposure_aggregator.py:46 — _JPY_CORRELATED = frozenset({'USDJPY', 'GBPUSD'})"
+  - "src/forex_system/risk/exposure_aggregator.py:148-153 — check_dispatch_allowed signature with explicit limits"
+  - "src/forex_system/risk/heartbeat_watchdog.py:66-67 — timeout_seconds + on_timeout required at construction (no silent default)"
+  - "src/forex_system/risk/drawdown_contract.py:112-114 — halt/reduce/full_halt thresholds required at construction"
+  - "src/forex_system/risk/drawdown_contract.py:129-216 — assess(current_equity) computes peak-relative DD"
+  - "src/forex_system/risk/bet1_sizing.py:48-49 — BET1_SIZE_MULTIPLIER_REGIME_INACTIVE=0.0, REGIME_ACTIVE=0.25"
+  - "src/forex_system/risk/bet1_sizing.py:53 — CF_T9_HEARTBEAT_MAX_AGE_SECONDS=300.0"
+  - "src/forex_system/risk/bet1_sizing.py:56 — CF_T9_MIN_REGIME_READINGS=10"
+  - "src/forex_system/risk/bet1_sizing.py:184-188 — both_states gating (seen_true and seen_false)"
+  - "scripts/run_paper_trading_vt.py:76-89 — CRO binding constants instantiated at module level"
+  - "scripts/run_paper_trading_vt.py:443-448 — check_dispatch_allowed called with explicit limits"
+  - "scripts/run_paper_trading_vt.py:687-694 — KillSwitch initialized from broker equity"
+  - "scripts/run_paper_trading_vt.py:699-703 — DrawdownContract instantiated ONCE in main; passed to run_cycle"
+  - "scripts/run_paper_trading_vt.py:746-750 — HeartbeatWatchdog(timeout_seconds=300.0) instantiated"
+  - "scripts/run_paper_trading_vt.py:363,395 — equity passed to dd_contract.assess() is fetch_account_equity (Saxo TotalValue/CashBalance)"
+  - "scripts/run_paper_trading_carry_fred.py:93-104 — same CRO binding constants instantiated"
+  - "scripts/run_paper_trading_carry_fred.py:331-332 — bet1_size_multiplier(regime_active_status()) gating call"
+  - "scripts/run_paper_trading_carry_fred.py:475-479 — target_units = raw * size_multiplier * effective_dd_multiplier"
+  - "scripts/run_paper_trading_carry_fred.py:642-654 — KillSwitch + DrawdownContract instantiated in main"
+  - "scripts/run_paper_trading_carry_fred.py:690-694 — HeartbeatWatchdog 300s instantiated"
+  - "scripts/run_paper_trading_vt.py:258-272 — fetch_account_equity reads broker TotalValue (paper-mtm)"
+  - "data/usdjpy_bh_drawdowns.csv — historical USDJPY B&H worst DD: -11.57% (Feb 2016 peak → Aug 2016 trough, 192d)"
+
+assumptions:
+  - "Saxo paper account TotalValue field reflects mark-to-market equity inclusive of unrealized PnL on open positions"
+  - "Both vt and carry_fred loops, when run concurrently in production, are launched against the same Saxo paper account; otherwise the cross-strategy aggregator (compute_exposure on backend.get_positions) cannot see the other loop's positions"
+  - "USDJPY-only universe at launch means EURJPY/GBPJPY/AUDJPY/CADJPY/NZDJPY are NOT in active trading universe (CF-T9 monitor uses them as a regime sensor only, not as tradable pairs)"
+  - "Position objects in core/types.Position lack a strategy field; exposure_aggregator uses pair as a proxy for strategy_id (per its own NOTE at lines 121-130)"
+  - "Drawdown peak resets only when current_equity > _peak_equity within session; restart begins peak from initial_equity (no cross-session peak persistence)"
+
+confidence: medium
+
+q1-bc-instantiation:
+  BC-1: "correctly-wired — bet1_sizing.py:48 BET1_SIZE_MULTIPLIER_REGIME_INACTIVE=0.0; bet1_sizing.py:67-87 returns 0.0 when regime_active=False; called at run_paper_trading_carry_fred.py:331-332 and applied at line 479 (target_units = raw * 0.0 = 0)"
+  BC-2: "correctly-wired — bet1_sizing.py:49 BET1_SIZE_MULTIPLIER_REGIME_ACTIVE=0.25 matches spec (0.5 envelope × 0.5 haircut); applied at run_paper_trading_carry_fred.py:479 (target_units = raw * 0.25 * dd_multiplier)"
+  BC-3: "correctly-wired — bet1_sizing.py:53 CF_T9_HEARTBEAT_MAX_AGE_SECONDS=300.0; bet1_sizing.py:144-171 enforces stat-mtime freshness against 300s; fail-safe returns False (no trade) on stale/missing"
+  BC-4: "correctly-wired — bet1_sizing.py:56 CF_T9_MIN_REGIME_READINGS=10; bet1_sizing.py:197-222 enforces n_readings >= 10 AND seen_regime_active_true AND seen_regime_active_false; producer side at monitor_regime_triggers.py:264-275 maintains state.json with the required fields"
+  BC-5: "correctly-wired — drawdown_contract.py:122 validates halt < reduce < full_halt; run_paper_trading_vt.py:87-89 and run_paper_trading_carry_fred.py:102-104 set 0.10/0.15/0.20 explicitly; assess() at lines 157-164 selects level by threshold; vt:396-424 and carry_fred:380-408 honor FULL_HALT (return + halt_paper_loop), HALT_NEW_DISPATCH (return without trading), REDUCE_SIZING (multiply target_units by 0.5 at vt:506 and carry_fred:478-479)"
+  BC-6: "correctly-wired (with caveat) — exposure_aggregator.py:151-152 max_active_strategies=4 default, max_concurrent_positions=6 default; passed explicitly as CRO_MAX_ACTIVE_STRATEGIES=4 and CRO_MAX_CONCURRENT_POSITIONS=6 at run_paper_trading_vt.py:78-80 and run_paper_trading_carry_fred.py:95-97. CAVEAT: 'max 36 trials in 12-week horizon' constraint is NOT enforced in the paper-loop runtime — it is a backtest-trial budget enforced elsewhere (trial factory); trial-budget enforcement was not visible in the read scope."
+  BC-7: "correctly-wired — heartbeat_watchdog.py:66 timeout_seconds required at construction; run_paper_trading_vt.py:82 CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 passed explicitly at line 747; run_paper_trading_carry_fred.py:99 + line 691 same. on_timeout calls halt_paper_loop which sets _HALT_REQUESTED checked at run_cycle entry (vt:349-355, carry_fred:313-319)"
+  BC-8: "correctly-wired (with documented gap) — exposure_aggregator.py:46 _JPY_CORRELATED={USDJPY, GBPUSD}; max_correlated_pct=0.15 enforced at lines 188-194; CRO_MAX_CORRELATED_PCT=0.15 passed at vt:445 and carry_fred:419. Gap: when total_paper_book_notional==0 the function returns jpy_correlated_pct=0.0 (lines 132) — a single-position single-pair book (USDJPY-only) will always show 100% JPY-correlated, so the cap is moot at USDJPY-only launch. The 15% cap only meaningfully constrains a multi-pair book; this is a no-op at current scope but correctly authored for expansion."
+
+q2-drawdown-equity-reference: paper-mtm
+# Evidence: scripts/run_paper_trading_vt.py:363 fetches equity = fetch_account_equity(client, backend.account_key);
+# fetch_account_equity (line 258-272) reads balance.TotalValue (Saxo's mark-to-market account equity including
+# unrealized PnL on open positions); falls back to CashBalance only if TotalValue is unavailable.
+# This equity value is then passed at line 395 to dd_contract.assess(equity), so the drawdown ladder is wired
+# to broker mark-to-market equity, NOT notional. Same pattern in carry_fred loop (lines 353, 379).
+
+q3-jpy-correlated-trigger: |
+  Assumption 1 (_JPY_CORRELATED only contains {USDJPY, GBPUSD}) is non-blocking at USDJPY-only launch because
+  any single-pair USDJPY book trivially has 100% JPY-correlated notional, and a 100%-of-USDJPY-cap rule is
+  redundant with a single-pair limit. Assumption 1 becomes BLOCKING under any of these triggers:
+  (T1) Universe expansion to include any additional cross-JPY pair (EURJPY, AUDJPY, CADJPY, GBPJPY, NZDJPY) —
+       these MUST be added to _JPY_CORRELATED before dispatch, otherwise the aggregator will under-count JPY tail
+       risk and the 15% cap will be silently bypassed.
+  (T2) Addition of any indirectly JPY-correlated pair (e.g., AUDUSD/NZDUSD via risk-off correlation, EURJPY
+       proxies, JPY-funded carry baskets) — requires explicit CRO review to extend the table.
+  (T3) Activation of a third strategy whose primary pair is non-JPY (EURUSD, GBPUSD-as-non-JPY) — at that point
+       the GBPUSD-as-JPY-correlated classification (justified by historical risk-off contagion) becomes load-
+       bearing for the cap calculation; CRO must re-validate the empirical correlation in the current regime.
+  (T4) Multi-pair carry basket reactivation (the CF-T9 monitor universe of 6 JPY-crosses is observed but not
+       traded; if any of those become tradable the table must be updated synchronously).
+  Trigger condition for blocking review: ANY change to config.pair_symbols beyond {USDJPY} OR any new
+  Strategy whose generate_signals returns non-USDJPY positions.
+
+q4-residual-risk-separate-accounts: |
+  If both loops accidentally run in separate Saxo paper accounts, compute_exposure (exposure_aggregator.py:94-140)
+  is called on backend.get_positions() of ONE backend per loop — neither loop sees the other's positions. Each
+  loop independently allows JPY-correlated_pct up to 15% of ITS book, but since each book is a single USDJPY
+  position, jpy_correlated_pct=100% of that account's book. The dispatch gate is then dominated by per-account
+  vol-target sizing rather than the cross-strategy 15% envelope.
+  Quantification: vol_target_carry uses leverage_cap=2.0 (config/vol_target_carry.yaml inferred from
+  run_paper_trading_vt.py:674) targeting target_vol=10% annual. carry_fred uses leverage_cap=1.0 (line 625)
+  with bet1 size_multiplier=0.25 → effective ~0.25x leverage when regime active.
+  Maximum simultaneous JPY-correlated exposure if both run in separate accounts:
+    Account A (vt): up to 200% of equity_A in USDJPY notional (2.0x leverage_cap × 100% signal)
+    Account B (cf): up to 25% of equity_B in USDJPY notional (1.0x × 0.25 multiplier)
+  Combined absolute notional could reach 225% of single-account-equity-equivalent, vs. CRO 15% intent.
+  Residual risk: 15x over-exposure relative to CRO envelope. This is a HIGH-impact silent failure mode —
+  the code provides no cross-account aggregation primitive; deployment ops must verify both loops use the
+  same account_key. Mitigation candidate: add account_key assertion at run_cycle entry comparing vt vs
+  carry_fred backend.account_key (not currently implemented in read scope).
+
+q5-worst-case-30d-drawdown: 18.5
+# Scenario (1 sentence): vol_target_carry held at full Phase-1 sizing (~2x leverage on USDJPY) sees a BoJ
+# surprise rate hike of 25-50bp during a JPY weakness peak, cratering USDJPY 6-8% intraday (analogous to
+# Aug-2024 carry unwind: -7.5% in 3 days), triggering kill-switch (-2% daily) which flattens at the bottom
+# locking in ~14-16% drawdown; carry_fred regime flips inactive within the 5-day CF-T9 lookback but only
+# AFTER positions are already underwater; cumulative drag from continued vol-target re-entries during
+# whipsaw and reduce-sizing 0.5x phase adds another 2-4% before the 20% full-halt fires.
+# Numerical reasoning:
+#   - Historical USDJPY B&H worst 30-day-class drawdown reaching trough: ~7-8% unleveraged
+#     (data/usdjpy_bh_drawdowns.csv: 2024-07-31→2024-09-16 was -5.05% in 47d unleveraged;
+#      2022-11-23→2023-01-13 was -6.87% in 51d unleveraged)
+#   - Vol_target with 2x leverage_cap on USDJPY: scales drawdown ~2x → ~14-16%
+#   - Bet #1 carry_fred at 0.25 size_multiplier × 1x leverage adds ~2% to drag during regime-active wind-down
+#   - Kill-switch (-2% daily) flattens but only AFTER threshold breach; can lock in additional 1-2% slip on
+#     gap moves overnight
+#   - Drawdown ladder triggers: 10% halt-new (cycle ~day 10-15 in scenario), 15% reduce-sizing 0.5x
+#     (reduces but does not stop bleeding), 20% full-halt (terminal exit if reached)
+#   - The 20% full-halt threshold is the regulatory ceiling; worst plausible 30d outcome stops at the lower
+#     of (kill-switch fired flat) or (full-halt threshold reached). Best estimate: ~18.5% within 30 trading
+#     days under combined BoJ-surprise + carry_fred unwind whipsaw.
+# Confidence: medium — this estimate depends on (1) leverage_cap=2.0 in vol_target_carry.yaml (inferred from
+# run_paper_trading_vt.py:674; not directly read), (2) kill-switch flatten timing under broker latency.
+
+body: |
+  Q1 BC-1..BC-8 instantiation verification: all 8 binding constraints are correctly wired into both paper-
+  trading loops. BC-1/BC-2 (size multipliers 0.0/0.25) appear at bet1_sizing.py:48-49 as named module
+  constants, and are applied at run_paper_trading_carry_fred.py:475-479 in the target_units computation
+  (raw_target × size_multiplier × dd_multiplier). BC-3 (CF-T9 freshness ≤300s) is enforced via os.stat
+  mtime check at bet1_sizing.py:144-171 with fail-safe-False on missing/stale. BC-4 (cold-start gate ≥10
+  readings, both states observed) is gated at bet1_sizing.py:197-222 and the producer at
+  monitor_regime_triggers.py:264-275 maintains the persistent state.json with both n_readings and
+  seen_regime_active_{true,false} flags. BC-5 (drawdown ladder 10/15/20%) is enforced in drawdown_contract.py
+  with explicit threshold validation (line 122) and instantiated with literal 0.10/0.15/0.20 at both loops'
+  main(). BC-6 (4 strategies, 6 positions, 36 trials) — the runtime enforces 4 strategies and 6 positions
+  via exposure_aggregator.check_dispatch_allowed, but the 36-trials-per-12-weeks constraint is a trial-
+  factory budget not visible in the paper-loop scope. BC-7 (300s heartbeat watchdog) is instantiated with
+  explicit timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 in both loops. BC-8 (15% JPY-correlated cap)
+  is enforced via the aggregator with the caveat that {USDJPY, GBPUSD} is the only correlated set; at
+  USDJPY-only scope the cap is structurally non-binding (single-pair → 100%-of-1).
+
+  Q2 drawdown-ladder equity reference: PAPER-MTM. The drawdown contract receives current_equity from
+  fetch_account_equity (run_paper_trading_vt.py:258-272), which reads broker balance.TotalValue (Saxo
+  mark-to-market account equity including unrealized PnL), falling back to CashBalance only if TotalValue
+  is missing. This is the correct reference per CRO contract — it captures real-time equity erosion from
+  open positions, not just notional exposure. The same pattern holds in carry_fred (lines 353, 379).
+
+  Q3 _JPY_CORRELATED at USDJPY-only scope: non-blocking. Any single-pair USDJPY book has trivially 100%
+  JPY-correlated notional, making the 15% cap structurally redundant — the limit is dominated by per-strategy
+  vol-target sizing. Becomes BLOCKING under any of: (T1) universe expansion adding cross-JPY pairs (must
+  pre-update _JPY_CORRELATED), (T2) addition of indirectly correlated pairs (AUDUSD/NZDUSD risk-off proxies),
+  (T3) third strategy with non-JPY primary pair making the GBPUSD-as-JPY-correlated classification load-
+  bearing, (T4) reactivation of multi-pair carry basket (the 6 JPY-crosses observed by CF-T9 are not yet
+  tradable). Concrete trigger: ANY change to config.pair_symbols beyond {USDJPY} OR any Strategy.generate_signals
+  returning a non-USDJPY position. CRO governance gate at universe expansion is required to update the table.
+
+  Q4 separate-account residual risk: HIGH. compute_exposure operates on a single backend.get_positions per
+  loop. If vt and carry_fred run in different paper accounts (a config/launch error), neither sees the other's
+  USDJPY exposure. Independent JPY-correlated_pct=100% of each book passes the 15% cap because the cap is
+  applied per-aggregator-call. Combined notional reaches up to 200% (vt 2x leverage) + 25% (carry_fred 0.25
+  multiplier × 1x) = 225% of single-account-equity-equivalent vs. 15% CRO intent — a ~15x over-exposure
+  silent failure mode. The code provides no cross-account aggregation primitive in the read scope. Mitigation:
+  deploy-time assertion that both backend.account_key match before either loop ticks; consider a shared
+  exposure file or process-level lock as defense-in-depth. Not blocking at USDJPY-only single-loop launch
+  since only one loop is authorized to start; becomes blocking when carry_fred is added in the regime-active
+  state.
+
+  Q5 worst-case 30d paper drawdown: ~18.5% equity. Scenario chain: vol_target_carry sized at full Phase-1
+  envelope (~2x leverage_cap on USDJPY targeting 10% vol) holds long-USDJPY when a BoJ surprise rate hike
+  (analogous to historical Aug-2024 carry unwind, -7.5% in 3 days unleveraged) compresses USDJPY 6-8% within
+  days. Leveraged 2x → 14-16% paper-equity loss over the move. Kill-switch (-2% daily) flattens but only
+  after threshold breach, locking in 1-2% gap slip. Carry_fred at 0.25 size_multiplier compounds another 1-2%.
+  Drawdown ladder fires at 10% (halt-new dispatch, no relief on existing position), 15% (reduce-sizing 0.5x
+  applied to next rebalance, slows but doesn't stop bleed), 20% (full-halt terminal). Best estimate: 18.5%
+  intra-30-day peak DD. Sources: data/usdjpy_bh_drawdowns.csv shows historical USDJPY B&H worst short-window
+  drawdowns of 5-7% unleveraged in 30-50d windows (2022-11→2023-01: -6.87%, 51d; 2024-07→2024-09: -5.05%, 47d);
+  the 2x leverage scaling and BoJ tail-event amplification justify the ~18.5% projection. This is below the
+  20% full-halt ceiling but consumes the entire reduce-sizing band; recommend pre-launch operator awareness
+  that the first 30d scenario can plausibly reach the DD-2 threshold even with all controls in force.
+
+  Decision: CONDITIONAL-APPROVE. All 8 binding constraints are correctly instantiated with file/line evidence.
+  Drawdown ladder is wired to paper-MTM equity. Q3 risk is dormant until universe expansion and is gated by
+  governance review. Q4 risk is the single most material residual — the absence of an account_key cross-
+  check is a silent-mode multi-account amplifier; conditional-approve requires (a) deploy-checklist gate
+  that both loops point to the same account_key before second loop authorization, and (b) operator awareness
+  of Q5 worst-case ~18.5% 30d drawdown as a plausible (not extreme) outcome. No veto raised because the
+  authorized launch is single-loop USDJPY (vol_target_carry only at first paper bar, per CONSENSUS_2026-04-28
+  authorization), which renders Q3 and Q4 non-blocking at scope. The conditions become blocking when (a) the
+  second loop (carry_fred regime-conditional) is dispatched or (b) the universe expands beyond USDJPY.
+
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/heartbeat_watchdog.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/bet1_sizing.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/auto_retire_on_trigger.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py"
+  - "/Users/huangtm/Projects/forex-trading-system/data/usdjpy_bh_drawdowns.csv"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-03T-project-assessment/pm-acceptance-criteria-cro-redacted.yaml"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

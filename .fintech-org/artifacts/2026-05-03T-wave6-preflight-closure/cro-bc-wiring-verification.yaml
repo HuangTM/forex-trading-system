@@ -1,0 +1,214 @@
+---
+role: cro
+artifact_type: veto
+decision: approve
+timestamp: "2026-05-03T00:00:00Z"
+subtask_ref: "BC-1 through BC-8 wiring verification"
+subtask_id: "wave6-cro-1"
+
+contamination-check: passed
+# Acceptance criteria received via pm-acceptance-criteria-cro-redacted.yaml
+# contained ONLY structured fields (deliverable-type, instrument-universe,
+# hard-constraints, cro-scope-items, binding-constraints-for-verification,
+# portfolio-state-snapshot). NO proposer rationale, NO researcher hypothesis,
+# NO PM body prose. Disjoint-evidence contract honored by orchestrator.
+
+no-capital-instruction: true
+
+evidence:
+  # Item 4 / BC-8: exposure_aggregator.check_dispatch_allowed
+  - "src/forex_system/risk/exposure_aggregator.py:148-215 — check_dispatch_allowed defined"
+  - "src/forex_system/risk/exposure_aggregator.py:188-194 — JPY-correlated cap enforced via raise AggregationGateBlocked when snapshot.jpy_correlated_pct > max_correlated_pct"
+  - "src/forex_system/risk/exposure_aggregator.py:14-17 — explicit no-silent-default discipline ('Limits are NEVER hard-coded here — callers must pass them explicitly')"
+  - "scripts/run_paper_trading_vt.py:74 — CRO_MAX_CORRELATED_PCT = 0.15 named constant"
+  - "scripts/run_paper_trading_vt.py:441-446 — check_dispatch_allowed invoked with explicit max_correlated_pct=CRO_MAX_CORRELATED_PCT inside run_cycle pre-trade gate"
+  - "scripts/run_paper_trading_carry_fred.py:91 — CRO_MAX_CORRELATED_PCT = 0.15 named constant"
+  - "scripts/run_paper_trading_carry_fred.py:415-420 — check_dispatch_allowed invoked pre-trade in run_cycle"
+  - "src/forex_system/risk/exposure_aggregator.py:46 — _JPY_CORRELATED frozenset {USDJPY, GBPUSD} — note universe asymmetry below"
+
+  # Item 5 / BC-1+BC-2: bet1_size_multiplier reaches trade-sizing call
+  - "src/forex_system/risk/bet1_sizing.py:48-49 — BET1_SIZE_MULTIPLIER_REGIME_INACTIVE=0.0 / BET1_SIZE_MULTIPLIER_REGIME_ACTIVE=0.25 named constants with CRO Wave-4 provenance comment"
+  - "src/forex_system/risk/bet1_sizing.py:67-98 — bet1_size_multiplier(regime_active) returns 0.0 or 0.25 with structured log emit"
+  - "scripts/run_paper_trading_carry_fred.py:61 — import bet1_size_multiplier, regime_active_status"
+  - "scripts/run_paper_trading_carry_fred.py:329-330 — regime_active = regime_active_status(); size_multiplier = bet1_size_multiplier(regime_active)"
+  - "scripts/run_paper_trading_carry_fred.py:343-348 — early return SKIP_REGIME_INACTIVE when regime_active False (BC-1 hard zero enforced before any subsequent code path can size a trade)"
+  - "scripts/run_paper_trading_carry_fred.py:473-477 — target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier) — VERIFIED size_multiplier reaches the actual sizing arithmetic, not just imported"
+
+  # BC-3 / BC-5: CF-T9 freshness 300s
+  - "src/forex_system/risk/bet1_sizing.py:53 — CF_T9_HEARTBEAT_MAX_AGE_SECONDS = 300.0 (5 minutes) named constant"
+  - "src/forex_system/risk/bet1_sizing.py:157-171 — fail-safe return False when file_age_seconds > CF_T9_HEARTBEAT_MAX_AGE_SECONDS"
+
+  # BC-4: CF-T9 cold-start gate
+  - "src/forex_system/risk/bet1_sizing.py:56 — CF_T9_MIN_REGIME_READINGS = 10 named constant"
+  - "src/forex_system/risk/bet1_sizing.py:197-222 — both n_readings >= 10 AND both_states_observed must be true; fail-safe return False otherwise"
+
+  # BC-5/DD ladder
+  - "src/forex_system/risk/drawdown_contract.py:42-46 — DrawdownLevel enum HALT_NEW_DISPATCH / REDUCE_SIZING / FULL_HALT"
+  - "src/forex_system/risk/drawdown_contract.py:68-73 — _SIZING_BY_LEVEL: NORMAL=1.0, HALT_NEW=1.0, REDUCE=0.5, FULL_HALT=0.0"
+  - "src/forex_system/risk/drawdown_contract.py:121-127 — __post_init__ validates 0 < halt < reduce < full_halt < 1.0"
+  - "src/forex_system/risk/drawdown_contract.py:155-164 — threshold ladder applied to current dd_pct"
+  - "scripts/run_paper_trading_vt.py:85-87 — CRO_DD_HALT_NEW_THRESHOLD=0.10, CRO_DD_REDUCE_SIZING_THRESHOLD=0.15, CRO_DD_FULL_HALT_THRESHOLD=0.20 named constants"
+  - "scripts/run_paper_trading_vt.py:693-697 — DrawdownContract instantiated ONCE in main() with explicit thresholds"
+  - "scripts/run_paper_trading_vt.py:392-422 — assess() called per cycle; FULL_HALT triggers halt_paper_loop, HALT_NEW returns SKIP, REDUCE_SIZING propagates _dd_sizing_multiplier downstream"
+  - "scripts/run_paper_trading_vt.py:504 — target_units = _raw_target_units * _dd_sizing_multiplier (REDUCE_SIZING 0.5x reaches actual sizing)"
+  - "scripts/run_paper_trading_carry_fred.py:100-102 — same DD constants"
+  - "scripts/run_paper_trading_carry_fred.py:643-647 — DrawdownContract instantiated with explicit thresholds"
+  - "scripts/run_paper_trading_carry_fred.py:377-407 — DD level checked per cycle, halt_paper_loop on FULL_HALT"
+
+  # BC-6: max 4 active strategies
+  - "scripts/run_paper_trading_vt.py:76 — CRO_MAX_ACTIVE_STRATEGIES = 4"
+  - "scripts/run_paper_trading_vt.py:444 — passed explicitly to check_dispatch_allowed"
+  - "scripts/run_paper_trading_carry_fred.py:93 — same constant"
+  - "scripts/run_paper_trading_carry_fred.py:418 — passed explicitly"
+  - "src/forex_system/risk/exposure_aggregator.py:197-203 — active_paper_strategies enforcement raises AggregationGateBlocked"
+
+  # BC-7: heartbeat watchdog 300s
+  - "src/forex_system/risk/heartbeat_watchdog.py:11-17 — module docstring CRO binding constraint #2: ≤5 min timeout; no silent default"
+  - "src/forex_system/risk/heartbeat_watchdog.py:172-199 — _observer_loop fires on_timeout when elapsed > timeout_seconds with monotonic clock"
+  - "scripts/run_paper_trading_vt.py:80 — CRO_WATCHDOG_TIMEOUT_SECONDS = 300.0"
+  - "scripts/run_paper_trading_vt.py:740-744 — HeartbeatWatchdog(timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS, on_timeout=_on_watchdog_timeout) instantiated and started"
+  - "scripts/run_paper_trading_vt.py:752 — watchdog.tick() called each cycle"
+  - "scripts/run_paper_trading_vt.py:347-353 — _HALT_REQUESTED checked at run_cycle entry; new dispatch blocked after timeout"
+  - "scripts/run_paper_trading_carry_fred.py:97 — CRO_WATCHDOG_TIMEOUT_SECONDS = 300.0; same wiring at lines 683-687, 695, 311-317"
+
+  # BC-2 vol_target_carry full Phase-1 sizing
+  - "scripts/run_paper_trading_vt.py:500-516 — _raw_target_units from VolTargetSizer.calculate_size; multiplied only by _dd_sizing_multiplier (no separate haircut for vol_target_carry — it is the full Phase-1 envelope strategy per BC-2 of CONSENSUS_2026-05-02)"
+
+assumptions:
+  - "Universe asymmetry: Wave-6 PM redacted criteria lists USDJPY/EURJPY/GBPJPY/AUDJPY/NZDJPY as instrument-universe, but exposure_aggregator._JPY_CORRELATED frozenset only contains {USDJPY, GBPUSD}. EURJPY/GBPJPY/AUDJPY/NZDJPY are direct JPY pairs and would FAIL to register as JPY-correlated under current is_jpy_correlated() implementation. This is a pre-existing scope issue inherited from CONSENSUS_2026-04-28's narrower {EURUSD, USDJPY, GBPUSD} universe. For paper-launch as currently authorized (vol_target_carry on USDJPY single-pair + carry_fred on USDJPY), the cap is correctly enforced; however if any cross-JPY pair is added, the JPY cap will be silently ineffective. CRO flags this as a Wave-7 prerequisite, not a Wave-6 blocker, since paper-launch authorization (CONSENSUS_2026-05-02) only spans USDJPY for the immediate first-bar dispatch."
+  - "BC-6 'max 36 trials in 12-week horizon' is a governance/cadence constraint, not a runtime sizing gate. The runtime portion (max 4 active paper strategies + max 6 concurrent open positions) IS wired via check_dispatch_allowed; the trial-count portion is enforced by the trial registry/PM cadence and not visible in the sizing call path."
+  - "Bet #1 carry_fred and vol_target_carry both trade USDJPY exclusively per current configs. Both run independently; concurrent paper books would aggregate via get_positions() but only if positions persist in the same Saxo account. CRO assumes the operator runs them in the same paper account; if they are spawned in separate accounts the JPY-correlated aggregation cannot see across accounts. Operational pre-flight item."
+  - "I did not execute any code; verification is by source-code reading + cross-file grep only. The wiring is structurally correct; runtime behavior under live first-bar conditions remains pre-launch unverified per the no-paper-loop-start hard constraint."
+
+confidence: high
+
+binding-constraints-status:
+  BC-1: wired       # bet1 size_multiplier 0.0 regime-inactive enforced via SKIP_REGIME_INACTIVE early return AND propagated through target_units arithmetic at line 477
+  BC-2: wired       # 0.25 regime-active multiplier sourced from BET1_SIZE_MULTIPLIER_REGIME_ACTIVE, reaches target_units; vol_target_carry full Phase-1 sizing intact via raw_target_units * _dd_sizing_multiplier with no extra haircut
+  BC-3: wired       # CF-T9 freshness 300s enforced in regime_active_status, fail-safe to False on stale/missing
+  BC-4: wired       # cold-start gate ≥10 readings + both states observed enforced in regime_active_status
+  BC-5: wired       # DD ladder 10/15/20 thresholds in DrawdownContract; instantiated once per main() in both loops; assess() called per cycle; halt_paper_loop on FULL_HALT
+  BC-6: partial     # runtime portion (max 4 active strategies, max 6 concurrent positions) WIRED via check_dispatch_allowed; trial-count cap (36/12-week) is governance, not runtime
+  BC-7: wired       # HeartbeatWatchdog 300s timeout, monotonic clock, observer thread, halt_paper_loop on timeout, _HALT_REQUESTED gate at run_cycle entry
+  BC-8: wired       # JPY-correlated cap 15% enforced via check_dispatch_allowed; sourced from CRO_MAX_CORRELATED_PCT=0.15 named constant in BOTH paper loops; called pre-trade
+
+size_multiplier:
+  bet1_regime_inactive: 0.0     # BC-1 binding — verified at scripts/run_paper_trading_carry_fred.py:343-348 (early return) AND line 477 (arithmetic)
+  bet1_regime_active: 0.25      # BC-2 binding — verified at src/forex_system/risk/bet1_sizing.py:49 (constant) and reaches scripts/run_paper_trading_carry_fred.py:477 (arithmetic)
+  vol_target_carry: 1.0         # Phase-1 full envelope per CONSENSUS_2026-05-02; no extra haircut beyond _dd_sizing_multiplier downstream
+  dd_reduce_sizing: 0.5         # DrawdownLevel.REDUCE_SIZING applies _SIZING_BY_LEVEL[REDUCE_SIZING]=0.5 multiplicatively
+  dd_full_halt: 0.0             # DrawdownLevel.FULL_HALT applies 0.0 + halt_paper_loop terminates loop
+  cro_decision: binding         # CRO confirms 0.0/0.25 stays binding for Wave-6 paper-launch; ANY change requires CONSENSUS amendment + NHT+HoQR co-sign
+
+regime_flags:
+  BC-1: regime-conditional      # active only when CF-T9 emits regime_active=False (hard zero on Bet #1)
+  BC-2: regime-conditional      # active only when CF-T9 emits regime_active=True AND BC-3/BC-4/BC-5 cleared
+  BC-3: always-active-pre-launch  # CF-T9 monitor must be healthy at every cycle entry; failure → fail-safe to regime_active=False (= BC-1 hard zero)
+  BC-4: cold-start-only         # gate clears once ≥10 readings observed + both states seen; remains structurally enforced thereafter
+  BC-5: equity-conditional      # ladder fires only when DD breaches thresholds; NORMAL state passes through
+  BC-6: always-active           # runtime portion enforced every dispatch attempt
+  BC-7: always-active           # watchdog observer thread runs continuously; tick() called every cycle
+  BC-8: always-active           # exposure check runs every dispatch attempt; only blocks if total book has any JPY exposure
+
+body: |
+  CRO independent verification of the eight binding constraints authored in
+  CONSENSUS_2026-05-02 Section 6 confirms structural wiring is intact across
+  both paper-trading entry points (run_paper_trading_vt.py and
+  run_paper_trading_carry_fred.py) and the four supporting risk modules
+  (exposure_aggregator, bet1_sizing, drawdown_contract, heartbeat_watchdog).
+
+  Item 4 (BC-8): check_dispatch_allowed exists at exposure_aggregator.py:148,
+  enforces JPY-correlated cap via comparison snapshot.jpy_correlated_pct >
+  max_correlated_pct with raise AggregationGateBlocked, and is invoked in the
+  actual pre-trade dispatch path of BOTH loops with explicit
+  max_correlated_pct=CRO_MAX_CORRELATED_PCT (=0.15) sourced from a named
+  module constant — not a hardcoded magic number. The module enforces the
+  no-silent-default discipline: defaults are documentation-only; production
+  callers MUST pass thresholds explicitly. This satisfies the
+  log-as-decision-trace and kill-switch-design rubrics for testable enforcement.
+
+  Item 5 (BC-1): re-verified independently. bet1_size_multiplier(False) returns
+  the named constant BET1_SIZE_MULTIPLIER_REGIME_INACTIVE = 0.0 and
+  bet1_size_multiplier(True) returns BET1_SIZE_MULTIPLIER_REGIME_ACTIVE = 0.25
+  (carry_fred BC-1/BC-2). The carry_fred loop calls regime_active_status() at
+  run_paper_trading_carry_fred.py:329 BEFORE any other risk gate, returns
+  SKIP_REGIME_INACTIVE on inactive regime (defense-in-depth: the early return
+  prevents subsequent code from reaching the sizing arithmetic at all), AND
+  separately the value reaches the actual sizing call at line 477:
+  target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier).
+  Gap C closure in commit 6a5f5f9 is structurally confirmed.
+
+  BC-3/BC-4/BC-5/BC-7 all use named constants with verbatim CRO Wave-4
+  provenance comments and fail-safe-to-halt semantics on every error path.
+  drawdown_contract enforces the 10/15/20 ladder via _SIZING_BY_LEVEL map and
+  threshold ordering invariant in __post_init__. heartbeat_watchdog uses
+  monotonic clock per the clock-and-ordering skill, instantiates a daemon
+  observer thread, and the run_cycle entry point blocks new dispatch if
+  _HALT_REQUESTED is set. BC-6 runtime enforcement (max 4 strategies, max 6
+  positions) is wired via check_dispatch_allowed; the 36-trials-in-12-weeks
+  cadence portion is governance and outside the runtime sizing call path.
+
+  Two structural concerns flagged as ASSUMPTIONS rather than vetoes: (1) the
+  _JPY_CORRELATED frozenset only contains {USDJPY, GBPUSD} and would silently
+  miss EURJPY/GBPJPY/AUDJPY/NZDJPY if those pairs are ever added to the live
+  paper book. For Wave-6 first-bar authorization (USDJPY only on both
+  strategies), the cap is correctly enforced; for any subsequent universe
+  expansion this becomes a Wave-7 blocker. (2) Aggregation across the two
+  paper loops works only if both strategies trade in the same Saxo paper
+  account (positions visible to each loop's get_positions() call); separate
+  accounts would defeat cross-strategy aggregation. Both items belong in the
+  operational pre-flight checklist before first paper bar.
+
+  No information-contamination detected: PM redacted criteria contained only
+  structured fields (deliverable-type, hard-constraints, instrument-universe,
+  binding-constraints-for-verification list). No proposer rationale, no
+  researcher hypothesis text, no PM body prose. The disjoint-evidence
+  contract is honored. Per cro.md the artifact_type is veto, but the decision
+  is approve: all eight binding constraints are structurally wired into the
+  trade-sizing call path with named-constant sourcing, fail-safe-to-halt
+  defaults, and structured-log instrumentation. CRO has no architectural
+  objection to ratifying Wave-6 pre-flight closure on the BC-wiring axis.
+
+  Blowup-analog: Knight Capital 2012 — disabled-but-still-deployed code path
+  reactivated by a config flag flip and pumped 4 million orders before any
+  human noticed. The defense here is the EXACT inverse: limits are NEVER
+  hard-coded in the gate functions; production callers MUST pass thresholds
+  explicitly from named constants tracked in the consensus artifact, and
+  every gate emits a structured log line on both ALLOW and BLOCK so the
+  decision history is reconstructible from log output alone.
+
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/bet1_sizing.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/heartbeat_watchdog.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-acceptance-criteria-cro-redacted.yaml"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+# Web budget unused: the verification scope is internal source-code wiring,
+# not external regulatory citation or market-data validation. Burning the
+# 2 WebSearch + 3 WebFetch budget on a wiring check would have produced no
+# additional risk information and would have violated the engineer-mindset
+# "verify means execute / read source" discipline.
+
+blowup-analog: "Knight Capital 2012 — disabled-but-deployed code path reactivated by config flip; defense here is named-constant explicit-pass discipline + structured-log on every gate decision"
+
+risk-architecture-finding: |
+  Wave-6 BC wiring: PASS on all 8 binding constraints for the currently
+  authorized USDJPY-only paper book. Two pre-flight operational items
+  (universe expansion JPY-correlated table, cross-account aggregation
+  visibility) flagged for the operator checklist before first paper bar.
+
+binding_constraints:
+  - "BC-1 size_multiplier 0.0 regime-inactive — wired and fail-safe"
+  - "BC-2 size_multiplier 0.25 regime-active — wired"
+  - "BC-3 CF-T9 freshness ≤300s — wired and fail-safe"
+  - "BC-4 CF-T9 cold-start ≥10 readings + both states — wired and fail-safe"
+  - "BC-5 DD ladder 10/15/20 — wired with halt_paper_loop on FULL_HALT"
+  - "BC-6 max 4 strategies / 6 positions — wired (runtime portion)"
+  - "BC-7 watchdog 300s monotonic — wired with daemon observer"
+  - "BC-8 JPY-correlated cap 15% — wired (USDJPY-only universe)"

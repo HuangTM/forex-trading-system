@@ -1,0 +1,63 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: "2026-04-28T02:00:00Z"
+subtask_ref: "wave2-direction-v1"
+size_multiplier: 0.5
+binding_constraints:
+  - "cross-strategy JPY-correlated notional must not exceed 15% of paper book at any bar before any new trial dispatches"
+  - "no paper-trading dispatch unless a heartbeat/dead-man watchdog with <=5min timeout exists on the paper-trading loop"
+  - "every pre-registered trial must declare its kill-switch threshold verbatim in trials.jsonl pre-reg entry before first bar executes"
+regime_flags:
+  - "JPY-cross correlation: USDJPY and GBPUSD share JPY tail risk; simultaneous adverse moves are not independent"
+  - "BoJ policy normalization regime: rate-path uncertainty elevates JPY vol; carry unwind risk elevated"
+  - "USD macro sensitivity: all three pairs co-move on USD shock events (Mar 2020 analog)"
+  - "GBP flash-crash analog: GBPUSD subject to illiquidity-driven spike risk in thin sessions"
+evidence:
+  - "commit ca68903: KillSwitch class is per-strategy with reset CLI"
+  - "commit e06bf55: auto_retire_on_trigger.py exists"
+  - "commit 82f2e57: pre-commit equivalence-gate hook"
+  - "commit 7d37c44: structured-JSON kill-switch audit"
+  - ".fintech-org/policy-violations.jsonl: 0 entries - under-instrumentation risk flagged"
+  - "data/paper_trading_session.log: 3-6KB - smoke-test only, no real PnL curve"
+blowup-analog: "LTCM"
+contamination-check: "clean"
+assumptions:
+  - "kill-switch thresholds exist per-strategy but no cross-strategy aggregated-exposure gate has been verified from file reads"
+  - "paper-trading loop does not have a confirmed heartbeat/dead-man watchdog - absence inferred from no evidence of existence"
+  - "0 policy-violations entries reflects under-instrumentation, not a clean record"
+  - "size_multiplier 0.5 applied to risk_per_trade_pct (yielding effective 1% per trade) pending cross-strategy gate confirmation"
+  - "org_trial_count 22 is close to a complexity threshold requiring aggregated-book monitoring"
+confidence: medium
+body: |
+  ## 1. Paper-only risk envelope (12-week)
+  - max_active_paper_strategies: 4
+  - max_trial_budget_12wk: 36 (current 22 + ceiling of 14 new; ~1.2/week)
+  - max_concurrent_open_positions: 6 (2 per pair max)
+  - max_correlated_exposure_pct: 0.15 (JPY-correlated notional <=15% of book)
+  - leverage_ladder:
+    - low_vol_regime: 1.0x on risk_per_trade_pct
+    - medium_vol_regime: 0.75x
+    - high_vol_regime: 0.25x
+  - drawdown_contract: "paper-equity DD >=10% => halt new trial dispatch | DD >=15% =>
+    reduce all sizing to 0.5x | DD >=20% => full halt pending CRO review"
+
+  ## 2. Kill-switch coverage gaps
+  - gap_1: No confirmed cross-strategy aggregated-exposure gate - severity: high
+  - gap_2: No confirmed heartbeat/dead-man watchdog on paper-trading loop - severity: high
+  - gap_3: policy-violations.jsonl has 0 entries with 22 trials - under-instrumentation
+    probable, not verified clean - severity: med
+  - gap_4: Paper-trading logs 3-6KB only - no real PnL curve exists to validate historical
+    kill-switch trigger behavior - severity: med
+
+  ## 3. Binding constraints on CTO architectural choices
+  - constraint_1: "no paper-trading dispatch unless src/forex_system/backtest/ contains a
+    cross-strategy aggregated-exposure check that gates on JPY-correlated notional
+    <=15%"
+  - constraint_2: "trial budget hard ceiling: <=3 new trials per week; halt if
+    trials.jsonl growth exceeds 3/week regardless of CTO sequencing"
+  - constraint_3: "every paper strategy pre-reg entry in trials.jsonl must include
+    kill_switch_threshold field with numeric value before first bar executes"
+
+knowledge_gaps: []
+policy_violations_detected: []

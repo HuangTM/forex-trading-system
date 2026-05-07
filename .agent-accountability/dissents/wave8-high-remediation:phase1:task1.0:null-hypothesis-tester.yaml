@@ -1,0 +1,155 @@
+schema_version: "1.0"
+artifact_type: dissent
+track_id: wave8-high-remediation:phase1:task1.0
+addressed_unit: wave8-high-remediation:phase1:task1.0
+
+dissenter:
+  name: null-hypothesis-tester
+  role: null-hypothesis-tester
+  authority_basis: "Designated structural skeptic per fintech-org/SKILL.md rule 6: 'Null-Hypothesis Tester dissent is append-only. Cannot be erased by the others agreeing.'"
+
+dissent_text: |
+  NHT registers MATERIAL_CONCERN (multiple) on Wave-8 closure.
+
+  The Wave-8 implementation as written and submitted does NOT satisfy the PM
+  HIGH-1 / HIGH-2 acceptance criteria as a strict reading would require, and
+  the identified gaps include at least one rule_violation severity item
+  (swap accrual is omitted from "backtest-equivalent" cost deduction despite
+  being explicitly enumerated in HIGH-1c).
+
+  Specific dissent items, append-only and non-amendable:
+
+    HIGH-1 (cost-model parity) gaps:
+      (a) Swap (holding_cost) is never invoked. The paper-loop "backtest-
+          equivalent" equity log records only entry/exit cost on action
+          cycles. For a 60-day USDJPY long-carry hold at 10,000 units the
+          omitted swap is ~$4,800 — material to the very thesis being
+          paper-validated. RULE_VIOLATION on PM HIGH-1c verbatim text
+          ("spread, slippage, commission, AND swap").
+      (b) The cost-deducted value is logged but NOT fed back into the
+          operational equity used for sizing, drawdown contract assessment
+          (DD-1/DD-2/DD-3), kill-switch, or target_units. The paper
+          equity curve in the LOG is backtest-equivalent (modulo (a));
+          the paper TRADING DECISIONS still use raw Saxo equity. The
+          divergence the closure claims to close remains in the control
+          loop. MATERIAL_CONCERN.
+      (c) The QD HIGH-1c test is a syntactic mirror that cannot
+          distinguish a correctly-wired implementation from a
+          superficially-wired one (formula match, not behavior match).
+          MATERIAL_CONCERN.
+      (d) Cost is computed on full target_units rather than on |delta|
+          on rebalance cycles (engine engine.py:331-332 charges on |delta|).
+          CONCERN.
+
+    HIGH-2 (account-key parity gate) gaps:
+      (e) TOCTOU race: Path.exists() + Path.write_text() is not atomic;
+          two simultaneous launches with divergent keys can both pass.
+          The codebase has the atomic write-then-rename pattern in the
+          same file (heartbeat) but assert_account_key_parity does not
+          use it. MATERIAL_CONCERN.
+      (f) Stale-lock semantics: the documented operator recovery path
+          ("delete the file") makes the gate effectively advisory under
+          operational stress. MATERIAL_CONCERN.
+      (g) Account-key parity does NOT close the BC-8 ~15x over-exposure
+          concern in the multi-strategy-on-one-account case. The gate
+          addresses only the multi-account case. MATERIAL_CONCERN.
+          CRO must re-verify whether the original BC-8 closure claim
+          can stand on this gate alone.
+
+  Recommended remediation summary:
+    1. Add swap accrual to the equity log path (HIGH-1c rule violation).
+    2. Either deduct cost from operational equity, or amend the PM
+       HIGH-1 criterion to "log parity only" and document the residual
+       divergence explicitly. (HIGH-1a/b material concern.)
+    3. Replace HIGH-1c syntactic-mirror test with an end-to-end
+       parity-curve test (HIGH-1c material concern).
+    4. Replace lock-file Path.write_text with O_CREAT|O_EXCL atomic
+       acquire (HIGH-2 race material concern).
+    5. Replace "delete the file to reset" with explicit reset CLI flag
+       requiring operator confirmation (HIGH-2 stale-lock material concern).
+    6. CRO re-verifies BC-8 closure under multi-strategy-on-one-account
+       mode; account-key parity alone does not close it.
+
+  Per Rule 6 this dissent is append-only into CONSENSUS_2026-05-05_wave8.md
+  if Wave-8 proceeds to closure. Per protocols/full-auto.md severity is
+  mapped to does_block deterministically; with two RULE_VIOLATION-adjacent
+  items and four MATERIAL_CONCERN items, the orchestrator should treat
+  Wave-8 as does_block until at least items (1), (2)-with-explicit-criterion-
+  amendment-or-fix, (3), and (4) are remediated. Items (5) and (6) can
+  optionally be deferred to Wave-9 with explicit CEO acknowledgment.
+
+  --- NHT attempt 2 (append-only continuation) ---
+
+  NHT attempt-2 re-verification: dissent REDUCED from attempt-1 but NOT lifted.
+
+  Closed by QD attempt 2 (no residual): finding 1 (swap accrual), finding 2
+  (|delta| rebalance cost), finding 3 (end-to-end parity test), finding 4
+  (atomic O_EXCL lock).
+
+  Reduced to non-blocking concern: finding 5 (stale-lock — advisory replaced
+  with --reset-account-key-lock + --confirm-account-reset double-flag CLI gate;
+  TTL detection deferred Wave-9; OS-level rm bypass remains but is not what
+  the finding addressed).
+
+  STILL BLOCKING (material_concern, append-only, non-amendable):
+
+    Finding-K (BC-8 multi-strategy aggregation): CRO attempt-2 returns VETO.
+    Account-key parity does NOT close BC-8; cross-process race [read → check
+    → dispatch] permits transient ~24-30% aggregate exposure when both loops
+    target one account. CRO recommends per-strategy budget tickets (7.5%
+    each) or cross-process file-lock as Wave-9 residual control. Until
+    either lands, second-loop authorization remains BLOCKED.
+
+    NEW-1 (USDJPY unit-convention 150× cost overstatement): The end-to-end
+    parity test (Fix 3) runs on EURUSD, not Bet #1's actual pair USDJPY.
+    QD documents a 150× cost overstatement on USDJPY between paper loop
+    and engine and defers fix to Wave-9. The PM HIGH-1 acceptance "cost
+    deducted is bt-equivalent for any trade tuple" is NOT satisfied for
+    USDJPY. Bet #1 paper-launch cost-parity claim is structurally not
+    verified.
+
+    NEW-2 (cost feedback into operational equity): dd_contract,
+    kill_switch, and sizer continue to consume raw broker equity. The
+    "backtest-equivalent" claim holds for the equity LOG only; control-
+    loop decisions diverge by accumulated cost+swap. QD explicitly defers
+    closure to PM/CRO routing.
+
+  Per protocols/full-auto.md: overall_severity material_concern →
+  does_block: true.  Wave-8 cannot auto-ratify.  Escalation to CEO is
+  required.  Acceptable closure paths:
+    (i)  Wave-9 implements per-strategy budget tickets (7.5% each), USDJPY
+         unit-convention fix, and either cost-feedback-into-equity OR a PM
+         amendment to HIGH-1 carving out operational-equity-feedback as
+         log-only.  Then Wave-8 closes via Wave-9 follow-on.
+    (ii) CEO explicitly accepts (a) BC-8 transient overshoot risk by
+         authorizing only ONE paper loop (vt only OR carry_fred only, not
+         both); (b) USDJPY parity gap as documented;
+         (c) operational-equity-feedback gap as documented.  Then Wave-8
+         closes for the single-loop scope only.
+
+  Items 1, 2, 3, 4, 5 are NHT-validated as engineering-closed (or
+  reduced to concern). The blocking surface is now finding-K + NEW-1 +
+  NEW-2.
+
+severity:
+  level: block-threshold
+  rationale: "NHT overall_severity=material_concern maps to does_block: true under protocols/full-auto.md deterministic severity mapping; blocking surface: finding-K (CRO veto, not closed) + NEW-1 (USDJPY unit-convention 150x overstatement) + NEW-2 (cost feedback into operational equity gap)"
+
+does_block: true
+
+blocking_condition_met:
+  required: true
+  pre_declared_condition: "Per protocols/full-auto.md: NHT severity material_concern → does_block: true (orchestrator-computed). Auto-ratification is blocked; fallback to CEO sign-off path."
+  source: "fintech-org/protocols/full-auto.md (severity mapping table: material_concern → does_block: true)"
+
+surfaces_to:
+  consensus_artifact: "./docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md"
+  ratification_artifact: "pending"
+
+related_gaps: []
+
+write_metadata:
+  written_at: "2026-05-05T00:00:00Z"
+  written_by: "fintech-org/pm (Wave-4 consensus authoring)"
+  schema_version: "1.0"
+  immutability_assertion: "this artifact is append-only; any modification after written_at is a protocol violation"

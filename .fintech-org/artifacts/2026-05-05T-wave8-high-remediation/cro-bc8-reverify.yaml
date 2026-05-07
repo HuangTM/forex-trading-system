@@ -1,0 +1,182 @@
+role: cro
+artifact_type: risk-assessment
+decision: veto
+timestamp: "2026-05-05T23:55:00Z"
+subtask_ref: wave8-bc8-multi-strategy-aggregation-reverify
+subtask_id: 125f0fe8-cf61-4752-af41-f5b924524572
+attempt: 2
+
+# Wave-8 specific
+bc8_closure_status: not-closed-additional-control-needed
+get_positions_behavior: all-account-positions
+exposure_aggregator_scope: portfolio-wide
+race_window_assessment: |
+  Saxo /port/v1/netpositions is queried with ClientKey scope (saxo/client.py:334-338).
+  For retail accounts ClientKey == AccountKey (codebase comment, client.py:218), so
+  both loops, when correctly pointed at the same account, do see each other's settled
+  net positions. compute_exposure() and check_dispatch_allowed() are pure snapshot
+  functions and aggregate over whatever positions list is passed — so the WIRED scope
+  is portfolio-wide-on-the-account.
+
+  HOWEVER: each loop reads positions at run_cycle start (vt.py:474, carry_fred.py:454),
+  performs check_dispatch_allowed, then dispatches an order via SaxoExecutionBackend.
+  There is NO cross-process critical section spanning [read → check → dispatch]. The
+  Saxo order-to-/netpositions visibility latency (sub-second to several seconds in
+  practice) creates a race window in which loop A's just-dispatched order is in flight
+  while loop B reads stale netpositions, sees aggregate at 14%, and dispatches its own
+  +5% — yielding transient aggregate ~24% before either loop's next cycle reconverges.
+
+  In steady state (both loops re-reading each cycle) the system tends back toward
+  ≤15%, but BC-8's quantitative clause is strict ("at any bar before any new trial
+  dispatches", CONSENSUS_2026-04-28.md:51). Transient overshoot during the race
+  window is a BC-8 breach. The account-key parity gate addresses the multi-account
+  15× framing; it does NOT add any cross-process serialization on the dispatch path.
+
+recommended_residual_control: |
+  Cross-process exposure-budget primitive. Two viable shapes:
+  (a) Pre-dispatch advisory file-lock (fcntl LOCK_EX, atomic O_CREAT|O_EXCL) around
+      [backend.get_positions → compute_exposure → check_dispatch_allowed → execute_signal].
+      Holds for the duration of one dispatch only; serializes two loops on one account.
+  (b) Per-strategy budget tickets summing to BC-8 cap: each loop allocated a static
+      half (7.5%); each loop self-enforces its own budget; portfolio aggregate ≤15%
+      by construction. Simpler, more conservative, no cross-process synchronization.
+      Recommended for Wave-9 if cross-process locking is not implemented immediately.
+  Until either is in place: BC-8 closure should NOT be claimed on the basis of
+  Wave-8 account-key parity alone, and second-loop authorization (carry_fred regime-
+  conditional) should remain BLOCKED.
+
+size_multiplier: 0.5
+binding_constraints:
+  - "BC-1 (per-trade size, sizing 0.5×)"
+  - "BC-2 (per-position 10k notional, Bet#1 0.25× regime-conditional)"
+  - "BC-7 (drawdown ladder 10/15/20%)"
+  - "BC-8 (JPY-correlated ≤15%) — NOT CLOSED by Wave-8; requires residual control"
+regime_flags:
+  - "BoJ-divergence regime (Bet #1 lift conditional, gates Bet #1 to 0.25×)"
+  - "Single-account-required (account-key parity gate is necessary but not sufficient)"
+blowup-analog: |
+  Knight Capital, August 2012. The defective router and the SMARS execution
+  pathway each independently honored their local guards, but the firm had no
+  cross-system aggregate-rate kill switch. Independently-correct local controls
+  failed to enforce a portfolio-level invariant under concurrent dispatch. The
+  Wave-8 multi-strategy-on-one-account scenario is structurally analogous: two
+  loops each independently enforcing a per-process 15% gate is not equivalent
+  to one portfolio-wide 15% gate when there is no cross-process serialization
+  on the dispatch path.
+
+contamination-check: "clean"
+
+evidence:
+  - "src/forex_system/saxo/client.py:218  (codebase comment: ClientKey == AccountKey for retail)"
+  - "src/forex_system/saxo/client.py:224-231  (get_positions calls /port/v1/positions with ClientKey)"
+  - "src/forex_system/saxo/client.py:334-338  (get_net_positions calls /port/v1/netpositions with ClientKey)"
+  - "src/forex_system/saxo/execution.py:140-176  (SaxoExecutionBackend.get_positions wraps get_net_positions)"
+  - "src/forex_system/risk/exposure_aggregator.py:94-140  (compute_exposure: pure, snapshot-based, scope = passed list)"
+  - "src/forex_system/risk/exposure_aggregator.py:148-215  (check_dispatch_allowed: pure, no cross-process state)"
+  - "scripts/run_paper_trading_vt.py:474-505  (paper loop: read positions → compute → check → dispatch; no cross-process lock)"
+  - "scripts/run_paper_trading_carry_fred.py:454-475  (paper loop: identical pattern)"
+  - "scripts/run_paper_trading_vt.py:108-138  (assert_account_key_parity: addresses multi-account scope only)"
+  - "docs/decisions/CONSENSUS_2026-04-28.md:51  (BC-8 clause: 'Cross-strategy JPY-correlated notional must not exceed 15% of paper book at any bar before any new trial dispatches')"
+  - "docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md:112  (BC-8 inheritance, 15% cap)"
+  - "https://www.developer.saxo/openapi/referencedocs/port/v1/netpositions  (Saxo: '...whether the identity represented by the authorization token has access to the account' — token-scope of an account, not isolation across tokens)"
+
+assumptions:
+  - >
+    backend.get_positions() returns all account-level net positions when
+    ClientKey == AccountKey == retail account (per codebase comment client.py:218
+    and standard Saxo retail behavior). Saxo OpenAPI docs do not explicitly
+    contradict, but do not explicitly confirm cross-token visibility either.
+    Confidence: medium-high. A live SIM probe (two tokens, same account, one
+    opens position, the other queries /netpositions) would lift to high.
+  - >
+    Saxo's order-placement to /netpositions visibility latency is non-zero
+    (sub-second to several seconds based on standard broker semantics).
+    Exact latency in SIM is not measured here; the existence of a race
+    window does not depend on its precise duration, only on it being > 0.
+  - >
+    No external cross-process serialization (e.g., systemd ExecStartPre
+    sequencing or operational runbook) is assumed to substitute for the
+    missing in-process control. CRO does not accept process-management
+    based mitigations as substitutes for code-level guards.
+confidence: high
+
+body: |
+  CLAIM UNDER TEST: "Wave-8 account-key parity gate (HIGH-2) closes BC-8
+  ~15× over-exposure concern."
+
+  RE-VERIFICATION RESULT: claim FAILS in the multi-strategy-on-one-account
+  scenario. The parity gate addresses the multi-account 15× scenario (where
+  the firm-level book is split across two unaggregated Saxo accounts) but
+  does not address the multi-strategy-on-one-account 2× transient scenario
+  (where two loops on one account race on dispatch).
+
+  STRUCTURAL ANALYSIS:
+
+  Q1 — get_positions scope: account-level. /port/v1/netpositions with
+  ClientKey returns all positions on the account. Each loop, when pointed
+  at the same account, sees the other's settled positions.
+
+  Q2 — exposure_aggregator scope: portfolio-wide as wired. compute_exposure
+  is a pure aggregator over the passed list; the paper-loop scripts pass the
+  full account-level position list. So in steady state with no race, the
+  15% cap is enforced portfolio-wide.
+
+  Q3 — Saxo /netpositions docs: do not explicitly disambiguate cross-token
+  isolation, but state position visibility is governed by token-account
+  access. Codebase comment + standard retail semantics support
+  account-level scope.
+
+  Q4 — BC-8 contract framing: the BC-8 clause requires "at any bar before
+  any new trial dispatches" — strict, not amortized. Transient overshoot
+  during a dispatch race window is a contract violation.
+
+  THE RACE: The wired control sequence is read → check → dispatch with no
+  cross-process lock. A loop A dispatch in flight is invisible to loop B
+  on its read. Loop B can pass check_dispatch_allowed on stale aggregate
+  and dispatch its own size, transiently breaching BC-8. The parity gate
+  does nothing to address this — it only ensures both loops are pointed
+  at the same account.
+
+  KNIGHT-CAPITAL ANALOG: independently-correct local guards do not
+  enforce portfolio-level invariants under concurrent dispatch.
+
+  REQUIRED RESIDUAL CONTROL: a cross-process serialization primitive
+  on the dispatch critical section, or static per-strategy budget
+  tickets summing to BC-8 cap. Until either is in place, second-loop
+  authorization should remain BLOCKED and BC-8 closure should not
+  be claimed on Wave-8 alone.
+
+sources:
+  - "https://www.developer.saxo/openapi/referencedocs/port/v1/netpositions"
+web_research_conducted: true
+websearch_used: 0
+webfetch_used: 1
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps:
+  - >
+    Exact Saxo SIM order-dispatch to /netpositions visibility latency is
+    not measured. If latency is verified < 100 ms in SIM AND each loop's
+    cycle period is ≥ several minutes, race-window severity is reduced
+    (from "easy to hit" to "narrow but nonzero"). Severity remains
+    material_concern under BC-8's strict at-any-bar clause regardless,
+    but the operational frequency would be lower.
+  - >
+    Whether Saxo retail accounts can run with two simultaneously-active
+    OAuth tokens on the same ClientKey at all. If Saxo enforces
+    one-token-per-account (single-session), the multi-strategy-on-one-
+    account scenario is structurally impossible and BC-8 closure status
+    would change to closed-by-parity-gate-alone. CRO has not verified
+    this; recommend QD operational test before lifting the veto.
+  - >
+    Whether either paper-loop script could be amended to share a single
+    SaxoExecutionBackend instance via in-process orchestration (one
+    parent process, two strategy threads), which would collapse the
+    cross-process race into in-process check-and-dispatch under a
+    threading.Lock. Architectural alternative not evaluated here;
+    routed to QD/CTO if the residual-control path moves to design.
+claimed_domains:
+  - position-sizing
+  - correlation-and-concentration-limits
+  - market-access-controls
+  - kill-switch-design-and-testing

@@ -1,0 +1,247 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: dissent
+timestamp: "2026-05-03T06:10:00Z"
+subtask_ref: "Cold-start gate (BC-4) adversarial verification"
+subtask_id: "wave6-nht-1"
+
+contamination-check: passed
+no-capital-instruction: true
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+confidence: high
+
+gate-implementation-status: implemented-but-incomplete
+
+bypass-vectors-found:
+  - vector: "producer/consumer schema mismatch — producer never writes the four keys the consumer reads"
+    detail: |
+      The consumer regime_active_status() at src/forex_system/risk/bet1_sizing.py:184-188
+      reads four keys from data/cf_t9_status.json:
+        - regime_active        (boolean)
+        - n_readings           (int)
+        - seen_regime_active_true   (bool)
+        - seen_regime_active_false  (bool)
+      The ONLY producer of data/cf_t9_status.json in shipping code is
+      scripts/monitor_regime_triggers.py (line 387-393). Its evaluate_cf_t9()
+      output (lines 273-303) writes a SCHEMA THAT DOES NOT CONTAIN ANY OF
+      THESE FOUR KEYS. The producer writes: monitor_id, evaluated_at,
+      triggered, clause_a_boj_rate{...}, clause_b_basket_sharpe{...},
+      universe, data_freshness, pre_reg_reference, consensus_track_id.
+      Result: every payload.get() in the consumer falls back to its default
+      (False / 0 / False / False), so n_readings is always 0, the gate at
+      bet1_sizing.py:197 always trips, and regime_active_status() always
+      returns False. The system fails SAFE (no trades), but the gate is
+      NOT EVALUATING WHAT IT WAS DESIGNED TO EVALUATE.
+  - vector: "producer overwrites consumer-shaped stubs each cron tick"
+    detail: |
+      monitor_regime_triggers.py:392 opens the output path in 'w' mode,
+      which truncates+rewrites. If an operator hand-writes a JSON stub
+      containing the four BC-4 keys to satisfy the cold-start gate, the
+      next cron invocation of monitor_regime_triggers.py will OBLITERATE
+      the stub. There is no merge logic.
+  - vector: "operator-fabricated stub silently passes the gate without any real readings"
+    detail: |
+      Conversely: nothing in the consumer cross-checks the four BC-4 keys
+      against the monitor's own n_readings of the cf_t9_audit.log
+      (data/cf_t9_audit.log). An operator who writes
+      {"regime_active": true, "n_readings": 99,
+       "seen_regime_active_true": true, "seen_regime_active_false": true}
+      between cron ticks bypasses the cold-start counter — there is no
+      authoritative "regime reading counter" in production code. The
+      counting happens nowhere. There is no module that increments
+      n_readings or sets seen_regime_active_true/false based on observed
+      regime states. The BC-4 spec wording ("CF-T9 must have observed BOTH
+      TRUE and FALSE regime states with ≥10 total readings") has no
+      programmatic incrementer.
+
+evidence:
+  - file: "src/forex_system/risk/bet1_sizing.py"
+    lines: "184-188"
+    quote: |
+      regime_flag = bool(payload.get("regime_active", False))
+      n_readings = int(payload.get("n_readings", 0))
+      seen_true = bool(payload.get("seen_regime_active_true", False))
+      seen_false = bool(payload.get("seen_regime_active_false", False))
+      both_states = seen_true and seen_false
+    finding: "Consumer reads four keys with safe defaults (False/0/False/False)."
+  - file: "src/forex_system/risk/bet1_sizing.py"
+    lines: "197-222"
+    finding: "Two-stage gate is correctly implemented: (a) n_readings >= 10 check at line 197, (b) both_states check at line 213. Either failure returns False. NO env-var, config-flag, or test-mode bypass exists in this function."
+  - file: "scripts/monitor_regime_triggers.py"
+    lines: "246-303 (evaluate_cf_t9 function), 387-393 (write path)"
+    finding: |
+      Producer schema written to data/cf_t9_status.json contains keys:
+      monitor_id, evaluated_at, triggered, clause_a_boj_rate,
+      clause_b_basket_sharpe, universe, data_freshness, pre_reg_reference,
+      consensus_track_id. NONE of: regime_active, n_readings,
+      seen_regime_active_true, seen_regime_active_false.
+  - file: "scripts/monitor_regime_triggers.py"
+    lines: "392"
+    quote: 'with open(args.output, "w") as f:'
+    finding: "Truncate-and-rewrite each cron tick — destroys any hand-written stub."
+  - file: "data/cf_t9_status.json"
+    finding: "FILE DOES NOT EXIST as of 2026-05-03 06:10 UTC. The consumer's first check (line 132 path.exists()) fails before reaching any cold-start logic. Today, the gate trips at file-existence."
+  - file: "scripts/auto_retire_on_trigger.py"
+    lines: "144-165 (parse_gate_output)"
+    finding: "Reads cf_t9_status.json but reads only 'triggered' and 'monitor_id' / 'clause_a_boj_rate' / 'clause_b_basket_sharpe' — does NOT write the four BC-4 keys."
+  - file: "tests/scripts/test_run_paper_trading_vt_wiring.py"
+    lines: "302-374"
+    finding: |
+      Tests are correct and comprehensive against the consumer. They write
+      the four BC-4 keys directly into a tmp_path stub then call
+      regime_active_status(cf_t9_status_path=tmp_path). The tests therefore
+      demonstrate that IF a producer wrote those keys, the gate would
+      function. They do NOT demonstrate that any producer in the shipping
+      codebase does so. Test scaffolding is not a substitute for a producer.
+  - file: "scripts/run_paper_trading_carry_fred.py"
+    lines: "61, 329"
+    finding: |
+      Production caller is regime_active_status() with NO override path
+      (line 329). Defaults to data/cf_t9_status.json, which today does not
+      exist. There is NO env-var bypass, NO test-mode override, NO config
+      switch in the production caller. Fail-safe halts at the file-missing
+      branch.
+  - search: 'grep -rn "n_readings\|seen_regime_active" src/ scripts/'
+    finding: |
+      The keys n_readings, seen_regime_active_true, seen_regime_active_false
+      appear ONLY in (a) the consumer reader bet1_sizing.py, (b) the
+      consumer's tests. They appear in ZERO writer paths in src/ or
+      scripts/. No module in the shipping codebase increments a regime
+      reading counter or records seen_state booleans.
+
+assumptions:
+  - "I have not hand-executed monitor_regime_triggers.py against a live FRED key, so the assertion that its writer schema lacks the four keys rests on reading the source (lines 273-303 + 387-393), which is authoritative."
+  - "I assume the only producer of data/cf_t9_status.json is monitor_regime_triggers.py. Verified by grep for 'cf_t9_status' across scripts/ and src/ — only the monitor writes; everyone else reads."
+  - "I assume the test file's hand-stubbed payloads are not representative of production producer output (verified by source-reading the producer)."
+  - "I have not loaded the python skill (forbidden); my findings rest on source-reading + grep, not on running the gate."
+
+dissent-statement: |
+  The CF-T9 cold-start gate (BC-4) is half-implemented. The CONSUMER
+  (src/forex_system/risk/bet1_sizing.py:101-232) correctly checks
+  n_readings >= 10 AND both_states_observed. There is no bypass via
+  env-var, config flag, or test mode in the consumer. The adversarial
+  case "10 same-state readings silently pass" is correctly blocked by
+  the consumer logic — IF the four required keys are present in
+  data/cf_t9_status.json.
+
+  However, the PRODUCER (scripts/monitor_regime_triggers.py) does NOT
+  write the four keys the consumer reads. The producer writes
+  monitor_id / triggered / clause_a / clause_b / data_freshness — but
+  NOT regime_active, n_readings, seen_regime_active_true,
+  seen_regime_active_false. The consumer therefore always reads the
+  defaults (0, False, False) and BC-4 always trips at "n_readings < 10".
+  The system fails safe (no trades dispatched), so this is not a
+  capital-loss bypass — but it IS a structural failure: the cold-start
+  gate as currently wired CANNOT be satisfied by shipping production
+  code. The gate is not evaluating "have we observed both regime states
+  ≥10 times"; it is evaluating "does the operator know to bypass the
+  gate by hand-writing a JSON stub between cron ticks".
+
+  Furthermore, NO module in src/ or scripts/ implements a regime-reading
+  COUNTER. The increment-on-each-observation logic that BC-4 requires
+  has no programmatic home. n_readings is conceptually undefined in the
+  shipping codebase — neither incremented nor decremented nor reset.
+  Consequently:
+
+    (1) The gate as written is unsatisfiable end-to-end through normal
+        cron operation — so paper-loop dispatch is permanently blocked,
+        which is the safe failure mode but also masks the absence of any
+        real cold-start tracking.
+    (2) A motivated operator who hand-writes a stub satisfies the gate
+        WITHOUT the stub reflecting any true observed regime history.
+        The adversarial scenario in the subtask spec ("all-TRUE 10
+        times") is not the threat — the actual threat is "operator
+        hand-fabricates 10 readings that never happened, the consumer
+        accepts the fabrication, and the next cron tick wipes the
+        evidence by overwriting the file".
+    (3) data/cf_t9_status.json does NOT EXIST on disk as of today
+        (verified via ls). The PM acceptance criterion that "the file is
+        updated within last 5 minutes" cannot be met until the producer
+        is run AND the producer is amended to emit the four BC-4 keys.
+
+  Minimum fix (≤30 LoC, NOT to be written by NHT — route to QD):
+    - Amend evaluate_cf_t9() in monitor_regime_triggers.py to maintain
+      a persistent reading-counter (e.g., separate state file
+      data/cf_t9_state.json that is read-modify-write per invocation).
+    - On each invocation, increment n_readings; set
+      seen_regime_active_true=True if (clause_a_pass AND clause_b_pass)
+      this tick; set seen_regime_active_false=True if NOT (clause_a_pass
+      AND clause_b_pass) this tick. Persist counter and state-flags
+      across invocations.
+    - Emit regime_active = (clause_a_pass AND clause_b_pass) into the
+      output payload alongside the existing triggered envelope.
+    - Add a sacred test in tests/scripts/test_cf_t9_monitor.py that
+      runs the monitor twice and asserts n_readings increments
+      monotonically and seen_state flags are sticky.
+
+  Until this is fixed, BC-4 is FORMALLY UNSATISFIABLE and any
+  operator-mediated bypass to satisfy it is ungoverned. The cold-start
+  gate provides no meaningful adversarial protection in its current
+  wiring.
+
+severity: material_concern
+does_block: true
+
+body: |
+  Per the role contract, I performed source-reading-only adversarial
+  verification on BC-4. The subtask asks whether the gate, as
+  IMPLEMENTED, can be silently satisfied by a regime detector that
+  returns the same value 10 times in a row.
+
+  Direct answer: the gate's CHECK logic, as written in
+  bet1_sizing.py:197-222, correctly rejects monoculture — n_readings ≥
+  10 is necessary but not sufficient; both_states (seen_true AND
+  seen_false) is the second hurdle, and it is enforced. There is no
+  env-var, no config flag, no test-mode shortcut around either check.
+  An adversarial regime detector that emits 10 TRUE-only or 10
+  FALSE-only readings WOULD be rejected by the consumer's
+  state-diversity check.
+
+  However, the gate's PRODUCER side is the failure point. The only
+  shipping producer of data/cf_t9_status.json
+  (scripts/monitor_regime_triggers.py) writes a JSON schema that does
+  not include the four keys the consumer reads. There is no module in
+  src/ or scripts/ that increments a regime-reading counter. The
+  consumer therefore always defaults to n_readings=0,
+  seen_regime_active_true=False, seen_regime_active_false=False, and
+  the gate trips at the n_readings check before ever reaching the
+  state-diversity check. The system fails safe (returns False, blocks
+  trades), but the gate is structurally unsatisfiable through normal
+  operation.
+
+  This produces a paradox: the BC-4 spec is enforced in code, but the
+  enforcement is vacuous because the inputs the enforcement reasons
+  over are never produced. To satisfy the gate, an operator must
+  hand-fabricate a JSON stub between cron ticks — which (a) the next
+  cron run will overwrite, and (b) is not governed by any audit trail
+  proving the fabricated readings reflect real observed regime states.
+  The adversarial threat shifts from "gate accepts 10 same-state
+  readings" (correctly blocked) to "operator hand-writes any payload
+  to satisfy the gate" (ungoverned).
+
+  I additionally verified: (a) data/cf_t9_status.json does NOT exist on
+  disk today; (b) the producer opens the output file in 'w' mode (line
+  392) which truncates+overwrites; (c) auto_retire_on_trigger.py reads
+  the file but writes none of the BC-4 keys; (d) the tests in
+  test_run_paper_trading_vt_wiring.py:302-374 hand-stub the four keys
+  in tmp_path and assert correct consumer behavior — the tests are
+  correct, but they prove only that IF a producer existed, the
+  consumer would work. They do not prove a producer exists.
+
+  Decision: dissent at severity material_concern. The gate is
+  implemented-but-incomplete (consumer correct; producer schema
+  mismatched; counter logic absent). The minimum fix is small (≤30 LoC
+  in monitor_regime_triggers.py + a persistence-layer test) and
+  belongs to QD, not NHT. Until that fix lands, BC-4 cannot be
+  truthfully claimed as satisfied by any programmatic evidence.
+
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/bet1_sizing.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/auto_retire_on_trigger.py"
+  - "/Users/huangtm/Projects/forex-trading-system/tests/scripts/test_run_paper_trading_vt_wiring.py"
+  - "/Users/huangtm/Projects/forex-trading-system/tests/scripts/test_cf_t9_monitor.py"
+  - "git log --oneline (commit ded1356: phase2-dir-v1: Wave-5 Round 1 — CF-T9 amendment + sidecar + paper-loop risk wiring)"

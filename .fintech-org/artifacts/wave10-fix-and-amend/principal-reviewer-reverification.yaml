@@ -1,0 +1,717 @@
+schema_version: "1.0"
+artifact_type: review-report
+role: principal-reviewer
+track_id: wave10-fix-and-amend
+addressed_unit: wave10-fix-and-amend:phase2:principal-reviewer-reverification
+timestamp: "2026-05-06T13:30:00Z"
+accountable_party:
+  role_or_human: principal-reviewer
+  name: principal-reviewer-agent
+
+decision: approve-with-conditions
+
+# ── Contamination self-check ──────────────────────────────────────────────────
+contamination-check: clean
+contamination-check-rationale: |
+  Prompt explicitly instructs reviewer to ignore stance language in QD report and
+  PM AC. Scanned QD report for QD-self-stance ("verdict: PASS", "qd_success_gate.PASS")
+  — those are claims by QD, not third-party verdicts; my role is to re-derive every
+  finding from source. No sentence in the prompt indicates another role has approved
+  or rejected this Wave-10 artifact. Wave-9 PR review (mine) has decision: reject —
+  IGNORED per task instructions; only file:line refs used.
+
+# ── Rubrics applied ───────────────────────────────────────────────────────────
+rubrics-applied:
+  - 1-spec-to-implementation-trace
+  - 2-execution-firewall-review
+  - 3-log-as-decision-trace
+  - 4-edge-case-enumeration
+  - 5-invariant-search
+  - 6-test-inversion
+  - 7-failure-mode-reasoning
+  - 8-numerical-correctness
+
+# ── Artifacts under review ────────────────────────────────────────────────────
+artifact-under-review:
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+  - tests/scripts/test_wave8_high_remediation.py
+  - tests/scripts/test_wave10_dispatch_lock.py
+  - src/forex_system/backtest/engine.py (reference)
+  - src/forex_system/risk/drawdown_contract.py (reference)
+  - src/forex_system/risk/kill_switch.py (reference)
+  - docs/specs/drawdown_ladder_amendment_2026-05-06.md
+
+# ── Per-HC verdict ────────────────────────────────────────────────────────────
+hc_verdicts:
+
+  HC-1:
+    verdict: PASS
+    evidence: |
+      Re-derived from source.
+      scripts/run_paper_trading_vt.py:738 — _engine_units = (_trade_units_nom / mid)
+        if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
+      scripts/run_paper_trading_vt.py:739 — _cost_usd = _cost_pips * _pip_v * _engine_units
+      scripts/run_paper_trading_carry_fred.py:700-701 — same fix, same arithmetic.
+      Engine reference src/forex_system/backtest/engine.py:299 calls _to_engine_units
+        (engine.py:544-573); engine.py:331-332 charges cost_pips * pip_value * abs(delta)
+        where delta is in engine-units. The paper-loop fix matches this convention.
+      Numeric oracle: USDJPY at price=150, USD-nominal=100_000.
+        engine_units = 100_000 / 150 = 666.6667
+        cost_usd = 0.75 * 0.01 * 666.6667 = 5.0000
+        ∈ [4.95, 5.05]. PASS.
+      Pre-fix value (USD-nominal direct): 0.75 * 0.01 * 100_000 = 750 USD (150x).
+      Symmetry verification per Rubric 8:
+        Entry path: vt.py:732 _trade_units_nom = target_units; line 738 conversion applied.
+        Rebalance path: vt.py:730 _trade_units_nom = _rebal_delta; line 738 conversion applied.
+        Exit path: vt.py:725 _trade_units_nom = cur_units; line 738 conversion applied.
+        Swap path: vt.py:744-745 _held_engine_units = _held_units_nom / mid for JPY.
+        ALL FOUR CONVERSION PATHS SYMMETRIC. ✓
+
+  HC-2:
+    verdict: PASS
+    evidence: |
+      Re-derived from tests/scripts/test_wave8_high_remediation.py:669-844.
+      Class TestUSDJPYE2EParity contains 3 tests; the load-bearing test is
+        test_entry_cost_parity_engine_vs_paper_loop_usdjpy at line 757-844.
+      Test (a) calls forex_system.backtest.engine.run_backtest at line 779-786 with
+        pair="USDJPY", price=150 (5-bar OHLCV, signal=1.0, entry_delay_bars=1,
+        VolTargetSizer(leverage_cap=1.0), constant_capital_sizing=True).
+      Test (b) drives vt_mod.run_cycle at line 818-823 with the SAME pair, same
+        price (bid=ask=150.0), same USD-nominal (100_000.0 returned by sizer_mock).
+      Test (c) asserts abs(paper_equity_bt_equiv - engine_equity_curve[1]) < 100 USD
+        at line 832 (tolerance = 0.1% of 100_000 initial_capital).
+      No SHARED_SIZE bypass: the engine constructs a real VolTargetSizer; the paper
+        loop receives a sizer_mock that returns the SAME USD-nominal value (100_000),
+        but the F-001 conversion at vt.py:738 IS exercised because the paper-loop
+        code path divides by mid for JPY pairs. The two sides are fed identical
+        USD-nominal but the paper-loop conversion is independently exercised.
+      Test PASSES (verified by .venv/bin/python -m pytest run, exit 0).
+      Test would FAIL against pre-F-001 code: paper_cost would be 750 USD vs
+        engine_cost ≈ 5 USD; diff ≈ 745 > tolerance 100.
+
+  HC-3:
+    verdict: PASS
+    evidence: |
+      Re-derived from tests/scripts/test_wave8_high_remediation.py.
+      test_rebalance_cost_charged_on_delta_not_full_target (lines 555-593):
+        - Lines 573-577: expected_cost derived in-test from arithmetic shown:
+            _price = 150.0
+            delta_usd_nominal = abs(6500-5000) = 1500
+            delta_engine_units = 1500 / 150 = 10.0
+            expected_cost = 0.75 * 0.01 * 10.0 = 0.075 USD
+        - Line 578: assert cost_usd ≈ 0.075 (abs=1e-4)
+        - Line 583-584: assert cost_usd != pre-F-001 wrong value 11.25 USD
+        - Line 590-592: assert cost_usd != full-target cost 0.325 USD (Fix 2 preserved)
+      test_full_entry_cost_not_delta_when_opening (lines 595-661):
+        - Lines 648-651: expected_cost derived in-test:
+            target_engine_units = 5000/150 ≈ 33.333
+            expected_cost = 0.75 * 0.01 * 33.333 ≈ 0.25 USD
+        - Line 652: assert cost_usd ≈ 0.25 (abs=1e-3)
+        - Line 657-658: assert cost_usd != pre-F-001 wrong 37.5 USD
+      test_swap_usd_nonzero_after_one_day_hold (lines 527-553):
+        - Lines 548-549: expected swap derived in-test:
+            _held_engine_units = 5000/150 ≈ 33.333
+            _expected_swap = 0.8 * 0.01 * 33.333 ≈ 0.267 USD
+        - Line 550-551: assert swap_usd ≈ 0.267 (abs=0.05) — tight enough to
+          reject the pre-F-001 wrong value of 40 USD by ~150σ.
+      All three tests derive expected from explicit arithmetic IN the test
+        (not hardcoded literals matching today's output by coincidence).
+      All three PASS in venv pytest run.
+
+  HC-4:
+    verdict: PASS
+    evidence: |
+      Re-derived from source.
+      VT script structural verification:
+        - Line 23: import fcntl
+        - Line 73: DISPATCH_LOCK_PATH = "data/dispatch_lock.flock"
+        - Line 111: SKIP_DISPATCH_LOCK_BUSY sentinel
+        - Line 550: os.open(str(_dl_path), os.O_CREAT | os.O_WRONLY, 0o644)
+        - Line 553: fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        - Line 565: except BlockingIOError → emits structured log + sentinel
+        - Line 588: backend.get_positions() ← BELOW the lock acquire
+        - Line 856-869: finally block, releases lock + closes fd
+      CARRY_FRED script structural verification:
+        - Line 41: import fcntl
+        - Line 92: DISPATCH_LOCK_PATH = "data/dispatch_lock.flock" (SAME path)
+        - Line 128: SKIP_DISPATCH_LOCK_BUSY sentinel
+        - Line 531: os.open(...)
+        - Line 534: fcntl.flock(LOCK_EX | LOCK_NB)
+        - Line 546: except BlockingIOError
+        - Line 565: backend.get_positions() ← BELOW the lock acquire
+        - Line 805-818: finally block
+      Both scripts share lock path data/dispatch_lock.flock (single shared file).
+      Lock acquire is BEFORE get_positions in both scripts (line 553 < 588 vt;
+        line 534 < 565 carry_fred). PASS.
+
+  HC-5:
+    verdict: PASS-WITH-OBSERVATION
+    evidence: |
+      File tests/scripts/test_wave10_dispatch_lock.py exists (332 lines, 11 tests).
+      TestDispatchLockConcurrentProcesses (4 tests) uses subprocess.Popen — REAL
+        subprocesses, not mocks (lines 70-78, 93-230).
+      test_one_acquires_one_gets_busy (line 93-133): 2 subprocesses spawned 50ms apart;
+        asserts outcomes set contains both ACQUIRED and SKIP_DISPATCH_LOCK_BUSY.
+      test_exactly_one_acquires_not_both (line 135-165): asserts len(acquired)==1
+        AND len(busy)==1 (mutual exclusion).
+      test_no_double_dispatch_jpy_exposure (line 196-230): asserts dispatched==1
+        AND simulated_jpy_pct ≤ 0.15.
+      All 4 tests PASS (verified pytest run).
+      OBSERVATION (Rubric 6 — test inversion gap, NON-BLOCKING):
+        The subprocess workers run an INLINE _WORKER_SCRIPT (line 38-67) that
+        re-implements the lock pattern. They do NOT invoke the paper-loop's
+        run_cycle code under contention. An implementation bug where the
+        paper-loop code's lock acquisition order is inverted (e.g., flock moved
+        AFTER get_positions) would NOT be caught by this test, because the
+        paper-loop code is not exercised under concurrent contention.
+        The PM HC-5 spec (pm-acceptance-criteria.yaml:99-108) requires "spawns
+        TWO simultaneous subprocess run_cycle calls" — strict reading suggests
+        the worker should invoke run_cycle. The QD's interpretation (test the
+        lock primitive in isolation) satisfies the structural spec language but
+        not the strict invariant. Acknowledged risk: a future code change that
+        moves the lock relative to get_positions would not be detected by W10
+        tests; only by code review or manual log inspection.
+        Recommendation: route as Wave-11 observation, NOT a blocker for Wave-10
+        commit. Compensating control: HC-4 file:line audit (rubric 1) confirms
+        lock IS before get_positions in current code.
+
+  HC-6:
+    verdict: PASS
+    evidence: |
+      File docs/specs/drawdown_ladder_amendment_2026-05-06.md exists (142 lines).
+      All 5 required sections re-derived from source:
+        Section 1 (lines 10-31): existing thresholds 10%/15%/20% and calibration basis.
+        Section 2 (lines 34-46): explicit re-anchoring statement at line 36 —
+          "kill_switch.check_and_trigger() and dd_contract.assess() consume raw
+          broker TotalValue. Cost-adjusted equity (paper_equity_bt_equiv) is
+          log-only and is NOT fed into either risk primitive."
+        Section 3 (lines 50-75): NHT NEW-2 dissent verbatim under "NHT DISSENT —
+          PRESERVED NOT RESOLVED" header. Verbatim text spans lines 58-67 (block
+          quote starting "(3) NEW-2 (cost-feedback architecture)…").
+        Section 4 (lines 79-105): CEO ruling reference cites
+          ".agent-accountability/ratifications/wave9-substeps:phase2:task2.0.yaml"
+          and includes Decision 5 verbatim text + quality rationale.
+        Section 5 (lines 109-132) + code-comment updates verified at:
+          run_paper_trading_vt.py:99-105 (3-line citation block before constants)
+          run_paper_trading_carry_fred.py:115-121 (matching 3-line citation block)
+      All 5 sections present. PASS.
+      OBSERVATION: Section 2 line 46 states "CRO must determine whether the
+        current threshold values require adjustment...The CRO's determination
+        must be appended to this document before Wave-10 commit." The doc shows
+        "PENDING | CRO" in the Amendment History at line 141. PM HC-6 fail-condition
+        does NOT require the CRO determination to be present (only the doc
+        structure), so this is satisfied per spec letter, but the spec itself
+        flags the CRO append as a Wave-10 commit gate. NOT my finding to enforce
+        (CRO closure is in review-wave-success-gate, not HC-6 fail-condition).
+
+  HC-7:
+    verdict: N/A
+    evidence: |
+      Per task brief: "HC-7 commit-message: N/A (post-commit; you can't review
+      a commit that doesn't exist)." Git log shows no Wave-10 commit yet
+      (latest: 6a5f5f9 preflight 5.5). HC-7 will be evaluated by the gate at
+      commit-creation time. QD report acknowledges this at qd-implementation-report
+      line 168-180 (HC-7 verdict: PENDING).
+
+  HC-8:
+    verdict: PASS
+    evidence: |
+      Independently executed verification commands:
+      (a) .venv/bin/python -m pytest tests/backtest/test_engine.py::test_no_lookahead
+          → "1 passed in 0.02s" (exit 0). Sacred test PASS.
+      (b) .venv/bin/ruff check src/ → "Found 19 errors." HC-8 ≤19 satisfied exactly.
+      (c) .venv/bin/python -m pytest → "700 passed in 32.47s" (exit 0).
+          686 baseline + 14 new (3 TestUSDJPYE2EParity + 11 dispatch_lock) = 700. ✓
+      (d) .venv/bin/python -m pytest tests/scripts/test_wave10_dispatch_lock.py
+          → 11 passed. ✓
+      (e) .venv/bin/python -m pytest tests/scripts/test_wave8_high_remediation.py
+          → 23 passed (rewritten F-008 tests included). ✓
+      All 5 HC-8 sub-conditions verified.
+
+# ── Findings (re-derived; ignore Wave-9 stance) ───────────────────────────────
+findings:
+
+  - id: F-001-PR-W10
+    severity: closed
+    category: correctness
+    location: |
+      scripts/run_paper_trading_vt.py:737-739
+      scripts/run_paper_trading_carry_fred.py:699-701
+      Wave-9 PR finding F-001-PR (cost formula 150x overstatement for JPY pairs).
+    observation: |
+      Wave-9 finding: paper-loop charged cost_pips * pip_v * USD_nominal for JPY
+      pairs, where engine charges cost_pips * pip_value * engine_units (delta in
+      _to_engine_units convention). Result: paper-loop charged 750 USD vs engine's
+      5 USD for 100k USDJPY at price 150 (150x).
+    inference: |
+      Wave-10 fix at vt.py:738 and carry_fred.py:700 inserts the JPY conversion:
+        _engine_units = (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0)
+                        else _trade_units_nom
+        _cost_usd = _cost_pips * _pip_v * _engine_units
+      Numeric oracle (HC-1) verified: 100_000/150 = 666.667; 0.75 * 0.01 * 666.667
+      = 5.000 ∈ [4.95, 5.05]. Pre-fix would have produced 750 USD. CLOSED.
+    evidence:
+      - vt.py:738 inline conversion at sizer-output boundary BEFORE cost-compute
+      - carry_fred.py:700 mirror conversion
+      - engine.py:299 _to_engine_units called by engine; engine.py:331 cost on engine-units delta
+      - test_usdjpy_entry_cost_oracle PASS confirms numeric oracle
+    recommended-action-class: closed-no-action
+    owning-role: quant-developer
+
+  - id: F-002-PR-W10
+    severity: closed
+    category: test-coverage-gap
+    location: |
+      tests/scripts/test_wave8_high_remediation.py:669-844 (TestUSDJPYE2EParity)
+      Wave-9 PR finding F-002-PR (USDJPY E2E parity test absent).
+    observation: |
+      Wave-9 finding: the existing TestE2EParity used EURUSD explicitly to avoid
+      the JPY conversion path. No USDJPY E2E parity test existed. The cost-formula
+      bug (F-001) was therefore untestable end-to-end against the engine reference.
+    inference: |
+      Wave-10 adds TestUSDJPYE2EParity class with 3 tests including
+      test_entry_cost_parity_engine_vs_paper_loop_usdjpy that calls run_backtest
+      with USDJPY at price 150 (line 779-786) AND drives vt_mod.run_cycle with
+      the same trade tuple (line 818-823) AND asserts equity parity within 0.1%
+      of capital (line 832). No SHARED_SIZE bypass — engine constructs real
+      VolTargetSizer; the F-001 conversion path is exercised on the paper-loop
+      side independently. CLOSED.
+    evidence:
+      - test_wave8_high_remediation.py:779-786 (engine call)
+      - test_wave8_high_remediation.py:818-823 (paper-loop call)
+      - test_wave8_high_remediation.py:832 (parity assertion)
+      - pytest run confirms PASS
+    recommended-action-class: closed-no-action
+    owning-role: quant-developer
+
+  - id: F-008-PR-W10
+    severity: closed
+    category: test-coverage-gap
+    location: |
+      tests/scripts/test_wave8_high_remediation.py:527-661
+      Wave-9 PR finding F-008-PR (rewritten tests assert pre-F-001 buggy values).
+    observation: |
+      Wave-9 finding: tests at lines 540-562 and 564-611 (Wave-9 numbering) asserted
+      cost_usd ≈ 11.25 USD (delta=1500) and ≈ 37.5 USD (entry=5000) for USDJPY at
+      price 150. These match the F-001-buggy formula (USD-nominal * pip_v * cost_pips)
+      not the engine-parity formula.
+    inference: |
+      Wave-10 rewrite derives expected from explicit engine-units arithmetic shown
+      in-test: 0.75 * 0.01 * (1500/150) = 0.075 USD; 0.75 * 0.01 * (5000/150) ≈ 0.25 USD.
+      Tests also assert cost_usd != pre-F-001 wrong values (11.25 / 37.5 USD).
+      Swap test similarly rewritten to expect ~0.267 USD, not the buggy 40 USD.
+      All values derived in-test from arithmetic, not hardcoded. CLOSED.
+    evidence:
+      - test_wave8_high_remediation.py:573-577 (in-test arithmetic for delta case)
+      - test_wave8_high_remediation.py:648-651 (in-test arithmetic for full-entry case)
+      - test_wave8_high_remediation.py:583-584 (assert NOT 11.25)
+      - test_wave8_high_remediation.py:657-658 (assert NOT 37.5)
+    recommended-action-class: closed-no-action
+    owning-role: quant-developer
+
+  - id: F-004-PR-W10
+    severity: closed
+    category: invariant-violation
+    location: |
+      scripts/run_paper_trading_vt.py:548-869
+      scripts/run_paper_trading_carry_fred.py:529-818
+      Wave-9 PR finding F-004-PR (no cross-process per-cycle file lock).
+    observation: |
+      Wave-9 finding: aggregation gate single-loop; two simultaneous loops can
+      both pass check_dispatch_allowed and double JPY exposure to ~30%.
+    inference: |
+      Wave-10 adds fcntl.LOCK_EX|LOCK_NB advisory file-lock acquired BEFORE
+      get_positions (vt.py:553 < 588; carry_fred.py:534 < 565), held through
+      execute_signal + reconciliation, released in finally on all exit paths.
+      Lock file shared at data/dispatch_lock.flock. Subprocess test confirms
+      mutual exclusion (test_exactly_one_acquires_not_both PASS). CLOSED.
+    evidence:
+      - vt.py:550 os.open with O_CREAT|O_WRONLY
+      - vt.py:553 fcntl.flock(LOCK_EX|LOCK_NB)
+      - vt.py:856-869 finally block (release + close)
+      - carry_fred.py:531/534/805-818 mirror pattern
+      - test_wave10_dispatch_lock.py concurrent tests PASS
+    recommended-action-class: closed-no-action
+    owning-role: quant-developer + cro
+
+  - id: F-005-PR-W10
+    severity: closed
+    category: spec-drift
+    location: |
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md
+      Wave-9 PR finding F-005-PR (no PM amendment for log-only architecture).
+    observation: |
+      Wave-9 finding: code feeds raw broker equity to risk primitives without a
+      PM-authored spec amendment confirming this position. NHT NEW-2 dissent
+      orphaned without explicit documentation.
+    inference: |
+      Wave-10 adds 142-line PM-authored amendment covering all 5 required
+      sections including verbatim NHT NEW-2 dissent, CEO Decision 5 ruling
+      verbatim, and code-comment updates citing the spec at vt.py:99-105 +
+      carry_fred.py:115-121. NHT dissent preserved-not-resolved per spec
+      requirement. CLOSED.
+    evidence:
+      - docs/specs/drawdown_ladder_amendment_2026-05-06.md (lines 10-31, 34-46, 50-75, 79-105, 109-132)
+      - vt.py:99-105 cite block
+      - carry_fred.py:115-121 cite block
+    recommended-action-class: closed-no-action
+    owning-role: pm + ceo
+
+  - id: F-100-PR-W10
+    severity: minor
+    category: edge-case
+    location: |
+      scripts/run_paper_trading_vt.py:738
+      scripts/run_paper_trading_carry_fred.py:700
+    observation: |
+      The F-001 fix uses a guarded division: (_trade_units_nom / mid) if
+      ("JPY" in pair.upper() and mid > 0) else _trade_units_nom. For JPY pairs,
+      if mid is exactly 0 (or numerically <= 0 from arithmetic), the fallback
+      silently returns USD-nominal — re-introducing the F-001-buggy behavior
+      WITHOUT raising or logging an error.
+    inference: |
+      Reachability: mid is computed at vt.py:641 / carry_fred.py:622 as
+      (bid+ask)/2 with fallback to ohlcv["close"].iloc[-1]. For mid to be
+      <=0, either both bid/ask are 0/negative AND the close is <=0 (data
+      corruption), OR an exception in client.get_info_price plus close<=0.
+      Practically rare on USDJPY (price ~150) but the silent fallback is
+      a latent footgun: a future regression in data-fetch could silently
+      revert F-001 for that cycle.
+    evidence:
+      - vt.py:641 mid fallback to close
+      - vt.py:738 silent fallback to USD-nominal when mid<=0
+      - No structured log emitted in the mid<=0 branch
+    recommended-action-class: defensive-hardening
+    owning-role: quant-developer
+    severity-justification: |
+      NOT a Wave-9 finding; introduced by F-001 fix structure. Non-blocking
+      because no realistic path exercises mid<=0 for USDJPY (price ~150 in
+      live + tests). Routes naturally to Wave-11 shared-module refactor
+      where the conversion can be centralized with explicit error handling.
+
+  - id: F-101-PR-W10
+    severity: minor
+    category: failure-mode-handling
+    location: |
+      scripts/run_paper_trading_vt.py:550-578
+      scripts/run_paper_trading_carry_fred.py:531-560
+    observation: |
+      The lock-acquire try/except at vt.py:552-578 catches ONLY BlockingIOError.
+      If fcntl.flock raises any other OSError (e.g., ENOLCK on overloaded kernel,
+      EBADF on invalid fd, EINVAL on FS that doesn't support flock), the
+      exception propagates out of the outer try (no finally) — leaking _dl_fd.
+      The inner critical-section try/finally (vt.py:581/856) is never entered.
+    inference: |
+      Per Rubric 7 (failure mode reasoning): the failure is named in code
+      via the BlockingIOError catch but the alternative OSError class is
+      unhandled. On macOS/Linux local FS this is rare; on NFS or SMB mounts
+      flock semantics are non-portable. fd leak per cycle on a long-running
+      loop could exhaust file descriptors over weeks. The behavior on
+      filesystem flock-not-supported is ambiguous and untested. The PM HC-4
+      spec does not require handling all OSError subclasses, but Rubric-7
+      surfacing is required.
+    evidence:
+      - vt.py:552-578 only catches BlockingIOError
+      - No outer finally to close _dl_fd if flock raises non-BlockingIOError
+      - Rubric 7 specifically flags "failure named and handled? Is there a retry policy?"
+    recommended-action-class: defensive-hardening
+    owning-role: quant-developer
+    severity-justification: |
+      Non-blocking because (a) macOS local FS is the deployment target and
+      flock works natively, (b) no Wave-9 finding flagged this, (c) the
+      run_cycle exception would propagate to the loop driver which would
+      catch it via top-level error handling. But the fd leak is real if it
+      happens. Defer to Wave-11 shared-module refactor which can add
+      blanket OSError handling.
+
+  - id: F-102-PR-W10
+    severity: minor
+    category: test-design
+    location: |
+      tests/scripts/test_wave10_dispatch_lock.py:38-67 (inline worker)
+      tests/scripts/test_wave10_dispatch_lock.py:196-230 (test_no_double_dispatch_jpy_exposure)
+    observation: |
+      The TestDispatchLockConcurrentProcesses tests spawn subprocess.Popen but
+      execute an INLINE _WORKER_SCRIPT that re-implements the fcntl.flock
+      pattern directly. They do NOT invoke vt_mod.run_cycle or
+      cf_mod.run_cycle under contention. Per Rubric 6 test-inversion:
+        "Does the BC-8 concurrent test assert exposure ≤15% across BOTH
+        subprocesses, or only the one that acquired the lock?"
+      Answer: exposure is SIMULATED (line 226: simulated_jpy_pct = dispatched
+      * 0.10), not measured from actual paper-loop execution. The test
+      validates the lock primitive but not the lock-in-context.
+    inference: |
+      An implementation regression where the lock is moved AFTER get_positions
+      in the paper loop (re-introducing the race window) would NOT fail this
+      test, because the test doesn't run get_positions. The HC-4 lock-before-
+      get_positions invariant is verified only by my static review (Rubric 1
+      file:line) — not by automated test. PM HC-5 fail-condition reads "test
+      uses in-process mocks instead of actual subprocesses" — actual
+      subprocesses ARE used, so the spec letter is met. But the spec spirit
+      ("spawns TWO simultaneous subprocess run_cycle calls" per
+      pm-acceptance-criteria.yaml:99-108) implies the worker should call
+      run_cycle.
+    evidence:
+      - test_wave10_dispatch_lock.py:38-67 inline worker re-implements lock
+      - test_wave10_dispatch_lock.py:226 simulated_jpy_pct (not measured)
+      - PM HC-5 spec language "subprocess run_cycle calls" suggests run_cycle invocation
+    recommended-action-class: test-strengthening
+    owning-role: quant-developer
+    severity-justification: |
+      Non-blocking because (a) Rubric 1 confirms lock IS before get_positions
+      via direct file:line audit, (b) the inline worker exactly mirrors the
+      paper-loop's lock pattern (open + flock_ex_nb + finally release), (c)
+      a real-run_cycle subprocess test would require live or mocked Saxo
+      backend setup that's outside Wave-10 scope. Recommend Wave-11 add
+      run_cycle-invoking subprocess test once the shared-module refactor
+      makes the lock primitive importable.
+
+  - id: F-103-PR-W10
+    severity: observation
+    category: doc-amendment
+    location: |
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md:46
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md:141 (Amendment History)
+    observation: |
+      Section 2 line 46 states: "The CRO's determination must be appended to
+      this document before Wave-10 commit." The Amendment History at line 141
+      shows "PENDING | CRO" entry. The PM HC-6 fail-condition does not include
+      the CRO appendment as required content (only the 5 sections).
+    inference: |
+      The PM AC and the doc text disagree on the gating semantics: PM AC says
+      structural skeleton is sufficient; doc text says CRO append is required
+      pre-commit. Rubric 5 (invariant search): if "ladder values must be
+      validated by CRO before commit" is a hard invariant, then the CRO
+      pending entry is a violation. If it's not a hard invariant (PM AC
+      perspective), then it's documentation flagging future work.
+      Per task brief, my role is to enforce HC-6 strictly; HC-6 fail-condition
+      doesn't list this. Routing to CRO for closure scoping.
+    evidence:
+      - amendment doc line 46 "must be appended before Wave-10 commit"
+      - PM HC-6 fail-condition omits this from the 5 required elements
+      - amendment history line 141 "PENDING | CRO"
+    recommended-action-class: clarify-gating-semantics
+    owning-role: pm + cro
+    severity-justification: |
+      Observation only, not blocking. PM AC is the binding spec; HC-6 letter
+      is satisfied. The doc-internal contradiction should be resolved by PM
+      either appending the CRO determination or relaxing the doc-internal
+      gate language to match HC-6.
+
+# ── Edge-case enumeration (Rubric 4) ──────────────────────────────────────────
+edge_cases_audited:
+
+  - case: USDJPY price=0 (division by zero)
+    handling: |
+      vt.py:738 / carry_fred.py:700 use `mid > 0` guard. If mid<=0, fallback
+      is _trade_units_nom (USD-nominal, F-001-buggy). Silent. F-100-PR-W10.
+
+  - case: USDJPY with empty positions
+    handling: |
+      cur_pos = current_positions.get(pair) — None when empty (vt.py:668).
+      cur_units = 0.0 fallback. Cost path: needs_action AND not is_close AND
+      not is_rebalance → _cost_pips = entry_cost(target_units),
+      _trade_units_nom = target_units. Conversion applied. CORRECT.
+
+  - case: non-JPY pair (EURUSD) — conversion should be identity
+    handling: |
+      vt.py:738 condition `"JPY" in pair.upper()` is False for EURUSD.
+      _engine_units = _trade_units_nom (identity). pip_v = 0.0001 (line 722).
+      cost_usd = cost_pips * 0.0001 * USD_nominal — matches engine.py:332
+      since engine_units == USD_nominal for non-JPY pairs (engine.py:572-573
+      returns usd_nominal directly). CORRECT. Verified by TestE2EParity
+      (EURUSD) PASS at line 375-450.
+
+  - case: rebalance to zero target_units
+    handling: |
+      vt.py:681 — target_units == 0 AND cur_pos → is_close=True, action=CLOSE.
+      Cost path uses cur_units, conversion applied. CORRECT.
+
+  - case: BC-8 lock file path doesn't exist (first cycle)
+    handling: |
+      vt.py:548-549 — _dl_path.parent.mkdir(parents=True, exist_ok=True),
+      then os.open with O_CREAT. File created on first acquire. CORRECT.
+
+  - case: BC-8 lock file held by stale dead process
+    handling: |
+      flock locks are advisory and process-bound; on process death the kernel
+      releases. Stale fd not an issue. CORRECT.
+
+  - case: BC-8 FS doesn't support flock
+    handling: |
+      OSError other than BlockingIOError propagates uncaught. F-101-PR-W10.
+
+  - case: BC-8 exception during locked critical section
+    handling: |
+      Inner try/finally at vt.py:581/856 releases lock + closes fd on any
+      exception. CORRECT.
+
+# ── Invariants (Rubric 5) ─────────────────────────────────────────────────────
+invariants_audited:
+
+  - id: I-1
+    name: paper-loop cost_usd == engine cost_usd for any (pair, price, size)
+    preserved: PRESERVED
+    test: |
+      TestUSDJPYE2EParity::test_entry_cost_parity_engine_vs_paper_loop_usdjpy
+      (USDJPY) and TestE2EParity::test_entry_cost_parity_engine_vs_paper_loop
+      (EURUSD) verify this for entry on both quote-currency conventions.
+      Rebalance path verified by test_rebalance_cost_charged_on_delta_not_full_target.
+      Exit path verified by HC-1 oracle arithmetic (cur_units identical convention).
+
+  - id: I-2
+    name: aggregate JPY exposure ≤ 15% across both loops
+    preserved: STRUCTURALLY-PRESERVED (test gap noted)
+    test: |
+      Lock primitive enforced by HC-4 file:line audit. Subprocess test
+      validates lock primitive in isolation. F-102-PR-W10 notes the test
+      doesn't exercise paper-loop code under contention. Recommend Wave-11
+      add full integration test.
+
+  - id: I-3
+    name: lock released even on exception in critical section
+    preserved: PRESERVED
+    test: |
+      vt.py:856-869 / carry_fred.py:805-818 finally blocks unconditional
+      release + close. test_lock_released_after_winner_exits validates
+      release on normal exit (subprocess test).
+    gap: |
+      No test exercises exception-during-critical-section release. Noted as
+      observation; finally semantics in Python are well-tested in CPython.
+
+# ── Test inversion (Rubric 6) ─────────────────────────────────────────────────
+test_inversion_results:
+
+  - test: TestUSDJPYE2EParity::test_entry_cost_parity_engine_vs_paper_loop_usdjpy
+    catches_regression_in:
+      - paper-loop F-001 conversion silently dropped (paper would charge ~750 USD vs engine 5)
+      - engine _to_engine_units silently changed (asymmetric divergence triggers parity assert)
+      - sizer mock returns wrong USD-nominal (mismatch detected via diff > tolerance)
+    misses_regression_in:
+      - swap accrual (test sets _last_cycle_ts=None to suppress swap)
+      - rebalance path (test exercises fresh entry only)
+      - close path (test exercises entry only)
+
+  - test: F-008 rewrites (3 tests)
+    catches_regression_in:
+      - cost formula uses USD-nominal instead of engine-units (assert NOT 11.25 / NOT 37.5)
+      - Fix-2 charges full-target instead of delta (assert NOT full_target_cost)
+      - swap formula uses USD-nominal (test asserts ≈0.267 USD with abs=0.05)
+    misses_regression_in:
+      - non-JPY pair semantics (tests only USDJPY) — covered by EURUSD TestE2EParity
+
+  - test: TestDispatchLockConcurrentProcesses
+    catches_regression_in:
+      - fcntl.flock semantics broken at OS level (LOCK_EX|LOCK_NB doesn't exclude)
+      - sentinel constant renamed in either script (mechanism tests)
+      - lock file path diverges between scripts (mechanism tests)
+    misses_regression_in:
+      - lock acquired AFTER get_positions in paper-loop code (F-102-PR-W10)
+      - paper-loop critical section reordered (lock not actually wrapping it)
+
+# ── Numerical correctness (Rubric 8) ──────────────────────────────────────────
+numerical_audit:
+  f001_arithmetic_symmetry:
+    entry_path:
+      vt_line: 731-733 (target_units), 738 (conversion), 739 (cost)
+      symmetric: yes
+    rebalance_path:
+      vt_line: 727-730 (delta), 738 (conversion), 739 (cost)
+      symmetric: yes
+    exit_path:
+      vt_line: 723-725 (cur_units), 738 (conversion), 739 (cost)
+      symmetric: yes
+    swap_path:
+      vt_line: 744-745 (held_units), 753 (cost using held_engine_units)
+      symmetric: yes
+    verdict: All four paths use the same JPY-conversion expression. Symmetric.
+
+  hc1_oracle:
+    inputs: {pair: USDJPY, mid: 150.0, usd_nominal: 100_000.0}
+    intermediate:
+      engine_units: 666.66667
+      cost_pips: 0.75
+      pip_v: 0.01
+    output_cost_usd: 5.000
+    oracle_range: [4.95, 5.05]
+    pass: true
+
+# ── Coverage statement ────────────────────────────────────────────────────────
+coverage-statement: |
+  All 8 hard constraints (HC-1 through HC-8) re-derived from source and verified.
+  HC-7 marked N/A (no commit yet; will be evaluated at commit time).
+  HC-1, HC-2, HC-3, HC-4, HC-6, HC-8 PASS.
+  HC-5 PASS-WITH-OBSERVATION (subprocess test uses inline worker, not run_cycle —
+    F-102-PR-W10 raised as non-blocking).
+  3 prior Wave-9 blocking findings (F-001, F-002, F-008) confirmed CLOSED.
+  2 prior Wave-9 blocking findings (F-004 BC-8, F-005 ladder amendment) also
+    confirmed CLOSED (in addition to the 3 in scope per task brief).
+  3 new minor findings raised (F-100, F-101, F-102) — all non-blocking, all
+    routed to Wave-11 follow-on. 1 observation (F-103) on doc-internal gate
+    language.
+  No BLOCKING findings raised.
+
+# ── Reviewer self-check (Rubric Reviewer Self-Check) ──────────────────────────
+reviewer_self_check:
+  rubber_stamping: NO — every PASS verdict has file:line evidence.
+  bikeshedding: NO — minor findings are tied to Rubric 4/6/7 enumeration, not style.
+  priority_inversion: NO — no major issue passing while minor blocks.
+  late_breaking_design_review: NO — no alternative architecture proposed.
+  flip_flopping: NO — Wave-9 PR rejected on F-001/F-002/F-008/F-004/F-005;
+    Wave-10 fixes all 5; my W10 verdict is approve-with-conditions, consistent.
+  death_by_1000: NO — 3 minor findings, all distinct rubric categories,
+    each routed to Wave-11.
+
+# ── Decision ──────────────────────────────────────────────────────────────────
+decision: approve-with-conditions
+decision_rationale: |
+  All 5 Wave-9 blocking findings (F-001, F-002, F-008, F-004, F-005) are
+  closed. HC-1 through HC-6 + HC-8 PASS on independent re-derivation.
+  HC-7 is post-commit (N/A at review time; commit message gate will be
+  evaluated at commit-creation).
+  HC-5 PASSES the spec letter (subprocess.Popen used, sentinel + path
+  validated, mutual exclusion verified) but the subprocess workers don't
+  invoke run_cycle — F-102-PR-W10 raised as non-blocking observation.
+  3 minor findings (F-100, F-101, F-102) raised; all defer to Wave-11
+  shared-module refactor. 1 observation (F-103) on doc-internal contradiction.
+  No BLOCKING severity findings.
+  Conditions for closure:
+    1. HC-7 commit-message gate must be enforced at commit-creation time
+       (cite F-003 ratification + Wave-11 binding + closure summary).
+    2. F-100, F-101, F-102 routed to Wave-11 shared-module refactor ticket
+       so the lock + conversion code can be centralized with proper edge-
+       case handling.
+    3. F-103 (doc-internal CRO-append contradiction) clarified by PM
+       before Wave-10 commit (either CRO appends, or doc gate language
+       relaxed to match HC-6).
+
+# ── Required attestations ─────────────────────────────────────────────────────
+no-capital-instruction: true
+web_research_conducted: false
+sources: []
+websearch_used: 0
+webfetch_used: 0
+time-spent-reasoning: ~25 minutes (file reads + venv pytest runs + arithmetic verification)
+
+claimed_domains:
+  - independent-staff-grade-code-review
+  - file-line-evidence-traceability
+  - test-inversion-analysis
+  - invariant-audit
+  - failure-mode-enumeration
+
+# ── Routing outcome ───────────────────────────────────────────────────────────
+routing_outcome_at_write:
+  computed_label: approve-with-conditions
+  computed_at: "2026-05-06T13:30:00Z"
+  next-actions:
+    - F-100/F-101/F-102 → Wave-11 shared-module refactor ticket
+    - F-103 → PM clarification before Wave-10 commit
+    - HC-7 → commit-creation-time gate (per task brief, not my review scope)
+
+write_metadata:
+  written_at: "2026-05-06T13:30:00Z"
+  written_by: principal-reviewer-agent
+  consuming_skill: fintech-org
+  artifact_uuid: "f7e92c41-3b8a-4d6e-9a1f-2e5b8c0f3d9e"

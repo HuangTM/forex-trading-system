@@ -1,0 +1,291 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: spec-completion
+timestamp: "2026-04-28T00:00:00Z"
+subtask_ref: "phase2-wave2-harness-extension-spec"
+sourced_from: "Phase 2 PM acceptance-criteria + NHT frozen rubric (in-flight, parallel)"
+files_to_be_created:
+  - src/forex_system/harness/preregistration.py
+  - src/forex_system/harness/falsification_evaluator.py
+  - .fintech-org/nht-rubric.yaml          # produced by NHT wave, consumed by evaluator
+  - tests/harness/test_preregistration.py
+  - tests/harness/test_falsification_evaluator.py
+files_to_be_modified:
+  - src/forex_system/harness/run_trial.py  # wire evaluator after status=complete is written
+spec_LOC_estimate: 500
+silent_defaults_introduced: []
+audit_trail: >
+  This YAML is the source-of-truth for the Wave-3 implementation.
+  Every function signature, field name, file path, and test-case description
+  below is binding. Wave-3 implementors MUST NOT deviate without filing an
+  amendment artifact and getting QD/HoQR sign-off. The spec was derived from
+  reading run_trial.py (commit b56bd1a surface), vol_target_carry.md pre-reg,
+  run_phase1_revalidate.py, and check_kill_switch_threshold.py — all four reads
+  are cited and traceable via file paths in the body.
+body: |
+  ## A. Pre-reg parser spec
+
+  **File:** `src/forex_system/harness/preregistration.py`
+
+  **Design choice — sidecar YAML wins over auto-parsing.**
+
+  The pre-reg markdown uses natural language for trigger conditions
+  (e.g. "VTC-T3: Walk-forward OOS windows: fewer than 6 of 14 beat B&H Sharpe").
+  Auto-parsing metric/operator/threshold from prose is brittle and would require
+  per-trigger heuristics that silently break on new strategies.
+  Sidecar YAML is a one-time cost per strategy (~10 lines) that gives Wave-3 a
+  typed, machine-checkable source for every trigger — no silent defaults possible.
+
+  **Sidecar convention:**
+  `references/pre-registrations/{strategy_id}.triggers.yaml`
+  Example entry:
+    ```yaml
+    triggers:
+      - label: VTC-T1
+        metric: oos_sharpe
+        operator: "<"
+        threshold: 0.60
+      - label: VTC-T2
+        metric: max_drawdown
+        operator: ">"
+        threshold: 0.25
+    ```
+  If the sidecar is absent, `parse_pre_registration()` raises `ConfigError`
+  with a clear message — never silently omits triggers.
+
+  **API surface:**
+
+  ```python
+  @dataclass(frozen=True)
+  class FalsificationTrigger:
+      label: str        # e.g. "VTC-T1"
+      metric: str       # e.g. "oos_sharpe", "max_drawdown", "dsr", "wf_windows_beat_fraction"
+      operator: str     # one of: "<", ">", "<=", ">="
+      threshold: float
+      raw_text: str     # bullet text from markdown (for human audit log)
+
+  @dataclass(frozen=True)
+  class PreRegistrationSpec:
+      strategy: str
+      pair: str
+      hypothesis_summary: str
+      kill_switch_threshold: str   # raw string from field; NOT cast to float here
+      gate_threshold: float | None # parsed from existing `gate_threshold:` field
+      triggers: list[FalsificationTrigger]
+
+  def parse_pre_registration(
+      pre_reg_path: Path,
+      sidecar_path: Path | None = None,
+  ) -> PreRegistrationSpec:
+      """Parse a pre-reg markdown + sidecar YAML into a typed spec.
+
+      Parameters
+      ----------
+      pre_reg_path:
+          Path to the .md file (must exist; ConfigError if absent).
+      sidecar_path:
+          Path to the .triggers.yaml sidecar. If None, defaults to
+          pre_reg_path.with_suffix('.triggers.yaml').
+          ConfigError if sidecar is absent (triggers are mandatory).
+
+      Decision trace: emits a structured log line with all parsed field
+      values so a future reader can confirm the spec loaded at trial-start.
+      """
+  ```
+
+  **Parsing rules for the markdown fields:**
+  - `kill_switch_threshold:` — same regex as `check_kill_switch_threshold.py`:
+    `r"kill_switch_threshold:\s*(\S+)"`, raw string, no cast.
+  - `gate_threshold:` — existing regex from `run_trial._parse_pre_reg_threshold`:
+    `r"gate_threshold:\s*([\d.]+)"`, cast to float, None if absent.
+  - `strategy:` — from `**Strategy ID:**` line, regex `r"\*\*Strategy ID:\*\*\s*(\S+)"`.
+  - `pair:` — from `**Pair:**` line, regex `r"\*\*Pair:\*\*\s*(\S+)"`.
+  - `hypothesis_summary:` — first non-empty paragraph under `## Hypothesis` section.
+  - Triggers: loaded entirely from sidecar YAML; markdown bullets are stored
+    as `raw_text` on each `FalsificationTrigger` by matching label to bullet.
+
+  ---
+
+  ## B. Evaluator spec
+
+  **File:** `src/forex_system/harness/falsification_evaluator.py`
+
+  **Supported metrics** (resolved from `BacktestResult` + `PerformanceMetrics`):
+  | metric key            | source field                                  |
+  |-----------------------|-----------------------------------------------|
+  | oos_sharpe            | metrics.sharpe_ratio                          |
+  | max_drawdown          | metrics.max_drawdown (positive fraction)      |
+  | dsr                   | dsr value from harness                        |
+  | wf_windows_beat_fraction | wf_windows_beat / wf_windows_total        |
+  | n_trades              | metrics.num_trades                            |
+
+  **NHT rubric sourcing:**
+  `.fintech-org/nht-rubric.yaml` is produced by the NHT wave and consumed here.
+  Wave-3 wires the actual file path; the evaluator requires it as a constructor
+  argument (not a module-level constant) so tests can inject a fixture path.
+
+  **API surface:**
+
+  ```python
+  @dataclass(frozen=True)
+  class NhtRubric:
+      r1_min_oos_sharpe: float
+      r2_max_drawdown: float
+      r3_min_dsr: float
+      r4_min_wf_beat_fraction: float
+      r5_min_n_trades: int
+      r6_min_sharpe_cost_stress: float   # placeholder — NHT fills in value
+      # Wave-3: add fields as NHT artifact specifies; no silent defaults
+
+      @classmethod
+      def from_yaml(cls, path: Path) -> "NhtRubric": ...
+
+  @dataclass(frozen=True)
+  class FalsificationVerdict:
+      passed: bool
+      triggered: list[str]      # labels of all triggers that fired
+      rejection_reason: str | None    # None iff passed
+      falsification_criterion: str | None  # label of WORST (first-fired or lowest margin) trigger
+
+  def evaluate(
+      result_metrics: dict[str, float],  # keyed by metric names above
+      pre_reg: PreRegistrationSpec,
+      nht_rubric: NhtRubric,
+  ) -> FalsificationVerdict:
+      """Evaluate a completed trial against pre-reg triggers AND NHT rubric.
+
+      Trigger evaluation is exhaustive — ALL triggers are checked, not
+      short-circuited. `falsification_criterion` is the trigger with the
+      largest relative violation (|actual - threshold| / |threshold|).
+
+      Decision trace: emits trial.falsification.evaluate log event with
+      per-trigger results regardless of pass/fail outcome.
+      """
+  ```
+
+  **result_metrics dict** is assembled by the harness wrapper (not by evaluate())
+  to keep the evaluator pure and testable without a live backtest.
+
+  ---
+
+  ## C. Wrapper spec
+
+  **Where:** Extend `src/forex_system/harness/run_trial.py`.
+  Do NOT add a new entry-point script — `run_trial.py` already owns the
+  "trial firewall" contract; splitting it risks inconsistent write-on-spawn
+  semantics and duplicate registry entries.
+
+  **Injection point:** After the existing `_append_trial(complete_entry)` call
+  (line ~471 in current source), before the `trial.written` log event:
+
+  ```python
+  # -- Falsification evaluation (if pre-reg sidecar exists) --
+  pre_reg_spec = parse_pre_registration(pre_reg_path_obj)
+  nht_rubric = NhtRubric.from_yaml(Path(".fintech-org/nht-rubric.yaml"))
+  result_metrics = _build_result_metrics(metrics, dsr, wf_windows_beat,
+                                         wf_windows_total)
+  verdict = evaluate(result_metrics, pre_reg_spec, nht_rubric)
+  if not verdict.passed:
+      record_trial_rejection(
+          trial_id=trial_id,
+          strategy=strategy_name,
+          rejection_reason=verdict.rejection_reason,
+          falsification_criterion=verdict.falsification_criterion,
+      )
+  # Pass path: no change — existing complete_entry already written above.
+  ```
+
+  `_build_result_metrics()` is a private helper in `run_trial.py` (~15 LOC)
+  that assembles the `dict[str, float]` from live backtest outputs.
+
+  If `.fintech-org/nht-rubric.yaml` does not exist, raise `ConfigError` with
+  a message directing Wave-3 to run the NHT wave first. No silent fallback.
+
+  If sidecar is absent (strategy has no `.triggers.yaml`), the evaluator
+  treats it as "no triggers registered" and logs a `trial.falsification.no_sidecar`
+  warning — it does NOT block the trial. This preserves backward-compatibility
+  for strategies pre-dating this spec (e.g. vol_target_carry retroactive pre-reg).
+  Wave-3 MUST add vol_target_carry.triggers.yaml as part of the implementation.
+
+  ---
+
+  ## D. Test sketch (>=6 cases)
+
+  File: `tests/harness/test_preregistration.py`
+
+  1. **test_parse_valid_pre_reg_with_sidecar**
+     Scenario: feed vol_target_carry.md + a fixture sidecar with 3 triggers;
+     assert strategy="vol_target_carry", kill_switch_threshold="0.60",
+     gate_threshold=0.60, len(triggers)==3, trigger labels correct.
+
+  2. **test_missing_kill_switch_threshold_raises**
+     Scenario: pre-reg markdown lacks `kill_switch_threshold:` line;
+     assert ConfigError raised with message containing "kill_switch_threshold".
+
+  3. **test_missing_sidecar_raises**
+     Scenario: sidecar .triggers.yaml absent; assert ConfigError raised.
+
+  File: `tests/harness/test_falsification_evaluator.py`
+
+  4. **test_passing_strategy_writes_complete_not_rejected**
+     Scenario: metrics satisfy all triggers; verdict.passed==True,
+     triggered==[], rejection_reason is None.
+
+  5. **test_single_trigger_fire_r1_oos_sharpe**
+     Scenario: oos_sharpe=0.12 against VTC-T1 threshold 0.60 (operator "<");
+     verdict.passed==False, "VTC-T1" in triggered,
+     rejection_reason contains "0.12" and "0.60",
+     falsification_criterion=="VTC-T1".
+
+  6. **test_multi_trigger_fire_worst_selected**
+     Scenario: two triggers fire (VTC-T1 oos_sharpe violation margin 40%,
+     VTC-T2 max_drawdown margin 5%); falsification_criterion=="VTC-T1"
+     (larger relative violation wins).
+
+  7. **test_missing_nht_rubric_raises_config_error**
+     Scenario: `.fintech-org/nht-rubric.yaml` path does not exist;
+     NhtRubric.from_yaml() raises ConfigError, not FileNotFoundError.
+
+  8. **test_no_sidecar_logs_warning_does_not_block**
+     Scenario: strategy has no .triggers.yaml; evaluate() returns
+     verdict.passed==True (zero triggers, zero fires); log contains
+     "trial.falsification.no_sidecar" event.
+
+  ---
+
+  ## E. Wave-3 effort estimate
+
+  | Component                         | LOC (est.) |
+  |-----------------------------------|-----------|
+  | preregistration.py                | ~120      |
+  | falsification_evaluator.py        | ~100      |
+  | run_trial.py injection + helper   | ~50       |
+  | vol_target_carry.triggers.yaml    | ~20       |
+  | nht-rubric.yaml (from NHT wave)   | ~10       |
+  | test_preregistration.py           | ~100      |
+  | test_falsification_evaluator.py   | ~120      |
+  | **Total**                         | **~520**  |
+
+  **Sequencing (hard dependencies):**
+  1. NHT wave delivers `.fintech-org/nht-rubric.yaml` (blocker for step 5)
+  2. `preregistration.py` — no external deps
+  3. `falsification_evaluator.py` — depends on preregistration types
+  4. Write `vol_target_carry.triggers.yaml` sidecar
+  5. Inject wrapper into `run_trial.py` — depends on 2, 3, NHT rubric file
+  6. Write tests (can be parallelized with steps 2-4)
+  7. Integration: run `pytest tests/harness/` + confirm `test_no_lookahead` still passes
+
+  Estimated wall-clock: ~1 developer-day assuming NHT rubric arrives before
+  midday.
+
+knowledge_gaps:
+  - >
+    NHT rubric field names (R1..R6) and their exact threshold values are
+    unspecified — this spec templates them as r1_min_oos_sharpe..r6_min_sharpe_cost_stress.
+    Wave-3 MUST substitute NHT's frozen values verbatim; no interpolation.
+  - >
+    BacktestResult field for "cost-stressed Sharpe" (R6) does not exist in current
+    run_trial.py — Wave-3 must confirm whether a cost-stress backtest pass is
+    required inline or if R6 is evaluated post-hoc. Raise as a gap to NHT/PM
+    before implementing the wrapper injection.
+policy_violations_detected: []

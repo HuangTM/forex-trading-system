@@ -1,0 +1,249 @@
+---
+# Wave-6: QD Implementation Closure
+# Quant Developer artifact — Section-10 items 1/3/4/5(re-verify)/6/7/8
+# Produced: 2026-05-03
+
+role: quant-developer
+artifact_type: implementation-closure
+decision: needs-revision
+timestamp: "2026-05-03T00:00:00Z"
+subtask_ref: "Section-10 items 1/3/4/6/7/8 closure with line-level evidence + test run"
+subtask_id: "wave6-qd-1"
+
+# ---------------------------------------------------------------------------
+# Per-item status
+# ---------------------------------------------------------------------------
+
+item-1-status: verified-wired-and-tested
+# scripts/monitor_regime_triggers.py exists, compiles cleanly (python3 -m py_compile
+# COMPILE_OK), and writes data/cf_t9_status.json at lines 392-393:
+#   with open(args.output, "w") as f:
+#       json.dump(record, f, indent=2, default=str)
+# The JSON schema includes a machine-readable "evaluated_at" ISO-8601 timestamp
+# (line 275: "evaluated_at": datetime.now(timezone.utc).isoformat()) enabling
+# mtime-testable freshness checks per BC-3.
+
+item-3-status: verified-wired-and-tested
+# heartbeat_watchdog.py compiles cleanly. The 300s constraint is enforced
+# at the caller side (not a constant inside the module):
+#   scripts/run_paper_trading_vt.py:80 — CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
+#   scripts/run_paper_trading_carry_fred.py:97 — CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
+# Both scripts pass it explicitly:
+#   vt:741 — timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS  # 300.0 — CRO binding #2, explicit
+#   carry_fred:684 — timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS
+# on_timeout is a required Callable field at heartbeat_watchdog.py:67.
+# pytest tests/risk/ -k heartbeat -v: 9 passed.
+
+item-4-status: verified-wired-and-tested
+# check_dispatch_allowed is invoked in the actual trade dispatch path:
+#   scripts/run_paper_trading_vt.py:441 — check_dispatch_allowed(exposure, max_correlated_pct=CRO_MAX_CORRELATED_PCT, ...)
+#   scripts/run_paper_trading_carry_fred.py:415 — check_dispatch_allowed(exposure, max_correlated_pct=CRO_MAX_CORRELATED_PCT, ...)
+# CRO_MAX_CORRELATED_PCT = 0.15 named constant at vt:74 and carry_fred (same pattern).
+# Both calls are inside the per-cycle dispatch function, not in an unused import.
+
+item-5-status: verified-wired-and-tested
+# Gap C re-verify: bet1_size_multiplier is called and consumed in sizing path.
+#   scripts/run_paper_trading_carry_fred.py:329-330 — regime_active = regime_active_status(); size_multiplier = bet1_size_multiplier(regime_active)
+#   scripts/run_paper_trading_carry_fred.py:477 — target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier)
+# size_multiplier is not just imported; it is the multiplicative factor applied
+# to raw_target_units before order submission.
+
+item-6-status: verified-wired-and-tested
+# scripts/auto_retire_on_trigger.py exists, compiles cleanly (COMPILE_OK), and:
+#   Line 149 — reads data/cf_t9_status.json: payload = json.loads(gate_output_path.read_text())
+#   Line 139 — downstream halt action: with open(TRIALS_LOG, "a") as f: f.write(...)
+#     appending a status="retired" record to .fintech-org/trials.jsonl.
+# ARCHITECTURAL NOTE (from CTO review cto-architecture-review.yaml:164-166):
+# The "kill-switch" here is the trial-retirement mechanism (marks strategy
+# retired in trials.jsonl), architecturally separate from the in-process
+# KillSwitch object that flattens live positions. Both mechanisms are present
+# and non-interfering. This is consistent with commit e06bf55 closure of R1 A1_C3.
+# The script does NOT call the in-process KillSwitch — that is by design.
+
+item-7-status: verified-wired-and-tested
+# Gap B re-verify: drawdown_contract.py threshold constants confirmed at:
+#   src/forex_system/risk/drawdown_contract.py:99-101 —
+#     halt_threshold=0.10, reduce_threshold=0.15, full_halt_threshold=0.20
+# Named DrawdownLevel actions at lines 44-46:
+#   HALT_NEW_DISPATCH = "halt_new_dispatch"   # DD >= 10%
+#   REDUCE_SIZING = "reduce_sizing"            # DD >= 15%
+#   FULL_HALT = "full_halt"                    # DD >= 20%
+# sizing_multipliers at line 72: {FULL_HALT: 0.0, REDUCE_SIZING: 0.5, ...}
+# pytest tests/risk/ -k drawdown -v: 22 passed.
+
+item-8-status: needs-implementation
+# The acceptance criterion requires equity-curve write to data/paper_trading_session.log
+# with log rolling. Current state:
+#
+# FINDING A — paper_trading_session.log NOT written from Python code.
+#   grep for "paper_trading_session.log" in scripts/run_paper_trading_vt.py: NO MATCH.
+#   grep for "paper_trading_session.log" in scripts/run_paper_trading_carry_fred.py: NO MATCH.
+#   The only write path is an external shell tee -a (settings.local.json:64 allowlist entry),
+#   meaning the file is populated by piping script stdout through tee at the CLI level,
+#   not by the Python process itself.
+#
+# FINDING B — log rolling NOT configured.
+#   Both scripts use logging.FileHandler (plain), NOT RotatingFileHandler:
+#     run_paper_trading_vt.py:107 — handler = logging.FileHandler(path)
+#     run_paper_trading_carry_fred.py:121 — handler = logging.FileHandler(path)
+#   Targets are data/ws01_trace.log (vt) and data/ws02_trace.log (carry_fred).
+#   No RotatingFileHandler found anywhere in scripts/ or src/.
+#
+# EXCEPTION ASSESSMENT: This qualifies as a small wiring fix (≤20 lines, ≤2 files),
+# consistent with the existing _attach_ws0N_file_handler pattern. See fix proposal
+# in body section. Flagged explicitly per Wave-6 closure instructions.
+
+# ---------------------------------------------------------------------------
+# Evidence — line-level references
+# ---------------------------------------------------------------------------
+evidence:
+  - "scripts/monitor_regime_triggers.py:392-393 — open(args.output, 'w') + json.dump write to cf_t9_status.json"
+  - "scripts/monitor_regime_triggers.py:275 — 'evaluated_at': datetime.now(timezone.utc).isoformat() — machine-readable mtime field"
+  - "scripts/monitor_regime_triggers.py:276 — 'triggered': triggered — boolean schema field"
+  - "python3 -m py_compile scripts/monitor_regime_triggers.py: COMPILE_OK"
+  - "src/forex_system/risk/heartbeat_watchdog.py:15,58 — 300.0 documented as required caller value per CRO binding #2"
+  - "src/forex_system/risk/heartbeat_watchdog.py:66-67 — timeout_seconds: float, on_timeout: Callable[[float], None] as dataclass fields"
+  - "scripts/run_paper_trading_vt.py:80 — CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0"
+  - "scripts/run_paper_trading_vt.py:740-743 — HeartbeatWatchdog(timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS, on_timeout=_on_watchdog_timeout)"
+  - "scripts/run_paper_trading_carry_fred.py:97 — CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0"
+  - "scripts/run_paper_trading_carry_fred.py:683-686 — HeartbeatWatchdog(timeout_seconds=CRO_WATCHDOG_TIMEOUT_SECONDS, on_timeout=_on_watchdog_timeout)"
+  - "pytest tests/risk/ -k heartbeat -v: 9 passed, 95 deselected in 2.44s"
+  - "scripts/run_paper_trading_vt.py:441 — check_dispatch_allowed(exposure, max_correlated_pct=CRO_MAX_CORRELATED_PCT, ...) — in dispatch path"
+  - "scripts/run_paper_trading_carry_fred.py:415 — check_dispatch_allowed(exposure, max_correlated_pct=CRO_MAX_CORRELATED_PCT, ...) — in dispatch path"
+  - "scripts/run_paper_trading_vt.py:74 — CRO_MAX_CORRELATED_PCT: float = 0.15 — named constant not magic number"
+  - "scripts/run_paper_trading_carry_fred.py:329-330 — regime_active = regime_active_status(); size_multiplier = bet1_size_multiplier(regime_active)"
+  - "scripts/run_paper_trading_carry_fred.py:477 — target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier)"
+  - "scripts/auto_retire_on_trigger.py:149 — payload = json.loads(gate_output_path.read_text()) — reads cf_t9_status.json"
+  - "scripts/auto_retire_on_trigger.py:139 — with open(TRIALS_LOG, 'a') as f: f.write(...) — appends retired record to trials.jsonl"
+  - "python3 -m py_compile scripts/auto_retire_on_trigger.py: COMPILE_OK"
+  - "src/forex_system/risk/drawdown_contract.py:44-46 — DrawdownLevel enum: HALT_NEW_DISPATCH/REDUCE_SIZING/FULL_HALT"
+  - "src/forex_system/risk/drawdown_contract.py:99-101 — halt_threshold=0.10, reduce_threshold=0.15, full_halt_threshold=0.20"
+  - "src/forex_system/risk/drawdown_contract.py:72 — sizing_multipliers: FULL_HALT=0.0, REDUCE_SIZING=0.5"
+  - "pytest tests/risk/ -k drawdown -v: 22 passed, 82 deselected in 0.03s"
+  - "grep paper_trading_session.log scripts/run_paper_trading_vt.py: NO MATCH"
+  - "grep paper_trading_session.log scripts/run_paper_trading_carry_fred.py: NO MATCH"
+  - "scripts/run_paper_trading_vt.py:107 — logging.FileHandler(path) — plain handler, not RotatingFileHandler"
+  - "scripts/run_paper_trading_carry_fred.py:121 — logging.FileHandler(path) — plain handler, not RotatingFileHandler"
+  - ".claude/settings.local.json:64 — Bash(tee -a data/paper_trading_session.log) — shell-level tee, not Python write"
+
+# ---------------------------------------------------------------------------
+# pytest summary
+# ---------------------------------------------------------------------------
+pytest-summary: "665 passed in 16.90s"
+
+no-lookahead-test-status: passed
+# pytest tests/backtest/test_engine.py -k test_no_lookahead -v: 1 passed in 0.02s
+
+# ---------------------------------------------------------------------------
+assumptions:
+  - "python3 is the project interpreter (confirmed: /opt/homebrew/bin/python3, version 3.13.3)."
+  - "The 'kill-switch' for item 6 is understood as the trial-retirement mechanism (trials.jsonl), not the in-process position-flattening KillSwitch, consistent with CTO architecture review cto-architecture-review.yaml:164-166."
+  - "The pm-acceptance-criteria requirement for item 8 ('equity-curve write enabled; data/paper_trading_session.log file rolling') refers to in-process Python writes with RotatingFileHandler, not external shell tee."
+  - "CRO_MAX_CORRELATED_PCT=0.15 (vt:74) maps to the 15% JPY-correlated cap in BC-8; independent CRO verification of cap semantics is CRO's scope."
+  - "Trial-discipline does not apply per pm-acceptance-criteria hard-constraints."
+
+confidence: high
+
+# ---------------------------------------------------------------------------
+body: |
+  ITEMS 1, 3, 4, 5, 7 — VERIFIED-WIRED-AND-TESTED.
+
+  Item 1 (CF-T9 monitor): scripts/monitor_regime_triggers.py compiles cleanly.
+  The write call is at lines 392-393 (open(args.output, "w") + json.dump). The
+  output JSON includes "evaluated_at" (line 275) as an ISO-8601 UTC timestamp,
+  making the file mtime-testable per BC-3. The "triggered" boolean (line 276)
+  is machine-readable. Schema is well-formed. No cron entry is expected at this
+  stage (paper loop not started by orchestrator) — code verification passes.
+
+  Item 3 (heartbeat_watchdog): The heartbeat_watchdog.py module does not
+  define a named 300-second constant internally (design intent: the caller
+  must be explicit). Both paper-trading scripts define
+  CRO_WATCHDOG_TIMEOUT_SECONDS = 300.0 (vt:80, carry_fred:97) and pass it
+  explicitly at HeartbeatWatchdog construction (vt:741, carry_fred:684). The
+  on_timeout field is a required Callable at heartbeat_watchdog.py:67.
+  pytest heartbeat: 9 passed in 2.44s.
+
+  Item 4 (exposure_aggregator): check_dispatch_allowed is wired in the actual
+  per-cycle dispatch path at vt:441 and carry_fred:415. CRO_MAX_CORRELATED_PCT
+  = 0.15 is a named constant at vt:74, not a magic number. The call is inside
+  the hot path, not in an unreachable branch.
+
+  Item 5 (bet1_sizing re-verify): size_multiplier is computed from
+  bet1_size_multiplier(regime_active) at carry_fred:330 and consumed in the
+  sizing calculation at carry_fred:477: target_units = int(raw_target_units *
+  size_multiplier * effective_dd_multiplier). The 0.0/0.25 conditional values
+  reach the trade-sizing call unconditionally — Gap C confirmed closed.
+
+  Item 7 (drawdown_contract re-verify): The three threshold constants are at
+  drawdown_contract.py:99-101 (0.10/0.15/0.20). DrawdownLevel actions at
+  lines 44-46; sizing multipliers at line 72. pytest drawdown: 22 passed
+  in 0.03s. Gap B confirmed closed.
+
+  Item 6 (auto_retire_on_trigger): Script compiles, reads cf_t9_status.json
+  at line 149, and writes a retirement record to trials.jsonl at line 139.
+  Per CTO architecture review, this is the "trial-retirement kill switch" —
+  architecturally separate from the in-process KillSwitch (position flattening).
+  This split is correct and consistent with commit e06bf55. The distinction
+  matters: operators running auto_retire_on_trigger stop the STRATEGY (trials
+  entry), while the in-process KillSwitch stops the LOOP (positions). Both
+  mechanisms are present.
+
+  Item 8 (equity curve write / log rolling) — NEEDS-IMPLEMENTATION.
+  Neither run_paper_trading_vt.py nor run_paper_trading_carry_fred.py writes
+  to data/paper_trading_session.log from within the Python process. The only
+  path is the external shell tee -a (settings.local.json:64 allowlist) — a
+  fragile approach that silently fails if the operator forgets the pipe. The
+  scripts use plain logging.FileHandler (vt:107, carry_fred:121) writing to
+  data/ws01_trace.log and data/ws02_trace.log respectively. There is no
+  RotatingFileHandler anywhere in scripts/ or src/.
+
+  FIX PROPOSAL for Item 8 (EXCEPTION: small wiring fix, ≤20 lines, ≤2 files,
+  consistent with existing _attach_ws0N_file_handler pattern):
+
+  In both scripts, replace logging.FileHandler with RotatingFileHandler and
+  add a parallel equity-curve write. Specifically:
+
+    File 1: scripts/run_paper_trading_vt.py
+    - Line 107: replace
+        handler = logging.FileHandler(path)
+      with:
+        from logging.handlers import RotatingFileHandler
+        handler = RotatingFileHandler(path, maxBytes=10*1024*1024, backupCount=5)
+    - Add a new constant (alongside WS01_TRACE_PATH):
+        EQUITY_LOG_PATH = "data/paper_trading_session.log"
+    - In _emit_ws01() or the main loop, after computing equity each cycle,
+      append one JSON line to EQUITY_LOG_PATH via a RotatingFileHandler or
+      direct append using the existing structured-log pattern.
+
+    File 2: scripts/run_paper_trading_carry_fred.py
+    - Same substitution at line 121.
+    - Same EQUITY_LOG_PATH constant pointing to data/paper_trading_session.log.
+
+  This ≤20-line fix closes item 8. It does NOT change any research decision,
+  does NOT introduce new abstractions, and is consistent with the established
+  _attach_ws0N pattern. Flagged per Wave-6 instructions.
+
+  FULL TEST SUITE: pytest --no-header -q: 665 passed in 16.90s.
+  This exceeds the CONSENSUS_2026-05-02 baseline of 594 by +71 tests.
+  Sacred test test_no_lookahead: 1 passed in 0.02s.
+
+  DECISION: needs-revision — items 1/3/4/5/7 verified, item 6 verified with
+  architectural note, item 8 needs the ≤20-line wiring fix described above.
+
+# ---------------------------------------------------------------------------
+sources:
+  - "scripts/monitor_regime_triggers.py (lines 275-276, 392-393)"
+  - "scripts/auto_retire_on_trigger.py (lines 139, 149)"
+  - "src/forex_system/risk/heartbeat_watchdog.py (lines 15, 58, 66-67)"
+  - "src/forex_system/risk/drawdown_contract.py (lines 44-46, 72, 99-101)"
+  - "scripts/run_paper_trading_vt.py (lines 74, 80, 107, 441, 740-743)"
+  - "scripts/run_paper_trading_carry_fred.py (lines 97, 121, 329-330, 415, 477, 683-686)"
+  - ".claude/settings.local.json (line 64 — tee allowlist)"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/cto-architecture-review.yaml (lines 156-168 — item 6 architectural note)"
+  - "pytest output: 665 passed in 16.90s (full suite); 9 passed heartbeat; 22 passed drawdown; 1 passed no-lookahead"
+  - "python3 -m py_compile: COMPILE_OK for monitor_regime_triggers.py, auto_retire_on_trigger.py, heartbeat_watchdog.py"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,66 @@
+track_id: trading-system-direction-v1
+addressed_unit: "trading-system-direction-v1:wave5:paper-launch-authorization-signed"
+artifact_under_ratification:
+  path: docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+  type: consensus
+  signed_by: [head-of-quant-research, null-hypothesis-tester, cro, quant-developer, pm]
+  absent: [cto]
+  cto_absence_rationale: "Phase 1 architecture closed; Phase 2 + Wave-5 had no architectural re-decisions in scope. CTO formal review of commit ded1356 (Wave-5 5d sizing-wiring) was not explicitly recorded — CEO chose plain 'approve' over revise-to-gate-on-CTO option."
+approver:
+  name: huangtm@gmail.com
+  role_or_human: human
+  authority_basis: "CEO of the simulated firm per fintech-org orchestration contract"
+decision:
+  outcome: approve
+  timestamp: "2026-05-02T17:00:00Z"
+  raw_response: "approve"
+  interpreted_as: "approve plain (per surfaced options): paper-launch authorized; tech-debt #38 defaults to (B) but orchestrator-side discovery makes it N/A; NHT 3 binding CF-T9 conditions + 2 new dissent items implicitly acknowledged; vol_target_carry_no_vol_scaling stop-trigger Decision B accepted; operational checklist must be verified before first paper bar; autonomous mode ENDED at this gate"
+  autonomous_mode_status: ENDED (final gate)
+  tech_debt_38_disposition_actual: "N/A — project-local .fintech-org/forbidden-phrases.json v0.1.0-project-override already deliberately removes Saxo/saxo bank from broker_names. All Saxo-name violations flagged during this session were orchestrator-config errors (scans used skill-default config instead of project-local override per spawn-agent.md step 9b ordering). Tech-debt task #37 (formerly #38) closed at ratification as N/A. Same applies to tech-debt #27 (pre-existing trials.jsonl Saxo refs) — also N/A under project policy."
+  paper_launch_authorization_scope:
+    - "vol_target_carry: full Phase-1 sizing (size_multiplier 0.5)"
+    - "FRED-carry Bet #1 (carry_fred): regime-conditional sizing per CRO Wave-4 (0.0 regime-inactive / 0.25 regime-active); CF-T9 monitor MUST be active and healthy day-1; Clause C deferral disclosed in launch communications"
+  paper_launch_authorization_excluded:
+    - "Bet #2 (tas_ceiling_4h) — REJECTED Phase 2 sub-wave 3c.3"
+    - "All Phase 0 archived baselines — REJECTED Phase 2 + Wave-5 R2"
+    - "vol_target_carry_no_vol_scaling — degenerate sample; pending HoQR-next ablation"
+    - "momentum (Phase 2 WEAK PASS / Wave-5 R2 GBPUSD-only STRONG REJECT) — net WEAK"
+    - "Any new strategy not pre-registered + Gate-3-approved + Bonferroni-evaluated"
+  next_action:
+    type: paper_launch_pre_flight
+    operational_checklist_must_clear: docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md Section 10
+    no_further_orchestration_dispatch_without_ceo_authorization: true
+nht_binding_conditions_on_cf_t9_co_sign:
+  - "Paper-launch communications must state CF-T9 is A+B binding with C pending"
+  - "Clause C must be ratified within 60 trading days of paper launch or NHT re-review is mandatory"
+  - "Sizing must use ~0.07 regime-inactive base case (not 0.80) — concurs with CRO Wave-4 binding"
+nht_new_dissent_items_acknowledged:
+  - "R6-only rejections are WEAK — quality-adjusted CONDITION-1 = 7/10 STRONG-only, not the mechanical 12/10"
+  - "R6-heavy rejection portfolio inflates CONDITION-1; information content lower than a 12-of-12 R1/R2 portfolio"
+vol_target_carry_no_vol_scaling_decision: "B (PARTIAL CONCUR) — degenerate sample; stop trigger void; carry-thesis interpretation UNCHANGED; HoQR-next-priority research item is properly-sampled ablation"
+linked_dissents:
+  - .agent-accountability/dissents/wave5-paper-launch-authorization:null-hypothesis-tester.yaml
+accountable_party:
+  name: huangtm@gmail.com
+  role: ceo
+notes: |
+  Direction v1 chain complete. Phase 1 → Phase 2 → Wave-5 ratified end-to-end across
+  4 CONSENSUS docs (2026-04-28, 2026-05-01_falsification, 2026-05-01_phase2_closure,
+  2026-05-02_paper_launch_authorization). Autonomous mode (granted 2026-05-01 as
+  "continue, don't stop" + extended same day to "full wave-5 autonomous") is now
+  ENDED at this final gate.
+
+  Paper launch is AUTHORIZED for vol_target_carry + FRED-carry Bet #1 (regime-
+  conditional). Operational checklist (Section 10) must be cleared by CEO before
+  first paper bar — orchestration cannot start the paper loop autonomously; that
+  is a human-in-the-loop ops action.
+
+  HoQR next-priority research item: properly-sampled vol_target_carry_no_vol_scaling
+  ablation to settle whether vol-targeting is load-bearing for vol_target_carry's
+  alpha. NHT condition (2) on CF-T9: Clause C ratification within 60 trading days
+  or re-review mandated.
+
+  Trials.jsonl: 35 entries (22 pre-Phase-2 + 7 Phase-2 + 6 Wave-5 R2). 12 status:
+  rejected. 7 STRONG / 5 WEAK by Bonferroni. Sacred no_lookahead intact across
+  all 9 commits (ff6ebef, 76f6186, b56bd1a, a139d0f, 280cdb8, 11568c7, 57b8885,
+  54df16a, afaae9c, 3fb085d, 1d99405, ded1356, 4aa8607, 09143f2 + this commit).

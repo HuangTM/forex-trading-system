@@ -1,0 +1,492 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: dissent
+timestamp: "2026-05-05T23:45:00Z"
+subtask_ref: wave8-adversarial-review-cost-model-and-account-key-gate
+subtask_id: bdce025c-12df-4eb4-8944-8b3ef76fe066
+
+claim-tested: |
+  Claim 1 (HIGH-1 cost-model parity claim): "After Wave-8, the paper-loop equity
+  curve will be backtest-equivalent — i.e., for any given trade tuple (price,
+  direction, notional), the cost deducted from paper-loop equity equals the cost
+  deducted by the backtest engine."
+
+  Claim 2 (HIGH-2 account-key parity gate claim): "After Wave-8, if both paper-loop
+  processes (run_paper_trading_vt.py and run_paper_trading_carry_fred.py) launch
+  against different Saxo SIM accounts, the second-launching loop halts before any
+  order-dispatch path is reachable."
+
+tests-requested:
+  - id: NHT-T1
+    description: >
+      ROUTE_TO quant-developer: add a parametrized test asserting paper-loop
+      equity-write fields equal engine-equivalent values for a held position over
+      N days, including swap accrual. Expected for USDJPY long 10,000 over 60 days
+      with swap_long_pips_per_day=+0.8: total swap credit = 0.8 * 0.01 * 10_000 * 60
+      = $4,800. The current paper-loop wiring records only entry/exit cost on
+      action cycles and writes zero on HOLD cycles — swap is silently dropped.
+  - id: NHT-T2
+    description: >
+      ROUTE_TO quant-developer: add a partial-rebalance parity test.
+      The backtest engine charges cost on |delta| (engine.py:331-332), not on
+      target_units. The paper loop currently charges entry_cost(pair, target_units)
+      and computes _cost_usd using full target_units (vt.py:614, 617;
+      carry_fred.py:575, 578) — overstating cost on a rebalance-up where
+      delta < target_units.
+  - id: NHT-T3
+    description: >
+      ROUTE_TO quant-developer: add a TOCTOU race test on
+      assert_account_key_parity. Two threads both observing not p.exists() and
+      writing distinct keys must result in deterministic detection on the
+      losing-thread side. Current implementation uses Path.exists() + write_text()
+      with no file lock, so the loser's distinct key is silently overwritten and
+      no SystemExit fires.
+  - id: NHT-T4
+    description: >
+      ROUTE_TO quant-developer: add a stale-lock detection test.
+      Lock file with timestamp older than (e.g.) 24h should be treated as stale
+      and require explicit operator action — currently no freshness check exists,
+      so a 6-month-old lock from a defunct prior session blocks legitimate
+      restart with a different account.
+
+tests-results:
+  - QD artifact (qd-implementation.yaml) is not yet present at
+    .fintech-org/artifacts/2026-05-05T-wave8-high-remediation/. Review is
+    conducted directly against the in-progress code diff:
+      scripts/run_paper_trading_vt.py (mtime 2026-05-05T23:39:09)
+      scripts/run_paper_trading_carry_fred.py (mtime 2026-05-05T23:39:38)
+      tests/scripts/test_wave8_high_remediation.py (newly added)
+
+matched-benchmark-sharpe: not-applicable
+permutation-results: not-applicable
+dsr-assessment: not-applicable
+
+adversarial_findings:
+  - claim: 1
+    question: A
+    finding: >
+      The wiring writes a `paper_equity_bt_equiv` field to the equity LOG but does
+      NOT deduct cost from the operational `equity` variable used downstream.
+      All sizing, drawdown-contract assessment (vt.py:396 _dd = dd_contract.assess(equity);
+      carry_fred.py:379 same), kill-switch checks, and target_units calculation
+      run against the raw Saxo `equity` (vt.py:364, carry_fred.py:353).
+      Cost visibility is added; cost feedback into risk decisions is NOT closed.
+    severity: material_concern
+    bypass_or_failure_mode_demonstrated: >
+      Drawdown ladder (DD-1 halt at 10%, DD-3 full halt at 20%) fires on raw
+      Saxo equity, not on backtest-equivalent equity. Over 60 trading days the
+      two will diverge by accumulated cost+swap (~$4,800 on a long carry trade
+      at 10k notional per BC-2 sizing). The CF-T9 Clause C 60-bar window
+      compares paper-equity to backtest-equivalent — but paper-equity feeding
+      the contract is not the same number written to the log. The "backtest-
+      equivalent" claim is therefore log-only, not control-loop.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer + cro. Either (a) deduct _cost_usd from equity
+      before passing to dd_contract.assess() and downstream sizing; or (b)
+      change PM HIGH-1 acceptance criterion to specify "log parity only,
+      operational equity remains broker-reported" and document the gap
+      explicitly so reviewers don't infer behavior the code doesn't deliver.
+
+  - claim: 1
+    question: B
+    finding: >
+      Swap (holding cost) is NOT deducted by the paper-loop wiring. The wiring
+      calls _COST_MODEL.entry_cost / _COST_MODEL.exit_cost only (vt.py:612, 614;
+      carry_fred.py:573, 575). _COST_MODEL.holding_cost(...) is never invoked.
+      Per backtest engine continuous mode (engine.py:316-317) swap is credited/
+      debited every bar a position is held. Per RealisticCostModel (model.py:36-47)
+      swap is direction-dependent. For USDJPY long-carry (the dominant Bet #1
+      strategy thesis) swap_long_pips_per_day = +0.8 — a $4,800 carry credit on
+      10,000 USDJPY held 60 days. Omitting this from "backtest-equivalent"
+      paper equity log is not a rounding error; it is removing the entire
+      strategy thesis from the comparison curve.
+    severity: rule_violation
+    bypass_or_failure_mode_demonstrated: >
+      PM HIGH-1c acceptance criterion explicitly enumerates "spread, slippage,
+      commission, AND swap costs are deducted from paper equity on each
+      trading cycle". The QD test test_wave8_high_remediation.py asserts only
+      entry_cost / exit_cost numerics; it does NOT assert swap accrual. The
+      acceptance criterion is structurally not met by the code or by the
+      submitted test.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer. Add a per-cycle swap accrual on the equity
+      log using days_since_last_cycle * holding_cost(pair, Direction.LONG, 1)
+      while a position is open. Update test_wave8_high_remediation.py to
+      assert nonzero swap accumulation on a multi-day hold scenario.
+
+  - claim: 1
+    question: C
+    finding: >
+      The wiring does not handle direction-dependent swap because it never
+      computes swap. Direction.SHORT path in holding_cost is unreached.
+      The vt loop is long-only by clamp; carry_fred can in principle take SHORT
+      under a future param, but currently does not. Symmetric handling is not
+      verified by any test in test_wave8_high_remediation.py.
+    severity: concern
+    bypass_or_failure_mode_demonstrated: >
+      If a future strategy variant produces SHORT signals (e.g. a carry-flip
+      regime) the absent swap-accrual would mask a material negative carry
+      cost (USDJPY swap_short_pips_per_day = -1.5).
+    recommended_remediation: >
+      ROUTE_TO: quant-developer (Wave-9+). Add direction-dispatched swap
+      accrual + a test that asserts SHORT-path swap is correctly negated.
+
+  - claim: 1
+    question: D
+    finding: >
+      The HIGH-1c test (TestCostModelParity in test_wave8_high_remediation.py)
+      asserts that paper-loop and engine call the same RealisticCostModel
+      method with the same arguments. Both code paths use the same singleton.
+      The test is structurally a tautology: it CANNOT distinguish "cost is
+      deducted, value is correct" from "cost is computed but not applied to
+      operational equity" — because the test never observes operational equity.
+      A passing test is consistent with the operational divergence finding-A.
+    severity: material_concern
+    bypass_or_failure_mode_demonstrated: >
+      The test would still pass if the entire cost-deduction were removed from
+      the equity-write path, as long as _COST_MODEL existed and the formulas
+      in helper methods _engine_*_cost_dollars and _paper_loop_*_cost_dollars
+      computed identically (which they will, because they are syntactic
+      copies of each other).
+    recommended_remediation: >
+      ROUTE_TO: quant-developer. Replace formula-mirror tests with an
+      end-to-end test: feed the same simulated trade tuple sequence into
+      (1) backtest engine continuous mode and (2) paper-loop run_cycle with
+      mocked Saxo, then assert engine.equity_curve[-1] == log.paper_equity_bt_equiv[-1]
+      to within numerical tolerance. This is the only test that actually
+      verifies parity rather than verifying syntactic similarity.
+
+  - claim: 2
+    question: E
+    finding: >
+      No environment-variable bypass exists. The gate reads only the lock file
+      path supplied as a default argument; no env var is consulted. Lock path
+      is configurable via function kwarg lock_path but not via CLI / env. Risk
+      of env-var bypass is closed.
+    severity: note
+    bypass_or_failure_mode_demonstrated: "no failure mode found"
+    recommended_remediation: "no action"
+
+  - claim: 2
+    question: F
+    finding: >
+      assert_account_key_parity is called in main() AFTER backend = SaxoExecutionBackend(client)
+      construction (vt.py:733-735; carry_fred.py:682-684) but BEFORE sizer,
+      strategy, kill_switch, dd_contract, watchdog, and any run_cycle dispatch.
+      No order-dispatch path is reachable before the gate fires. Lazy-evaluation
+      bypass is closed for the documented startup sequence.
+    severity: note
+    bypass_or_failure_mode_demonstrated: "no failure mode found in startup path"
+    recommended_remediation: "no action"
+
+  - claim: 2
+    question: G
+    finding: >
+      Race condition exists. The gate uses Path.exists() then Path.write_text()
+      (vt.py:119-122; carry_fred.py:134-137) with no file lock. If two processes
+      both observe not p.exists() and both call write_text(), the second writer
+      wins and the first writer's account_key is silently overwritten without
+      detection. Both processes then proceed believing they passed the gate.
+      Probability is low (sub-second TOCTOU window) but nonzero, and the failure
+      mode is exactly the BC-8 ~15x over-exposure scenario the gate exists to
+      prevent.
+    severity: material_concern
+    bypass_or_failure_mode_demonstrated: >
+      Two paper loops launched within the same TOCTOU window (e.g. by a
+      systemd unit that starts both via ExecStartPost dependencies, or by a
+      Makefile target that spawns them in parallel) can both reach order
+      dispatch with divergent Saxo accounts. The gate provides false
+      assurance.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer. Replace Path.exists()+write_text() with
+      atomic O_CREAT|O_EXCL open: open(path, os.O_CREAT|os.O_EXCL|os.O_WRONLY)
+      raises FileExistsError on race-loser, who must then re-read the file
+      and compare keys. Mirrors the heartbeat write_then_rename pattern
+      already in this codebase (vt.py:230-241).
+
+  - claim: 2
+    question: H
+    finding: >
+      No stale-lock detection. The lock file is written once and respected
+      indefinitely. The error message instructs the operator to "Delete
+      {lock_path} if you intend to reset the lock" — an explicit documented
+      bypass. A six-month-old lock from a defunct prior trial blocks legitimate
+      restart with a (possibly different) Saxo SIM account; operator deletes
+      the file, gate is gone. There is no challenge-response, no fresh-token
+      check, no PID liveness check.
+    severity: material_concern
+    bypass_or_failure_mode_demonstrated: >
+      An operator who has been told to delete the file once will be primed
+      to delete it again under stress (e.g. live incident, re-launch under
+      time pressure). The "delete the file to reset" idiom turns the gate
+      into advisory: any time it inconveniently fires, the operator removes
+      the file and proceeds. Knight-Capital lesson: gates that are routinely
+      bypassed by operators under stress do not provide the assurance their
+      authors believe they provide.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer + cro. Replace lock-file-deletion-as-reset
+      with an explicit reset CLI flag (--reset-account-key-lock requiring
+      operator typing the new account_key on the command line as
+      confirmation). Prefer the option that keeps the gate informative under
+      reasonable operational stress.
+
+  - claim: 2
+    question: I
+    finding: >
+      The codebase has a heartbeat-watchdog cross-process pattern
+      (HeartbeatWatchdog at src/forex_system/risk/heartbeat_watchdog.py) and
+      an exposure_aggregator pattern that operates across positions retrieved
+      from a single backend. Neither pattern is reused. The lock file
+      mechanism is novel to Wave-8. Two-loop coordination via a third party
+      (e.g. heartbeat file from each loop with cross-read on startup) was
+      not considered. Per "this org has done this before" check: the
+      heartbeat write-then-rename pattern (vt.py:230-241) demonstrates the
+      atomic-write idiom this codebase already knows; assert_account_key_parity
+      does not use it.
+    severity: concern
+    bypass_or_failure_mode_demonstrated: >
+      Inconsistent atomicity guarantees within the same script: the heartbeat
+      write is atomic via tempfile + os.replace; the account_key lock write
+      is non-atomic via Path.write_text. A reviewer reading both functions
+      will reasonably assume the simpler form is also safe — it is not.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer. Mirror the heartbeat pattern: write to
+      tempfile + os.replace + use O_CREAT|O_EXCL for the lock-acquire path.
+      This eliminates both the TOCTOU race (Q-G) and ensures consistency
+      with existing project patterns.
+
+  - claim: 2
+    question: J
+    finding: >
+      The gate is testable in unit tests (test_wave8_high_remediation.py
+      TestAccountKeyParity uses tmp_path-mocked lock files). It is NOT
+      testable in production without staging an actual mismatched-account
+      incident: there is no synthetic challenge mechanism (e.g. a
+      self-test endpoint or a startup health-check that simulates the
+      mismatch). Knight Capital lesson: a kill switch you cannot exercise
+      in prod is a kill switch you don't know works.
+    severity: concern
+    bypass_or_failure_mode_demonstrated: >
+      First time the gate fires for real may be the first time anyone has
+      verified the sys.exit propagates correctly through whatever process
+      manager the operator uses (systemd / supervisord / nohup). Untested
+      production paths fail in novel ways.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer + cro (Wave-9+). Add a --self-test CLI flag
+      that exercises the gate with a known-mismatch dummy lock, asserts
+      sys.exit(1), and reports pass/fail. Run as part of pre-launch
+      operational checklist.
+
+  - claim: 2
+    question: bonus-finding-K
+    finding: >
+      Account-key parity does NOT close the BC-8 over-exposure concern in
+      the case both loops correctly target the same account. Each loop
+      independently runs check_dispatch_allowed() with its own
+      max_correlated_pct=0.15 envelope. Two independent gates on the same
+      account each enforcing a 15% cap can collectively reach 30% notional
+      (BC-8 envelope of 15% is breached by a factor of 2). Account-key
+      parity addresses the multi-account 15x scenario but not the
+      multi-strategy-on-one-account 2x scenario.
+    severity: material_concern
+    bypass_or_failure_mode_demonstrated: >
+      Both loops launched against same account; each independently sees
+      its own positions plus the other loop's positions in
+      backend.get_positions() (assuming Saxo returns all account
+      positions). check_dispatch_allowed enforces ≤15% on the aggregate.
+      But: the two loops do not coordinate; each computes its own
+      _exposure and applies its own threshold. If loop A's positions are
+      already at 14% and loop B asks "can I add a 14% position?",
+      loop B's pre-trade check sees aggregate of 14% (only A's existing
+      positions, before B's new dispatch is reflected) and says yes.
+      Race-condition exposure to ~28% briefly possible; sustained
+      exposure higher than 15% possible if open positions don't trigger
+      mutual rebalance. The gate the PM specified does not close this.
+    recommended_remediation: >
+      ROUTE_TO: cro (mandatory) for re-verification that the account-key
+      parity gate actually closes the BC-8 concern as claimed. If not,
+      the BC-8 closure should be reframed as "account-key parity gate
+      partially closes BC-8; multi-strategy-on-one-account aggregation
+      remains an open Wave-9+ item."
+
+dissent-statement: |
+  NHT registers MATERIAL_CONCERN (multiple) on Wave-8 closure.
+
+  The Wave-8 implementation as written and submitted does NOT satisfy the PM
+  HIGH-1 / HIGH-2 acceptance criteria as a strict reading would require, and
+  the identified gaps include at least one rule_violation severity item
+  (swap accrual is omitted from "backtest-equivalent" cost deduction despite
+  being explicitly enumerated in HIGH-1c).
+
+  Specific dissent items, append-only and non-amendable:
+
+    HIGH-1 (cost-model parity) gaps:
+      (a) Swap (holding_cost) is never invoked. The paper-loop "backtest-
+          equivalent" equity log records only entry/exit cost on action
+          cycles. For a 60-day USDJPY long-carry hold at 10,000 units the
+          omitted swap is ~$4,800 — material to the very thesis being
+          paper-validated. RULE_VIOLATION on PM HIGH-1c verbatim text
+          ("spread, slippage, commission, AND swap").
+      (b) The cost-deducted value is logged but NOT fed back into the
+          operational equity used for sizing, drawdown contract assessment
+          (DD-1/DD-2/DD-3), kill-switch, or target_units. The paper
+          equity curve in the LOG is backtest-equivalent (modulo (a));
+          the paper TRADING DECISIONS still use raw Saxo equity. The
+          divergence the closure claims to close remains in the control
+          loop. MATERIAL_CONCERN.
+      (c) The QD HIGH-1c test is a syntactic mirror that cannot
+          distinguish a correctly-wired implementation from a
+          superficially-wired one (formula match, not behavior match).
+          MATERIAL_CONCERN.
+      (d) Cost is computed on full target_units rather than on |delta|
+          on rebalance cycles (engine engine.py:331-332 charges on |delta|).
+          CONCERN.
+
+    HIGH-2 (account-key parity gate) gaps:
+      (e) TOCTOU race: Path.exists() + Path.write_text() is not atomic;
+          two simultaneous launches with divergent keys can both pass.
+          The codebase has the atomic write-then-rename pattern in the
+          same file (heartbeat) but assert_account_key_parity does not
+          use it. MATERIAL_CONCERN.
+      (f) Stale-lock semantics: the documented operator recovery path
+          ("delete the file") makes the gate effectively advisory under
+          operational stress. MATERIAL_CONCERN.
+      (g) Account-key parity does NOT close the BC-8 ~15x over-exposure
+          concern in the multi-strategy-on-one-account case. The gate
+          addresses only the multi-account case. MATERIAL_CONCERN.
+          CRO must re-verify whether the original BC-8 closure claim
+          can stand on this gate alone.
+
+  Recommended remediation summary:
+    1. Add swap accrual to the equity log path (HIGH-1c rule violation).
+    2. Either deduct cost from operational equity, or amend the PM
+       HIGH-1 criterion to "log parity only" and document the residual
+       divergence explicitly. (HIGH-1a/b material concern.)
+    3. Replace HIGH-1c syntactic-mirror test with an end-to-end
+       parity-curve test (HIGH-1c material concern).
+    4. Replace lock-file Path.write_text with O_CREAT|O_EXCL atomic
+       acquire (HIGH-2 race material concern).
+    5. Replace "delete the file to reset" with explicit reset CLI flag
+       requiring operator confirmation (HIGH-2 stale-lock material concern).
+    6. CRO re-verifies BC-8 closure under multi-strategy-on-one-account
+       mode; account-key parity alone does not close it.
+
+  Per Rule 6 this dissent is append-only into CONSENSUS_2026-05-05_wave8.md
+  if Wave-8 proceeds to closure. Per protocols/full-auto.md severity is
+  mapped to does_block deterministically; with two RULE_VIOLATION-adjacent
+  items and four MATERIAL_CONCERN items, the orchestrator should treat
+  Wave-8 as does_block until at least items (1), (2)-with-explicit-criterion-
+  amendment-or-fix, (3), and (4) are remediated. Items (5) and (6) can
+  optionally be deferred to Wave-9 with explicit CEO acknowledgment.
+
+contamination-check: "clean"
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:56  (RealisticCostModel import)"
+  - "scripts/run_paper_trading_vt.py:72  (_COST_MODEL = RealisticCostModel())"
+  - "scripts/run_paper_trading_vt.py:102-135  (assert_account_key_parity definition)"
+  - "scripts/run_paper_trading_vt.py:608-624  (HIGH-1 cost deduction in equity-write path)"
+  - "scripts/run_paper_trading_vt.py:735  (assert_account_key_parity invocation in main)"
+  - "scripts/run_paper_trading_carry_fred.py:62  (RealisticCostModel import)"
+  - "scripts/run_paper_trading_carry_fred.py:90  (_COST_MODEL = RealisticCostModel())"
+  - "scripts/run_paper_trading_carry_fred.py:117-150  (assert_account_key_parity definition)"
+  - "scripts/run_paper_trading_carry_fred.py:570-586  (HIGH-1 cost deduction in equity-write path)"
+  - "scripts/run_paper_trading_carry_fred.py:684  (assert_account_key_parity invocation in main)"
+  - "src/forex_system/costs/model.py:11-51  (RealisticCostModel: entry_cost, exit_cost, holding_cost)"
+  - "src/forex_system/backtest/engine.py:190-191  (engine entry-cost deduction in discrete mode)"
+  - "src/forex_system/backtest/engine.py:316-317  (engine daily swap accrual in continuous mode)"
+  - "src/forex_system/backtest/engine.py:331-332  (engine cost on |delta| during rebalance up)"
+  - "src/forex_system/backtest/engine.py:482-486  (engine exit-cost + swap deduction)"
+  - "src/forex_system/core/constants.py:16-24  (USDJPY swap_long=+0.8, swap_short=-1.5)"
+  - "tests/scripts/test_wave8_high_remediation.py:30-196  (HIGH-1c TestCostModelParity)"
+  - "tests/scripts/test_wave8_high_remediation.py:204-291  (HIGH-2b TestAccountKeyParity)"
+  - "PM acceptance: .fintech-org/artifacts/2026-05-05T-wave8-high-remediation/pm-acceptance-criteria.yaml:43-98  (criteria HIGH-1a/b/c, HIGH-2a/b)"
+
+assumptions:
+  - >
+    SaxoExecutionBackend.account_key is a property that does not issue
+    side-effect HTTP calls during construction or attribute access. If it
+    does, lazy-evaluation finding-F changes severity. Not verified by NHT.
+  - >
+    backend.get_positions() returns ALL positions on the underlying Saxo
+    account, regardless of which loop opened them. If this is false, the
+    multi-strategy-on-one-account aggregation finding-K is even more severe
+    (each loop only sees its own positions and cannot enforce the aggregate
+    cap at all). Not verified by NHT — recommend QD verification.
+  - >
+    RealisticCostModel constants in DEFAULT_PAIRS reflect actual Saxo SIM
+    spread/swap. If Saxo SIM has different bid/ask spreads than configured,
+    paper-equity-bt-equiv subtracts our model's cost from a number that
+    already reflects Saxo's actual cost — double-counting the spread.
+    Cannot evaluate without observing Saxo SIM fill prices.
+
+confidence: high
+
+body: |
+  NHT prior: every claim is wrong until evidence shifts the prior.
+
+  Claim 1 (cost-model parity) shifts prior partially. The wiring DOES invoke
+  RealisticCostModel and DOES write a cost-adjusted value to the equity log.
+  But:
+
+  (i) Swap accrual is missing entirely. The PM acceptance criterion HIGH-1c
+  enumerates "spread, slippage, commission, AND swap". The submitted code
+  invokes only entry_cost and exit_cost; holding_cost is never called.
+  For Bet #1 (long USDJPY carry) swap IS the strategy thesis — omitting it
+  from the "backtest-equivalent" equity log means the paper-vs-backtest
+  comparison curve is structurally non-equivalent on the dimension the
+  thesis was supposed to validate. RULE_VIOLATION.
+
+  (ii) The cost is logged but not fed back into operational equity used for
+  drawdown-contract assessment, kill-switch, or sizing. The "divergence is
+  closed" claim holds only for the log; the control loop continues to use
+  raw broker equity. MATERIAL_CONCERN. The HIGH-1c test is a syntactic
+  mirror (paper formula vs engine formula) that cannot distinguish a
+  correctly-wired implementation from a superficially-wired one.
+
+  Claim 2 (account-key parity gate) shifts prior partially. The gate IS
+  invoked before order dispatch (vt.py:735, carry_fred.py:684). It IS
+  unit-tested for the obvious mismatch case. But:
+
+  (iii) TOCTOU race on Path.exists() + Path.write_text() — not atomic.
+  Two loops launched simultaneously can both pass. The codebase already
+  has the atomic write-then-rename pattern (heartbeat) but the lock
+  function does not use it. MATERIAL_CONCERN.
+
+  (iv) Stale-lock recovery is documented as "delete the file" — turning
+  the gate into operator-advisory under stress. The Knight Capital
+  lesson is that gates routinely bypassed by operators do not provide
+  the assurance their authors believe. MATERIAL_CONCERN.
+
+  (v) Account-key parity does not close BC-8 ~15x over-exposure in the
+  multi-strategy-on-one-account case. The gate addresses the multi-
+  account case (15x). It does not address two loops on one account
+  each independently enforcing 15% caps that can sum to 30%.
+  MATERIAL_CONCERN; CRO must re-verify BC-8 closure.
+
+  Decision: dissent. Severity: material_concern (rolling up the most
+  severe of the items above; rule_violation on swap omission is also
+  present). Per protocols/full-auto.md the orchestrator should treat
+  this as does_block until items (i)-(iv) are remediated; (v) can be
+  deferred to Wave-9 with explicit CEO acknowledgment.
+
+sources: []
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps:
+  - >
+    Whether SaxoExecutionBackend.account_key access is side-effect-free.
+    NHT did not read src/forex_system/saxo/execution.py. If access
+    triggers HTTP, lazy-evaluation finding-F may need re-evaluation.
+  - >
+    Whether backend.get_positions() returns all account-level positions
+    or only positions opened by this client session. Affects severity of
+    finding-K (multi-strategy aggregation gap).
+
+claimed_domains:
+  - structural-skepticism-on-any-claim
+  - p-hacking-and-data-snooping-detection

@@ -1,0 +1,39 @@
+role: ops-engineer
+artifact_type: runbook-result
+timestamp: 2026-04-26T20:15:00Z
+decision: halted-precondition-failed
+subtask_ref: sunday-pre-open-prep-2026-04-26
+
+commands_run:
+  - {command: "ls -la data/saxo_flatten_2026-04-*.log data/saxo_positions_2026-04-*.json", exit_code: 0, stdout_summary: "2026-04-25 files exist; no 2026-04-26 files"}
+  - {command: "cat data/saxo_flatten_2026-04-25.log", exit_code: 0, stdout_summary: "STUB: single-line JSON, event=PENDING, no API execution record"}
+  - {command: "cat data/saxo_positions_2026-04-25.json", exit_code: 0, stdout_summary: "STUB: positions=[], fetched_at=null"}
+  - {command: "tail -1 data/kill_switch_audit.log", exit_code: 0, stdout_summary: "timestamp 2026-04-25T00:00:00+00:00, event FLAT_AND_HALTED (stale)"}
+  - {command: "ls -lh data/{paper_trading,vt_paper,multi_strategy}_session.log data/kill_switch_audit.log", exit_code: 0, stdout_summary: "All four logs present, 555B-5.9K, modified 2026-04-26 15:04"}
+  - {command: "test -w data/{paper,vt_paper,multi_strategy}_session.log data/kill_switch_audit.log", exit_code: 0, stdout_summary: "All four logs writable"}
+
+environment_state:
+  PRE-01:
+    verdict: PRECONDITION_FAILURE
+    expected: "data/saxo_positions_2026-04-26.json populated OR data/saxo_flatten_2026-04-26.log with execution record"
+    observed: "saxo_positions_2026-04-25.json STUB; saxo_flatten_2026-04-25.log STUB; no 2026-04-26 files; scripts exist and are runnable"
+    blocker: "Fresh Saxo SIM 24-hour bearer token required (SAXO_TOKEN env var); not provided"
+    runnable_command: "export SAXO_TOKEN=<fresh_token> && python scripts/saxo_position_inventory.py"
+  PRE-02:
+    verdict: PRECONDITION_FAILURE
+    expected: "Last kill_switch_audit.log entry timestamp must be 2026-04-26"
+    observed: "Last entry: 2026-04-25T00:00:00+00:00 event=FLAT_AND_HALTED (correct state, stale timestamp)"
+    blocker: "Operator-authored directive, not system-verified. Acceptance criteria require fresh 2026-04-26 verification."
+  PRE-03:
+    verdict: PASS
+    files:
+      - {path: data/paper_trading_session.log, status: "EXISTS 5.0K mtime=2026-04-26 15:04 UTC WRITABLE"}
+      - {path: data/vt_paper_session.log, status: "EXISTS 5.9K mtime=2026-04-26 15:04 UTC WRITABLE"}
+      - {path: data/multi_strategy_session.log, status: "EXISTS 3.4K mtime=2026-04-26 15:04 UTC WRITABLE"}
+      - {path: data/kill_switch_audit.log, status: "EXISTS 555B mtime=2026-04-26 15:04 UTC WRITABLE"}
+
+precondition_failures:
+  - {item: PRE-01, reason: "fresh_saxo_sim_token_required", route_to: "CEO (operator action)"}
+  - {item: PRE-02, reason: "kill_switch_state_stale_requires_2026-04-26_verification", route_to: "CEO (operator action)"}
+
+summary: "PRE-01 + PRE-02 BLOCK pre-open readiness. PRE-03 PASS. Both blockers require operator (CEO/human) action: fresh SAXO_TOKEN + fresh kill-switch verification entry."

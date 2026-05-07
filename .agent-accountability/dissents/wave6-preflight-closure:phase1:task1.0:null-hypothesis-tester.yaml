@@ -1,0 +1,109 @@
+---
+# NHT Dissent Artifact — Wave-6 Preflight Closure
+# Primitive: dissent (agent-accountability skill)
+# This artifact is APPEND-ONLY. Never edited, summarized, or paraphrased after creation.
+# Rule 6 (agent-accountability/SKILL.md): "Dissent is append-only. Once written,
+# never modified — by anyone, including the dissenter, after the fact."
+
+track_id: "wave6-preflight-closure:phase1:task1.0"
+addressed_unit: "wave6-preflight-closure:phase1:task1.0"
+dissenter: "null-hypothesis-tester"
+timestamp: "2026-05-03T06:10:00Z"
+
+severity: material_concern
+does_block: true
+# does_block is orchestrator-computed. Severity material_concern maps to does_block:true
+# via deterministic lookup table in protocols/full-auto.md. NHT does not self-assert
+# does_block; the orchestrator computes it from the severity enum.
+
+surfaces_to:
+  consensus_artifact: "docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md"
+  pm_consensus_draft: ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-consensus-draft.yaml"
+  source_artifact: ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/nht-cold-start-gate-adversarial.yaml"
+
+# ---------------------------------------------------------------------------
+# DISSENT TEXT — VERBATIM, APPEND-ONLY, NEVER PARAPHRASED
+# Source: nht-cold-start-gate-adversarial.yaml, field: dissent-statement
+# ---------------------------------------------------------------------------
+dissent_text: |
+  The CF-T9 cold-start gate (BC-4) is half-implemented. The CONSUMER
+  (src/forex_system/risk/bet1_sizing.py:101-232) correctly checks
+  n_readings >= 10 AND both_states_observed. There is no bypass via
+  env-var, config flag, or test mode in the consumer. The adversarial
+  case "10 same-state readings silently pass" is correctly blocked by
+  the consumer logic — IF the four required keys are present in
+  data/cf_t9_status.json.
+
+  However, the PRODUCER (scripts/monitor_regime_triggers.py) does NOT
+  write the four keys the consumer reads. The producer writes
+  monitor_id / triggered / clause_a / clause_b / data_freshness — but
+  NOT regime_active, n_readings, seen_regime_active_true,
+  seen_regime_active_false. The consumer therefore always reads the
+  defaults (0, False, False) and BC-4 always trips at "n_readings < 10".
+  The system fails safe (no trades dispatched), so this is not a
+  capital-loss bypass — but it IS a structural failure: the cold-start
+  gate as currently wired CANNOT be satisfied by shipping production
+  code. The gate is not evaluating "have we observed both regime states
+  ≥10 times"; it is evaluating "does the operator know to bypass the
+  gate by hand-writing a JSON stub between cron ticks".
+
+  Furthermore, NO module in src/ or scripts/ implements a regime-reading
+  COUNTER. The increment-on-each-observation logic that BC-4 requires
+  has no programmatic home. n_readings is conceptually undefined in the
+  shipping codebase — neither incremented nor decremented nor reset.
+  Consequently:
+
+    (1) The gate as written is unsatisfiable end-to-end through normal
+        cron operation — so paper-loop dispatch is permanently blocked,
+        which is the safe failure mode but also masks the absence of any
+        real cold-start tracking.
+    (2) A motivated operator who hand-writes a stub satisfies the gate
+        WITHOUT the stub reflecting any true observed regime history.
+        The adversarial scenario in the subtask spec ("all-TRUE 10
+        times") is not the threat — the actual threat is "operator
+        hand-fabricates 10 readings that never happened, the consumer
+        accepts the fabrication, and the next cron tick wipes the
+        evidence by overwriting the file".
+    (3) data/cf_t9_status.json does NOT EXIST on disk as of today
+        (verified via ls). The PM acceptance criterion that "the file is
+        updated within last 5 minutes" cannot be met until the producer
+        is run AND the producer is amended to emit the four BC-4 keys.
+
+  Minimum fix (≤30 LoC, NOT to be written by NHT — route to QD):
+    - Amend evaluate_cf_t9() in monitor_regime_triggers.py to maintain
+      a persistent reading-counter (e.g., separate state file
+      data/cf_t9_state.json that is read-modify-write per invocation).
+    - On each invocation, increment n_readings; set
+      seen_regime_active_true=True if (clause_a_pass AND clause_b_pass)
+      this tick; set seen_regime_active_false=True if NOT (clause_a_pass
+      AND clause_b_pass) this tick. Persist counter and state-flags
+      across invocations.
+    - Emit regime_active = (clause_a_pass AND clause_b_pass) into the
+      output payload alongside the existing triggered envelope.
+    - Add a sacred test in tests/scripts/test_cf_t9_monitor.py that
+      runs the monitor twice and asserts n_readings increments
+      monotonically and seen_state flags are sticky.
+
+  Until this is fixed, BC-4 is FORMALLY UNSATISFIABLE and any
+  operator-mediated bypass to satisfy it is ungoverned. The cold-start
+  gate provides no meaningful adversarial protection in its current
+  wiring.
+
+# ---------------------------------------------------------------------------
+# Evidence summary (from source artifact)
+# ---------------------------------------------------------------------------
+key_evidence:
+  - "src/forex_system/risk/bet1_sizing.py:184-188 — consumer reads regime_active, n_readings, seen_regime_active_true, seen_regime_active_false (all defaulting to False/0)"
+  - "scripts/monitor_regime_triggers.py:246-303 — producer evaluate_cf_t9() writes monitor_id, evaluated_at, triggered, clause_a_boj_rate, clause_b_basket_sharpe, universe, data_freshness, pre_reg_reference, consensus_track_id — NONE of the four BC-4 keys"
+  - "scripts/monitor_regime_triggers.py:392 — 'w' mode truncates+overwrites each cron tick; no merge logic"
+  - "data/cf_t9_status.json — FILE DOES NOT EXIST as of 2026-05-03 06:10 UTC"
+  - "grep -rn 'n_readings|seen_regime_active' src/ scripts/ — keys appear only in consumer (bet1_sizing.py) and consumer tests; ZERO writer paths in src/ or scripts/"
+
+# ---------------------------------------------------------------------------
+# Routing
+# ---------------------------------------------------------------------------
+routing:
+  fix-owner: "QD (quant-developer)"
+  re-verify-owner: "NHT (null-hypothesis-tester)"
+  escalation-target: "CEO"
+  recommended-action: "Wave-7 dispatch — close item 2 producer schema fix, then NHT re-verify"

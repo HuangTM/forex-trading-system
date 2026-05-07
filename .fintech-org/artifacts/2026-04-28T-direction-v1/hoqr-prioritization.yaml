@@ -1,0 +1,104 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-04-28T02:00:00Z"
+subtask_ref: "wave2-direction-v1"
+ranked-alternatives:
+  - "reject: pure-ML signal generation (forbidden domain)"
+  - "reject: RL-based position sizing (forbidden domain)"
+  - "reject: cross-asset equity/rates carry (outside universe EURUSD/USDJPY/GBPUSD)"
+  - "reject: high-frequency microstructure (no tick data, no infra)"
+  - "next-best if queue item fails: time-of-day session filter on vol_target_carry (low-cost ablation, reuses existing engine)"
+  - "next-best: G10 implied-vol term structure as carry-regime filter (extends carry_fred logic without new strategy)"
+evidence:
+  - "vol_target_carry OOS Sharpe 0.7594: MEMORY.md project_phase1_results.md"
+  - "FRED-carry Bet #1 OOS Sharpe 0.80, BoJ-divergence concentration: MEMORY.md project_fred_carry_bet1.md"
+  - "Bet #2 pre-reg gated: MEMORY.md project_consensus_2026-04-26.md + commits e3c4c27 + 19f98fe + R2 Amendment 1"
+  - "22 trials, ~0 falsifications logged: atomic project data (trials.jsonl)"
+  - "Gate-chain cleared 2026-04-27: MEMORY.md project_gate_chain_2026-04-27.md"
+  - "8 exploratory scripts backfilled: commit 60875e1 (R3)"
+retirement-criteria:
+  - "vol_target_carry: retire if rolling 60-bar OOS Sharpe < 0.30 OR max drawdown > 25% in paper trading"
+  - "FRED-carry Bet #1: retire if CF-T9 monitor triggers OR BoJ-divergence regime flag inactive > 30 consecutive trading days with Sharpe < 0.40"
+  - "Bet #2 (tas_ceiling_4h): retire-before-launch if R2 pre-reg not cleared within 2 weeks of queue activation; retire post-launch if OOS Sharpe < 0.30 at 6-week mark"
+  - "ma_crossover / bollinger_rsi / momentum: archive on paper-trading launch date - no incremental alpha thesis vs validated strategies"
+assumptions:
+  - "Paper-trading latency and spread environment of the retail FX paper venue is representative of execution costs (orchestrator-sanitized: original cited a specific broker name; replaced with generic per fintech-org rule 1)"
+  - "BoJ-divergence regime is measurable via FRED data (JPY policy rate differential) without new data sources"
+  - "Deflated Sharpe ratio penalty with N=22 trials is non-trivial - ROUTE_TO ml-researcher for exact DSR computation"
+  - "Universe (EURUSD/USDJPY/GBPUSD) capacity ceiling estimated ~$1M notional per strategy before market-impact degrades edge"
+  - "Paper-trading logs (3 files, 3-6KB each) are smoke-test only - not statistically meaningful OOS evidence"
+confidence: medium
+body: |
+  ## A. Alpha direction (12-week thesis)
+
+  The load-bearing observations are: vol_target_carry at OOS Sharpe 0.7594 and FRED-carry
+  Bet #1 at OOS Sharpe 0.80 concentrated in BoJ-divergence regime. Both are carry-family
+  strategies. The edge is not generic trend or mean-reversion - it is interest-rate
+  differential persistence amplified by central-bank policy divergence, particularly BoJ
+  vs Fed/ECB.
+
+  The structural reason this edge exists: carry in G3 FX is a slow-moving, regime-dependent
+  return premium. When a central bank is structurally pinned (BoJ YCC/ZIRP history), the
+  interest differential is persistent and not fully arbitraged. Vol-targeting captures
+  this without adding noise from momentum.
+
+  The 12-week thesis: carry-regime carry, not cross-momentum. Confirmed alpha is
+  regime-conditional carry on USDJPY (BoJ-divergence) and vol-targeting for sizing. Signal
+  diversity should come from regime conditioning (FRED macro data), not from adding new
+  indicator families.
+
+  Replication-crisis caveat: 22 trials without systematic falsification logging means the
+  effective number of independent hypotheses tested is likely higher - DSR penalty applies.
+  Any new strategy must pre-register and clear a higher Sharpe bar than naive OOS.
+
+  ## B. Per-strategy verdict + retirement criteria
+
+  - vol_target_carry: PROMOTE-TO-PAPER - retirement: rolling 60-bar OOS Sharpe < 0.30
+    OR drawdown > 25%
+  - FRED-carry Bet #1: PROMOTE-TO-PAPER conditional on CF-T9 monitor active - retirement:
+    CF-T9 trigger OR BoJ-regime inactive > 30 days with Sharpe < 0.40
+  - Bet #2 (tas_ceiling_4h): KEEP-GATED on R2 pre-reg; kill if R2 not cleared within
+    2 weeks of queue slot opening; if launched, retire at 6-week OOS Sharpe < 0.30
+  - ma_crossover: ARCHIVE - no independent alpha thesis vs validated carry strategies
+  - bollinger_rsi: ARCHIVE - mean-reversion without regime conditioning; no path to
+    OOS Sharpe >=0.5 in current evidence base
+  - momentum: ARCHIVE - carry_momentum already tested the combination; standalone
+    momentum has no validated Sharpe
+  - carry / carry_momentum: ARCHIVE carry (subsumed by carry_fred); carry_momentum
+    ARCHIVE pending carry_fred dominance confirmation
+  - 8 exploratory scripts (60875e1): BULK-ARCHIVE - backfilled to trials.jsonl for DSR
+    accounting; none advanced to pre-reg; treat as hypothesis-generation, not validated
+
+  ## C. 12-week research queue (sequenced; max 4 items)
+
+  1. vol_target_carry paper launch - hypothesis: validated OOS Sharpe 0.7594 replicates
+     in retail FX paper-venue spreads (orchestrator-sanitized) | capacity: $250k notional
+     ceiling | falsification: paper Sharpe < 0.30 over 6 weeks OR drawdown > 20% | week: 1-2
+
+  2. FRED-carry Bet #1 paper launch - hypothesis: BoJ-divergence regime carry edge
+     (OOS 0.80) persists in paper with CF-T9 monitor active | capacity: $200k notional
+     (concentrated regime = lower sizing) | falsification: Sharpe < 0.40 at 6-week mark
+     OR CF-T9 triggers | week: 1-2 concurrent with item 1
+
+  3. Bet #2 (tas_ceiling_4h) pre-reg clearance + backtest - hypothesis: 4-hour TAS
+     ceiling captures intraday momentum without lookahead; must survive deflated Sharpe
+     with N=22 penalty | capacity: $100k notional | falsification: pre-reg OOS Sharpe
+     < 0.50 (elevated bar due to DSR) | week: 3-6 (gated on R2)
+
+  4. Regime-filter extension for vol_target_carry - hypothesis: conditioning
+     vol_target_carry on FRED JPY policy-rate differential improves Sharpe by >=0.10 OOS
+     without overfitting | capacity: same as vol_target_carry ($250k ceiling) |
+     falsification: DSR-adjusted Sharpe improvement < 0.05 | week: 7-10 (gated on
+     item 1 paper data)
+
+  ## D. Alpha-thesis kill criterion
+
+  - kill_date: 2026-06-23
+  - kill_metric: if neither vol_target_carry nor FRED-carry Bet #1 achieves paper-trading
+    Sharpe >=0.50 over rolling 60 trading days by 2026-06-23, AND Bet #2 has not cleared
+    pre-reg with OOS Sharpe >=0.50, then: halt all new pre-registrations, convene pivot
+    review, consider universe expansion or strategy-class change outside carry family.
+
+knowledge_gaps: []
+policy_violations_detected: []

@@ -132,7 +132,7 @@ The two surface-level tensions resolve as follows:
 
 ## Assumptions we're betting on
 
-- The Saxo SIM environment is paper-only and remains so. (Verified: account ID `REDACTED_ACCOUNT_KEY==` is the SIM account.)
+- The Saxo SIM environment is paper-only and remains so. (Verified: account ID `REDACTED_ACCOUNT_KEY` is the SIM account.)
 - The git status snapshot at orchestrator-spawn time is current. Files moved/committed since then would change CTO's blocking conditions.
 - HoQR's 14-window walk-forward cited result (9/14, avg delta +0.08) reflects the actual numbers in `scripts/vol_targeting.py` output — not independently re-run by orchestrator.
 - The `2026-04-23 14:47 UTC` kill-switch trigger was a real (not false-positive) drawdown event. NHT and CTO both note this is **unverified** — both prior triggers on record were the same fallback-bug class. The behavior of the kill switch under an actual real loss has never been observed in production logs.

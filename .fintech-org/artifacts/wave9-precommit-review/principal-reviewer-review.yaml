@@ -1,0 +1,617 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: "2026-05-06T16:30:00Z"
+subtask_ref: wave9-precommit-review
+subtask_id: "c3d7a2f1-84e0-4b91-9c5a-1e6f83d0c249"
+
+evidence:
+  - .fintech-org/artifacts/wave9-precommit-review/pm-acceptance-criteria.yaml
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+  - scripts/monitor_regime_triggers.py
+  - tests/scripts/test_wave8_high_remediation.py
+  - tests/scripts/test_cf_t9_monitor.py
+  - src/forex_system/backtest/engine.py
+  - src/forex_system/sizing/vol_target.py
+  - src/forex_system/saxo/execution.py
+  - src/forex_system/risk/drawdown_contract.py
+  - src/forex_system/risk/kill_switch.py
+  - src/forex_system/risk/bet1_sizing.py
+  - src/forex_system/risk/exposure_aggregator.py
+  - .fintech-org/forbidden-phrases.json
+
+assumptions:
+  - "Wave-2 artifacts (cto/qd/cro/nht *.yaml) were intentionally NOT read to preserve independence; all findings re-derived from source code"
+  - "Saxo place_order(amount=...) treats Amount as base-currency units (USD for USDJPY); confirmed via src/forex_system/saxo/execution.py:92 plus VolTargetSizer docstring (sizing/vol_target.py:35-44)"
+  - "Engine reference behavior is _to_engine_units(usd_nominal, pair, price) returning usd_nominal/price for JPY-quoted pairs; confirmed engine.py:544-573"
+  - "PM acceptance criteria as written in pm-acceptance-criteria.yaml lines 56-65 is the binding spec"
+
+confidence: high
+
+claimed_domains:
+  - principal-review
+  - spec-to-implementation-trace
+  - log-as-decision-trace-review
+  - kill-switch-design
+  - clock-and-ordering
+  - python-style-numerical-correctness
+  - probability-statistics
+
+# ── Coverage statement ────────────────────────────────────────────────────────
+coverage-statement: >
+  Reviewed 5 of 5 in-scope artifacts: scripts/run_paper_trading_vt.py,
+  scripts/run_paper_trading_carry_fred.py, scripts/monitor_regime_triggers.py,
+  tests/scripts/test_cf_t9_monitor.py, tests/scripts/test_wave8_high_remediation.py.
+  Group C (8 untracked diagnostic scripts) triaged via header docstrings
+  + forbidden-phrases scan only per PM out-of-scope ruling. Wave-2 artifacts
+  (cto/qd/cro/nht reviews) deliberately NOT read for stance content; only
+  the existence of each was confirmed via ls. All findings re-derived from
+  source.
+
+# ── Contamination check ───────────────────────────────────────────────────────
+contamination-check: clean
+
+# ── Rubrics applied ───────────────────────────────────────────────────────────
+rubrics-applied:
+  - id: 1
+    name: spec-to-implementation-trace
+    applied: yes
+    notes: "Each PM hard-constraint traced to implementing line(s) or 'no implementing line found'."
+  - id: 2
+    name: execution-firewall-review
+    applied: yes
+    notes: "Searched paper-loop scripts for research-class judgment leakage."
+  - id: 3
+    name: log-as-decision-trace
+    applied: yes
+    notes: "Walked decision boundaries: signal-emit, dispatch-allowed, kill-switch, equity-update, cost-compute, gate-pass/fail."
+  - id: 4
+    name: edge-case-enumeration
+    applied: yes
+    notes: "Enumerated edge cases for F-001 cost path (price=0, JPY at price=0, NaN, race) and BC-8 lock semantics."
+  - id: 5
+    name: invariant-search
+    applied: yes
+    notes: "Identified invariants 'engine_cost == paper_loop_cost', 'aggregate JPY exposure ≤ 15% across loops', 'kill-switch fires before dispatch when triggered'."
+  - id: 6
+    name: test-inversion
+    applied: yes
+    notes: "For each test in test_wave8_high_remediation.py, considered which bug class would slip past."
+  - id: 7
+    name: failure-mode-reasoning
+    applied: yes
+    notes: "Considered malformed broker equity, clock skew, double-loop startup, partial-write log races."
+  - id: 8
+    name: numerical-correctness
+    applied: yes
+    notes: "Cost-formula division by zero, unit consistency, FP accumulation, JPY pip heuristic."
+
+# ── Per-file-group verdict ────────────────────────────────────────────────────
+per-file-group-verdict:
+  Group_A_modified_production_scripts:
+    files:
+      - scripts/run_paper_trading_vt.py
+      - scripts/run_paper_trading_carry_fred.py
+      - scripts/monitor_regime_triggers.py
+      - tests/scripts/test_cf_t9_monitor.py
+    verdict: do-not-commit
+    blocking-findings: [F-001-PR, F-002-PR, F-008-PR]
+    notes: |
+      F-001 (USDJPY cost overstatement) is present in BOTH paper loops and
+      is ~150x for USDJPY. The PM AC (A-F001) hard-fails this state with
+      verdict-if-fail = do-not-commit. F-008-PR (test asserts buggy value
+      that locks in F-001) compounds the problem. CF-T9 monitor changes
+      (BC-4 counter) and matching test_cf_t9_monitor.py addition are
+      independently sound — but they ride along inside Group A and the
+      Group A verdict is do-not-commit overall until F-001/F-002 close.
+
+  Group_B_new_test:
+    files:
+      - tests/scripts/test_wave8_high_remediation.py
+    verdict: commit-after-fixes
+    blocking-findings: [F-002-PR, F-008-PR]
+    notes: |
+      Tests pass (20/20) but F-002 hard-constraint is not satisfied: there
+      is NO USDJPY end-to-end parity test that exercises the
+      _to_engine_units path. TestE2EParity (line 334) explicitly uses
+      EURUSD "to avoid the engine's JPY unit-convention conversion" — this
+      is the pathological case where the bug would manifest, deliberately
+      excluded. Additionally, TestCostModelParity reuses SIZE=10_000 in
+      both engine and paper-loop helpers (lines 60, 65, 73, 81), short-
+      circuiting the very conversion the test is supposed to verify;
+      the test passes whether F-001 is fixed or not.
+
+  Group_C_diagnostic_scripts:
+    files:
+      - scripts/buy_and_hold_baseline.py
+      - scripts/buy_and_hold_sharpe.py
+      - scripts/characterize_drawdowns.py
+      - scripts/diagnose_carry_momentum.py
+      - scripts/long_only_carry_redesign.py
+      - scripts/run_phase1_revalidate.py
+      - scripts/vol_target_portfolio.py
+      - scripts/vol_targeting.py
+    verdict: commit-as-is
+    blocking-findings: []
+    notes: |
+      All 8 scripts classified as diagnostic/research per docstrings
+      (no Saxo client, no order dispatch, no live-broker bindings).
+      Forbidden-phrases scan: 0 matches. Per PM scope ruling these
+      receive lighter triage.
+
+# ── Findings ──────────────────────────────────────────────────────────────────
+findings:
+
+  - id: F-001-PR
+    severity: blocking
+    category: correctness
+    location: |
+      scripts/run_paper_trading_vt.py:689 (_cost_usd = _cost_pips * _pip_v * _trade_units)
+      scripts/run_paper_trading_carry_fred.py:648 (_cost_usd = _cost_pips * _pip_v * _trade_units)
+    observation: |
+      Both paper loops compute per-trade cost as
+        _cost_usd = _cost_pips * _pip_v * _trade_units
+      where _trade_units is the USD-nominal target (e.g. 20,000 for a $10k-equity,
+      2x-leverage, signal=1 USDJPY position, returned by VolTargetSizer.calculate_size
+      at sizing/vol_target.py:78 — "units = scale * leverage_cap * account_equity").
+      The engine equivalent (engine.py:331-332, 358) uses delta in engine units, where
+      engine units = _to_engine_units(usd_nominal, pair, price) = usd_nominal/price
+      for JPY-quoted pairs (engine.py:571-572).
+    inference: |
+      For USDJPY at price ≈150, the paper-loop cost is therefore
+      150x larger than the engine-equivalent cost. Concrete numerics:
+      target=20,000 USD-nominal at 0.75 pips entry cost:
+        engine: 0.75 * 0.01 * (20000/150) ≈ 1.00 USD (correct)
+        paper:  0.75 * 0.01 * 20000       = 150.0 USD (overstated 150x)
+      A fictitious -150 USD entry cost on $10k equity is -1.5% per cycle
+      and will dominate paper_equity_bt_equiv, falsifying the equity-curve
+      parity that the cost model is supposed to provide. This is exactly
+      the bug F-001 was supposed to close per PM hard-constraint
+      pm-acceptance-criteria.yaml:56-58 and criterion A-F001 lines 69-79.
+    evidence:
+      - vt.py:605 _raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
+      - vt.py:609 target_units = _raw_target_units * _dd_sizing_multiplier
+      - vt.py:684-685 _cost_pips=...; _trade_units = target_units (USD-nominal)
+      - vt.py:689 _cost_usd = _cost_pips * _pip_v * _trade_units (NO division by price)
+      - carry_fred.py:577 raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
+      - carry_fred.py:581 target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier)
+      - carry_fred.py:643-644 _cost_pips=...; _trade_units = target_units
+      - carry_fred.py:648 _cost_usd = _cost_pips * _pip_v * _trade_units (NO division by price)
+      - engine.py:299 target_units = _to_engine_units(usd_nominal, pair, price)
+      - engine.py:331-332 cost_pips = cost_model.entry_cost(pair, abs(delta)); equity -= cost_pips * pip_value * abs(delta)
+      - engine.py:544-573 _to_engine_units: returns usd_nominal/price for JPY-quoted pairs
+      - vol_target.py:78 units = scale * leverage_cap * account_equity (USD nominal output)
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+    notes: |
+      Recommended invariant (no implementation here): for any (pair, target_units, price)
+      tuple the paper-loop equity-write must agree numerically with engine.run_backtest's
+      equity reduction at the same trade event, INCLUDING for JPY pairs where unit
+      convention diverges between USD-nominal and engine units. Fix is structural
+      (route through _to_engine_units or PairInfo.pip_value) and outside reviewer scope.
+
+  - id: F-002-PR
+    severity: blocking
+    category: test-coverage-gap
+    location: |
+      tests/scripts/test_wave8_high_remediation.py:334-446 (TestE2EParity uses EURUSD)
+      tests/scripts/test_wave8_high_remediation.py:38-149 (TestCostModelParity uses
+        shared SIZE=10_000 short-circuiting the unit conversion)
+    observation: |
+      The PM hard-constraint F-002 (pm-acceptance-criteria.yaml:57, criterion B-F002
+      lines 133-143) requires "at least one TestE2EParity or equivalent test that
+      drives both the engine and the paper-loop cost path using a USDJPY trade
+      tuple (price≈150, JPY-pair convention), not EURUSD."
+
+      The submitted TestE2EParity at lines 334-446 explicitly states (lines 337-340):
+        "Uses EURUSD (not USDJPY) to avoid the engine's JPY unit-convention conversion
+         (_to_engine_units divides USD nominal by price for JPY pairs)."
+
+      TestCostModelParity at lines 38-149 uses USDJPY but with SIZE=10_000 fed
+      DIRECTLY to both _engine_*_cost_dollars(self, model) (line 60, 65) and to
+      _paper_loop_*_cost_dollars(self, model, pair, size) (line 73, 81); both
+      helpers reproduce the SAME local formula cost_pips * pip_value * size with
+      no _to_engine_units conversion. They are therefore identical by construction
+      and cannot detect the bug.
+    inference: |
+      The single test that COULD have driven the unit-conversion path
+      (TestE2EParity at line 374, test_entry_cost_parity_engine_vs_paper_loop)
+      explicitly excludes the case where F-001 manifests. F-002 is not closed
+      regardless of test pass/fail status. A correctly-shaped test would: (a)
+      use USDJPY at price≈150, (b) run the engine via run_backtest (which
+      applies _to_engine_units), (c) run vt_mod.run_cycle with the same
+      USDJPY target, (d) assert equity-curve numerical parity between the two
+      paths. The current TestE2EParity is structurally insufficient to satisfy F-002.
+    evidence:
+      - test_wave8_high_remediation.py:53 PAIR = "USDJPY" (TestCostModelParity)
+      - test_wave8_high_remediation.py:60-65 _engine_entry/exit_cost_dollars: cost_pips * 0.01 * 10000 directly
+      - test_wave8_high_remediation.py:73,81 _paper_loop_entry/exit_cost_dollars: identical formula
+      - test_wave8_high_remediation.py:117-118 paper == engine asserted (tautological)
+      - test_wave8_high_remediation.py:337-340 TestE2EParity docstring explicitly avoids USDJPY
+      - test_wave8_high_remediation.py:346 PAIR = "EURUSD" (TestE2EParity)
+      - test_wave8_high_remediation.py:402-403 only EURUSD bar 1 compared to engine equity_curve
+    recommended-action-class: add-test
+    owning-role: quant-developer
+    notes: |
+      Required test shape: drive both run_cycle (USDJPY, price=150, target=20000)
+      and run_backtest (USDJPY, signal=1, entry_delay=1, constant_capital_sizing=True
+      with VolTargetSizer at the same parameters). Assert
+      paper_equity_bt_equiv after entry == engine.equity_curve.iloc[1] within ε.
+      Per role contract no implementation provided; this is the failure pattern
+      the test must catch.
+
+  - id: F-003-PR
+    severity: major
+    category: spec-drift
+    location: |
+      scripts/run_paper_trading_vt.py (+172 / -1)
+      scripts/run_paper_trading_carry_fred.py (+158 / -1)
+      scripts/monitor_regime_triggers.py (+21 / -0)
+    observation: |
+      Net production-script LoC delta against HEAD is 351 added / 2 removed
+      (verified with `git diff HEAD --numstat`). The original Wave-8 50-LoC
+      hard constraint cited in pm-acceptance-criteria.yaml:58 is exceeded
+      by ~7x.
+    inference: |
+      Per PM criterion A-F003 (lines 81-90) the verdict-if-fail is
+      "commit-after-fixes (pending CEO ratification artifact)". I do not
+      see CEO ratification in scope here. Independent of the cost-formula
+      blocking finding, F-003 alone gates Group A from CEO-authorized
+      paper-loop launch (which is out-of-scope for THIS review per
+      pm-acceptance-criteria.yaml:224). The commit decision can proceed
+      once F-001/F-002 are resolved, but the LoC-cap deviation must be
+      surfaced explicitly to the CEO before any launch authorization.
+    evidence:
+      - "git diff HEAD --numstat: 21+0 monitor_regime_triggers.py, 158+1 run_paper_trading_carry_fred.py, 172+1 run_paper_trading_vt.py"
+      - pm-acceptance-criteria.yaml:58 declares 50-LoC hard constraint
+      - "Decision-doc CONSENSUS_2026-05-05_wave8_remediation.md is referenced as evidence in PM AC; its CEO-ratification status not verifiable in this review scope"
+    recommended-action-class: escalate-to-owning-role
+    owning-role: ceo
+
+  - id: F-004-PR
+    severity: blocking
+    category: invariant-violation
+    location: |
+      scripts/run_paper_trading_carry_fred.py:514-540 (aggregation gate)
+      scripts/run_paper_trading_carry_fred.py:701-716 (execute_signal calls)
+      scripts/run_paper_trading_vt.py:535-566 (aggregation gate)
+      scripts/run_paper_trading_vt.py:734-765 (execute_signal calls)
+      (no per-cycle file lock anywhere)
+    observation: |
+      The invariant "aggregate JPY-correlated notional ≤ CRO_MAX_CORRELATED_PCT
+      across BOTH paper loops" is checked once per cycle in each loop independently.
+      Concretely:
+        carry_fred sequence: backend.get_positions() → compute_exposure →
+                             check_dispatch_allowed → execute_signal
+        vt sequence:         backend.get_positions() → compute_exposure →
+                             check_dispatch_allowed → execute_signal
+      No cross-process serialization between [check_dispatch_allowed → execute_signal].
+      The startup-time assert_account_key_parity (vt.py:106-157, carry_fred.py:121-172)
+      is an account-key consistency gate, NOT a per-cycle dispatch gate.
+    inference: |
+      Two simultaneously-running paper loops both reading positions before
+      either has dispatched can each see exposure within the 15% envelope,
+      both pass check_dispatch_allowed, and both then dispatch — yielding
+      brief aggregate exposure up to 30% (2x CRO_MAX_CORRELATED_PCT). Race
+      window is the time between get_positions() and execute_signal()
+      completion (≥1.5-2 s of explicit sleeps in the rebalance branch
+      vt.py:749, plus broker latency). PM hard-constraint BC-8
+      (pm-acceptance-criteria.yaml:59) requires either per-strategy 7.5%
+      budget tickets OR cross-process advisory file-lock. Neither is
+      present in code. CRO Wave-8 BC-8 veto remains in effect; carry_fred
+      second-loop cannot be authorized until this closes.
+    evidence:
+      - carry_fred.py:514-540 single-loop view of exposure at dispatch time
+      - vt.py:535-566 single-loop view of exposure at dispatch time
+      - "grep results: only ACCOUNT_KEY_LOCK_PATH lock exists; no cross-process per-cycle lock; no fcntl import; no advisory-lock primitive"
+      - exposure_aggregator.py:46 "_JPY_CORRELATED: frozenset[str] = frozenset({\"USDJPY\", \"GBPUSD\"})" — note also that GBPUSD inclusion as JPY-correlated is structurally questionable but PM-out-of-scope
+    recommended-action-class: tighten-invariant
+    owning-role: cro
+    notes: |
+      Per PM AC criterion A-BC8 (lines 92-102) verdict-if-fail is
+      "commit-as-is for Group A code; second-loop authorization remains BLOCKED."
+      So this finding does not block COMMIT of Group A — but does block any
+      CRO sign-off on running carry_fred concurrently with vt.
+
+  - id: F-005-PR
+    severity: blocking
+    category: spec-drift
+    location: |
+      pm-acceptance-criteria.yaml:60 (NHT cost-feedback disagreement requirement)
+      scripts/run_paper_trading_vt.py:484, 498
+      scripts/run_paper_trading_carry_fred.py:473, 481
+    observation: |
+      Both paper loops feed RAW broker equity (return value of fetch_account_equity
+      → balance.TotalValue) into:
+        kill_switch.check_and_trigger(equity)   — vt:484; carry_fred:473
+        dd_contract.assess(equity)               — vt:498; carry_fred:481
+      The cost-adjusted equity (paper_equity_bt_equiv = equity - _cost_usd + _swap_usd)
+      is computed AFTER these checks (vt:710; carry_fred:665) and only written to
+      the equity log. It is not fed back into any risk primitive.
+    inference: |
+      The submitted code therefore takes a definite position: cost-feedback
+      into operational risk is LOG-ONLY. PM AC (lines 60, 207-220) requires
+      this position to be EXPLICITLY documented and confirmed by either
+      a PM spec amendment or a CEO ruling. I find no such amendment in
+      scope. Per criterion CROSS-cost-feedback-routing (line 220),
+      verdict-if-fail is "review is incomplete; re-dispatch required" —
+      but the policy choice itself is also a substantive risk decision
+      (NHT NEW-2 vs CRO-recommended architecture). The reviewer flags
+      this for governance routing but does NOT take a stance on which
+      architecture is correct; that is owned by CRO + NHT + CEO.
+    evidence:
+      - vt.py:484 if kill_switch.check_and_trigger(equity)  # raw broker equity
+      - vt.py:498 _dd = dd_contract.assess(equity)          # raw broker equity
+      - vt.py:710 paper_equity_bt_equiv computed but only written to log
+      - carry_fred.py:473 if kill_switch.check_and_trigger(equity)
+      - carry_fred.py:481 _dd = dd_contract.assess(equity)
+      - carry_fred.py:665 paper_equity_bt_equiv only written to log
+      - drawdown_contract.py:129 def assess(self, current_equity: float)  # consumes raw float
+      - kill_switch.py:208 def check_and_trigger(self, current_equity: float)  # consumes raw float
+    recommended-action-class: clarify-spec
+    owning-role: ceo
+    notes: |
+      Either route: PM amendment naming raw-broker-equity as the binding
+      contract for risk primitives (closing NEW-2 as deferred), OR a
+      CEO ruling that cost-adjusted equity must feed the risk primitives
+      (re-opening implementation work). Either path resolves the gap;
+      reviewer cannot resolve it unilaterally per PM AC line 60.
+
+  - id: F-006-PR
+    severity: major
+    category: invariant-violation
+    location: |
+      scripts/run_paper_trading_vt.py:67 (EQUITY_LOG_PATH = "data/paper_trading_session.log")
+      scripts/run_paper_trading_carry_fred.py:86 (EQUITY_LOG_PATH = "data/paper_trading_session.log")
+      scripts/run_paper_trading_vt.py:704 (with open(EQUITY_LOG_PATH, "a") as _ef)
+      scripts/run_paper_trading_carry_fred.py:658 (with open(EQUITY_LOG_PATH, "a") as _ef)
+    observation: |
+      Both paper loops define EQUITY_LOG_PATH with the same value
+      "data/paper_trading_session.log" and both write append-only
+      json-serialized records. The append uses plain Python with open(..., "a")
+      — no fcntl.flock, no atomic-rename pattern, no per-record framing beyond
+      a trailing newline.
+    inference: |
+      POSIX guarantees atomic O_APPEND writes only for buffers ≤ PIPE_BUF
+      (typically 4096 bytes Linux, 512 bytes macOS for FIFOs, larger for
+      regular files but not formally guaranteed). The serialized record
+      can exceed this threshold when strategy_params is non-trivial; the
+      JSON dictionary written includes "ts", "strategy", "equity", "regime_active"
+      (carry_fred only), "cost_pips", "cost_usd", "swap_usd",
+      "paper_equity_bt_equiv". For a small dict this is well under 4KB,
+      so race-induced line interleaving is unlikely with current schema —
+      but the invariant "equity log lines are individually parseable JSON"
+      is not enforced by code; it depends on dict-size discipline.
+      Future schema additions (e.g. nested context, larger strategy_params)
+      could silently break audit-log JSON parsing under concurrent writes.
+    evidence:
+      - vt.py:67, carry_fred.py:86 same path constant
+      - vt.py:704-711, carry_fred.py:658-666 same write pattern
+      - "no fcntl import in either file (verified by grep)"
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+
+  - id: F-007-PR
+    severity: major
+    category: observability-gap
+    location: |
+      scripts/run_paper_trading_carry_fred.py:447-452 (SKIP_REGIME_INACTIVE early return)
+      scripts/run_paper_trading_carry_fred.py:670-678 (HOLD path equity-write block bypassed)
+    observation: |
+      In carry_fred, when regime_active_status() returns False, run_cycle
+      returns at line 452 BEFORE any of the cycle's equity / cost / swap
+      tracking runs. _emit_ws02 is called (line 450-451), but the
+      EQUITY_LOG_PATH append at line 658-666 is unreachable on this path.
+      Compare to vt where the equity-write block runs on the no-action
+      "HOLD FLAT" branch as well.
+    inference: |
+      For multi-day periods of regime-inactive (the expected steady state
+      per BC-1, "size_multiplier = 0.0 when regime flag is FALSE; zero
+      positions permitted"), there is no per-cycle equity record from
+      carry_fred. The audit reconstructibility principle (rubric 3) is
+      that any decision boundary should be reproducible from the log
+      alone. The ws02 trace captures regime_active=False, but the
+      paper-equity time series for carry_fred has gaps during inactive
+      regimes. This is not a correctness bug; it is a decision-trace
+      completeness gap that will complicate post-mortem analysis if
+      a kill-switch / drawdown event happens during a regime transition.
+    evidence:
+      - carry_fred.py:447-452 SKIP_REGIME_INACTIVE return
+      - carry_fred.py:658-666 equity-log append unreachable on this path
+      - vt.py:704-711 equity-log append always reached (no early-return before it)
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+  - id: F-008-PR
+    severity: blocking
+    category: test-coverage-gap
+    location: |
+      tests/scripts/test_wave8_high_remediation.py:540-562
+        (test_rebalance_cost_charged_on_delta_not_full_target)
+      tests/scripts/test_wave8_high_remediation.py:564-611
+        (test_full_entry_cost_not_delta_when_opening)
+    observation: |
+      test_rebalance_cost_charged_on_delta_not_full_target asserts at line 553-557:
+        delta = abs(6_500.0 - 5_000.0)  # = 1500
+        expected_cost = 0.75 * 0.01 * delta  # = 11.25
+        assert entry["cost_usd"] == pytest.approx(expected_cost, abs=1e-4)
+      For pair=USDJPY at price=150, the engine-equivalent cost is
+      0.75 * 0.01 * (1500/150) = 0.075. The test asserts 11.25 — the value
+      produced by the F-001-bugged formula. test_full_entry_cost_not_delta_when_opening
+      similarly asserts 0.75 * 0.01 * 5000 = 37.5 (line 607) where engine
+      would compute 0.75 * 0.01 * (5000/150) ≈ 0.25.
+    inference: |
+      These tests would FAIL if F-001 were correctly fixed. They lock in
+      the buggy paper-loop formula as the asserted contract, making the
+      regression a red-test for any future fix attempt. This is a
+      "test-asserts-the-bug" class of test-coverage-gap that PM would
+      not classify as F-001 closure but as F-001 entrenchment. A test
+      that should detect the bug instead enshrines it.
+    evidence:
+      - test_wave8_high_remediation.py:541-557 expected_cost = 0.75 * 0.01 * delta where delta=1500
+      - test_wave8_high_remediation.py:607-611 expected_cost = 0.75 * 0.01 * 5_000 for USDJPY entry
+      - test_wave8_high_remediation.py:483 entry_price=150.0 (so engine-equivalent units = nominal/150)
+      - "engine.py:331-332 + _to_engine_units would produce delta-engine-units = 1500/150 = 10 units, cost = 0.75 * 0.01 * 10 = 0.075"
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+    notes: |
+      Required: re-author these two tests to assert engine-equivalent
+      cost values. Until F-001 fix lands, the same test must fail on
+      current code; after fix, must pass on corrected code. Reviewer
+      provides the failure mode, not the implementation.
+
+  - id: F-009-PR
+    severity: minor
+    category: numerical
+    location: |
+      scripts/run_paper_trading_vt.py:674 (_pip_v = 0.01 if "JPY" in pair.upper() else 0.0001)
+      scripts/run_paper_trading_carry_fred.py:634 (same)
+      tests/scripts/test_wave8_high_remediation.py:71, 79 (same)
+    observation: |
+      Both paper loops use a string-substring heuristic to assign pip value.
+      "JPY" in "USDJPY".upper() is True (correct). But "JPY" in "JPYAUD".upper()
+      is also True — this is correct only by coincidence for FX pairs that
+      include JPY at all; the heuristic does not consult PairInfo.pip_value
+      (which is the canonical source per CLAUDE.md "pair costs ... no
+      hardcoded magic numbers"). A pair-symbol typo or extension to a synthetic
+      cross would silently fall through.
+    inference: |
+      Low-blast-radius today (only USDJPY in instrument-universe per
+      pm-acceptance-criteria.yaml:50-52). But this same pattern is repeated
+      in five places (vt cost, carry_fred cost, test_wave8 helper x2,
+      ws02_emit literal in carry_fred line 634). The class-fix would route
+      pip value through PairInfo. For now, observation only.
+    evidence:
+      - vt.py:674 _pip_v = 0.01 if "JPY" in pair.upper() else 0.0001
+      - carry_fred.py:634 same
+      - test_wave8_high_remediation.py:71, 79 same in helper functions
+      - engine.py:537-541 _get_pip_value(pair) implements identical heuristic — engine has same minor issue but is in src/, not in scope for this review
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+
+  - id: F-010-PR
+    severity: minor
+    category: edge-case
+    location: |
+      scripts/run_paper_trading_vt.py:467-481 (equity-fetch branch)
+      scripts/run_paper_trading_carry_fred.py:455-470 (equity-fetch branch)
+    observation: |
+      fetch_account_equity returns Optional[float]; the only check on the
+      successful-fetch path is `if equity > 0` (vt:367; carry_fred:355).
+      Negative or NaN balance.TotalValue would coerce through the truthy
+      check. balance.get("TotalValue", 0.0) without isinstance/type check
+      means a malformed broker payload (string, dict, None) would raise
+      TypeError on the comparison and fall to the `except Exception` at
+      line 373 (vt) / 363 (carry_fred), which logs "Could not fetch ..."
+      and returns None — i.e. the kill-switch fetch-fail counter increments
+      and after N consecutive cycles the loop kills itself. This is the
+      DESIRED fail-safe but the audit-log message would be misleading.
+    inference: |
+      Failure mode is named ("equity unavailable") but the actual cause
+      (broker schema mismatch) would not be in the log. Low-severity
+      observability gap; the kill-switch ultimately fires correctly.
+    evidence:
+      - vt.py:362-375 fetch_account_equity error handling
+      - carry_fred.py:351-365 same
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+  - id: F-011-PR
+    severity: nit
+    category: maintainability
+    location: |
+      scripts/run_paper_trading_vt.py:215 handler._ws01_marker = True  # type: ignore[attr-defined]
+      scripts/run_paper_trading_carry_fred.py:228 handler._ws02_marker = True  # type: ignore[attr-defined]
+    observation: |
+      Idempotency guard for the file-handler attachment uses a private
+      attribute on the logging.Handler instance with a type-ignore
+      comment. Standard logging idiom.
+    inference: |
+      No defect; flagged only to confirm reviewer noticed the type-ignore.
+    evidence:
+      - vt.py:215; carry_fred.py:228
+    recommended-action-class: other
+    owning-role: quant-developer
+
+  - id: F-012-PR
+    severity: observation
+    category: other
+    location: |
+      scripts/monitor_regime_triggers.py (full file)
+      tests/scripts/test_cf_t9_monitor.py (BC-4 additions)
+    observation: |
+      The CF-T9 monitor changes (+21 LoC: BC-4 persistent counter,
+      seen_regime_active_true/false flags) and the matching test
+      additions (+37 LoC) are independently sound: the read-modify-write
+      state file is implemented with state_path.write_text(...), the
+      sticky flags and counter increment are tested via two-call
+      sequence, and the file path is parameterizable for testability.
+      No observed defects.
+    inference: |
+      These changes are clean as a unit. Their commit verdict is
+      blocked only by the Group A bundle verdict (because they live in
+      Group A) and by the upstream F-001 / F-002 / F-008 blockers in
+      sibling files. Suggest splitting if Group A blockers cause delay.
+    evidence:
+      - "monitor_regime_triggers.py git diff: +21/-0, BC-4 state plumbing only"
+      - test_cf_t9_monitor.py BC-4 test passes (validated)
+    recommended-action-class: other
+    owning-role: quant-developer
+
+# ── Sacred-test + ruff + pytest gates ─────────────────────────────────────────
+gates-checked:
+  sacred-test:
+    invocation: ".venv/bin/pytest tests/backtest/test_engine.py::test_no_lookahead -q"
+    result: pass
+    output: "1 passed in 0.03s"
+  ruff:
+    invocation: ".venv/bin/ruff check src/"
+    result: at-baseline
+    output: "Found 19 errors. (matches baseline; no regression)"
+  pytest:
+    invocation: ".venv/bin/pytest -q"
+    result: pass
+    output: "686 passed in 27.42s"
+
+# ── Required attestations ─────────────────────────────────────────────────────
+no-capital-instruction: true
+web_research_conducted: false
+sources: []
+websearch_used: 0
+webfetch_used: 0
+
+# ── Time / domain ─────────────────────────────────────────────────────────────
+time-spent-reasoning: "approximately 60 minutes wall-clock; multi-pass close-read of 5 source files + 4 supporting modules + numerical re-derivation of F-001 magnitude"
+
+knowledge_gaps: []
+policy_violations_detected: []
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+summary: |
+  REJECT — Group A do-not-commit, Group B commit-after-fixes, Group C commit-as-is.
+
+  Three blocking findings independently re-derived from source:
+    F-001-PR  USDJPY cost overstatement in BOTH paper loops (~150x)
+    F-002-PR  No USDJPY end-to-end parity test; TestE2EParity uses EURUSD
+              specifically to avoid the JPY conversion path
+    F-008-PR  Two tests in test_wave8_high_remediation.py assert the
+              F-001 buggy values, locking in the bug as the regression
+              contract
+
+  Plus blocking governance items the reviewer cannot resolve:
+    F-005-PR  Cost-feedback architecture (NHT NEW-2) requires PM amendment
+              or CEO ruling; submitted code defaults to log-only
+
+  Plus lower-priority findings F-003 (LoC cap exceeded, requires CEO),
+  F-004 (BC-8 per-cycle race control absent — does not block COMMIT
+  per PM AC, but blocks second-loop authorization), F-006 (shared
+  equity-log path race risk), F-007 (carry_fred regime-inactive
+  decision-trace gap), F-009 (JPY pip heuristic instead of PairInfo),
+  F-010, F-011, F-012.
+
+  Sacred-test PASSES, ruff baseline 19 errors UNCHANGED, all 686 pytests
+  pass. Tests not failing is not enough — F-001 is a correctness bug
+  that is asserted-as-correct by F-008 tests, so the green test suite
+  is currently providing false assurance. This is the most serious
+  finding of the review.

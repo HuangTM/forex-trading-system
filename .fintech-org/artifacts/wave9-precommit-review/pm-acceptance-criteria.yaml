@@ -1,0 +1,289 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-05-06T00:00:00Z"
+subtask_ref: wave9-precommit-review
+subtask_id: "c3d7a2f1-84e0-4b91-9c5a-1e6f83d0c249"
+evidence:
+  - docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md
+  - docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md
+  - docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+  - docs/decisions/ASSESSMENT_2026-05-03.md
+  - .fintech-org/artifacts/2026-05-05T-wave8-high-remediation/pm-acceptance-criteria.yaml
+  - .fintech-org/artifacts/2026-05-05T-wave8-high-remediation/principal-reviewer-review.yaml
+assumptions:
+  - The uncommitted diff matches the git-status snapshot recorded at conversation start (Groups A-E as listed in the task directive).
+  - Wave-8 blocking findings F-001, F-002, F-003, BC-8 veto, and NHT NEW-1/NEW-2 are still open unless code under review demonstrates closure.
+  - The CEO acknowledged the Wave-8 deferral on 2026-05-06; deferred-decisions.jsonl is empty.
+  - deferred-decisions.jsonl being empty does NOT constitute CEO ratification of any Wave-8 closure path; it means the CEO chose to dispatch Wave-9 code review before deciding closure scope.
+  - ruff baseline is 19 errors (as confirmed in CONSENSUS_2026-05-05 Section 6, QUALITY-2); any increase is a regression.
+  - pytest baseline is 686 tests passing (CONSENSUS_2026-05-05 Section 6, QUALITY-1).
+  - The sacred test (tests/backtest/test_engine.py::test_no_lookahead) must remain passing.
+  - Group C scripts are untracked diagnostic/research scripts; they do not hold Wave-8 remediation code and are triaged as lower-risk.
+confidence: high
+
+body: |
+  Code review all uncommitted production code and tests before git commit.
+  Verdict per group: commit-as-is / commit-after-fixes / do-not-commit.
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+knowledge_gaps: []
+policy_violations_detected: []
+claimed_domains:
+  - acceptance-criteria-authoring
+  - signature-collection
+
+# ── PM-specific extension fields ──────────────────────────────────────────────
+
+task-statement: >
+  Review all uncommitted code across Groups A-E; verdict per file group:
+  commit-as-is, commit-after-fixes, or do-not-commit.
+
+deliverable-type: code-review
+
+deadline: "2026-05-06T23:59:59Z"
+
+instrument-universe:
+  - USDJPY
+  - EURUSD
+
+# ── Hard constraints (machine-checkable) ──────────────────────────────────────
+hard-constraints:
+  - "F-001-must-resolve: USDJPY-cost-formula-must-apply-_to_engine_units-conversion-before-deducting-cost — paper loop vt.py and carry_fred.py MUST divide USD-nominal target_units by price (JPY-pair convention) before computing cost_usd; the ~150× overstatement documented in CONSENSUS_2026-05-05 Section 7 must be absent from the submitted code; if the code does NOT fix F-001, verdict is do-not-commit for Group A"
+  - "F-002-must-resolve: USDJPY-end-to-end-parity-test-required — tests/scripts/test_wave8_high_remediation.py must contain at least one TestE2EParity or equivalent test that drives both the engine and the paper-loop cost path using a USDJPY trade tuple (price≈150, JPY-pair convention), not EURUSD; if absent, verdict is commit-after-fixes for Group B"
+  - "F-003-rule: production-LoC-cap-or-ceo-ratified-amendment — the original Wave-8 PM AC declared a 50-LoC hard constraint; actual delta is ~330 LoC (6.6×); reviewers must confirm whether the code in this review reflects an editorial reduction from the 330-LoC baseline OR the CEO must ratify the deviation; if neither, F-003 is still open and Group A verdict is commit-after-fixes pending CEO action"
+  - "BC-8-residual-control-required: cross-process-race-gate-or-blocked — carry_fred paper loop dispatch MUST NOT be recommended for authorization unless either (a) per-strategy 7.5% budget tickets are implemented or (b) cross-process advisory file-lock (fcntl O_CREAT|O_EXCL) wraps [get_positions→compute_exposure→check_dispatch_allowed→execute_signal]; absent either, CRO veto on BC-8 remains in effect and carry_fred is do-not-authorize"
+  - "NHT-cost-feedback-disagreement-must-surface: PM-spec-amendment-or-CEO-ruling-required — the CRO vs NHT disagreement on whether cost-adjusted equity should feed dd_contract/kill_switch (NHT NEW-2) or remain log-only (CRO recommended architecture) CANNOT be resolved by QD, CTO, or NHT unilaterally; reviewers must flag whether the submitted code takes a position and, if so, whether that position is consistent with any PM spec amendment or CEO ruling; absent a ruling, the existing code using raw broker equity for risk primitives is the status quo and reviewers must evaluate it as-is"
+  - "no-live-capital-keywords-in-any-script: forbidden-phrases-scan-must-be-clean — no file in Group A, B, or C may contain any phrase from .fintech-org/forbidden-phrases.json; scan must return 0 matches on all files under review"
+  - "sacred-test-must-pass: tests/backtest/test_engine.py::test_no_lookahead must PASS in the submitted test suite"
+  - "ruff-no-regression: ruff check src/ must return ≤19 errors (Wave-8 baseline per CONSENSUS_2026-05-05 QUALITY-2)"
+  - "pytest-no-regression: pytest must pass ≥686 tests (Wave-8 baseline per CONSENSUS_2026-05-05 QUALITY-1)"
+
+# ── Criteria (pass/fail gates, one item per gate) ─────────────────────────────
+criteria:
+  # Group A — Production code (modified files)
+  - id: A-F001
+    group: A
+    description: >
+      F-001 closed: vt.py and carry_fred.py equity-write paths apply the
+      _to_engine_units JPY unit-conversion (divide USD-nominal by price) before
+      computing cost_usd for USDJPY, eliminating the ~150× overstatement documented
+      in CONSENSUS_2026-05-05 PR F-001. Verified by code read of the cost-compute
+      block in each file.
+    pass-condition: both files show division-by-price for JPY pairs before cost multiplication
+    fail-condition: cost_usd = cost_pips * pip_v * target_units with no JPY price division
+    verdict-if-fail: do-not-commit (Group A)
+
+  - id: A-F003
+    group: A
+    description: >
+      F-003 acknowledged: net production LoC delta for Group A is measured and
+      compared against the original 50-LoC hard constraint. If delta exceeds 50 LoC,
+      reviewers document the actual count and flag for CEO ratification of the
+      deviation. This gate does not block commit but gates CEO authorization.
+    pass-condition: actual LoC delta is ≤50 OR CEO ratification of deviation is on record
+    fail-condition: LoC delta >50 with no CEO ratification
+    verdict-if-fail: commit-after-fixes (pending CEO ratification artifact)
+
+  - id: A-BC8
+    group: A
+    description: >
+      BC-8 residual control: if carry_fred.py contains any per-strategy 7.5% budget
+      ticket logic OR cross-process advisory file-lock around dispatch, the CRO must
+      re-evaluate whether BC-8 is now closed. If neither control is present, the CRO
+      veto from Wave-8 remains in effect and carry_fred.py may commit as an
+      engineering artifact but the second paper loop remains unauthorized.
+    pass-condition: per-strategy budget ticket or cross-process file-lock present (BC-8 closeable)
+    fail-condition: neither control present (carry_fred.py can commit; second-loop auth blocked)
+    verdict-if-fail: commit-as-is for Group A code; second-loop authorization remains BLOCKED
+
+  - id: A-forbidden-phrases
+    group: A
+    description: >
+      Forbidden-phrases scan on all Group A files returns 0 matches against
+      .fintech-org/forbidden-phrases.json. No live-capital routing language.
+    pass-condition: scan exits 0, 0 matches
+    fail-condition: any match
+    verdict-if-fail: do-not-commit
+
+  - id: A-ruff
+    group: A
+    description: >
+      ruff check src/ returns ≤19 errors after Group A files would be committed.
+      Group A files are in scripts/, not src/, but reviewers must confirm no
+      src/ regressions were introduced.
+    pass-condition: ≤19 errors
+    fail-condition: >19 errors
+    verdict-if-fail: commit-after-fixes
+
+  - id: A-sacred-test
+    group: A
+    description: >
+      pytest tests/backtest/test_engine.py::test_no_lookahead PASSES with the
+      Group A changes present.
+    pass-condition: test passes (exit 0)
+    fail-condition: test fails or errors
+    verdict-if-fail: do-not-commit
+
+  # Group B — New production test file
+  - id: B-F002
+    group: B
+    description: >
+      F-002 closed: test_wave8_high_remediation.py contains at least one
+      end-to-end parity test that uses a USDJPY trade tuple (price ~150, JPY
+      unit-convention, not EURUSD). The test must assert a concrete numeric cost_usd
+      value that exercises the _to_engine_units conversion path, NOT a fabricated
+      shared SIZE input that bypasses it.
+    pass-condition: USDJPY E2E parity test present with numeric assertion
+    fail-condition: only EURUSD E2E test present; no USDJPY parity coverage
+    verdict-if-fail: commit-after-fixes (F-002 still open)
+
+  - id: B-test-count
+    group: B
+    description: >
+      pytest passes ≥686 tests with Group B test file included. No previously
+      passing test may be broken by Group B additions.
+    pass-condition: ≥686 tests pass
+    fail-condition: <686 or any regression in previously-passing tests
+    verdict-if-fail: do-not-commit
+
+  - id: B-forbidden-phrases
+    group: B
+    description: >
+      Forbidden-phrases scan on Group B test file returns 0 matches.
+    pass-condition: 0 matches
+    fail-condition: any match
+    verdict-if-fail: do-not-commit
+
+  # Group C — Untracked diagnostic/research scripts (lighter triage)
+  - id: C-forbidden-phrases
+    group: C
+    description: >
+      Forbidden-phrases scan on all Group C scripts returns 0 matches. No
+      live-capital routing language in diagnostic scripts.
+    pass-condition: 0 matches per script
+    fail-condition: any match in any script
+    verdict-if-fail: do-not-commit for the matching script(s)
+
+  - id: C-scope-classification
+    group: C
+    description: >
+      Each Group C script is classified as one of: diagnostic/research (no-commit
+      needed now), utility (commit-as-is), or production-candidate (requires Group A
+      gates). Reviewer provides per-script classification.
+    pass-condition: all 8 scripts classified with rationale
+    fail-condition: any script unclassified
+    verdict-if-fail: commit-after-fixes (add classification comments)
+
+  # Group D — Decision/governance documents
+  - id: D-commit-policy
+    group: D
+    description: >
+      All four CONSENSUS/ASSESSMENT docs in docs/decisions/ commit as-is unless
+      any doc contains live-capital instruction language (which would be a policy
+      violation). These are governance artifacts and their content is already
+      ratified or pending-CEO-ratification per their own headers.
+    pass-condition: forbidden-phrases scan clean on all four docs
+    fail-condition: any doc contains live-capital language
+    verdict-if-fail: do-not-commit for that specific doc
+
+  # Group E — Audit/governance data
+  - id: E-commit-policy
+    group: E
+    description: >
+      .fintech-org/ and .agent-accountability/ data directories commit as-is.
+      data/*.csv, data/*.log, data/*.json commit as-is (session state artifacts).
+      deferred-decisions.jsonl is empty (confirmed); commits as-is.
+      Exception: do NOT commit any file in data/ that contains a live API token
+      or credential (check .fintech-org/forbidden-phrases.json for token patterns).
+    pass-condition: no credential/token content in any data file
+    fail-condition: credential or token detected
+    verdict-if-fail: do-not-commit for the specific file; rotate the credential immediately
+
+  # Cross-group: NHT cost-feedback disagreement surfacing
+  - id: CROSS-cost-feedback-routing
+    group: ALL
+    description: >
+      Reviewers explicitly state whether the submitted code in Group A takes a
+      position on cost-feedback into operational equity (NHT NEW-2 vs CRO
+      recommendation). If the code feeds cost-adjusted equity into dd_contract or
+      kill_switch, NHT must confirm whether NEW-2 is thereby closed. If the code
+      leaves risk primitives on raw broker equity (log-only parity), CRO must
+      confirm this is consistent with their recommended architecture. Either outcome
+      must be documented; the reviewer must NOT leave this ambiguous.
+    pass-condition: explicit position documented by CRO and NHT
+    fail-condition: cost-feedback architecture left unaddressed in review
+    verdict-if-fail: review is incomplete; re-dispatch required
+
+# ── Scope decisions ────────────────────────────────────────────────────────────
+out-of-scope:
+  - paper-loop launch authorization (separate CEO decision; no orchestrator authority)
+  - Saxo token rotation (separate runbook; do not attempt in this dispatch)
+  - new backtest runs or strategy registrations
+  - trial counter increments (PM is non-research; Wave-9 is code-review, not a research trial)
+  - CRO _JPY_CORRELATED frozenset asymmetry fix (Wave-8+ hardening, not in Group A scope)
+  - watchdog observer thread top-level exception handler (Wave-8+ hardening per CTO Wave-6 note)
+  - stale-lock TTL detection (NHT finding-5 reduced to non-blocking concern; Wave-9+ scope)
+  - --self-test CLI flag for kill-switch Property 4 (PR F-007 medium; not a blocker for commit)
+  - SHORT-path swap accrual direction verification (NHT finding-C low severity; Wave-9+ scope)
+  - re-adjudication of any NHT dissent already recorded as append-only in CONSENSUS docs
+  - CEO ratification of CONSENSUS_2026-05-05_wave8_remediation.md (separate CEO action)
+  - items 9 and 10 of the pre-flight checklist (BLOCKED-CEO-action; not addressable in code review)
+  # Group C scope decision (PM recommendation):
+  # Group C scripts (buy_and_hold_baseline.py, buy_and_hold_sharpe.py,
+  # characterize_drawdowns.py, diagnose_carry_momentum.py,
+  # long_only_carry_redesign.py, run_phase1_revalidate.py,
+  # vol_target_portfolio.py, vol_targeting.py) are INCLUDED in this commit
+  # decision but triaged as lightweight: forbidden-phrases scan + scope
+  # classification only. No full code review gates (correctness, architecture)
+  # are required for Group C in this wave. If any script is classified as
+  # production-candidate by reviewers, it must be re-routed to a Group A-level
+  # review in a follow-on dispatch before being run in a paper context.
+  # Group D / Group E commit policy (PM ruling):
+  # Group D (docs/decisions/*.md): commit as-is unless forbidden-phrases scan
+  # detects live-capital language. These documents are governance history.
+  # Group E (.fintech-org/, .agent-accountability/, data/): commit as-is.
+  # Exception: any data file containing an API token or credential must not
+  # commit; the credential must be rotated per the Saxo runbook first.
+  # The deferred-decisions.jsonl is empty after CEO ack on 2026-05-06; commits as-is.
+
+# ── Wave structure and stage gates ────────────────────────────────────────────
+# Wave-1 (this artifact): PM emits acceptance criteria.
+# Wave-2 (fan-out, parallel): CTO + QD + CRO + NHT each review their domain.
+#   - CTO: architecture scope review — LoC-cap deviation (F-003), kill-switch
+#     property 4 absence (F-007), log-sink design (F-004 / F-008).
+#   - QD: implementation correctness — F-001 unit-conversion, F-002 USDJPY test,
+#     F-005 pip_v heuristic, F-006 double-counting question.
+#   - CRO: risk gate review — BC-8 residual control presence/absence,
+#     cost-feedback-into-equity architecture position (NHT NEW-2 vs CRO log-only).
+#   - NHT: adversarial re-verification — does F-001 closure hold? does F-002
+#     USDJPY test actually exercise the unit-conversion path? is NEW-2 resolved
+#     or deferred? is any forbidden-phrase present?
+# Wave-3 (Principal Reviewer alone): synthesizes Wave-2 findings; checks for
+#   role-vs-role contradictions; confirms verdict consistency (no role approving
+#   what another is blocking); produces per-file-group verdict table.
+# Wave-4 (PM): CONSENSUS doc synthesizing Wave-2 + Wave-3 outputs; records
+#   final commit verdicts; routes unresolved CEO-decision items back to deferred
+#   queue or flags them for CEO ratification.
+#
+# Wave-2 outputs expected (each a typed artifact per handoff.md schema):
+#   - cto-architecture-review.yaml
+#   - qd-implementation-review.yaml
+#   - cro-risk-review.yaml
+#   - nht-adversarial-review.yaml
+# Wave-3 expected output:
+#   - principal-reviewer-review.yaml (includes per-file-group verdict table)
+# Wave-4 expected output:
+#   - pm-consensus.yaml + CONSENSUS_2026-05-06_wave9_precommit.md
+
+# ── Role staffing rationale ────────────────────────────────────────────────────
+roles-staffed:
+  cto: "architecture and scope review — F-003 LoC-cap deviation, log-sink design (F-004/F-008), kill-switch property 4 absence (F-007), Group C script classification for production-candidacy risk"
+  quant-developer: "implementation correctness — F-001 USDJPY unit-conversion closure, F-002 USDJPY E2E test adequacy, F-005 pip_v heuristic vs PairInfo.pip_value, F-006 Saxo-TotalValue double-counting semantics, ruff and pytest gates"
+  cro: "risk gate review — BC-8 residual control presence/absence, cost-feedback-into-operational-equity architecture position, carry_fred second-loop authorization status, forbidden-phrases scan on Group A/C"
+  null-hypothesis-tester: "adversarial re-verification — does F-001 fix actually eliminate 150x overstatement, does F-002 USDJPY test exercise unit-conversion and not bypass it, is NHT NEW-2 (cost-feedback) resolved or still blocking, any new structural concerns in Group B test file"
+  principal-reviewer: "Wave-3 synthesis — per-file-group verdict table, role-vs-role contradiction detection, final commit recommendation to PM"

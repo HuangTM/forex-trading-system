@@ -1,0 +1,123 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+timestamp: 2026-04-26T20:30:00Z
+contamination-check: clean
+
+claim-tested:
+  claim_1: "The firm is production-ready for forex week 17 (2026-04-27 → 2026-05-01) based on two strategies passing the harness gate."
+  claim_2: "OOS portfolio Sharpe 0.80 reflects diversified carry alpha, not exposure to a single 2022-2026 BoJ-vs-G10-hiking-cycle regime."
+
+decision:
+  claim_1: noise-indistinguishable
+  claim_2: dissent
+
+shared-state-verified:
+  trial_count_org_wide: 14
+  completed_trials_with_sharpe: 6
+  empirical_trial_sharpe_stdev: 0.379
+  empirical_trial_sharpe_variance: 0.143
+
+tests-results:
+  dsr_assessment:
+    method: Bailey-Lopez-de-Prado-2014
+    inputs:
+      N_trials: 14
+      empirical_V: 0.143
+      sqrt_V: 0.379
+      max_order_statistic_multiplier: 1.7379
+      SR_star_annualized: 0.6587
+    vol_target_carry: {SR_hat: 0.7594, T_years: 2.98, DSR: 0.569, pass_at_0.95: false, verdict: "noise-indistinguishable"}
+    carry_fred: {SR_hat: 0.80, T_years: 2.98, DSR: 0.596, pass_at_0.95: false, verdict: "noise-indistinguishable"}
+  bonferroni_check:
+    family_wise_n: 14
+    per_test_alpha: 0.00357
+    required_t_stat: 2.69
+    vol_target_carry_t: 1.311
+    carry_fred_t: 1.382
+    both_fail: true
+  effective_independent_bets_carry_fred:
+    nominal_pairs: 12
+    top5_oos_pairs_all_share_JPY_leg: true
+    full_period_IS_positive_pairs: 2
+    interpretation: "effective independent bets ≈ 1 (short-JPY-vs-G10), not 12"
+  matched-benchmark-sharpe: pending_test_execution
+  permutation-results: pending_test_execution
+  rolling_oos_decay_vol_target_carry: pending_test_execution
+  boj_pivot_decomposition_carry_fred: pending_test_execution
+
+tests-requested:
+  - {id: T1-matched-random, n_simulations: 10000, status: pending_test_execution}
+  - {id: T2-feature-permutation, n_permutations: 1000, block_length_days: 21, status: pending_test_execution}
+  - {id: T3-shuffled-regime-label, n_shuffles: 1000, status: pending_test_execution}
+  - {id: T5-rolling-oos-decay, window_months: 6, decay_threshold: 0.5, status: pending_test_execution}
+  - {id: T6-boj-pivot-decomposition, split_date: "2025-01-01", lift_concentration_threshold: 2.0, status: pending_test_execution}
+
+structural_objections:
+  claim_1:
+    - "DSR < 0.95 for both gate-passers under empirical V and N=14"
+    - "Bonferroni-corrected t threshold (2.69) not met by either"
+    - "vol_target_carry retire-pending-reconciliation flag has NOT been lifted"
+    - "Two strategies overlap in pair coverage (USDJPY appears in both); not independent"
+    - "Production readiness requires more than statistical pass — execution wiring + kill-switch testing not in evidence"
+  claim_2:
+    - "OOS window 2023-04-25 → 2026-04-17 sits entirely INSIDE the BoJ-divergence regime"
+    - "Self-reported 'regime-concentrated' flag is structurally inconsistent with 'diversified carry alpha' — claim contradicts its own metadata"
+    - "Per-pair full-period IS Sharpes positive in only 2 of 12 pairs"
+    - "Top-5 OOS pairs all share JPY leg; 12-pair count overstates effective independence"
+
+dissent-statement: |
+  NHT DISSENT — recorded 2026-04-26, append-only per /fintech-org charter.
+
+  I dissent from any production-ready determination for week 17
+  (2026-04-27 → 2026-05-01) that rests on the two named gate-passers
+  (vol_target_carry, carry_fred Bet #1).
+
+  Statistical grounds:
+  1. Deflated Sharpe Ratio at family-wise N=14 with empirically-measured
+     trial-Sharpe stdev 0.379 yields DSR = 0.569 (vol_target_carry) and
+     0.596 (carry_fred). Both are far below the conventional 0.95
+     significance bar. The reported Sharpes are not distinguishable from
+     the maximum-order statistic of 14 noise trials.
+  2. Bonferroni-corrected t-statistic threshold (z >= 2.69 at alpha = 0.05/14)
+     is met by neither: vol_target_carry t = 1.31, carry_fred t = 1.38.
+  3. The pre-committed gate threshold of Sharpe >= 0.30 was not corrected
+     for the 14 trials run. Applying it un-deflated is a multiple-testing
+     violation.
+
+  Structural grounds:
+  4. vol_target_carry carries an unlifted "retire-pending-reconciliation"
+     flag in the atomic claim itself. Deploying flagged strategies is
+     inconsistent with the gate they purport to pass.
+  5. carry_fred's "diversified 12-pair" framing is contradicted by:
+     (a) its own "regime-concentrated (BoJ-divergence)" flag,
+     (b) top-5 OOS pairs all sharing the JPY leg,
+     (c) only 2 of 12 pairs positive on full-period IS.
+     The effective number of independent bets is closer to 1 (short-JPY-
+     vs-G10) than 12.
+  6. The OOS window for carry_fred is fully contained in the regime
+     whose dependence it must rule out. The claim is logically untestable
+     against its own evidence; it requires either a pre-2022 walk-forward
+     or a forward-OOS post-BoJ-pivot sub-period before regime-independence
+     can be asserted.
+
+  I recommend:
+  - Tests T1 (matched-random), T2 (feature-permutation), T5 (rolling-OOS
+    decay), and T6 (BoJ-pivot decomposition) be executed before any
+    production dispatch.
+  - The retire-pending-reconciliation flag on vol_target_carry be either
+    formally lifted (with HoQR + CEO signature) or honored.
+  - The carry_fred result be re-classified as "regime-conditional candidate"
+    not "production-ready strategy" until a pre-pivot OR post-pivot
+    sub-Sharpe is computed and disclosed.
+
+  This dissent is APPEND-ONLY and must be reproduced verbatim in
+  CONSENSUS.md per the charter. Any consensus that omits or paraphrases
+  it is procedurally invalid.
+
+  — Null-Hypothesis Tester, 2026-04-26
+
+production-ready-verdict:
+  verdict: false
+  threshold_used: "DSR >= 0.95 at family-wise N=14 (Bailey/Lopez de Prado 2014); Bonferroni-corrected t >= 2.69 at alpha=0.05/14"
+  families_corrected_n: 14
+  reasoning: "Both gate-passers fail DSR(0.95) and Bonferroni; carry_fred is structurally regime-conditional within its own OOS window."

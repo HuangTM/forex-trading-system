@@ -1,0 +1,232 @@
+---
+# Wave-6: Operational Pre-Flight Closure
+# PM Acceptance-Criteria Artifact
+# Produced: 2026-05-03
+# Addressed unit: wave6-preflight-closure:phase1:task1.0
+
+# ---------------------------------------------------------------------------
+# Base schema fields (canonical typed-handoff schema)
+# ---------------------------------------------------------------------------
+role: pm
+artifact_type: acceptance-criteria
+decision: propose-acceptance-criteria
+timestamp: "2026-05-03T08:00:00Z"
+subtask_ref: "Wave-6 acceptance-criteria for Section-10 preflight closure"
+subtask_id: "wave6-preflight-pm-1"
+
+evidence:
+  - "docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md (Section 10, Section 12, Section 3, Section 6)"
+  - "git commit 6a5f5f9 — preflight 5.5 (closes Gap B and Gap C)"
+  - "git commit ded1356 — Phase-2 closure wiring (CTO review still OPEN per CONSENSUS Sec 12)"
+  - "CLAUDE.md — no-lookahead invariant; project conventions"
+
+assumptions:
+  - "Paper-launch consensus 2026-05-02 remains ratified and unmodified."
+  - "Orchestrator does not start the paper loop autonomously (BC honored)."
+  - "Trial discipline does not apply (Wave-6 is operational verification, not a backtest task)."
+  - "Items 9 and 10 require CEO action and cannot be closed by engineering."
+  - "Re-verification of items 5 and 7 is permitted (Gap B/C already closed in 6a5f5f9)."
+
+confidence: high
+
+body: |
+  This artifact defines the acceptance criteria for closing all 10 Section-10 preflight
+  items identified in CONSENSUS_2026-05-02 to a terminal state before the CEO ratifies the
+  final paper-launch gate. Each item resolves to one of three terminal states:
+  verified-wired-and-tested (engineering-closeable), blocked-CEO-action (requires human
+  authorization), or blocked-named-impediment (requires a specific named fix before it can
+  close). Items 5 and 7 are already closed per commit 6a5f5f9 (Gap B + Gap C); re-verification
+  passes are required to confirm. Items 9 and 10 are blocked-CEO-action and cannot be
+  pre-completed by engineering. The no-live-capital and no-paper-loop-start-by-orchestrator
+  constraints are hard invariants throughout; this artifact proposes criteria only and does
+  not authorize execution of the paper loop.
+
+# ---------------------------------------------------------------------------
+track_id: "wave6-preflight-closure:phase1:task1.0"
+
+task-statement: >
+  Close all 10 Section-10 preflight items to a terminal state so the CEO
+  can ratify the final paper-launch gate.
+
+deliverable-type: spec-completion
+
+deadline: "2026-05-04T00:00:00Z"
+
+instrument-universe:
+  - USDJPY
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - NZDJPY
+
+hard-constraints:
+  no-live-capital: true
+  paper-only: true
+  no-paper-loop-start-by-orchestrator: true
+  preserve-CONSENSUS-2026-05-02-NHT-binding-conditions: true
+  cap-of-5-fanout: enforced
+  no-backtest-tasks: true
+  no-new-strategy-registration: true
+  no-consensus-modification: true
+  no-live-trading-authorization: true
+  trial-discipline-does-not-apply: true   # Wave-6 is ops verification, not a backtest task
+
+# ---------------------------------------------------------------------------
+# Criteria — one bullet per Section-10 item
+# Terminal states: verified-wired-and-tested | blocked-CEO-action | blocked-named-impediment
+# ---------------------------------------------------------------------------
+criteria:
+  - item: 1
+    text: "CF-T9 monitor (`scripts/monitor_regime_triggers.py`) running on cron; `data/cf_t9_status.json` updated within last 5 minutes (file mtime ≤ 300s per BC-3)"
+    verification-evidence-required:
+      - "Ops Engineer confirms `scripts/monitor_regime_triggers.py` exists and is executable (file presence + `python -m py_compile` passes)."
+      - "Ops Engineer confirms no cron entry yet exists (paper loop not started by orchestrator); item is verified-wired as code; cron scheduling is CEO/human-in-the-loop action."
+      - "QD confirms the script writes `data/cf_t9_status.json` with a machine-readable mtime-testable field (grep or unit test showing the write path)."
+    terminal-state-owner: "QD (code verification) + Ops Engineer (cron not-yet-scheduled check)"
+
+  - item: 2
+    text: "CF-T9 cold-start gate satisfied: ≥10 regime-flag readings logged, both TRUE and FALSE states observed at least once (BC-4)"
+    verification-evidence-required:
+      - "NHT confirms the cold-start gate logic is implemented in code (not only in documentation) — specifically: (a) the check reads the persisted log, (b) it enforces ≥10 readings, (c) it enforces both-states-observed, and (d) it blocks trade dispatch when not satisfied."
+      - "NHT adversarial check: can the gate be satisfied with all-TRUE or all-FALSE readings? If yes, report as a named gap (blocked-named-impediment) with fix proposal."
+      - "QD runs the relevant unit test(s) or writes a minimal test covering the boundary conditions (9 readings = blocked, 10 all-same = blocked, 10 mixed = pass)."
+    terminal-state-owner: "NHT (adversarial verification) + QD (test execution)"
+
+  - item: 3
+    text: "heartbeat_watchdog (300s timeout) starts cleanly in main(); on_timeout callback verified in tests"
+    verification-evidence-required:
+      - "QD reads `src/forex_system/risk/heartbeat_watchdog.py` and confirms the 300s timeout constant is present and connected to the on_timeout callback."
+      - "QD runs `pytest` targeting heartbeat_watchdog tests and reports test count + pass/fail output verbatim."
+      - "CTO confirms no architectural change to the heartbeat_watchdog path was introduced in commit ded1356 that breaks the no-lookahead invariant (if heartbeat is coupled to backtest engine signal path, flag immediately)."
+    terminal-state-owner: "QD (test run) + CTO (architecture review)"
+
+  - item: 4
+    text: "exposure_aggregator.check_dispatch_allowed pre-trade gate active; JPY-correlated cap 15% enforced (BC-8)"
+    verification-evidence-required:
+      - "CRO reads `src/forex_system/risk/exposure_aggregator.py` and confirms `check_dispatch_allowed` is present and enforces the 15% JPY-correlated cap."
+      - "CRO confirms the cap value is not hardcoded as a magic number but sourced from config or a named constant (per CLAUDE.md convention)."
+      - "QD confirms `check_dispatch_allowed` is called in the actual trade dispatch path in `scripts/run_paper_trading_vt.py` and/or `scripts/run_paper_trading_carry_fred.py` (grep evidence, not just existence of the function)."
+    terminal-state-owner: "CRO (constraint verification) + QD (wiring evidence)"
+
+  - item: 5
+    text: "Bet #1 size_multiplier source verified to reach the actual trade-sizing code path (not just available as a helper function)"
+    status: "CLOSED — preflight 5.5 (commit 6a5f5f9) closed Gap C. Evidence on file."
+    terminal-state: "verified-wired-and-tested"
+    verification-evidence-required:
+      - "QD confirms Gap C closure from commit 6a5f5f9 by reading `scripts/run_paper_trading_carry_fred.py` and showing the line(s) where size_multiplier from `bet1_sizing.py` is consumed in the sizing call path."
+      - "CRO independently confirms the 0.0/0.25 regime-conditional values reach the trade-sizing call (not just imported but unused)."
+    terminal-state-owner: "QD (already done per 6a5f5f9) — re-verification pass by CRO"
+
+  - item: 6
+    text: "auto_retire_on_trigger.py running on cron; reads `data/cf_t9_status.json`; kill-switch wired end-to-end (per commit e06bf55 close R1 A1_C3)"
+    verification-evidence-required:
+      - "Ops Engineer confirms `scripts/auto_retire_on_trigger.py` exists and is executable."
+      - "Ops Engineer confirms no cron entry yet exists (paper loop not started by orchestrator); item is verified-wired as code."
+      - "QD confirms the script reads `data/cf_t9_status.json` and wires to the kill-switch path — shows the read call and the exit/halt action downstream of it."
+      - "CTO confirms the kill-switch path in auto_retire_on_trigger is consistent with commit e06bf55 closure of R1 A1_C3 and does not re-introduce the lookahead risk."
+    terminal-state-owner: "QD + Ops Engineer (code) + CTO (architecture)"
+
+  - item: 7
+    text: "Drawdown contract triggers active: 10% halt-new / 15% reduce / 20% full halt"
+    status: "CLOSED — preflight 5.5 (commit 6a5f5f9) closed Gap B. Evidence on file."
+    terminal-state: "verified-wired-and-tested"
+    verification-evidence-required:
+      - "QD confirms Gap B closure from commit 6a5f5f9 by reading `src/forex_system/risk/drawdown_contract.py` and showing the three threshold constants and their downstream actions."
+      - "QD reports test count for drawdown_contract tests passing."
+    terminal-state-owner: "QD (already done per 6a5f5f9) — confirm test count passes"
+
+  - item: 8
+    text: "Equity curve write enabled; `data/paper_trading_session.log` file rolling"
+    verification-evidence-required:
+      - "QD confirms the equity-curve write call exists in `scripts/run_paper_trading_vt.py` and/or `scripts/run_paper_trading_carry_fred.py` — grep or read evidence showing the write path targeting `data/paper_trading_session.log`."
+      - "Ops Engineer checks whether `data/paper_trading_session.log` already exists (may be a stale artifact from prior session) and reports file age and line count. If stale data present, flag for CEO awareness — first paper bar may append to stale log rather than start clean."
+      - "QD confirms log rolling is configured (e.g., RotatingFileHandler or equivalent) so the file does not grow unbounded."
+    terminal-state-owner: "QD (wiring) + Ops Engineer (file state check)"
+
+  - item: 9
+    text: "CF-T9 Clause C 60-trading-day deadline logged; calendar reminder set (NHT binding condition 2, Section 3)"
+    terminal-state: "blocked-CEO-action"
+    blocked-reason: >
+      This is a human-in-the-loop administrative action. The deadline cannot be
+      set until the paper loop starts (T=0 is unknown until CEO authorizes and
+      manually starts). Engineering can verify the deadline is documented in this
+      consensus and in the CF-T9 amendment artifact, but cannot create the
+      calendar entry or compute T+60 trading days without a known start date.
+    verification-evidence-required:
+      - "Ops Engineer confirms the 60-trading-day condition is present verbatim in `docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md` Section 3 (cite line numbers)."
+      - "PM documents: CEO must set the calendar reminder on the day of first paper bar. Engineering cannot pre-complete this item."
+    terminal-state-owner: "CEO — unblocks on day of first paper bar"
+
+  - item: 10
+    text: "Launch communication drafted; includes explicit statement that CF-T9 is A+B binding with Clause C pending (NHT binding condition 1, Section 3)"
+    terminal-state: "blocked-CEO-action"
+    blocked-reason: >
+      Launch communication is a CEO-authored disclosure, not an engineering
+      deliverable. PM can provide the required verbatim language but cannot
+      author or approve the communication on behalf of the CEO.
+    verification-evidence-required:
+      - "PM provides the required verbatim disclosure clause for inclusion: 'CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch.'"
+      - "CEO must draft or approve the launch communication before the paper loop is started. Engineering cannot pre-complete this item."
+    terminal-state-owner: "CEO — required before first paper bar"
+
+# ---------------------------------------------------------------------------
+out-of-scope:
+  - Starting or scheduling the paper trading loop (human-in-the-loop action only)
+  - Modifying, amending, or re-litigating the ratified CONSENSUS_2026-05-02
+  - Opening new strategies or pre-registering new trials
+  - Running new backtests or backtest sweeps
+  - Re-adjudicating the NHT dissent items from Sections 3 and 4
+  - Ratifying CF-T9 Clause C (deferred; 60-trading-day window post-launch)
+  - Performing a new Bonferroni re-evaluation of the trial portfolio
+  - Any architecture changes to the production code path
+
+# ---------------------------------------------------------------------------
+roles-staffed:
+  - role: CTO
+    rationale: >
+      Architecture review of commit ded1356 is explicitly OPEN per Section 12 of
+      CONSENSUS_2026-05-02. CTO must confirm Phase-1 modules wire correctly in
+      ded1356 (heartbeat_watchdog, exposure_aggregator, kill-switch path) without
+      breaking the no-lookahead invariant — the project's sacred test. This role
+      holds a veto on items 3 and 6 if the invariant is compromised.
+
+  - role: CRO
+    rationale: >
+      CRO owns BC-1 through BC-8 constraints (Section 6 of CONSENSUS_2026-05-02).
+      Must verify that each constraint is wired into the ACTUAL trade-sizing call
+      path, not merely present as an importable helper. Items 4 and 5 are primary
+      scope; CRO provides independent corroboration on item 5 (Gap C closure).
+
+  - role: quant-developer
+    rationale: >
+      Implementation closure for items 1, 3, 4, 6, 7, 8 — reading actual code paths,
+      running the pytest suite, reporting per-item evidence. As the role that
+      implemented commit 6a5f5f9 and ded1356, QD is best positioned to provide
+      line-level evidence for Gap B and Gap C closures (items 5 and 7). QD runs
+      tests and reports verbatim pass/fail counts; no inference from source reading
+      alone (per engineer-mindset rule 13: verify means execute).
+
+  - role: ops-engineer
+    rationale: >
+      Pure operational verification (haiku tier): script existence checks, file-mtime
+      inspection, stale log detection, cron not-yet-scheduled confirmation. Items 1,
+      6, 8, 9 require ops-level checks that do not require reading implementation
+      logic. Explicitly not responsible for starting any process.
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Adversarial review of item 2 (cold-start gate, BC-4). NHT asks: can the gate
+      be satisfied silently with all-TRUE or all-FALSE readings, bypassing the
+      "both states observed" requirement? This is the highest-risk item from a
+      governance perspective — a gate that looks closed but is not. NHT's
+      finding either confirms the gate is robust or escalates a named gap to CEO.
+
+# ---------------------------------------------------------------------------
+sources:
+  - "docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md (Section 10 checklist items 1-10; Section 12 CTO review OPEN; Section 3 NHT binding conditions; Section 6 BC-1 through BC-8)"
+  - "CLAUDE.md (no-lookahead invariant; test commands; module architecture)"
+  - "git commit 6a5f5f9 message: 'preflight 5.5: close Gap B (drawdown ladder) + Gap C (bet1_sizing wiring)'"
+  - "git commit ded1356 message (Phase-2 Direction v1 close, referenced in CONSENSUS_2026-05-02 Sections 2 and 12)"
+
+web_research_conducted: false
+no-capital-instruction: true

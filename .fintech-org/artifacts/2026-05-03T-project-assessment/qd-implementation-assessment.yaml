@@ -1,0 +1,338 @@
+role: quant-developer
+artifact_type: implementation-assessment
+decision: yellow
+timestamp: "2026-05-03T18:30:00Z"
+subtask_ref: "Project assessment — implementation lens, 5 questions"
+subtask_id: "assessment-2026-05-03-qd-1"
+
+# ---------------------------------------------------------------------------
+# Q1: pytest + ruff execution results (verbatim)
+# ---------------------------------------------------------------------------
+
+q1-pytest-passed: 666
+q1-ruff-clean: false
+q1-no-lookahead-status: passed
+
+evidence:
+  - label: "pytest --no-header -q output (last 10 lines)"
+    verbatim: |
+      ........................................................................ [ 97%]
+      ..................                                                       [100%]
+      666 passed in 16.58s
+
+  - label: "pytest tests/backtest/test_engine.py -k test_no_lookahead -v"
+    verbatim: |
+      platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0
+      collected 4 items / 3 deselected / 1 selected
+      tests/backtest/test_engine.py::test_no_lookahead PASSED                  [100%]
+      1 passed, 3 deselected in 0.02s
+
+  - label: "ruff check src/ scripts/ 2>&1 | tail -20 (showing error count summary)"
+    verbatim: |
+      E741 Ambiguous variable name: `l`
+        --> src/forex_system/risk/kill_switch.py:66:28
+      Found 59 errors.
+      [*] 46 fixable with the `--fix` option (9 hidden fixes can be enabled with --unsafe-fixes)
+      # src/ only: 19 errors; scripts/ only: 40 errors
+
+  - label: "ruff error breakdown"
+    note: >
+      59 total errors across src/ + scripts/. 19 are in src/: F541 (bare f-strings in
+      reports.py, sweep.py), F401 (unused imports in harness/dsr.py, run_trial.py,
+      sweep.py), F841 (unused local vars in run_trial.py), E741 (ambiguous `l` in
+      audit_trials.py and kill_switch.py). None of the 19 src/ errors are on hot-path
+      execution code — they are in reporting, harness, and ops modules. The
+      execution-path files (engine.py, bet1_sizing.py, execution.py, vol_target_carry.py,
+      carry_fred.py, vol_target.py) are clean.
+
+  - label: "wc -l src/forex_system/**/*.py scripts/*.py 2>/dev/null | tail -1"
+    verbatim: "18096 total"
+    note: >
+      18,096 LoC across src/**/*.py + scripts/*.py. CLAUDE.md states ~2,700 LoC for
+      src/ only; that figure appears to refer only to the core src/ modules before
+      the harness, ops, risk, saxo, and strategy additions during Phase 1/2.
+
+  - label: "file:line — kill_switch.py:66 (E741, src/)"
+    path: "src/forex_system/risk/kill_switch.py:66"
+
+  - label: "file:line — audit_trials.py:71,77 (E741, src/)"
+    path: "src/forex_system/ops/audit_trials.py:71,77"
+
+# ---------------------------------------------------------------------------
+# Q2: Research-to-production path for both authorized strategies
+# ---------------------------------------------------------------------------
+
+q2-research-to-prod-vt-call-chain:
+  - "scripts/run_paper_trading_vt.py:main() (line 648)"
+  - "  → SaxoClient(token, live=False) (line 676) — paper-flagged via SIM_BASE URL"
+  - "  → SaxoExecutionBackend(client) (line 677)"
+  - "  → VolTargetSizer(leverage_cap, min_order_size) (line 678-682)"
+  - "  → VolTargetCarryStrategy({**strat_params, 'pair': pair}) (line 683)"
+  - "  → run_cycle() per loop iteration (line 768)"
+  - "    → strategy.generate_signals(ohlcv) (line 481) — src/forex_system/strategies/vol_target_carry.py:55"
+  - "    → sizer.calculate_size(sig, equity, mid, 0.0, pair) (line 502) — returns USD nominal"
+  - "    → target_units = _raw_target_units * _dd_sizing_multiplier (line 506)"
+  - "    → backend.execute_signal(pair, sig, target_units) (line 607/615) — src/forex_system/saxo/execution.py:40"
+  - "    → client.place_order(pair, buy_sell, amount=round(size), ...) (execution.py:89)"
+
+q2-research-to-prod-carry-fred-call-chain:
+  - "scripts/run_paper_trading_carry_fred.py:main() (line 603)"
+  - "  → SaxoClient(token, live=False) (line 627)"
+  - "  → SaxoExecutionBackend(client) (line 628)"
+  - "  → VolTargetSizer(leverage_cap=1.0, min_order_size=100) (line 629-633)"
+  - "  → CarryFREDStrategy({**strat_params, 'pair': pair}) (line 634)"
+  - "  → run_cycle() per loop iteration (line 705)"
+  - "    → regime_active_status() (line 331) — src/forex_system/risk/bet1_sizing.py:101"
+  - "    → bet1_size_multiplier(regime_active) (line 332) — bet1_sizing.py:67"
+  - "    → strategy.generate_signals(ohlcv) (line 459) — src/forex_system/strategies/carry_fred.py:105"
+  - "    → raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair) (line 475)"
+  - "    → target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier) (line 479)"
+  - "    → backend.execute_signal(pair, sig, target_units) (line 567/575) — execution.py:40"
+  - "    → client.place_order(...) (execution.py:89)"
+
+q2-research-to-prod-gaps:
+  - strategy: "vol_target_carry"
+    gap: "No cost model applied in paper loop. Backtest engine charges spread + slippage + swap per trade (RealisticCostModel). Paper loop has zero cost accounting — costs are implicit in actual broker fills and swap credits, but are never logged or reconciled against expected costs from the cost model. No slippage distribution is captured."
+    file_line: "scripts/run_paper_trading_vt.py — no import of RealisticCostModel anywhere in file"
+    severity: "medium — P&L drift vs backtest will appear over time; no realized-vs-expected cost tracking"
+
+  - strategy: "vol_target_carry"
+    gap: "entry_delay_bars not applied in paper loop. Backtest shifts signals by 1 bar (engine.py:135, 263). Paper loop calls strategy.generate_signals(ohlcv) and uses signals.iloc[-1] immediately (run_paper_trading_vt.py:482). In live trading the signal IS the current bar's signal, so the next execution IS the delay — but this asymmetry is undocumented and creates a conceptual discrepancy."
+    file_line: "scripts/run_paper_trading_vt.py:482 vs src/forex_system/backtest/engine.py:135"
+    severity: "low (structural asymmetry, not a real-time bug — execution happens next cycle by design)"
+
+  - strategy: "vol_target_carry"
+    gap: "constant_capital_sizing mismatch risk. Backtest engine uses constant_capital_sizing=False by default (equity-compounding mode). If the validated Sharpe 0.7594 was computed with constant_capital_sizing=True (matching the reference script vol_targeting.py), then the paper loop using live equity will drift from the backtest curve over time. This needs a CONSENSUS-level clarification of which mode was used for the validated result."
+    file_line: "src/forex_system/backtest/engine.py:295 (sizing_equity selection)"
+    severity: "medium — sizing mode mismatch causes compounding divergence over multi-month paper run"
+
+  - strategy: "carry_fred (Bet #1)"
+    gap: "CarryFREDStrategy.generate_signals() requires a full 12-pair rate_data DataFrame for cross-sectional z-score ranking (carry_fred.py:151). In the paper loop, CarryFREDStrategy is instantiated with no rate_data argument (run_paper_trading_carry_fred.py:634), triggering lazy-load from disk (carry_fred.py:101). If data/rates/rate_differentials.parquet is not present or stale, the strategy falls through to _load_rate_data() which raises FileNotFoundError or returns stale FRED data. No staleness guard on rate data load."
+    file_line: "scripts/run_paper_trading_carry_fred.py:634 vs src/forex_system/strategies/carry_fred.py:101"
+    severity: "medium — first-bar failure if rate parquet is missing; silent stale-data risk if parquet is from a prior run"
+
+  - strategy: "carry_fred (Bet #1)"
+    gap: "No explicit CF-T9 BC-3/BC-4 startup check in main(). regime_active_status() encodes BC-3/BC-4 gates and returns False if not cleared — so the system will refuse trades on the first cycle. But there is no pre-flight assertion that verifies the CF-T9 status file exists before entering the loop. A missing data/cf_t9_status.json will silently produce perpetual SKIP_REGIME_INACTIVE cycles without alarming the operator at startup."
+    file_line: "scripts/run_paper_trading_carry_fred.py:638-644 (main() startup — no CF-T9 pre-check)"
+    severity: "low — system is fail-safe (skips trades), but operator may not notice CF-T9 is never running"
+
+# ---------------------------------------------------------------------------
+# Q3: Stale paper_trading_session.log assessment
+# ---------------------------------------------------------------------------
+
+q3-stale-log-recommendation: "verify-clears"
+
+q3-log-state:
+  observed_lines: 150
+  file_mtime: "2026-05-03T18:04:49 (local)"
+  note: >
+    The PM acceptance criteria referenced 122 lines and mtime 2026-04-26. As of
+    this assessment (2026-05-03), the log has grown to 150 lines with entries dated
+    through 2026-05-03T18:04:49Z. The log is being appended by test/dry-run cycles
+    (strategy='vt', equity values alternating between 1000000.0 and 100000.0 —
+    suggesting multiple sessions with different equity configs). The first 3 lines
+    are plain-text header output from a different script (run_multi_strategy.py or
+    carry_momentum variant, NOT run_paper_trading_vt.py), which cannot be parsed as
+    JSON and will break any tool that tries to parse the log as JSONL.
+
+  open_mode_analysis: >
+    Both run_paper_trading_vt.py:566 and run_paper_trading_carry_fred.py:529 use
+    open(EQUITY_LOG_PATH, 'a') — append mode. They do NOT truncate on startup.
+    RotatingFileHandler (for ws01/ws02 traces) is a separate file and does not
+    affect paper_trading_session.log. The equity log file will accumulate entries
+    from every session, including test runs and multiple strategy configurations.
+
+  recommendation_rationale: >
+    Recommendation (b) verify-clears is correct: the operator MUST verify that the
+    log is in a known-clean state before the first live paper bar. Simply truncating
+    (option a) is dangerous if the log contains a partial session that has open
+    positions (the log does not track position state, but the equity trajectory could
+    mislead the drawdown contract if it is ever used as a reference). Accepting a
+    merged log (option c) risks corrupting metrics that rely on a clean session
+    baseline. The verified procedure is: (1) inspect the current log for stale
+    entries, (2) archive it (mv to a timestamped backup path), (3) let the first
+    paper bar create a fresh EQUITY_LOG_PATH. Do NOT use truncate — the 3 plain-text
+    header lines and the equity=1000000.0 / equity=100000.0 alternation are evidence
+    of multiple sessions; an automatic truncate would hide this history.
+
+# ---------------------------------------------------------------------------
+# Q4: bet1_size_multiplier traced to order submission
+# ---------------------------------------------------------------------------
+
+q4-bet1-multiplier-traced-to-submission: "yes"
+
+q4-trace-summary: >
+  The size_multiplier is fully wired and preserved through the entire submission
+  chain. Trace: (1) run_paper_trading_carry_fred.py:332 calls
+  bet1_size_multiplier(regime_active) — returns 0.0 or 0.25. (2) Line 479 computes
+  target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier).
+  (3) target_units is passed to backend.execute_signal(pair, sig, target_units) at
+  lines 553, 567, or 575 depending on close/rebalance/open branch. (4)
+  SaxoExecutionBackend.execute_signal() at execution.py:40 passes size=round(size)
+  directly to client.place_order() at execution.py:89. (5) client.place_order() is
+  routed to SIM_BASE (live=False at carry_fred.py:627) confirming paper-flag is
+  correctly set. If regime_active is False, target_units = 0, and the early return
+  at run_paper_trading_carry_fred.py:345-350 exits before execution is reached.
+  The size_multiplier is not bypassed anywhere in the chain.
+
+q4-paper-flag-verified: true
+q4-paper-flag-evidence: "scripts/run_paper_trading_carry_fred.py:627 — SaxoClient(args.token, live=False)"
+
+# ---------------------------------------------------------------------------
+# Q5: Backtest vs paper divergences
+# ---------------------------------------------------------------------------
+
+q5-backtest-vs-paper-divergences:
+  - area: "Cost model absent from paper loop"
+    description: >
+      Backtest engine applies RealisticCostModel (spread + slippage + commission on
+      entry/exit, swap/carry per bar in continuous mode). Paper loop uses no cost
+      model — costs are absorbed implicitly by Saxo SIM fill prices. This means
+      the paper loop's equity curve cannot be compared to the backtest equity curve
+      without adjusting for the cost model difference. Over a multi-month run this
+      divergence compounds.
+    file_line: >
+      src/forex_system/backtest/engine.py:191 (entry_cost charged) vs
+      scripts/run_paper_trading_vt.py — no cost model reference. Same for
+      carry_fred: scripts/run_paper_trading_carry_fred.py — no cost model.
+    severity: "high — systematic P&L divergence between backtest and paper"
+
+  - area: "entry_delay_bars semantic difference"
+    description: >
+      Backtest shifts signals by entry_delay_bars=1 (default) before any sizing
+      decision (engine.py:135, 263). Paper loop executes on the current bar's signal
+      at the next cycle (natural delay from the loop interval). The economic effect
+      is equivalent for daily bars at 1800s interval, but the delay is enforced by
+      timing (wall-clock) rather than by code, and is not configured or logged as
+      an explicit parameter. Any latency or early execution could cause 0-bar delay.
+    file_line: >
+      src/forex_system/backtest/engine.py:135 (delayed_signals = signals.shift(1))
+      vs scripts/run_paper_trading_vt.py:481 (uses signals.iloc[-1] directly)
+    severity: "low — equivalent for daily bars at 1800s interval; risk is if interval is reduced"
+
+  - area: "constant_capital_sizing mode undocumented for validation run"
+    description: >
+      Backtest engine exposes constant_capital_sizing flag (engine.py:46, 295).
+      The validated Sharpe 0.7594 (MEMORY.md) was produced by a script (likely
+      vol_targeting.py or vol_target_portfolio.py). The paper loop always uses
+      live equity (no constant_capital flag exists in the paper loop). If the
+      validation was run with constant_capital_sizing=True, the paper loop will
+      diverge over time due to equity compounding changing the leverage exposure.
+    file_line: >
+      src/forex_system/backtest/engine.py:295 vs
+      scripts/run_paper_trading_vt.py:502 (sizer.calculate_size uses live equity)
+    severity: "medium — sizing divergence over compounding periods; needs clarification"
+
+  - area: "Swap/carry accrual: daily credit vs lump-sum at close"
+    description: >
+      Backtest continuous mode credits swap daily per bar (engine.py:316-317).
+      Paper loop does not explicitly apply swap credits — swap is credited by the
+      Saxo SIM account automatically through the broker's daily financing mechanism.
+      This is correct for live operation but means the paper loop P&L is driven by
+      Saxo's swap model (which may differ from the RealisticCostModel swap_long_pips_per_day
+      constants in config/). No reconciliation between broker swap and modeled swap.
+    file_line: >
+      src/forex_system/backtest/engine.py:316 (daily_swap_pips accrual) vs
+      scripts/run_paper_trading_vt.py — Saxo SIM handles swap implicitly
+    severity: "medium — swap model mismatch is a known gap but requires broker data to quantify"
+
+  - area: "Fill model: mid vs actual fill"
+    description: >
+      Backtest records fill_price=mid (execution.py:117) and slippage_pips=0.0
+      (execution.py:119) at order placement, with a comment 'Actual fill price comes
+      from order confirmation'. No post-fill reconciliation updates the recorded fill
+      price in the ExecutionResult. The backtest cost model charges a fixed spread
+      (e.g., 2 pips for USDJPY) and slippage at config values. In live SIM fills,
+      actual market impact and spread may differ. The realized-vs-expected fill check
+      required by the QD role spec is not implemented.
+    file_line: >
+      src/forex_system/saxo/execution.py:117-119 (fill_price=mid, slippage_pips=0.0)
+    severity: "medium — no post-fill reconciliation; realized slippage untracked"
+
+# ---------------------------------------------------------------------------
+# Assessment body
+# ---------------------------------------------------------------------------
+
+body: |
+  Overall verdict: YELLOW. The test suite is healthy (666/666 passing, sacred test
+  test_no_lookahead confirmed PASSED), the no-lookahead invariant is intact, and the
+  bet1_size_multiplier is fully wired from regime_active_status() through to
+  client.place_order() with the paper flag correctly set (live=False). The core
+  production path is structurally sound for first paper bar launch. The YELLOW
+  rating reflects four categories of implementation gap that should be triaged before
+  the paper loop accumulates significant history.
+
+  First, the most material gap is the absence of a cost model in both paper scripts.
+  The backtest engine applies RealisticCostModel (spread, slippage, commission, swap)
+  on every trade. The paper scripts have no equivalent — they rely on Saxo SIM to
+  absorb costs in fill prices. This is operationally correct for execution, but means
+  that the paper equity curve cannot be directly compared to the backtest equity curve
+  without a post-hoc cost reconciliation step. Over a 60-trading-day paper run (CF-T9
+  Clause C window), this divergence will compound. The backtest Sharpe of 0.76 and
+  0.80 were computed with explicit cost deductions that are invisible in the paper log.
+
+  Second, the ruff check is not clean — 59 errors across src/ and scripts/, 19 of
+  which are in src/. The errors are not on hot-path execution files
+  (engine.py, execution.py, bet1_sizing.py, vol_target_carry.py, carry_fred.py are
+  all clean), but they exist in ops/, harness/, and risk/kill_switch.py. The kill_switch.py
+  E741 ambiguous variable name is the only error in a file that touches the live
+  execution path indirectly. All 46 fixable errors can be resolved with ruff --fix
+  in a single Wave-8 dispatch.
+
+  Third, the paper_trading_session.log (EQUITY_LOG_PATH, data/paper_trading_session.log)
+  is in a mixed state. It currently has 150 lines (grown from 122 since 2026-04-26),
+  contains 3 plain-text header lines from a different script (not parseable as JSONL),
+  and shows equity values alternating between 1000000.0 and 100000.0 from multiple
+  test sessions. Both paper scripts append to this shared path without truncation.
+  The correct pre-launch procedure is to archive the file (mv to a timestamped backup)
+  and let the first paper bar create a fresh log, not to truncate in-place. The
+  verify-clears-on-startup claim in the Wave-7 closure is not supported by the code —
+  open(EQUITY_LOG_PATH, 'a') never truncates.
+
+  Fourth, the carry_fred paper loop has a missing pre-flight guard for CF-T9 status.
+  regime_active_status() will return False (fail-safe) if data/cf_t9_status.json is
+  missing or stale, which causes perpetual SKIP_REGIME_INACTIVE cycles without alarming
+  the operator. The operator could run the carry_fred loop for hours believing it is
+  active when CF-T9 was never started. A startup assertion checking CF-T9 file existence
+  and age is a small addition (Wave-8, ~5 LoC) that would make this failure mode visible.
+
+  Fifth, the constant_capital_sizing mode mismatch is a documentation gap. The
+  backtest engine supports both constant-notional and equity-compounding modes. The
+  paper loop always uses live equity. If the validated Sharpe figures were computed
+  with constant_capital_sizing=True, the paper loop will exhibit different volatility
+  targeting behavior during periods of equity drawdown or growth. This needs
+  explicit annotation in the run_backtest call that produced the OOS Sharpe 0.76/0.80.
+
+  The bet1_size_multiplier trace (Q4) is fully verified. The multiplier flows from
+  bet1_sizing.py:84 → carry_fred.py:332 → carry_fred.py:479 (target_units computation)
+  → execution.py:89 (place_order). No bypass exists. regime_active=False produces
+  target_units=0 before the execution branch is reached (early return at line 345-350).
+  The paper flag (live=False) routes all orders to SIM_BASE, confirmed at line 627.
+
+assumptions:
+  - "Validated Sharpe 0.7594 / 0.80 were produced by scripts in this repository; the exact constant_capital_sizing flag value is not verified in this assessment."
+  - "The CF-T9 status file (data/cf_t9_status.json) is managed by scripts/monitor_regime_triggers.py which is not assessed in this report."
+  - "All 666 tests pass on Python 3.13.3 / pytest-9.0.2 in the project venv; results may differ in a different environment."
+  - "Saxo SIM (paper) fills are assumed to correctly implement spread and swap mechanics per the SIM API documentation; no broker-side validation was performed."
+  - "The 150-line paper_trading_session.log state was read directly from disk; file contents are assumed to accurately reflect prior test session activity."
+
+confidence: high
+
+sources:
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+  - src/forex_system/risk/bet1_sizing.py
+  - src/forex_system/saxo/execution.py
+  - src/forex_system/saxo/client.py
+  - src/forex_system/backtest/engine.py
+  - src/forex_system/sizing/vol_target.py
+  - src/forex_system/strategies/vol_target_carry.py
+  - src/forex_system/strategies/carry_fred.py
+  - data/paper_trading_session.log
+  - CLAUDE.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-03T-project-assessment/pm-acceptance-criteria.yaml
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,258 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: propose-acceptance-criteria
+timestamp: "2026-05-03T12:30:00Z"
+subtask_ref: "Project-state assessment scoping + role roster"
+subtask_id: "assessment-2026-05-03-pm-1"
+
+evidence:
+  - path: docs/decisions/CONSENSUS_2026-04-28.md
+    note: "Direction v1 — 12-week north-star, carry-family thesis, NHT dissent, kill criteria"
+  - path: docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+    note: "Wave-5 closure — 3 blockers cleared READY-WITH-CONDITIONS, 8 BC constraints, pre-flight checklist"
+  - path: docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+    note: "Most recent — pre-flight 8/10 engineering-closed; items 9+10 BLOCKED-CEO-action"
+  - path: docs/decisions/README.md
+    note: "Full decision index — 6 CONSENSUS docs from pre-2026-04-25 through 2026-05-03"
+  - path: .fintech-org/trials.jsonl
+    note: "35 total trials; 12 with status:rejected; last 6 are Wave-5 Round-2 R6-heavy rejections"
+  - path: CLAUDE.md
+    note: "Project architecture — 2700 LOC, clean architecture, no-lookahead invariant, sacred test"
+
+assumptions:
+  - "No live capital is at risk; this is a paper-only assessment with backtest history only"
+  - "12-week horizon runs T+80 from 2026-05-03, i.e., project north-star deadline is 2026-07-21"
+  - "Wave-6/7 pre-flight engineering closure already auto-ratified; items 9+10 remain as CEO-action blockers"
+  - "This assessment is read-only: no code changes, no new trials, no consensus modifications"
+  - "Paper loop has NOT started; the orchestrator cannot start it"
+  - "CEO has not yet acted on items 9 and 10 (calendar reminder + launch communication); these are out of scope for this assessment"
+  - "CRO Assumption 1 (_JPY_CORRELATED frozenset asymmetry) is a known Wave-8+ item; not a blocking concern for the USDJPY-only launch scope"
+  - "All 5 NHT dissent items across CONSENSUS history (Direction v1 Section 8; paper-launch Sections 3+4; wave-7 new-findings Section 4) are preserved append-only and must not be summarized or paraphrased in any role artifact"
+
+confidence: high
+
+task-statement: "Assess current project state and progress against 12-week north-star; produce role-by-role lens reports and PM consolidation artifact."
+
+deliverable-type: audit
+
+deadline: "2026-05-04T00:00:00Z"
+
+instrument-universe:
+  - USDJPY
+
+hard-constraints:
+  no-live-capital: true
+  paper-only: true
+  no-paper-loop-start-by-orchestrator: true
+  read-only-assessment: true
+  no-new-strategies: true
+  no-backtest-tasks: true
+  cap-of-5-fanout: enforced
+  preserve-NHT-dissent-rule-6: true
+
+body: |
+  The CEO has requested an open-ended project assessment. As of 2026-05-03 (T+5 relative to
+  the 2026-04-28 Direction v1 ratification), the project sits at a pivotal transition: all
+  engineering pre-flight items are closed (8/10 verified-wired-and-tested), two CEO-action
+  items remain (items 9+10), and paper launch authorization is ratified but the loop has not
+  started. The 12-week north-star (paper-traded Sharpe ≥0.5 OOS by 2026-07-21, with ≥10
+  OOS rejections + paper PnL curve) leaves 80 days of runway.
+
+  The assessment requires five lenses: (1) strategic — is the carry-family thesis holding and
+  are we on-pace against the 12-week timeline? (2) risk — are the CRO binding constraints
+  (BC-1 through BC-8) correctly instantiated for launch, and what is the CRO Assumption 1
+  exposure horizon? (3) engineering — what is the actual code/test state versus the claims
+  in the Wave-7 closure, and what tech-debt remains from CONSENSUS_2026-04-28? (4)
+  implementation quality — does the research-to-production path hold together, and are
+  there gaps between backtest artifacts and the live paper loop code? (5) falsification
+  discipline — does the rejection portfolio quality (7/10 STRONG-only vs. 12/10 mechanical)
+  accurately represent the alpha evidence base, and have the NHT dissents been honored
+  operationally?
+
+  I am NOT including ML Researcher or Execution Trader in this assessment. ML Researcher is
+  not load-bearing at this phase (carry thesis uses FRED macro data, not learned features;
+  no model training is in scope). Execution Trader is not load-bearing because paper launch
+  has not started — there is no live execution to audit. If paper launch occurs before the
+  consolidation artifact is produced, this roster should be revisited.
+
+roles-staffed:
+  - role: head-of-quant-research
+    rationale: "Primary bearer of the carry-family alpha thesis. Must assess whether the thesis remains
+      defensible at T+5, what the alpha-direction kill probability is relative to the 2026-06-23
+      trigger, and whether the R7 validation still holds at today's data."
+
+  - role: cro
+    rationale: "Paper launch is imminent. CRO must verify the risk envelope is correctly instantiated
+      in code — not just in CONSENSUS text — including BC-1 through BC-8, the drawdown ladder,
+      and the CRO Assumption 1 timeline (EURJPY/GBPJPY/AUDJPY/NZDJPY bypass gap, Wave-8+ scope)."
+
+  - role: cto
+    rationale: "Wave-7 closed 8/10 engineering items but tech-debt from CONSENSUS_2026-04-28 Section 5
+      (8 CTO conditions, of which CONDITION-1/2/3 were closed in-sprint) still has residual items.
+      CTO must audit the sacred test status, architecture risks for paper launch, and what remains
+      open from the original 5 CTO conditions."
+
+  - role: quant-developer
+    rationale: "Closest to the actual code. Must assess test-suite health (666 tests, ruff, types),
+      the production-path vs. backtest-path divide (scripts/ vs. src/), and the specific wiring
+      gaps surfaced in Wave-6/7 (equity-write, regime-monitor, heartbeat, exposure-aggregator)."
+
+  - role: null-hypothesis-tester
+    rationale: "The NHT dissent (STRONG-only 7/10 vs. mechanical 12/10) is the sharpest open question
+      in the project's evidentiary base. NHT must provide a falsification-discipline scorecard,
+      assess whether the rejection portfolio adequately tests the null, and update the calibration
+      of its 5 historical dissent items against current OOS outcomes."
+
+criteria:
+  # Per-role deliverables — each must produce a typed assessment artifact answering these questions.
+  # The PM consolidation artifact (ASSESSMENT_2026-05-03.md) integrates all five.
+
+  hoqr-assessment:
+    artifact-type: "assessment"
+    required-questions:
+      - "Q1: Is the carry-family alpha thesis (vol_target_carry OOS Sharpe 0.7594, FRED-carry Bet #1
+          regime-active Sharpe 0.80) still defensible at today's data? Have any materially new data
+          points or regime observations changed the thesis since the 2026-04-25 validation?"
+      - "Q2: At T+5 into the 12-week window (horizon close 2026-07-21), what is your probabilistic
+          estimate of hitting the north-star (paper-traded Sharpe ≥0.5 OOS) by the deadline?
+          State your reasoning in terms of time-remaining, paper-start lag, and expected data accumulation."
+      - "Q3: What is the alpha-direction kill probability relative to the 2026-06-23 Tier-1 trigger?
+          Under what BoJ/macro-divergence scenario would you trigger the kill before 2026-06-23?"
+      - "Q4: Is the vol_target_carry_no_vol_scaling ablation (your next-priority research item per
+          Section 5 of CONSENSUS_2026-05-02) scoped and scheduled? What is your plan for it?"
+      - "Q5: Does the CONDITION-1 quality-adjusted STRONG-only count (7/10) concern you as alpha
+          evidence, independently of it being a mechanical gate? Answer from the alpha perspective,
+          not the governance perspective."
+
+  cro-assessment:
+    artifact-type: "assessment"
+    required-questions:
+      - "Q1: Verify that BC-1 through BC-8 are correctly instantiated in the live codebase. For each
+          BC, cite the specific file/line that implements it and whether the implementation matches
+          the CONSENSUS constraint verbatim. Flag any BC where the code implementation diverges from
+          the CONSENSUS specification."
+      - "Q2: Is the drawdown ladder (10%/15%/20%) wired to the correct equity reference (paper account
+          balance, not notional)? Identify the file and line."
+      - "Q3: CRO Assumption 1: the _JPY_CORRELATED frozenset in exposure_aggregator.py:46 contains
+          only {USDJPY, GBPUSD}. For the authorized USDJPY-only paper launch, is this gap material?
+          Under what conditions (e.g., Bet #1 expanded to EURJPY) does it become a blocking concern?"
+      - "Q4: CRO Assumption 2: single Saxo paper account required for portfolio-level JPY-correlated
+          cap. This is a CEO-action item (Wave-7 Section 8b). From the CRO perspective, what is the
+          residual risk if both loops are accidentally run in separate accounts?"
+      - "Q5: What is the worst-case paper PnL scenario within the first 30 trading days under the
+          authorized sizing (vol_target_carry at 0.5x + Bet #1 at 0.25x regime-active)? Sketch
+          the drawdown distribution under historical USDJPY vol and BoJ-divergence regime frequency."
+
+  cto-assessment:
+    artifact-type: "assessment"
+    required-questions:
+      - "Q1: Report the current test suite status. What is the pass count, ruff status, and type-check
+          status? Is the sacred test (test_no_lookahead) passing? Cite the commands run and output."
+      - "Q2: Of the 5 original CTO conditions from CONSENSUS_2026-04-28 Section 5, which are
+          formally closed and which remain open or partially open? For each, state the evidence
+          of closure or the residual gap."
+      - "Q3: What are the remaining tech-debt items from CONSENSUS_2026-04-28 Section 2 (8 items
+          referenced in the tech-debt archive)? Which were closed as N/A (per the tech-debt #38
+          N/A disposition) and which remain genuinely open?"
+      - "Q4: From an architecture standpoint, what is the blast radius if the CF-T9 monitor
+          (scripts/monitor_regime_triggers.py) produces a corrupt or missing state file during the
+          paper loop? Is the fail-safe direction (fail-closed) correctly implemented end-to-end?"
+      - "Q5: Is the Wave-5 ded1356 commit CTO-reviewed? CONSENSUS_2026-05-02 Section 12 noted this
+          was absent; the paper-launch consensus granted implicit approval but flagged it. Assess
+          the architectural soundness of commit ded1356 independently."
+
+  qd-assessment:
+    artifact-type: "assessment"
+    required-questions:
+      - "Q1: What is the current state of the test suite? Run pytest and ruff and report verbatim
+          output summary. Are the 666 tests still passing? Has any new test been added or removed?"
+      - "Q2: Map the research-to-production path for each authorized strategy:
+          (a) vol_target_carry: from backtest script to scripts/run_paper_trading_vt.py — where is
+              the signal generation, sizing, and execution wired? Are there gaps?
+          (b) carry_fred Bet #1: from backtest to scripts/run_paper_trading_carry_fred.py —
+              same question."
+      - "Q3: The equity-curve write (scripts/run_paper_trading_vt.py:566-568 and
+          scripts/run_paper_trading_carry_fred.py:529-532) uses open(path, 'a'). Is this sufficient
+          for the first paper bar, or does the stale 122-line log (data/paper_trading_session.log
+          from 2026-04-26) need to be truncated first? Report the current file state."
+      - "Q4: What is your confidence that the bet1_sizing.py size_multiplier (0.0/0.25 regime-
+          conditional) is wired into the ACTUAL trade execution code path — not just available as
+          a helper that could be bypassed? Trace the call graph from paper-loop main() to order
+          submission."
+      - "Q5: Identify any code-quality or implementation gaps between the backtest engine
+          (src/forex_system/backtest/) and the paper-trading scripts (scripts/run_paper_trading_*.py)
+          that could cause P&L divergence in a real paper-trading session."
+
+  nht-assessment:
+    artifact-type: "assessment"
+    required-questions:
+      - "Q1: Falsification-discipline scorecard as of today. State: (a) total rejections: 12;
+          (b) STRONG-only (R1/R2 fires, Bonferroni-adjusted): 7; (c) WEAK (R6-only, above-floor
+          Sharpe): 5. Does the current rejection portfolio provide sufficient informational content
+          to support the claim that the trial harness is genuinely falsifying, versus accumulating
+          sample-size disqualifications?"
+      - "Q2: Of the 5 NHT historical dissent items preserved across CONSENSUS history — Direction v1
+          Section 8, paper-launch Sections 3 and 4 (3 items) — have any been operationally
+          violated or operationally honored since their preservation? Assess each verbatim against
+          current code and process state."
+      - "Q3: CONDITION-1 is mechanically satisfied (12/10) but STRONG-only is 7/10. Under the
+          Bonferroni 3d framework, what is the minimum additional STRONG rejection count needed
+          to reach a quality-adjusted CONDITION-1 satisfaction (10/10 STRONG-only)? Which
+          candidate strategies in the current queue could plausibly yield STRONG rejections
+          (R1/R2 fires) rather than R6 disqualifications?"
+      - "Q4: The Tier-2 kill criterion (CONSENSUS_2026-04-28 Section 9) requires ≥10 entries with
+          status:rejected AND at least 1 strategy with paper Sharpe ≥0.5 by 2026-07-21. Given
+          T+80 from today and no paper bars yet, what is your falsification-based assessment of
+          the probability of meeting the Tier-2 compound criterion? Is it achievable, marginal,
+          or structurally at risk?"
+      - "Q5: NHT's original dissent (Direction v1 Section 8) stated the meta-observation: '22
+          trials WITHOUT falsifications IS a falsification of the claim that this org falsifies.'
+          The count is now 35 total / 12 rejected. Does this resolve your original meta-concern,
+          or does the R6-heavy composition of the rejection portfolio preserve it? Answer verbatim
+          (this response will be appended as a new dissent item if it contains a finding)."
+
+  pm-consolidation:
+    artifact-file: "ASSESSMENT_2026-05-03.md"
+    input-artifacts:
+      - hoqr-assessment.yaml
+      - cro-assessment.yaml
+      - cto-assessment.yaml
+      - qd-assessment.yaml
+      - nht-assessment.yaml
+    consolidation-requirements:
+      - "Integrate all 5 role assessments without summarizing or paraphrasing NHT dissent items"
+      - "Produce a structured RAG (Red/Amber/Green) table: one row per assessment dimension"
+      - "Identify any cross-role conflicts (e.g., CRO says BC-2 wired; QD finds call-graph gap)"
+      - "Surface any ROUTE_TO or KNOWLEDGE_GAP emitted by any role"
+      - "Produce a CEO-action list: ranked by priority, with evidence pointer per action"
+      - "State overall project health verdict: ON_TRACK | AT_RISK | BLOCKED"
+
+out-of-scope:
+  - "No code changes of any kind — this assessment is read-only"
+  - "No new trial pre-registrations or backtest executions"
+  - "No modifications to any CONSENSUS document"
+  - "No paper loop start — paper loop remains exclusively a CEO operational action"
+  - "No decisions on items 9 and 10 (calendar reminder, launch communication) — CEO-action only"
+  - "CRO Assumption 1 expansion (EURJPY/GBPJPY/AUDJPY/NZDJPY frozenset) — Wave-8+ scope"
+  - "vol_target_carry_no_vol_scaling ablation — HoQR research item; not an assessment task"
+  - "CF-T9 Clause C ratification — 60-trading-day deadline starts at first paper bar; not yet triggered"
+  - "Bet #2 (tas_ceiling_4h) pre-registration or any new strategy evaluation"
+  - "Path B paper competition design — deferred per Direction v1 Section 3"
+  - "Broker integration, API wiring, or live-capital instructions of any kind"
+  - "Modification of NHT dissent artifacts — append-only per Rule 6"
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/CLAUDE.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/README.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-04-28.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl
+  - /Users/huangtm/.claude/projects/-Users-huangtm-Projects-forex-trading-system/memory/MEMORY.md
+  - /Users/huangtm/Projects/HTM-Claude-Code/components/skills/review-plan/SKILL.md
+  - /Users/huangtm/Projects/HTM-Claude-Code/components/skills/agent-accountability/SKILL.md
+  - /Users/huangtm/Projects/HTM-Claude-Code/components/skills/fintech-org/templates/handoff.md
+  - /Users/huangtm/Projects/HTM-Claude-Code/components/skills/fintech-org/roles/ (directory listing)
+
+web_research_conducted: false
+no-capital-instruction: true

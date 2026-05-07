@@ -1,0 +1,363 @@
+role: null-hypothesis-tester
+artifact_type: falsification-assessment
+decision: maintain-prior-dissent
+timestamp: "2026-05-03T11:55:00Z"
+subtask_ref: "Project assessment — falsification-discipline lens, 5 questions"
+subtask_id: "assessment-2026-05-03-nht-1"
+
+# ---------------------------------------------------------------------------
+# Contamination self-check (mandatory per role spec)
+# ---------------------------------------------------------------------------
+contamination-check: passed
+# Prompt contained ONLY: claim text, raw data references, q-list, output schema.
+# No proposer narrative, no other-role approval text, no PM acceptance-criteria
+# body. Refused to read CONSENSUS body / dissent narrative beyond the 5
+# preserved dissent files (those ARE the raw artifacts, not narrative).
+
+no-capital-instruction: true
+
+# ---------------------------------------------------------------------------
+# Web research budget
+# ---------------------------------------------------------------------------
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+# No external research used. All evidence drawn from on-disk artifacts.
+# Sharpe stabilization model and concentration math are textbook (Bertsekas
+# & Tsitsiklis; Lo, "The Statistics of Sharpe Ratios", 2002) — cite from skill
+# probability-statistics rather than re-fetching.
+
+# ---------------------------------------------------------------------------
+# Evidence
+# ---------------------------------------------------------------------------
+evidence:
+  # Q1 — trials.jsonl composition
+  - "trials.jsonl line count: 35 entries"
+  - "Status histogram (grep -c): 8 spawned, 7 complete, 8 exploratory (backfill), 12 rejected"
+  - "Of 12 rejected, falsification_criterion field histogram: R1-Sharpe=2, R2-DSR=6, R6-Trades=4"
+  - "Rejected trials whose rejection_reason text mentions ONLY R6 (no R1/R2/R3): 4 (15aa7521 bollinger_rsi n=3, 65041055 carry n=7, 9c9f545f carry_momentum n=16, 9017fadb vol_target_carry_no_vol_scaling n=1)"
+  - "Rejected trials whose rejection_reason text mentions R1 or R2 or R3 (STRONG criteria triggered): 8"
+  - "Of those 8 STRONG-criteria rejections, only 2 had R6 NOT also triggered (tas_ceiling_4h ab6f4167, momentum fdddc2b0). The other 6 had R1/R2 triggered AND R6 triggered (n_trades<30 at the same time as R1/R2 below floor) — reduced statistical confidence per the joint failure"
+  # Q2 — dissent file inventory
+  - ".agent-accountability/dissents/ contains 5 NHT dissent files dated 2026-04-28 → 2026-05-03"
+  - "direction-v1-phase0-task1.1.yaml — meta-concern '22 trials, 0 falsifications'; severity strong_objection; CEO acknowledged 2026-04-28"
+  - "phase2-falsification-consensus.yaml — pre-reg per archived strategy, non-overlapping OOS, frozen R1-R6 thresholds; severity strong_objection; CEO acknowledged 2026-05-01"
+  - "phase2-3d-tier-verification.yaml — momentum 0.5x sizing cap, Bet#1 regime-inactive base-case 0.07, Tier B gap; severity strong_objection; CEO acknowledged 2026-05-01"
+  - "wave5-paper-launch-authorization.yaml — 5 items: (1) R6-only=WEAK, (2) vol_target_carry_no_vol_scaling void, (3) CF-T9 conditional A+B-only, (4) R6-heavy inflates CONDITION-1, (5) momentum exclusion; severity strong_objection; CEO acknowledged 2026-05-02"
+  - "wave6-preflight-closure.yaml — BC-4 producer/consumer schema mismatch; severity material_concern; CEO Wave-7 fix; lifted by NHT 2026-05-03"
+  # Operational verification of dissent honoring
+  - "src/forex_system/risk/bet1_sizing.py:67-98 — bet1_size_multiplier returns 0.25 if regime_active else 0.0 (hard zero stricter than the 0.07 dissent recommended) — 3d dissent item (2) HONORED"
+  - "scripts/run_paper_trading_*.py contains run_paper_trading_vt.py (vol_target_carry) and run_paper_trading_carry_fred.py (Bet #1) but NO momentum paper script — Wave-5 dissent item (5) momentum exclusion HONORED"
+  - "references/pre-registrations/ contains per-strategy *.md files for ma_crossover, bollinger_rsi, momentum, carry_momentum, carry_baseline, fred_carry_stripped, tas_ceiling_4h, vol_target_carry, carry_fred — Phase-2 dissent (a) HONORED"
+  - "trials.jsonl: only 1 of 13 post-Phase-2 trials populates oos_window_start/oos_window_end fields (87fa1d23 momentum); the other 12 (all rejections) omit them — Phase-2 dissent (b) PARTIALLY HONORED (schema present but enforcement at trial-spawn for rejected trials is missing)"
+  - "scripts/monitor_regime_triggers.py:261-297 emits all 4 BC-4 keys (regime_active, n_readings, seen_regime_active_true, seen_regime_active_false); state file data/cf_t9_state.json exists; data/cf_t9_status.json does NOT exist (waiting first cron tick) — Wave-6 dissent fix HONORED, status emission pending operations"
+  # Q3 — strategy registry
+  - "src/forex_system/strategies/registry.py STRATEGY_REGISTRY contains 10 entries: ma_crossover, bollinger_rsi, momentum, carry, carry_fred, carry_momentum, fred_carry_stripped, vol_target_carry, vol_target_carry_no_vol_scaling, tas_ceiling_4h"
+  - "Of 10 registry entries: 5 already STRONG-rejected (ma_crossover, bollinger_rsi, fred_carry_stripped, tas_ceiling_4h; momentum on 4h-bar config), 1 PASSED (vol_target_carry validated 0.7594; momentum-EURUSD-only borderline 0.314), 1 paper-launch authorized (carry_fred), 1 R6-only-rejected via degenerate sample (vol_target_carry_no_vol_scaling)"
+  - ".fintech-org/sweep_configs/ contains ~400 yaml files — these are config sweeps over existing 10 strategies (parameter grids), NOT new strategy candidates"
+
+# ---------------------------------------------------------------------------
+# Assumptions (must be explicit per quality_gate)
+# ---------------------------------------------------------------------------
+assumptions:
+  - "Sharpe stabilization model: SE(SR_hat) ≈ sqrt((1 + 0.5·SR²) / N) where N = number of independent return observations (Lo 2002; valid for IID Gaussian returns only — assumption violated under regime-switching, fat tails, autocorrelation; widens true CI by ~30-50% empirically for daily forex). Used as a lower bound on uncertainty."
+  - "Paper-start lag estimate T+5 calendar days. Paper-trading window assumed 75 days = 75 trading days × ~5/7 weekend ratio ≈ 53 trading days, but daily-bar SR formulas use raw daily-bar count, so N=75 used in formula. Conservative: real N effective could be 50-60."
+  - "STRONG/WEAK classification: STRONG = rejection_reason text mentions R1-Sharpe OR R2-DSR OR R3-MaxDD (genuine performance falsification). WEAK = R6-Trades only (sample-size disqualification). User-provided count '7/10 STRONG-only' refers to a different epoch (Wave-5 closure had 5 prior STRONG + 2 Wave-5-R2 STRONG = 7) and only counts the 10 trials in Phase-2-onwards window. Current full-jsonl count is 8/12 STRONG, 4/12 WEAK."
+  - "STRONG-rejection production rate during active HoQR-dispatch wave: ~6 in 7 days at Phase-2 launch (lines 23-29 timestamp 2026-05-02T04:50:46→05:23:58). Paper-launch phase has zero new HoQR dispatches scheduled — STRONG rejection rate during paper window expected to drop to ~0-2 per 80 days unless explicitly funded."
+  - "Bet #1 regime-active probability over next 75 trading days: assumed 0.5 base rate (BoJ-divergence regime indicator binary; carry_fred-stripped diagnostic showed regime active in ~50% of post-2024 sample). Could be 0.3-0.7."
+  - "Joint independence between (Tier-B STRONG count, paper Sharpe, paper PnL curve existence) — these are NOT independent in reality (more rejections → more research velocity → likely more paper iteration). Joint computed under conservative independence."
+  - "Sacred test no_lookahead has not been disturbed during preflight waves — assumed; not re-verified in this assessment scope."
+
+confidence: medium
+# Confidence: medium not high. Reasons: (1) STRONG/WEAK boundary depends on
+# whether n_trades<30 with R1/R2 fail counts as STRONG or WEAK — 6 of the 8
+# STRONG-criteria rejections also fired R6, suggesting sample-size leakage
+# into the STRONG count. (2) Dissent-honoring evidence is read-from-disk-now
+# rather than tested via run; status.json absence on disk is consistent with
+# both "operations not yet started" (benign) and "producer never ran" (latent
+# bug). (3) Sharpe-SE formula assumes IID Gaussian; daily-bar forex with
+# regime-switching violates this — true SE wider, P(SR>=0.5) lower than
+# stated.
+
+# ---------------------------------------------------------------------------
+# Q1 — falsification scorecard
+# ---------------------------------------------------------------------------
+q1-portfolio-composition:
+  total: 35
+  rejected: 12
+  strong: 8        # rejection_reason text mentions R1 or R2 or R3
+  weak: 4          # rejection_reason text mentions ONLY R6
+  ratio_strong: 0.667
+  # Supplementary note: 6 of the 8 STRONG-criteria rejections ALSO fired R6 —
+  # only 2 are "clean STRONG" (n_trades>=30 with R1/R2/R3 fail). If "STRONG-only"
+  # is interpreted strictly as "R6 NOT also triggered", the count drops to 2/12.
+  # The 7/10 figure in the prompt is a Wave-5-window count, not a full-jsonl count.
+  clean_strong_no_r6: 2
+  strong_with_r6_coincident: 6
+
+# ---------------------------------------------------------------------------
+# Q2 — historical dissent honoring
+# ---------------------------------------------------------------------------
+q2-historical-dissents-status:
+  - dissent_path: ".agent-accountability/dissents/direction-v1-phase0-task1.1:null-hypothesis-tester.yaml"
+    status: partially-honored
+    rationale: "Recommendation: '2-week falsification-discipline window with >=5 logged rejections'. Result: 12 rejections logged in 6 days (2026-05-02 → 2026-05-03). Numerically met. BUT: the meta-concern itself ('22 trials WITHOUT falsifications is a falsification of the claim that this org falsifies') is now restated as Q5 of this assessment — partially rather than fully honored because 4/12 are pure-R6 sample-size disqualifications, the bar dissent-text predicted as 'unaccountable process'."
+  - dissent_path: ".agent-accountability/dissents/phase2-falsification-consensus:null-hypothesis-tester.yaml"
+    status: partially-honored
+    rationale: "(a) Per-strategy pre-regs: HONORED — 9+ pre-reg .md files present for archived + Phase-2 strategies. (b) Non-overlapping OOS at trial-spawn: PARTIALLY HONORED — schema field oos_window_start/end present but populated in only 1 of 13 post-Phase-2 trials (the one PASS, 87fa1d23). All 12 rejections omit the OOS-window fields, meaning the family-wise FDR cannot be audited from the trial record. (c) Frozen thresholds R1-R6 by 2026-05-01: HONORED — rejection texts in trials lines 23-35 use the exact R1=0.30/0.50/0.60, R2=0.50, R3=0.25, R6=30 thresholds."
+  - dissent_path: ".agent-accountability/dissents/phase2-3d-tier-verification:null-hypothesis-tester.yaml"
+    status: honored
+    rationale: "(1) momentum 0.5x cap → momentum is EXCLUDED from paper launch entirely (stronger than 0.5x cap; honored a fortiori). (2) Bet #1 regime-inactive base-case 0.07 → bet1_sizing.py returns 0.0 (hard zero) when regime_active is False — stricter than 0.07. (3) Tier B gap → CONDITION-1 mechanically met at 12/10 by 2026-05-02; STRONG-only quality-adjusted gap (3 more STRONG needed) is preserved as Wave-5 dissent item 4."
+  - dissent_path: ".agent-accountability/dissents/wave5-paper-launch-authorization:null-hypothesis-tester.yaml"
+    status: partially-honored
+    rationale: "Items (1)+(4) R6-heavy CONDITION-1 caveat: ACKNOWLEDGED but NOT operationally addressed — STRONG-only count remains at 7-8 with no new dispatches scheduled. Item (2) vol_target_carry_no_vol_scaling void: HONORED (R6-trigger correct, no further action). Item (3) CF-T9 A+B conditional, Clause C 60-day deadline: HONORED at producer/consumer wiring level (Wave-7 fix); Clause C 60-day clock starts at first paper bar — pending. Item (5) momentum exclusion: HONORED."
+  - dissent_path: ".agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml"
+    status: honored
+    rationale: "Wave-7 fix: scripts/monitor_regime_triggers.py:261-297 now emits all 4 BC-4 keys (regime_active, n_readings, seen_regime_active_true, seen_regime_active_false); state file data/cf_t9_state.json implements read-modify-write; tests/scripts/test_cf_t9_monitor.py:235-262 asserts monotonic n_readings + sticky seen_state flags; NHT re-verification artifact 2026-05-03T11:35Z lifted the dissent."
+
+# ---------------------------------------------------------------------------
+# Q3 — STRONG rejection candidates
+# ---------------------------------------------------------------------------
+q3-strong-rejection-candidates:
+  # The registry contains 10 strategies; 5 already STRONG-rejected; vol_target_carry
+  # PASSED; carry_fred AUTHORIZED; vol_target_carry_no_vol_scaling rejected on R6
+  # only (degenerate). Net: very few candidates remain INSIDE the registry. The
+  # gap closure must come from NEW strategies dispatched by HoQR.
+  - strategy: "vol_target_carry_no_vol_scaling — re-spec'd ablation with multi-regime OOS"
+    sample_size_needed: ">=30 trades over a non-degenerate OOS window (≥504 bars / 2y), forced to take signals rather than collapse to buy-and-hold"
+    plausibility: high
+    rationale: "Already on-disk; Wave-5 R3 dissent item (2) explicitly recommends this as 'HoQR next-priority research item'. Hypothesis: vol-scaling adds zero alpha vs static-vol baseline. Direction of expected result: STRONG-REJECT (carry thesis holds; vol-scaling is decoration). Cost: low — strategy code already exists; only need OOS-window spec and forced-signal config."
+  - strategy: "tas_ceiling_4h — re-spec'd 1d/1w bars instead of 4h"
+    sample_size_needed: ">=30 trades over 2y OOS"
+    plausibility: medium
+    rationale: "tas_ceiling_4h already STRONG-REJECTED on 4h. Direction-v1 hypothesis was that microstructure ceilings persist across timeframes. A 1d / 1w replication would either (a) replicate the 4h rejection (STRONG-REJECT, useful family-wise evidence) or (b) reverse it (rare, would be a finding). Either way contributes to STRONG count."
+  - strategy: "bollinger_rsi — re-spec'd with shorter lookback to force n_trades>=30"
+    sample_size_needed: "Lookback halved (10/1 instead of 20/2), expected n_trades ≈ 60-90 over 2y"
+    plausibility: medium
+    rationale: "Already STRONG-rejected on default config (Sharpe -0.34) but the rejection had R6 also firing (n=9). A repeat at higher trade frequency would either (a) fail R1 cleanly (STRONG-only, R6 NOT triggered) — converts a current STRONG-with-R6 rejection into a clean-STRONG, lifting the strict count; or (b) reveal that BRS works at higher frequency, requiring different treatment. Cost: low — no new code, just config change."
+  - strategy: "carry_momentum — re-spec'd as DAILY rebalance instead of monthly to force n_trades>=30"
+    sample_size_needed: "Daily rebalance, n_trades ≈ 250+ per pair-year"
+    plausibility: medium
+    rationale: "Currently rejected on R1 (Sharpe 0.197 < 0.5) AND R6 (n=16). Daily rebalance bypasses R6, gives clean R1 verdict. Useful because carry_momentum is the prior-org-archived strategy and a clean STRONG rejection would close the dissent-2 archived-strategy concern definitively."
+  - strategy: "ma_crossover — re-spec'd shorter periods (5/20 instead of 50/200) to force n_trades>=30"
+    sample_size_needed: "5/20 SMA crossover, n_trades ≈ 80-120 per 2y"
+    plausibility: medium
+    rationale: "Currently rejected on R1+R2+R6 (n=9). Shorter periods will either (a) fail cleanly on R1/R2 with adequate sample (STRONG-only) or (b) survive (rare). Cost: low."
+  # Net: 5 candidates plausibly yielding STRONG rejections within 80 days, all
+  # via re-config of existing strategies (no new code). 3-of-5 hit rate would
+  # close the STRONG-only Tier-B gap (need 3 more clean STRONG to reach 10).
+
+# ---------------------------------------------------------------------------
+# Q4 — Tier-2 joint probability
+# ---------------------------------------------------------------------------
+q4-tier2-joint-probability: 0.18
+# Justification (1 sentence, then math): joint = P(STRONG-only ≥10 by T+80) ×
+# P(paper Sharpe ≥0.5 over 75 trading days) × P(paper PnL curve persisted).
+# Math:
+#   Component A — P(STRONG-only ≥10): need 3 more clean-STRONG. Q3 lists 5
+#   plausible candidates, all via re-config (low cost). Hit rate to deliver
+#   STRONG-with-no-R6 ≈ 0.6 per candidate (config changes can fail to remove
+#   R6 if signal density too low). P(≥3 of 5 succeed | hit rate 0.6, indep):
+#   sum_{k=3}^{5} C(5,k) 0.6^k 0.4^(5-k) = 0.346+0.259+0.078 = 0.683.
+#   BUT: HoQR dispatch must be funded — if paper-launch wave consumes all
+#   research bandwidth, dispatch probability ≈ 0.5. Net P(A) ≈ 0.683 × 0.5
+#   = 0.34.
+#
+#   Component B — P(paper Sharpe ≥0.5 over 75 trading days): blended portfolio
+#   of vol_target_carry (validated 0.76) at full sizing + carry_fred Bet #1
+#   (regime-conditional 0.0/0.25 of 0.80 = 0.20 active, 0.0 inactive) at
+#   regime probability 0.5 → expected blended Sharpe ≈ (0.76 + 0.5*0.20) =
+#   0.86 if Bet #1 fully active in regime, but more conservatively the
+#   portfolio Sharpe of vol_target_carry IS 0.76 already and Bet #1 adds
+#   ~0.02-0.05 conditionally. Use μ = 0.65 (deflated for: regime risk,
+#   transaction-cost realization gap, validation-window over-fit, paper-vs-
+#   live slippage). SE(SR | N=75) = sqrt((1+0.5*0.65²)/75) = sqrt(1.211/75)
+#   = 0.127. P(SR_obs >= 0.5 | μ=0.65, σ=0.127) = Φ((0.65-0.5)/0.127) =
+#   Φ(1.18) = 0.881. BUT: Lo's IID-Gaussian assumption violated under
+#   regime-switching → empirical SE wider by ~30-50%; corrected σ ≈ 0.17;
+#   P(SR_obs >= 0.5) = Φ((0.65-0.5)/0.17) = Φ(0.88) = 0.811. Use 0.78
+#   (further deflated for the family-wise selection that picked these
+#   strategies). P(B) ≈ 0.78.
+#
+#   Component C — P(paper PnL curve persisted ≥75 trading days): operations
+#   risk only (paper trade goes down, retire-trigger fires correctly, NOT a
+#   premature halt). Wave-5 paper-loop wiring + Wave-7 BC-4 fix in place.
+#   P(C) ≈ 0.85.
+#
+#   Joint (independence): 0.34 × 0.78 × 0.85 = 0.225. Round down for joint-
+#   correlation (paper PnL collapse and STRONG-rejection burst are
+#   negatively correlated — bad paper performance cuts research budget):
+#   0.18.
+#
+#   Sensitivity: at HoQR dispatch P=1.0 (full bandwidth on STRONG generation):
+#   P(A) = 0.683 → joint = 0.45. At HoQR dispatch P=0.2 (paper-ops absorbs
+#   bandwidth): P(A) = 0.137 → joint = 0.09. Range 0.09–0.45; midpoint 0.18.
+
+# ---------------------------------------------------------------------------
+# Q5 — meta-concern resolution status
+# ---------------------------------------------------------------------------
+q5-meta-concern-resolved: partially-resolved
+# Verbatim answer (per prompt: "your answer becomes a NEW dissent item if it
+# contains a finding"):
+
+# ---------------------------------------------------------------------------
+# Body — 15-30 sentences answering Q1-Q5
+# ---------------------------------------------------------------------------
+body: |
+  Q1 — Falsification scorecard. The trials.jsonl portfolio (35 entries) decomposes
+  to 8 spawned + 7 complete + 8 exploratory (R3 backfill from CONSENSUS 2026-04-26)
+  + 12 rejected. Of the 12 rejections, 8 fired R1/R2/R3 STRONG criteria and 4 fired
+  R6-Trades only. Headline ratio: 67% STRONG. But there is a buried subtlety: 6 of
+  the 8 STRONG-criteria rejections ALSO fired R6 simultaneously, meaning n_trades<30
+  AND R1/R2 below floor — the strategy's Sharpe estimate at sample sizes that small
+  is dominated by the start/end dates, so the R1/R2 "fail" is itself sample-size-
+  contaminated. Strict "clean STRONG" (R1/R2/R3 fail with n_trades>=30, R6 NOT
+  triggered): only 2 of 12 (tas_ceiling_4h, momentum-fdddc2b0). The portfolio
+  genuinely falsifies in only 2 cases out of 12 rejections — the other 10 are
+  governance-only or sample-leaked.
+
+  Q2 — Historical dissent honoring. Five preserved NHT dissents reviewed. Direction-
+  v1 phase 0 task 1.1 (meta-concern '22 trials, 0 falsifications'): partially
+  honored — 12 rejections now logged, but 4 are pure-R6 (sample-size only) which
+  matches dissent-text's predicted 'unaccountable process' failure mode. Phase-2
+  falsification consensus: partially honored — per-strategy pre-regs ARE in place
+  (9 .md files in references/pre-registrations/), R1-R6 thresholds ARE frozen and
+  applied mechanically in trial rejection texts, but non-overlapping OOS at trial-
+  spawn is enforced for only 1 of 13 post-Phase-2 trials (the one PASS); the 12
+  rejections all omit oos_window_start/end fields. Phase-2 3d tier verification:
+  fully honored — momentum is EXCLUDED from paper launch (stricter than the 0.5x
+  cap), Bet #1 regime-inactive sizing is hard zero (stricter than 0.07), Tier B
+  gap is preserved as Wave-5 item 4. Wave-5 paper-launch authorization: partially
+  honored — items (1)+(4) R6-heavy caveat is acknowledged but not operationally
+  addressed (no new STRONG dispatches scheduled), items (2)+(3)+(5) honored. Wave-6
+  preflight closure: fully honored — Wave-7 BC-4 producer fix verified by NHT
+  re-verification artifact (state file persists, all 4 keys emitted, sacred test
+  added).
+
+  Q3 — Path to STRONG-only CONDITION-1. Need 3 more clean-STRONG rejections to reach
+  10/10. The strategy registry has 10 entries; 5 already STRONG-rejected, 1 PASSED,
+  1 paper-authorized, 1 R6-only (degenerate). Net: 2 untouched candidates inside
+  the registry (carry-baseline variants). The realistic path is RE-CONFIG of
+  existing strategies to force n_trades>=30 (bypassing R6 to deliver clean-STRONG
+  verdicts). Five plausible candidates: (a) vol_target_carry_no_vol_scaling
+  multi-regime ablation, (b) tas_ceiling_4h on 1d/1w bars, (c) bollinger_rsi
+  shorter lookback, (d) carry_momentum daily rebalance, (e) ma_crossover 5/20
+  shorter periods. Sample size needed per candidate: 30+ trades on 2y OOS — all
+  achievable via config change without new code.
+
+  Q4 — Tier-2 joint probability. Decomposed as P(STRONG-only ≥10 by T+80) ×
+  P(paper Sharpe ≥0.5 | N=75 trading days) × P(paper PnL curve persisted).
+  Component A: 5 candidates × ~0.6 hit-rate-to-deliver-clean-STRONG, ≥3 successes
+  needed → 0.683 conditional on dispatch; dispatch probability during paper-launch
+  wave ~0.5 → P(A) ≈ 0.34. Component B: blended portfolio expected Sharpe ≈ 0.65
+  (deflated for regime risk and selection); SE under Lo (1+0.5·SR²)/N formula
+  ≈ 0.127, widened to ~0.17 under non-IID forex-with-regime-switching empirics;
+  P(SR_obs ≥ 0.5 | μ=0.65, σ=0.17) = Φ(0.88) ≈ 0.81; deflated for family-wise
+  selection → P(B) ≈ 0.78. Component C: 0.85 (operations risk + retire-trigger
+  correctness, post-Wave-7). Joint under independence: 0.34 × 0.78 × 0.85 = 0.225;
+  round down for negative correlation (bad paper PnL cuts research budget): 0.18.
+  Sensitivity range: 0.09–0.45 depending on HoQR dispatch bandwidth.
+
+  Q5 — Meta-concern resolution. The Direction-v1 Section 8 concern was '22 trials
+  WITHOUT falsifications is itself a falsification of the claim that this org
+  falsifies'. Current state (35 trials / 12 rejections / 8 STRONG-criteria / 2
+  clean-STRONG / 4 pure-WEAK-R6) PARTIALLY resolves the concern. The harness now
+  logs rejections (process change is real and irreversible), and the rate of
+  rejection production during Wave-5 was strong. BUT: the composition reveals a
+  new failure mode — sample-size truncation has become the de facto rejection
+  reason for one third of the portfolio (4/12 pure-R6 + 6/8 STRONG with co-fired
+  R6 = 10/12 rejections sample-size-contaminated). The org now falsifies via 'this
+  candidate did not produce enough trades to evaluate' rather than 'this candidate
+  produced enough trades and they were noise'. The first form is NOT scientifically
+  equivalent to the second. The meta-concern is therefore preserved as a NEW
+  finding under a refined formulation: '12 rejections of which only 2 are clean
+  performance-falsifications on adequate samples is itself a partial falsification
+  of the claim that this org performs adequate-sample performance falsification'.
+  This is the core dissent-statement preserved below.
+
+# ---------------------------------------------------------------------------
+# Sources (file paths only)
+# ---------------------------------------------------------------------------
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl (lines 1-35)"
+  - "/Users/huangtm/Projects/forex-trading-system/.agent-accountability/dissents/direction-v1-phase0-task1.1:null-hypothesis-tester.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.agent-accountability/dissents/phase2-falsification-consensus:null-hypothesis-tester.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.agent-accountability/dissents/phase2-3d-tier-verification:null-hypothesis-tester.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.agent-accountability/dissents/wave5-paper-launch-authorization:null-hypothesis-tester.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/strategies/registry.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/bet1_sizing.py (lines 50-98, 101-232)"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py (lines 261-297)"
+  - "/Users/huangtm/Projects/forex-trading-system/references/pre-registrations/ (9+ .md files for archived + Phase-2 strategies)"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-03T-wave7-preflight-fix/nht-reverification.yaml"
+
+# ---------------------------------------------------------------------------
+# Dissent statement (verbatim, append-only — preserved as NEW dissent item per
+# prompt 'Q5 verbatim answer becomes a NEW dissent item if it contains a finding')
+# ---------------------------------------------------------------------------
+dissent-statement: |
+  PRESERVED-AND-REFINED DISSENT (2026-05-03 NHT project assessment, append-only):
+
+  Updated meta-concern: of 12 rejections in trials.jsonl, only 2 are clean
+  performance-falsifications on adequate samples (n_trades>=30 AND R1/R2/R3 fired
+  AND R6 NOT triggered): tas_ceiling_4h (ab6f4167) and momentum (fdddc2b0). The
+  remaining 10 are sample-size-contaminated: 4 pure-R6-only rejections, plus 6
+  R1/R2 rejections that ALSO fired R6 (the strategy fell below the Sharpe/DSR
+  floor at a sample size where the floor itself is statistically uninterpretable).
+
+  This is a refinement, not a withdrawal, of the original 2026-04-28 meta-concern.
+  The original framing ('22 trials WITHOUT falsifications is itself a
+  falsification of the claim that this org falsifies') has been answered in
+  process — rejections ARE now logged. The new framing is sharper:
+
+    "12 rejections of which only 2 are clean performance-falsifications on
+     adequate samples is itself a partial falsification of the claim that
+     this org performs ADEQUATE-SAMPLE performance falsification."
+
+  Concrete operational implication for the paper-launch period (T+0 → T+80
+  days, deadline 2026-07-21): the STRONG-only quality-adjusted CONDITION-1
+  (10 STRONG-only rejections) cannot be met within the deadline at the
+  current rate of HoQR dispatch (zero new STRONG-rejection trials scheduled
+  during paper-launch operations). Joint Tier-2 probability is 0.18 (range
+  0.09–0.45 depending on HoQR bandwidth allocation).
+
+  Recommended remediation (route to HoQR + QD, not NHT-implementable):
+  a) Dispatch 5 re-config sweeps against the existing registry — each
+     designed to force n_trades >= 30 so the resulting R1/R2 verdict is
+     a clean-STRONG: vol_target_carry_no_vol_scaling multi-regime
+     ablation, tas_ceiling on 1d/1w, bollinger_rsi shorter lookback,
+     carry_momentum daily rebalance, ma_crossover 5/20.
+  b) Amend the trial schema so oos_window_start/end is REQUIRED at
+     spawn for ALL trials including rejections (currently populated for
+     1 of 13 post-Phase-2 trials — the one PASS). Without this, the
+     family-wise FDR over the 80-day paper window is unaudited.
+  c) Add a derived field 'strong_clean' to the rejection record: True
+     iff (R1 OR R2 OR R3) AND NOT R6. Track CONDITION-1 against this
+     derived field rather than the raw rejection count, so the
+     mechanical 12/10 vs quality-adjusted 2/10 gap is visible to CEO.
+
+  This dissent does NOT block paper launch — paper launch is independently
+  authorized under CONSENSUS_2026-05-02 with vol_target_carry + Bet #1
+  regime-conditional sizing. The dissent is preserved to ensure the
+  STRONG-only Tier B gap is a tracked deliverable, not a quietly-dropped
+  governance item, during the paper-launch wave.
+
+severity: material_concern
+# Severity rationale: NOT strong_objection (does not require veto-class
+# response; paper launch already authorized and binding constraints in place).
+# IS material_concern: a class-of-bug-not-yet-resolved governance gap that
+# affects the firm's ability to demonstrate falsification discipline at
+# scientific-rigor standard rather than checkbox-compliance standard. Maps
+# via deterministic lookup to does_block: false (per protocols/full-auto.md).
+
+does_block: false
+# does_block is orchestrator-computed from severity. NHT does not self-assert.
+# Advisory: this concern should be tracked via Wave-8 or later HoQR dispatch
+# rather than blocking paper-launch.
+
+# ---------------------------------------------------------------------------
+# Audit trail
+# ---------------------------------------------------------------------------
+prior-dissents-referenced:
+  - ".agent-accountability/dissents/direction-v1-phase0-task1.1:null-hypothesis-tester.yaml (parent of refined Q5 finding)"
+  - ".agent-accountability/dissents/wave5-paper-launch-authorization:null-hypothesis-tester.yaml (item 4 R6-heavy CONDITION-1 inflation — this assessment provides quantification)"

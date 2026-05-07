@@ -1,0 +1,67 @@
+role: pm
+artifact_type: consensus-draft
+decision: blocked-pending-CEO-ratification
+timestamp: "2026-05-05T00:00:00Z"
+subtask_ref: wave8-consensus-authoring
+subtask_id: dece752c-ec4c-4694-9386-5457dda2c3e7
+consensus_doc_path: docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md
+nht_dissent_artifact_path: .agent-accountability/dissents/wave8-high-remediation:phase1:task1.0:null-hypothesis-tester.yaml
+deferred_queue_entry_appended: true
+auto_ratification_gate:
+  result: blocked
+  blocking_signals:
+    - "nht_does_block: true (orchestrator-computed from severity material_concern)"
+    - "principal_reviewer_blocking_findings: 3"
+  fallback_path: ceo-sign-off
+signatures_collected:
+  - {role: pm, decision: propose-acceptance-criteria, artifact: pm-acceptance-criteria.yaml}
+  - {role: quant-developer, decision: implemented-and-verified, artifact: qd-implementation.yaml}
+  - {role: cro, decision: size-reduced, artifact: cro-risk-assessment.yaml}
+  - {role: cro, decision: veto, artifact: cro-bc8-reverify.yaml}
+  - {role: null-hypothesis-tester, decision: dissent, artifact: nht-adversarial-review.yaml}
+  - {role: null-hypothesis-tester, decision: dissent-reduced, artifact: nht-reverification.yaml}
+  - {role: principal-reviewer, decision: reject, artifact: principal-reviewer-review.yaml}
+evidence:
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/qd-implementation.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/cro-risk-assessment.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/cro-bc8-reverify.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/nht-adversarial-review.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/nht-reverification.yaml"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/principal-reviewer-review.yaml"
+assumptions: []
+confidence: high
+body: |
+  Wave-8 ran two QD implementation attempts and two NHT adversarial review
+  attempts against PM acceptance criteria for HIGH-1 (RealisticCostModel
+  wiring) and HIGH-2 (account_key parity assertion). QD attempt 2 closed
+  four of five NHT attempt-1 material concerns (swap accrual, |delta|
+  rebalance cost, end-to-end parity test, atomic O_EXCL lock) and reduced
+  the fifth (stale-lock) to a non-blocking concern. 686 tests pass; sacred
+  test passes; ruff baseline preserved at 19 errors; forbidden-phrases scan
+  clean. Three items remain blocking as of NHT attempt-2 reverification:
+  finding-K (BC-8 multi-strategy aggregation — CRO VETO, cross-process race
+  window permits transient ~24-30% JPY-correlated exposure), NEW-1 (USDJPY
+  unit-convention 150x cost overstatement — parity test deferred to EURUSD),
+  and NEW-2 (cost-feedback into operational equity — log-only, dd_contract
+  and kill_switch still consume raw broker equity). Principal Reviewer
+  independently confirmed finding-K equivalent (F-001/F-002) and added F-003
+  (LoC budget 330 vs 50-line hard constraint, 6.6x). CRO and NHT disagree
+  on cost-feedback architecture: CRO recommends log-only as correct to avoid
+  double-counting; NHT calls log-only a material_concern. That disagreement
+  requires a PM spec amendment or CEO ruling and cannot be resolved by
+  engineering dispatch alone. Auto-ratification is blocked by both NHT
+  does_block: true and PR blocking-findings count: 3. Recommended path:
+  CEO accepts documented gaps, authorizes vt-only single-loop paper trading,
+  dispatches Wave-9 for BC-8 residual control (7.5% per-strategy budget
+  tickets) and USDJPY unit-convention fix.
+sources: []
+web_research_conducted: false
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps: []
+claimed_domains:
+  - acceptance-criteria-authoring
+  - consensus-document-drafting
+  - signature-collection
+  - dissent-preservation-routing

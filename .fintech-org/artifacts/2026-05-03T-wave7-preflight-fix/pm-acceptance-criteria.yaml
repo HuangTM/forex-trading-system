@@ -1,0 +1,194 @@
+---
+# Wave-7: Small-Fix Dispatch — Preflight Items 2 and 8
+# PM Acceptance-Criteria Artifact
+# Produced: 2026-05-03
+# Addressed unit: wave7-preflight-fix:phase1:task1.0
+
+# ---------------------------------------------------------------------------
+# Base schema fields (canonical typed-handoff schema v0.3)
+# ---------------------------------------------------------------------------
+role: pm
+artifact_type: acceptance-criteria
+decision: propose-acceptance-criteria
+timestamp: "2026-05-03T10:00:00Z"
+subtask_ref: "Wave-7 small-fix acceptance criteria (items 2 and 8)"
+subtask_id: "wave7-preflight-pm-1"
+
+evidence:
+  - "docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md — Section 2 (per-item terminal-state table, items 2 and 8 BLOCKED-engineering), Section 3 (NHT verbatim material_concern, does_block: true), Section 4 (QD fix proposal item 8), Section 9 (Wave-7 task A / task B / task C)"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/nht-cold-start-gate-adversarial.yaml — NHT dissent, severity: material_concern, does_block: true"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/qd-implementation-closure.yaml — item-8-status: needs-implementation; item-2 producer/consumer mismatch finding"
+  - ".agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml — append-only NHT dissent artifact (this Wave-7 closure lifts or escalates this dissent)"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-acceptance-criteria.yaml — Wave-6 PM AC (item 2 and item 8 criteria were blocked-named-impediment; Wave-7 inherits and narrows)"
+  - "CEO verbal authorization: Option A (Wave-7) authorized following Wave-6 consensus signed 2026-05-03"
+
+assumptions:
+  - "No scope expansion beyond items 2 and 8 fixes — Wave-7 is a small-fix dispatch only."
+  - "CEO authorized Option A on 2026-05-03 following CONSENSUS_2026-05-03 Section 12f."
+  - "Ratified CONSENSUS_2026-05-02_paper_launch_authorization.md is unchanged and remains in force."
+  - "CONSENSUS_2026-05-03_preflight_closure.md is unchanged and remains in force."
+  - "NHT re-verification scope is item 2 only (item 8 does not require NHT adversarial review)."
+  - "Trial discipline does not apply — Wave-7 is operational wiring, not a backtest task."
+  - "CRO Assumption 1 (_JPY_CORRELATED frozenset universe asymmetry) is out of scope for Wave-7 and deferred to Wave-8+ per Section 6 of CONSENSUS_2026-05-03."
+  - "Paper loop start remains blocked by no-paper-loop-start-by-orchestrator constraint throughout Wave-7."
+
+confidence: high
+
+body: |
+  Wave-7 is a bounded small-fix dispatch authorized by CEO (Option A) to close the two
+  BLOCKED-engineering items from the Wave-6 operational pre-flight closure. Task A fixes
+  the producer/consumer schema mismatch in scripts/monitor_regime_triggers.py so that
+  data/cf_t9_status.json emits the four BC-4 keys (regime_active, n_readings,
+  seen_regime_active_true, seen_regime_active_false) with a persistent reading-counter that
+  survives across cron invocations and sticky seen-state flags. Task B replaces logging.FileHandler
+  with RotatingFileHandler in both paper-trading scripts and wires the equity-curve JSON-line write
+  to data/paper_trading_session.log. Task C is NHT adversarial re-verification of item 2 only;
+  NHT either lifts the material_concern dissent (resolving severity to none) or escalates a new
+  finding. Wave-7 success is defined as all three tasks complete: A wired and tested (pytest
+  passes sacred test), B wired and equity-write confirmed by QD line-level evidence, C NHT
+  issues a verbatim ack or escalation. No paper loop is started by the orchestrator; no new
+  strategies are introduced; no consensus documents are modified; total LoC budget is ≤50 across
+  ≤3 files.
+
+# ---------------------------------------------------------------------------
+track_id: "wave7-preflight-fix:phase1:task1.0"
+
+task-statement: >
+  Wire items 2 and 8 (producer schema + RotatingFileHandler) and obtain
+  NHT re-verification of item 2 to clear the paper-launch blocker.
+
+deliverable-type: spec-completion
+
+deadline: "2026-05-04T00:00:00Z"
+
+instrument-universe:
+  - USDJPY
+  # Wave-7 affects only the cold-start gate (item 2) and logging path (item 8).
+  # Both paper scripts trade USDJPY exclusively per current configs (confirmed in
+  # CONSENSUS_2026-05-03 Section 6, Assumption 2). No cross-JPY pairs are in scope.
+
+hard-constraints:
+  no-live-capital: true
+  paper-only: true
+  no-paper-loop-start-by-orchestrator: true
+  scope-cap-50-loc: true
+    # Task A is ≤30 LoC (scripts/monitor_regime_triggers.py + tests/scripts/test_cf_t9_monitor.py)
+    # Task B is ≤20 LoC (scripts/run_paper_trading_vt.py + scripts/run_paper_trading_carry_fred.py)
+    # Combined budget: ≤50 LoC across ≤3 files (test file counts separately)
+  no-new-strategies: true
+  preserve-NHT-dissent-rule-6: true
+    # NHT dissent in .agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml
+    # is append-only. It is NOT overwritten. NHT's re-verification result is written as a NEW artifact
+    # (wave7-preflight-fix:phase1:task1.0:null-hypothesis-tester.yaml) that references the original dissent.
+  no-consensus-modification: true
+  no-instrument-universe-expansion: true
+  no-backtest-tasks: true
+  trial-discipline-does-not-apply: true
+
+# ---------------------------------------------------------------------------
+# Criteria — one bullet per task
+# Done-signal per task: line-level evidence + pytest pass/fail + NHT verbatim ack/dissent
+# ---------------------------------------------------------------------------
+criteria:
+  - task: A
+    item-ref: 2
+    title: "CF-T9 producer schema fix in scripts/monitor_regime_triggers.py"
+    loc-budget: "≤30 LoC across scripts/monitor_regime_triggers.py + tests/scripts/test_cf_t9_monitor.py"
+    what-counts-as-done:
+      - "QD reports the specific line(s) in scripts/monitor_regime_triggers.py where evaluate_cf_t9() is amended. Line-level evidence required (file:line format)."
+      - "data/cf_t9_status.json emits all four BC-4 keys: regime_active (bool), n_readings (int), seen_regime_active_true (bool), seen_regime_active_false (bool). QD shows the dict/JSON write call with these keys present."
+      - "Persistent reading-counter is implemented via read-modify-write on a separate state file (e.g., data/cf_t9_state.json). QD confirms the file is read at the START of evaluate_cf_t9() and written at the END of the same invocation, not held in memory between runs."
+      - "Counter increments per cron tick: n_readings increases by 1 on every invocation regardless of regime state."
+      - "seen_regime_active_true becomes True (sticky) when clause_a_pass AND clause_b_pass is True on any invocation; never reverts to False."
+      - "seen_regime_active_false becomes True (sticky) when NOT (clause_a_pass AND clause_b_pass) on any invocation; never reverts to False."
+      - "Sacred test in tests/scripts/test_cf_t9_monitor.py: runs the monitor twice (two separate invocations) and asserts (a) n_readings after second invocation > n_readings after first invocation (monotonic increment), and (b) a seen_state flag set True after the first invocation remains True after the second invocation (stickiness). Pytest must pass: 0 failures, 0 errors."
+      - "QD reports verbatim pytest output: `pytest tests/scripts/test_cf_t9_monitor.py -v` result including pass count and exit code 0."
+      - "No operator-mediated bypass path remains: QD confirms no env-var, config flag, or test-mode hook allows satisfying BC-4 without genuine persistent counter state."
+
+  - task: B
+    item-ref: 8
+    title: "RotatingFileHandler + equity-curve write in paper-trading scripts"
+    loc-budget: "≤20 LoC across scripts/run_paper_trading_vt.py + scripts/run_paper_trading_carry_fred.py"
+    what-counts-as-done:
+      - "QD reports the specific line in scripts/run_paper_trading_vt.py where logging.FileHandler is replaced (was line 107 per CONSENSUS_2026-05-03 Section 4). Line-level evidence required."
+      - "QD reports the specific line in scripts/run_paper_trading_carry_fred.py where logging.FileHandler is replaced (was line 121 per CONSENSUS_2026-05-03 Section 4). Line-level evidence required."
+      - "Both replacements use RotatingFileHandler(path, maxBytes=10*1024*1024, backupCount=5). QD shows the import and constructor call verbatim."
+      - "EQUITY_LOG_PATH = 'data/paper_trading_session.log' constant is present in both scripts (not a magic string inline). QD shows the constant definition line in each file."
+      - "Each script appends one JSON line per cycle to EQUITY_LOG_PATH with computed equity. QD shows the write call (file:line) in each script's main loop or _emit function."
+      - "QD confirms total LoC added across both files is ≤20 (count includes the import line, constant definition, RotatingFileHandler constructor, and equity-write call)."
+      - "No new abstractions are introduced (per QD fix proposal in CONSENSUS_2026-05-03 Section 4: consistent with existing _attach_ws0N_file_handler pattern)."
+
+  - task: C
+    item-ref: 2
+    title: "NHT re-verification of item 2 after QD lands Task A fix"
+    precondition: "Task A must be COMPLETE (QD artifact received) before NHT re-verify is dispatched."
+    what-counts-as-done:
+      - "NHT produces a new typed artifact at .fintech-org/artifacts/2026-05-03T-wave7-preflight-fix/nht-item2-reverify.yaml referencing the original dissent at .agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml."
+      - "NHT independently reads scripts/monitor_regime_triggers.py (does NOT rely on QD's description) and confirms the four BC-4 keys are emitted in the output payload."
+      - "NHT confirms the reading-counter persists across invocations via the state file mechanism (reads the file path, confirms read-modify-write pattern is present in code)."
+      - "NHT confirms seen_state flags are sticky (code path: once set True, the flag is written back True; never conditional on current tick value after being set)."
+      - "NHT adversarial check: confirms no env-var, config flag, or test-mode hook allows operator-mediated bypass of BC-4 without genuine counter state."
+      - "NHT issues a verbatim decision — one of two closed-set outcomes:"
+      - "  OUTCOME A (dissent lifted): NHT states verbatim 'Item 2 dissent resolved. BC-4 is now satisfiable through normal cron operation. Severity: none.' The original dissent artifact is not modified; this new artifact documents the resolution."
+      - "  OUTCOME B (new escalation): NHT states verbatim the new finding with severity and does_block flag. The fix is insufficient; CEO must be notified before proceeding."
+      - "No outcome between A and B is valid. NHT must issue one or the other. Ambiguous or hedged responses require re-dispatch."
+
+# ---------------------------------------------------------------------------
+out-of-scope:
+  - Starting, scheduling, or authorizing the paper trading loop
+  - Modifying CONSENSUS_2026-05-02_paper_launch_authorization.md
+  - Modifying CONSENSUS_2026-05-03_preflight_closure.md
+  - Opening, registering, or pre-registering new strategies or trials
+  - Running new backtests or backtest sweeps
+  - Expanding the instrument universe beyond USDJPY
+  - Expanding the _JPY_CORRELATED frozenset (CRO Assumption 1 from CONSENSUS_2026-05-03 Section 6 — deferred to Wave-8+)
+  - Re-adjudicating NHT dissent items from CONSENSUS_2026-05-02 Sections 3 and 4
+  - Ratifying CF-T9 Clause C (60-trading-day window; post-launch scope)
+  - Closing items 9 or 10 (BLOCKED-CEO-action; unchanged from Wave-6)
+  - Any architecture change to the production code path outside the two named files
+  - Any change exceeding ≤50 LoC total across ≤3 files
+  - Scope creep that would require a trial pre-registration under the trial-registry gate
+
+# ---------------------------------------------------------------------------
+roles-staffed:
+  - role: quant-developer
+    model: sonnet
+    rationale: >
+      Implements Task A (producer schema fix, ≤30 LoC) and Task B (RotatingFileHandler
+      + equity-write, ≤20 LoC). Runs pytest on the new sacred test in
+      tests/scripts/test_cf_t9_monitor.py and reports verbatim pass/fail output.
+      Produces a typed QD artifact with line-level evidence for each fix. Does NOT
+      start the paper loop. Does NOT run backtests. Does NOT introduce new strategies.
+
+  - role: null-hypothesis-tester
+    model: opus
+    rationale: >
+      Re-verifies item 2 ONLY after QD's Task A artifact is received. NHT independently
+      reads the amended scripts/monitor_regime_triggers.py — not from QD's description —
+      and adversarially checks whether the four BC-4 keys are genuinely emitted, the
+      counter persists across invocations, and no ungoverned bypass path exists. NHT
+      either lifts the material_concern dissent (Outcome A) or escalates a new finding
+      (Outcome B). NHT does NOT review Task B (logging/equity-write). NHT does NOT
+      modify or append to the original dissent artifact; a new artifact is produced.
+
+  - role: pm
+    model: sonnet
+    rationale: >
+      Drafts the Wave-7 closure consensus after QD and NHT artifacts are both received.
+      PM synthesis covers: Task A closed (evidence pointer to QD artifact), Task B closed
+      (evidence pointer to QD artifact), NHT outcome (verbatim from NHT artifact),
+      and the three remaining items (9, 10 = BLOCKED-CEO-action; 2/8 newly closed).
+      PM does NOT interpret NHT's outcome — the verbatim NHT text is quoted.
+      PM does NOT authorize paper loop start.
+
+# ---------------------------------------------------------------------------
+sources:
+  - "docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md (Sections 2, 3, 4, 6, 9, 11, 12)"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/nht-cold-start-gate-adversarial.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/qd-implementation-closure.yaml"
+  - ".fintech-org/artifacts/2026-05-03T-wave6-preflight-closure/pm-acceptance-criteria.yaml (Wave-6 PM AC — Wave-7 inherits and narrows)"
+  - ".agent-accountability/dissents/wave6-preflight-closure:phase1:task1.0:null-hypothesis-tester.yaml"
+  - "docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md (BC-4 definition, Section 6)"
+
+web_research_conducted: false
+no-capital-instruction: true

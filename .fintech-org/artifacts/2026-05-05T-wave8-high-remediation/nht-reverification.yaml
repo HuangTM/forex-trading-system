@@ -1,0 +1,330 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent-reduced
+timestamp: "2026-05-06T16:30:00Z"
+subtask_ref: wave8-adversarial-review-cost-model-and-account-key-gate
+subtask_id: bdce025c-12df-4eb4-8944-8b3ef76fe066
+attempt: 2
+
+claim-tested: |
+  Re-verification of NHT attempt-1 dissent following QD attempt-2 rework.
+  Original claims unchanged: HIGH-1 cost-model parity; HIGH-2 account-key
+  parity gate.  New rework-claim under test: "QD attempt 2 closes 4 of 5
+  routed engineering findings (1, 2, 3, 4, 5); CRO attempt 2 confirms
+  finding-K remains structurally unaddressed (multi-strategy aggregation
+  on a single account)."  NHT also surfaces a NEW finding (USDJPY unit-
+  convention divergence) introduced by QD's deferral list.
+
+per_finding_reverification:
+  - finding_id: 1  # swap accrual rule_violation
+    original_severity: rule_violation
+    rework_disposition: closed
+    new_severity: none
+    evidence:
+      - "scripts/run_paper_trading_vt.py:694-703 — _last_cycle_ts read; days_elapsed = (now - last)/86400; _swap_pips_per_day = -_COST_MODEL.holding_cost(pair, LONG, 1); _swap_usd written into equity log"
+      - "scripts/run_paper_trading_vt.py:710 — paper_equity_bt_equiv = equity - _cost_usd + _swap_usd (additive sign-correct for USDJPY long carry)"
+      - "scripts/run_paper_trading_carry_fred.py:649-657 — identical block in carry_fred"
+      - "tests/scripts/test_wave8_high_remediation.py:521-538 — TestSwapAndDeltaFixes::test_swap_usd_nonzero_after_one_day_hold asserts swap_usd != 0 AND ~ 0.8*0.01*5000=40.0 USD on 1-day USDJPY hold"
+      - "src/forex_system/backtest/engine.py:316-317 — engine reference daily_swap_pips = -cost_model.holding_cost(pair, LONG, 1); equity += daily_swap_pips * pip_value * cur_units"
+    notes: >
+      Rework mirrors engine.py:316-317 exactly. Test asserts a numeric value, not
+      mere presence of a field. _last_cycle_ts module-global threading is correct
+      for a single-process per-script paper loop. First-cycle swap=0 documented.
+      RULE_VIOLATION on HIGH-1c verbatim text now satisfied.
+
+  - finding_id: 2  # |delta| rebalance cost overstatement (material_concern)
+    original_severity: material_concern
+    rework_disposition: closed
+    new_severity: none
+    evidence:
+      - "scripts/run_paper_trading_vt.py:678-682 — elif needs_action and is_rebalance: _rebal_delta = abs(target_units - cur_units); _cost_pips = entry_cost(pair, _rebal_delta); _trade_units = _rebal_delta"
+      - "scripts/run_paper_trading_carry_fred.py:638-641 — identical pattern"
+      - "src/forex_system/backtest/engine.py:331-332 — engine reference: cost_pips = cost_model.entry_cost(pair, abs(delta)); equity -= cost_pips * pip_value * abs(delta)"
+      - "tests/scripts/test_wave8_high_remediation.py:540-562 — test_rebalance_cost_charged_on_delta_not_full_target: target=6500 cur=5000 delta=1500 → cost=11.25 not 48.75; ALSO asserts != full-target cost"
+      - "tests/scripts/test_wave8_high_remediation.py:564-611 — test_full_entry_cost_not_delta_when_opening: fresh entry charges full target_units"
+    notes: >
+      Branch logic preserved: close path (cur_units), rebalance path (|delta|),
+      fresh entry path (target_units). Test parametrization covers all three.
+      Negative assertion (cost_usd != full_target_cost) is the right shape — it
+      would fail if Fix 2 were reverted.
+
+  - finding_id: 3  # HIGH-1c syntactic mirror tautology (material_concern)
+    original_severity: material_concern
+    rework_disposition: closed
+    new_severity: note
+    evidence:
+      - "tests/scripts/test_wave8_high_remediation.py:334-446 — TestE2EParity class"
+      - "tests/scripts/test_wave8_high_remediation.py:373-446 — test_entry_cost_parity_engine_vs_paper_loop: drives run_backtest in continuous mode AND vt_mod.run_cycle once each, reads engine.equity_curve.iloc[1] AND paper_equity_bt_equiv from equity log, asserts equality within abs=1e-4"
+      - "test:402-407 — engine_at_entry == 99_992.5 = 100_000 - 7.5 entry_cost (test FAILS if cost deduction removed → would be 100_000)"
+    notes: >
+      Test now drives both code paths end-to-end and compares observed equity, not
+      formula helpers. This is the structural fix asked for. Severity downgraded
+      to note (not none) because the test runs on EURUSD only — see new_findings
+      below for the residual concern about Bet #1's USDJPY-only thesis.
+
+  - finding_id: 4  # TOCTOU race in lock acquire (material_concern)
+    original_severity: material_concern
+    rework_disposition: closed
+    new_severity: none
+    evidence:
+      - "scripts/run_paper_trading_vt.py:132-141 — fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY); on FileExistsError, fall through to read+compare; sys.exit(1) on key mismatch"
+      - "scripts/run_paper_trading_carry_fred.py:147-156 — identical pattern"
+      - "tests/scripts/test_wave8_high_remediation.py:622-654 — test_toctou_concurrent_different_keys_one_exits: threading.Barrier(2) ensures simultaneous start; asserts exactly-one ok + exactly-one SystemExit(1)"
+    notes: >
+      Atomic O_CREAT|O_EXCL is the textbook fix for the Path.exists()+write_text
+      race. Test exercises the actual race window via Barrier-synchronized threads.
+      Mirrors heartbeat write_then_rename idiom that already exists in vt.py.
+
+  - finding_id: 5  # stale-lock advisory bypass (material_concern)
+    original_severity: material_concern
+    rework_disposition: partially-closed
+    new_severity: concern
+    evidence:
+      - "scripts/run_paper_trading_vt.py:148-149 — error message now reads 'To reset: pass --reset-account-key-lock NEW_KEY --confirm-account-reset and restart — do NOT delete the lock file manually.'"
+      - "scripts/run_paper_trading_vt.py:160-196 — reset_account_key_lock(new_key): tempfile.mkstemp + os.write + os.replace; sys.exit(0) after success"
+      - "scripts/run_paper_trading_vt.py:803-822 — argparse --reset-account-key-lock NEW_KEY + --confirm-account-reset; missing confirm → exit(1)"
+      - "scripts/run_paper_trading_carry_fred.py:175-211 — same"
+      - "tests/scripts/test_wave8_high_remediation.py:656-680 — test_reset_without_confirm_flag_exits_nonzero (vt + carry_fred)"
+    notes: >
+      Advisory replaced with double-flag CLI gate. Reset is sanctioned and atomic.
+      Residual CONCERN (not closed): the file is still present on disk and an
+      operator with shell access can `rm $LOCK` to bypass — the gate is hardened
+      against the documented bypass but cannot prevent OS-level deletion. The
+      stale-lock TTL detection (NHT-T4) is also explicitly Wave-9 deferred.
+      Severity drops material_concern → concern.
+
+  - finding_id: K  # BC-8 multi-strategy aggregation (routed to CRO)
+    cro_decision: veto
+    rework_disposition: not-closed
+    new_severity: material_concern
+    notes: >
+      CRO returns bc8_closure_status: not-closed-additional-control-needed and
+      explicitly recommends Wave-9 residual control (per-strategy budget tickets
+      summing to 15%, OR cross-process advisory file-lock around
+      [get_positions → check_dispatch_allowed → execute_signal]). CRO cites
+      Knight Capital analog: independently-correct local guards do not enforce
+      portfolio-level invariants under concurrent dispatch. CRO's veto is the
+      structurally correct answer to NHT finding-K, but it does NOT close the
+      concern — it only acknowledges the gap and routes a residual control to
+      Wave-9. QD attempt-2 lists this as items_deferred_to_wave9 (line 70).
+      Until either residual control lands, second-loop authorization
+      (carry_fred regime-conditional) should remain BLOCKED per CRO's plain
+      reading.
+
+new_findings_in_rework:
+  - finding_id: NEW-1
+    description: >
+      USDJPY unit-convention divergence (paper-loop uses USD-nominal directly as
+      _trade_units; engine divides by price for JPY pairs, _to_engine_units).
+      QD reports "150x cost overstatement for USDJPY paper costs vs engine costs"
+      and explicitly defers correction to Wave-9.
+    severity: material_concern
+    evidence:
+      - "qd-implementation.yaml:64-67 (items_deferred_to_wave9, USDJPY unit-convention gap)"
+      - "qd-implementation.yaml:225-235 (deviations-from-spec, EURUSD substitution)"
+    impact: >
+      The end-to-end parity test (Fix 3) runs on EURUSD only.  Bet #1 strategy is
+      USDJPY-only (regime-conditional carry).  The parity claim therefore is NOT
+      directly verified for Bet #1's actual production pair.  The submitted swap
+      accrual test on USDJPY exercises the swap formula but not the cost+swap
+      composite parity. PM HIGH-1 acceptance criterion requires "cost deducted
+      from paper equity is bt-equivalent for any trade tuple" — a 150× cost
+      overstatement on USDJPY is NOT bt-equivalent. The ~$4,800 60-day swap
+      credit is correct; the per-trade entry/exit cost on USDJPY is wrong by
+      a factor of ~150 relative to the engine.
+    recommended_remediation: >
+      ROUTE_TO: quant-developer + pm. Either (a) fix USDJPY unit conversion in
+      paper loop (mirror _to_engine_units = usd_nominal / price for JPY pairs)
+      and re-run TestE2EParity on USDJPY; or (b) amend HIGH-1 acceptance to
+      explicitly carve out USDJPY from the parity claim until Wave-9 unit
+      convention fix lands. (b) is honest but means Bet #1 paper-launch cannot
+      claim cost-parity with backtest.
+
+  - finding_id: NEW-2
+    description: >
+      Finding-A from attempt 1 (cost feedback into operational equity used by
+      dd_contract / kill_switch / sizer) is explicitly listed in QD's
+      items_deferred_to_wave9 (line 70-72) with PM/CRO routing required.
+      QD did not silently treat it as closed, but it remains open and would
+      have been escalated to material_concern in attempt 1 if it had been
+      enumerated as a separate finding rather than as a sub-component of
+      finding 1A. dd_contract.assess(equity) at vt.py:498 still uses raw
+      broker equity; paper_equity_bt_equiv is log-only.
+    severity: material_concern
+    evidence:
+      - "scripts/run_paper_trading_vt.py:498 — _dd = dd_contract.assess(equity); equity is raw broker equity"
+      - "qd-implementation.yaml:70-72 (deferred to PM/CRO)"
+    impact: >
+      DD-1 / DD-2 / DD-3 ladder fires on broker equity, not on cost+swap-adjusted
+      equity. CF-T9 Clause C 60-bar window comparison is between paper-equity-as-
+      logged-by-paper-loop (now bt-equivalent) and backtest-equivalent — but
+      operational drawdown decisions still run on a different number than what
+      the contract compares.
+
+overall_severity: material_concern
+# Per protocols/full-auto.md does_block: material_concern → does_block: true
+# Rolls up the most-severe of: finding-K (CRO veto, not closed) + NEW-1 (USDJPY
+# unit-convention 150× cost overstatement, deferred) + NEW-2 (cost feedback into
+# operational equity, deferred).  Findings 1, 2, 3, 4 are CLOSED.  Finding 5 is
+# downgraded to concern (non-blocking).
+
+dissent-statement: |
+  NHT attempt-2 re-verification: dissent REDUCED from attempt-1 but NOT lifted.
+
+  Closed by QD attempt 2 (no residual): finding 1 (swap accrual), finding 2
+  (|delta| rebalance cost), finding 3 (end-to-end parity test), finding 4
+  (atomic O_EXCL lock).
+
+  Reduced to non-blocking concern: finding 5 (stale-lock — advisory replaced
+  with --reset-account-key-lock + --confirm-account-reset double-flag CLI gate;
+  TTL detection deferred Wave-9; OS-level rm bypass remains but is not what
+  the finding addressed).
+
+  STILL BLOCKING (material_concern, append-only, non-amendable):
+
+    Finding-K (BC-8 multi-strategy aggregation): CRO attempt-2 returns VETO.
+    Account-key parity does NOT close BC-8; cross-process race [read → check
+    → dispatch] permits transient ~24-30% aggregate exposure when both loops
+    target one account. CRO recommends per-strategy budget tickets (7.5%
+    each) or cross-process file-lock as Wave-9 residual control. Until
+    either lands, second-loop authorization remains BLOCKED.
+
+    NEW-1 (USDJPY unit-convention 150× cost overstatement): The end-to-end
+    parity test (Fix 3) runs on EURUSD, not Bet #1's actual pair USDJPY.
+    QD documents a 150× cost overstatement on USDJPY between paper loop
+    and engine and defers fix to Wave-9. The PM HIGH-1 acceptance "cost
+    deducted is bt-equivalent for any trade tuple" is NOT satisfied for
+    USDJPY. Bet #1 paper-launch cost-parity claim is structurally not
+    verified.
+
+    NEW-2 (cost feedback into operational equity): dd_contract,
+    kill_switch, and sizer continue to consume raw broker equity. The
+    "backtest-equivalent" claim holds for the equity LOG only; control-
+    loop decisions diverge by accumulated cost+swap. QD explicitly defers
+    closure to PM/CRO routing.
+
+  Per protocols/full-auto.md: overall_severity material_concern →
+  does_block: true.  Wave-8 cannot auto-ratify.  Escalation to CEO is
+  required.  Acceptable closure paths:
+    (i)  Wave-9 implements per-strategy budget tickets (7.5% each), USDJPY
+         unit-convention fix, and either cost-feedback-into-equity OR a PM
+         amendment to HIGH-1 carving out operational-equity-feedback as
+         log-only.  Then Wave-8 closes via Wave-9 follow-on.
+    (ii) CEO explicitly accepts (a) BC-8 transient overshoot risk by
+         authorizing only ONE paper loop (vt only OR carry_fred only, not
+         both); (b) USDJPY parity gap as documented;
+         (c) operational-equity-feedback gap as documented.  Then Wave-8
+         closes for the single-loop scope only.
+
+  Items 1, 2, 3, 4, 5 are NHT-validated as engineering-closed (or
+  reduced to concern). The blocking surface is now finding-K + NEW-1 +
+  NEW-2.
+
+contamination-check: "clean"
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:76 (_last_cycle_ts module global)"
+  - "scripts/run_paper_trading_vt.py:106-157 (assert_account_key_parity atomic O_EXCL)"
+  - "scripts/run_paper_trading_vt.py:160-196 (reset_account_key_lock tempfile + os.replace + sys.exit(0))"
+  - "scripts/run_paper_trading_vt.py:498 (dd_contract.assess(equity) — still raw broker equity)"
+  - "scripts/run_paper_trading_vt.py:678-682 (Fix 2 |delta| rebalance branch)"
+  - "scripts/run_paper_trading_vt.py:694-703 (Fix 1 swap accrual block)"
+  - "scripts/run_paper_trading_vt.py:710 (paper_equity_bt_equiv = equity - _cost_usd + _swap_usd)"
+  - "scripts/run_paper_trading_vt.py:803-822 (Fix 5 --reset-account-key-lock + --confirm-account-reset CLI)"
+  - "scripts/run_paper_trading_carry_fred.py:121-211 (mirror lock + reset implementation)"
+  - "scripts/run_paper_trading_carry_fred.py:631-666 (mirror Fix 1+2 equity-write block)"
+  - "tests/scripts/test_wave8_high_remediation.py:334-446 (TestE2EParity)"
+  - "tests/scripts/test_wave8_high_remediation.py:454-611 (TestSwapAndDeltaFixes)"
+  - "tests/scripts/test_wave8_high_remediation.py:619-680 (TestAtomicLockAndReset)"
+  - "src/forex_system/backtest/engine.py:316-317 (engine swap reference)"
+  - "src/forex_system/backtest/engine.py:331-332 (engine |delta| reference)"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/qd-implementation.yaml:11-72 (attempt 2 fix descriptions + items_deferred_to_wave9)"
+  - ".fintech-org/artifacts/2026-05-05T-wave8-high-remediation/cro-bc8-reverify.yaml:10-46 (CRO veto + recommended residual control)"
+
+assumptions:
+  - >
+    The orchestrator's claim "686 tests pass, sacred test PASSED" is reliable.
+    NHT does not run pytest (python forbidden). If false, all closure claims
+    above are conditional on the test results being accurately reported.
+  - >
+    SaxoExecutionBackend.account_key access is side-effect-free at lock-gate
+    time (consistent with attempt-1 assumption; no new evidence to revise).
+  - >
+    The 150× cost overstatement number QD reports for USDJPY paper-vs-engine
+    is taken at face value from QD's own documentation.  NHT did not
+    independently verify the magnitude (would require running the engine on
+    USDJPY in continuous mode, which python-forbidden constraint prevents).
+    The structural claim — that paper loop uses USD-nominal directly while
+    engine divides by price for JPY pairs — is independently consistent with
+    the existing _to_engine_units helper visible in engine.py.
+
+confidence: high
+
+body: |
+  Re-verification followed the structural pattern of attempt 1: read the
+  artifact, then read the actual code, then compare. Each finding was
+  re-tested against the code on disk, not against QD's prose summary.
+
+  Findings 1, 2, 3, 4 close cleanly. The wiring matches engine.py:316-317
+  and engine.py:331-332 exactly; the new tests assert observable values
+  (swap_usd numeric, cost_usd != full_target_cost, paper_equity ==
+  engine_equity), not just field presence. The TOCTOU race test exercises
+  threading.Barrier-synchronized starts and asserts the exactly-one-exit
+  outcome that the O_CREAT|O_EXCL atomicity guarantees.
+
+  Finding 5 reduces to concern: the documented advisory ("delete the
+  file") is replaced with a double-flag CLI gate. The OS-level rm-bypass
+  remains but is not what NHT's finding addressed; the addressed harm
+  was operator-priming-via-documentation, which is fixed.
+
+  Finding-K does NOT close. CRO returns a structural veto and recommends
+  Wave-9 residual control. CRO's analysis is sound: the paper-loop
+  control sequence read → check → dispatch lacks cross-process
+  serialization on the dispatch path, so two loops can each pass their
+  local 15% gate while collectively breaching BC-8's at-any-bar clause.
+  Knight Capital analog is apt.
+
+  Two NEW findings surface during re-verification:
+
+  NEW-1: USDJPY unit-convention divergence. QD's own deferral list
+  documents a 150× cost overstatement for USDJPY between paper loop and
+  engine. The end-to-end parity test runs on EURUSD because of this gap.
+  Bet #1 strategy is USDJPY-only. The parity claim therefore is NOT
+  verified for the actual production trade. This is material to Bet #1
+  paper-launch authorization.
+
+  NEW-2: The cost-feedback gap (attempt-1 finding 1A) is enumerated in
+  QD's deferred items but not closed. The cost-adjusted equity is logged;
+  the operational equity used by dd_contract, kill_switch, and sizer is
+  not. The "backtest-equivalent" claim is log-only.
+
+  Decision: dissent-reduced (4 findings closed, 1 reduced) but NOT lifted
+  (1 finding still blocking + 2 new blocking findings). Overall
+  severity: material_concern → does_block: true. Wave-8 cannot
+  auto-ratify; CEO escalation required.
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps:
+  - >
+    NHT did not independently verify the 150× USDJPY cost overstatement
+    magnitude (python-forbidden). The structural divergence is independently
+    visible in code, but the numeric magnitude relies on QD's report.
+  - >
+    NHT did not run the test suite. The "686 tests pass" status is taken
+    from the orchestrator's report. If any of the 7 new attempt-2 tests
+    actually fail, finding-1 / finding-2 / finding-3 / finding-4 / finding-5
+    closure status above is conditional on that being false.
+  - >
+    Whether Saxo retail accounts can sustain two simultaneously-active OAuth
+    tokens against a single ClientKey is not verified (per CRO's same gap).
+    If Saxo enforces single-session, finding-K severity drops to closed-by-
+    parity-gate.
+
+claimed_domains:
+  - structural-skepticism-on-any-claim
+  - p-hacking-and-data-snooping-detection

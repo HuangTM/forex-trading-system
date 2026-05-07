@@ -1,0 +1,115 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-05-01T00:00:00Z"
+subtask_ref: "wave5-round1-cft9-amendment-and-candidate-queue"
+files_modified:
+  - references/pre-registrations/carry_fred.md (5a CF-T9 amendment + HoQR signature)
+files_created: []
+ranked-alternatives:
+  - carry_fred with longer rate-differential lookback (3-month vs 12-month) — excluded
+    because it risks creating a variant that partially overlaps carry_fred's validated
+    OOS window, muddying independent-replication logic; defer to Wave-6.
+  - bollinger_rsi 2018-2019 window rerun — excluded because OOS-2022 carve is
+    the binding window for Tier B closure; a different window carve would require
+    a new NHT window ratification (not in scope for Wave-5 Round-1).
+  - implied-vol term-structure carry-regime filter (NEW-MODULE-NEEDED) — excluded
+    this round; high research cost, low falsification probability for box-checking
+    purposes; suitable only after Tier B is cleared.
+evidence:
+  - trials.jsonl: 6 status:rejected entries confirmed (c530be91 ma_crossover,
+    ade58943 bollinger_rsi, 5d18776d carry, 6a56df9c carry_momentum,
+    b7d1a65a fred_carry_stripped, ab6f4167 tas_ceiling_4h)
+  - monitor_regime_triggers.py: only two clauses (A, B) implemented in
+    evaluate_cf_t9(); docstring says "ALL three clauses" but no Clause C code
+    exists — gap confirmed by inspection of the full file.
+  - carry_fred.md Gate 3: FAIL pre-existed before amendment (uses gate_threshold
+    not kill_switch_threshold); confirmed by git stash test; pre-existing
+    condition, not introduced by this amendment.
+  - strategies/ listing: ma_crossover, bollinger_rsi, momentum, carry, carry_momentum,
+    carry_fred, fred_carry_stripped, vol_target_carry, tas_ceiling_4h all exist as
+    .py modules — REUSE-EXISTING-MODULE confirmed for candidates 1-5.
+retirement-criteria: "Per individual candidate pre-regs (to be authored in Round 2 by QD-coauthor pattern)"
+gate_3_check_after_5a: "FAIL — pre-existing condition (gate_threshold key vs kill_switch_threshold
+  key). Grandfathering is governance-only; tool still reports FAIL. My amendment did NOT
+  introduce this failure — confirmed by git stash baseline test. Needs separate remediation
+  (add kill_switch_threshold: 0.30 line) outside this wave's scope."
+cf_t9_third_clause_status: "NOT FOUND — monitor docstring references three clauses but
+  only A+B are implemented and evaluated in evaluate_cf_t9(). No Clause C text found
+  anywhere in the file. Amendment documents this gap explicitly; CF-T9 is binding on
+  A+B only until CEO/NHT ratifies a Clause C."
+assumptions:
+  - OOS-2022 window (2022-01-01 → 2023-12-31) is the binding Tier B carve per
+    CRO/NHT; no alternative windows permitted without re-ratification.
+  - vol_target_carry and carry_fred (Bet #1) are IMMUTABLE — excluded from candidates.
+  - Already-rejected strategies (ma_crossover, bollinger_rsi, carry, carry_momentum,
+    fred_carry_stripped, tas_ceiling_4h) cannot be re-rejected in their existing form;
+    variants with materially different configs are new entries.
+  - "Box-checking" candidates count toward Tier B closure only if they are genuinely
+    independent tests (different pair, config, or window), not re-runs of identical
+    parameters.
+confidence: medium
+body: |
+  ## A. CF-T9 amendment (5a)
+  Inserted CF-T9 bullet after CF-T8 in carry_fred.md Falsification Triggers section.
+  Clauses A (BoJ rate >= 0.50% for >= 2 consecutive quarter-ends) and B (basket 60d
+  Sharpe < 0.20) documented verbatim. Clause C gap explicitly flagged: docstring claims
+  three clauses but only A+B exist in code — amendment records this as a known-incomplete
+  source defect requiring NHT/CEO ratification of a Clause C before it is binding.
+  HoQR signature added to Approval section; NHT co-sign deferred to Round 3.
+
+  ## B. Candidate queue (5b — ranked top-6)
+
+  1. **ma_crossover_3x_costs** — Does MA-crossover (already rejected OOS) remain
+     rejected under 3x cost parameters? Hypothesis: Sharpe < 0.30 on OOS-2022.
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: REUSE-EXISTING-MODULE | expected_falsification_prob: ~95% |
+     qd_effort: 1h
+
+  2. **bollinger_rsi_EURUSD_only** — Does bollinger_rsi fail on the single highest-
+     liquidity pair when isolated? Hypothesis: Sharpe < 0.30 on OOS-2022 EURUSD.
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: REUSE-EXISTING-MODULE | expected_falsification_prob: ~90% |
+     qd_effort: 1h
+
+  3. **momentum_GBPUSD_only** — momentum already passed on EURUSD; does it hold on
+     a single non-EURUSD pair? Hypothesis: Sharpe < 0.30 on OOS-2022 GBPUSD.
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: REUSE-EXISTING-MODULE | expected_falsification_prob: ~70% |
+     qd_effort: 1h
+
+  4. **carry_2x_costs** — Does raw carry baseline survive a 2x cost stress on OOS-2022?
+     Already rejected at 1x costs (Sharpe 0.28). Hypothesis: Sharpe < 0.30.
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: REUSE-EXISTING-MODULE | expected_falsification_prob: ~98% |
+     qd_effort: 1h
+
+  5. **carry_momentum_3x_costs** — carry_momentum rejected at 1x (Sharpe 0.197);
+     3x cost stress confirms rejection robustly. Hypothesis: Sharpe < 0.30.
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: REUSE-EXISTING-MODULE | expected_falsification_prob: ~99% |
+     qd_effort: 1h
+
+  6. **vol_target_carry_no_vol_scaling** — Ablation: remove the vol-targeting from
+     the validated vol_target_carry (use equal position sizing instead). Tests whether
+     vol-targeting is load-bearing for the edge or incidental. Hypothesis: Sharpe < 0.30
+     on OOS-2022 (different from vol_target_carry's full-history OOS window; no overlap).
+     kst: 0.30 | oos: 2022-01-01 → 2023-12-31 | overlap: false |
+     impl_effort: EXTEND-EXISTING | expected_falsification_prob: ~65% |
+     qd_effort: 3h
+
+  ## C. Honest accounting
+  Candidates 1, 2, 4, 5 are box-checking: near-certain rejections that mechanically
+  advance Tier B closure. Candidate 3 (momentum GBPUSD) is a borderline genuine test.
+  Candidate 6 (vol_target_carry no-vol ablation) is the only scientifically meaningful
+  candidate — it could surprise either way. Box-checking candidates are honest about
+  their purpose: they document the boundary of what fails, which has integrity value.
+  No goalpost-stuffing risk: all declare Sharpe >= 0.30 as the pass threshold on a window
+  not used in any prior validation.
+
+knowledge_gaps: []
+policy_violations_detected:
+  - carry_fred.md uses gate_threshold key instead of kill_switch_threshold; Gate 3 reports
+    FAIL (pre-existing, not introduced by this amendment). Grandfathering is governance-
+    only and does not suppress the tool output. Recommend adding kill_switch_threshold: 0.30
+    as a separate line to satisfy the tool without altering the existing gate_threshold field.

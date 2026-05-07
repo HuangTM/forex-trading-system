@@ -1,0 +1,123 @@
+schema_version: "1.0"
+role: pm
+artifact_type: consensus-draft
+track_id: wave10-fix-and-amend
+addressed_unit: wave10-fix-and-amend:phase1:task1.0
+timestamp: "2026-05-06T14:00:00Z"
+
+decision: approve
+decision_rationale: |
+  PM synthesis complete. CONSENSUS_2026-05-06_wave10_fix_and_amend.md
+  produced from all 5 W1-W3 artifacts. All Wave-9 blocking findings
+  (F-001, F-002, F-008, BC-8, NEW-2/ladder) confirmed closed by
+  independent W3 re-verification (NHT, CRO, PR). Zero new blocking
+  findings. Four non-blocking W10 findings routed to Wave-11. Pre-commit
+  hygiene blocker (fidelity false-positive) identified and resolution
+  recommended (1-word substitution). BC-8 veto liftability confirmed.
+  Ratification artifact produced at
+  .agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml
+  with outcome: pending (CEO ratification required).
+
+evidence:
+  w1_pm_acceptance_criteria: >
+    .fintech-org/artifacts/wave10-fix-and-amend/pm-acceptance-criteria.yaml
+  w2_qd_implementation_report: >
+    .fintech-org/artifacts/wave10-fix-and-amend/qd-implementation-report.yaml
+  w3_nht_reverification: >
+    .fintech-org/artifacts/wave10-fix-and-amend/nht-reverification.yaml
+  w3_cro_reverification: >
+    .fintech-org/artifacts/wave10-fix-and-amend/cro-reverification.yaml
+  w3_principal_reviewer_reverification: >
+    .fintech-org/artifacts/wave10-fix-and-amend/principal-reviewer-reverification.yaml
+  consensus_document: >
+    docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md
+  ratification_artifact: >
+    .agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml
+
+claimed_domains:
+  - acceptance-criteria-authoring
+  - signature-collection
+  - dissent-preservation-routing
+  - consensus-document-drafting
+  - ratification-artifact-production
+
+# ── Pre-commit hygiene blocker ─────────────────────────────────────────────
+precommit_hygiene_blocker:
+  id: fidelity-false-positive
+  file: docs/specs/drawdown_ladder_amendment_2026-05-06.md
+  line: 92
+  phrase: fidelity
+  context: >
+    "...hypothesis-test fidelity restored by ladder-recalibration..."
+    — English usage (faithfulness/accuracy), not Fidelity Investments broker.
+  scanner_behavior: regex-only; cannot distinguish dictionary sense from broker name
+  independent_confirmations:
+    - role: nht
+      artifact: nht-reverification.yaml
+      classification: false-positive; recommended pre-commit fix (substitution or scanner-config exemption)
+    - role: cro
+      artifact: cro-reverification.yaml
+      classification: POLICY_VIOLATION_FALSE_POSITIVE; size_multiplier=0.95; deferred Wave-11 cleanup OR pre-commit fix
+    - role: principal-reviewer
+      artifact: principal-reviewer-reverification.yaml
+      classification: not directly raised; F-103 notes doc-internal contradiction; F-100-F-102 are code findings
+  recommended_resolution: >
+    Substitute "accuracy" or "honesty" for "fidelity" at
+    docs/specs/drawdown_ladder_amendment_2026-05-06.md:92 — minimal scope,
+    no charter touch, no CEO ratification needed for the substitution itself.
+    Alternative (requires CEO ratification): extend forbidden-phrases.json
+    with quote-context exemption entry.
+  pm_route: CEO decision required (per CEO actions item 2 in CONSENSUS Decision section)
+
+# ── Wave-11 findings routing ───────────────────────────────────────────────
+wave11_findings_routed:
+  - id: F-100-PR-W10
+    description: silent mid<=0 fallback to USD-nominal re-introduces F-001 bug with no log/error
+    owning-role: quant-developer
+    route: Wave-11 shared-module refactor (centralize conversion with explicit error handling)
+  - id: F-101-PR-W10
+    description: outer try catches only BlockingIOError; non-BlockingIOError OSError leaks _dl_fd
+    owning-role: quant-developer
+    route: Wave-11 shared-module refactor (add blanket OSError handling)
+  - id: F-102-PR-W10
+    description: subprocess concurrent test uses inline worker exercising flock primitive only, not full run_cycle
+    owning-role: quant-developer
+    route: Wave-11 (add run_cycle-invoking subprocess test once shared-module refactor lands)
+  - id: F-103-PR-W10
+    description: amendment doc Section 2 line 46 says CRO must append before Wave-10 commit; PM HC-6 fail-condition omits this; doc-internal contradiction
+    owning-role: pm + cro
+    route: PM to clarify gating semantics — either CRO appends determination or doc-internal gate language relaxed to match HC-6
+
+# ── Wave-9 dissents preserved ─────────────────────────────────────────────
+dissents_preserved:
+  nht:
+    path: .agent-accountability/dissents/wave9-precommit-review:nht.yaml
+    status: ADDRESSED-BY-WAVE-10
+    does_block_original: true
+    note: >
+      Verbatim NHT dissent reproduced in CONSENSUS Wave-10. Wave-10 remediated
+      all blocking conditions (F-001/F-002/F-008/BC-8 via code; NEW-2 via
+      Decision-5 ladder amendment). NHT W3 re-verification confirms all 7
+      Wave-10 closure claims survive adversarial scrutiny. No new dissent emitted.
+  cro:
+    path: .agent-accountability/dissents/wave9-precommit-review:cro.yaml
+    status: BC-8 SECTION RESOLVED BY WAVE-10; KILL-SWITCH SECTIONS PERSIST AS LIVE-PROMOTION BLOCKERS
+    does_block_original: false
+    note: >
+      Verbatim CRO dissent reproduced in CONSENSUS Wave-10. BC-8 veto LIFTABLE
+      per CRO W3 reverification. Kill-switch Properties 2/3/4 persist as
+      live-promotion blockers — unchanged from Wave-9; out of Wave-10 scope.
+      No new CRO dissent emitted.
+
+# ── Required attestations ──────────────────────────────────────────────────
+no-capital-instruction: true
+web_research_conducted: false
+sources: []
+websearch_used: 0
+webfetch_used: 0
+
+write_metadata:
+  written_at: "2026-05-06T14:00:00Z"
+  written_by: fintech-org/pm
+  consuming_skill: fintech-org
+  artifact_uuid: "b8f3a2e1-5c7d-4a9f-b0e6-3d1c8f2a7e4b"

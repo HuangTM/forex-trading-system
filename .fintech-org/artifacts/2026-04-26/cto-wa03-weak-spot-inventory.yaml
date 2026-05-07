@@ -1,0 +1,87 @@
+role: cto
+artifact_type: architecture-review
+artifact_id: cto-WA-03-2026-04-26
+timestamp: 2026-04-26T22:00:00Z
+subtask_ref: sunday-pre-open-prep-2026-04-26
+rubric-applied: [log-as-decision-trace, execution-firewall-review]
+decision: approve-with-conditions
+
+summary: "Six weak spots. Dominant two are structural: (1) session logs cannot answer 'why was this trade taken' without re-running code; (2) Execution-Researcher Firewall has no enforced boundary — VT strategy parameters were developer-authored defaults, not researcher-spec fields. Both directly contributed to 5-round vol_target_carry reconciliation. Remaining four are addressable within a week."
+
+weak-spot-inventory:
+  - id: WS-01
+    severity: critical
+    category: signal-trace
+    description: "No signal-to-execution trace in any session log. Largest sizing event (USDJPY 1,125,832 units, 2026-04-21 23:47) has zero pre-decision trace — signal/vol/equity/price at decision time absent."
+    evidence: ["data/vt_paper_session.log:9", "data/vt_paper_session.log:40-45", "log-as-decision-trace rubric items 2,5,6 fail"]
+    proposed_remediation: {owner: quant-developer, action: "Add structured logger.info() at run_cycle() decision point capturing event_name, signal, realized_vol, equity, price_mid, target_units, current_units, action_taken, rebal_threshold_source, cycle_id, timestamp_utc", cost: M}
+    would_it_have_caught: "vol_target_carry rounds 1-5 — divide-by-price fix for JPY-quoted pairs would have been visible in single log comparison instead of 5-round code archaeology"
+
+  - id: WS-02
+    severity: critical
+    category: execution-firewall
+    description: "No TradeIntent spec separates researcher's claim from implementation. VT parameters (target_vol=10%, leverage_cap=2.0, rebalance_threshold=0.20, lookback=252) live only in config and docstring — never emitted from research artifact, never reviewed against one. Parameter drift between research and production is invisible by design."
+    evidence: ["find references/ -name 'TradeIntent*' = zero", "CONSENSUS_2026-04-25.md:65 CTO C3 not cleared", "execution-firewall-review B1/B2/B3/B5 fail"]
+    proposed_remediation: {owner: "quant-researcher (spec) + quant-developer (review)", action: "Author TradeIntent YAML for vol_target_carry: entry conditions, sizing formula, slippage budget P50/P90/P99 by regime, retirement triggers (VTC-T1..T8), pre-reg path. Then run firewall rubric A-E", cost: M}
+    would_it_have_caught: "Round 1 Sharpe gap caused by sizing formula equity*signal (wrong denominator for JPY pairs) — implementation choice never in spec. TradeIntent declaring units=(equity/price)*signal*leverage with explicit pair-quoting would have surfaced engine divergence as A1 finding at PR review"
+
+  - id: WS-03
+    severity: high
+    category: kill-switch-coverage
+    description: "kill_switch_audit.log contains only operator-authored RESET; system-triggered HALT events written to session logs as CRITICAL print, NOT to audit log. Prior HALTED events (2026-04-17, 2026-04-23) absent from audit log."
+    evidence: ["data/kill_switch_audit.log: 1 JSON line event=RESET", "data/paper_trading_session.log:82-84 CRITICAL not in audit log", "src/forex_system/risk/kill_switch.py:270-273 logger.critical only"]
+    proposed_remediation: {owner: quant-developer, action: "Modify kill_switch.py trigger() to also append structured JSON to audit log (same format as RESET). Audit log becomes authoritative ring-buffer for full lifecycle.", cost: S}
+    would_it_have_caught: "Both prior triggers plausibly false positives caused by Saxo balance-fetch fallback returning 100K vs real ~1,004K. With trigger events in audit log, equity_at_trigger=100,000.00 would immediately reveal false-positive pattern instead of post-hoc archaeology"
+
+  - id: WS-04
+    severity: high
+    category: observability
+    description: "prediction_log.py:85 UserWarning fires every cycle (7× in 100 lines = 14% of log). Bypasses log level filters (Python warning, not logger call), degrades signal-to-noise."
+    evidence: ["data/vt_paper_session.log lines 1-2,6-7,11-12,14-15,18-19", "src/forex_system/analysis/prediction_log.py:85"]
+    proposed_remediation: {owner: quant-developer, action: "Fix tz-aware Period conversion (use tz_convert(None) before to_period('M')) or warnings.filterwarnings selectively", cost: S}
+
+  - id: WS-05
+    severity: high
+    category: reproducibility
+    description: "Equivalence test validates Sharpe parity script vs engine but does NOT validate that the LIVE paper-trading loop uses the same code path. Live loop is third code path tested by neither. Parameters set in live loop (rebalance_threshold, constant_capital_sizing, swap accrual mode) not covered."
+    evidence: ["tests/equivalence/test_engine_vs_script.py scope = script vs engine only", "scripts/run_paper_trading_vt.py:380-395 constructs VolTargetSizer/Strategy directly (not via engine.run_backtest)", "execution-firewall-review Section E: no integration test"]
+    proposed_remediation: {owner: quant-developer, action: "Add third test tier: synthetic live-loop integration test instantiating same objects as run_paper_trading_vt.py with mock SaxoBackend; verify position sizing matches equivalence-test engine output", cost: M}
+    would_it_have_caught: "constant_capital_sizing=True is set in equivalence test but not necessarily in live loop — equivalence test could pass while live loop continues growing-equity sizing. Integration test would catch immediately"
+
+  - id: WS-06
+    severity: medium
+    category: research-to-prod-parity
+    description: "No mechanism to detect new carry-family scripts run outside trial registry. 8 untracked scripts in git status are unregistered trials. Any could have produced Sharpe influencing parameter selection for registered trials, violating Bonferroni basis."
+    evidence: ["git status: ?? on 8 scripts", "CONSENSUS_2026-04-25.md:88-90", ".fintech-org/trials.jsonl: 14 lines"]
+    proposed_remediation: {owner: "quant-developer (hook) + quant-researcher (backfill)", action: "(a) git pre-commit hook blocking new strategy scripts without trial-registry entry. (b) Backfill 8 current untracked into trials.jsonl with status=exploratory.", cost: M}
+
+top-3-priorities:
+  - {priority: 1, id: WS-01, first_action: "Quant Developer adds structured logger.info() at decision boundary in run_paper_trading_vt.py run_cycle() before Sydney open. Read-only change to log output, no trading-behavior change."}
+  - {priority: 2, id: WS-02, first_action: "Quant Researcher authors minimal TradeIntent YAML for vol_target_carry capturing 5 mandatory Section B fields. Docs-only, no code risk."}
+  - {priority: 3, id: WS-03, first_action: "Quant Developer adds structured JSON append in kill_switch.py trigger(). ~1 hour."}
+
+conditions:
+  - "C1: WS-01 must be in place before any new paper order cycle in week 17. Route to Quant Developer."
+  - "C2: WS-02 must be authored before Bet #2 or Bet #3 implementation begins. Route to Quant Researcher."
+  - "C3: WS-03 must land before next kill-switch test event. Route to Quant Developer."
+  - "C4: WS-04, WS-05, WS-06 are week-ahead, not pre-open blocking."
+
+failure-modes-considered:
+  - "FM-1: WS-01 implemented as print() instead of logger.info() → evades log filtering, adds noise. Mitigation: code review verifies structured key-value."
+  - "FM-2: TradeIntent spec authored by same person who implemented strategy → post-hoc transcription, firewall independence lost. Mitigation: spec reviewed by HoQR before implementation review."
+  - "FM-3: Adding trigger events to kill_switch_audit.log changes file format → parser at kill_switch.py:72 could refuse start. Mitigation: test new format against parse logic before deploy."
+
+what-you-refused-to-do:
+  - "Write code to implement WS-01..06 — all routed."
+  - "Run/interpret backtests — ROUTE_TO head-of-quant-research / null-hypothesis-tester."
+  - "Clear GATE-01/GATE-02 — CEO+HoQR ratification items."
+  - "Assess strategy edge quality — ROUTE_TO head-of-quant-research."
+  - "Make sizing/risk recommendations — ROUTE_TO cro."
+
+routed-to:
+  WS-01: quant-developer
+  WS-02: quant-researcher (spec) then quant-developer (firewall audit)
+  WS-03: quant-developer
+  WS-04: quant-developer
+  WS-05: quant-developer
+  WS-06: quant-developer (hook) + quant-researcher (backfill)

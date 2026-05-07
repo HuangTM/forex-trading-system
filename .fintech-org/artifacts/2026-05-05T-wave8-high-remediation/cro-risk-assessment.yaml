@@ -1,0 +1,254 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: 2026-05-05T00:00:00Z
+subtask_ref: wave8-bc8-reverify-and-account-key-parity-design
+subtask_id: 125f0fe8-cf61-4752-af41-f5b924524572
+
+# CRO-specific extension fields
+size_multiplier: 0.0
+binding_constraints:
+  - BC-1 exposure-aggregation gate (max_active_strategies=4, max_concurrent_positions=6)
+  - BC-7 drawdown ladder (10% halt-new / 15% reduce / 20% full-halt)
+  - BC-8 JPY-correlated notional cap (15% of book)
+  - BC-2 heartbeat-watchdog (300s timeout)
+regime_flags:
+  - cf_t9 monitor active (n_readings=36; both regime states observed) per data/cf_t9_state.json
+  - paper-only mode (no_live_capital firm rule applies)
+  - both loops single-pair USDJPY → BC-8 denominator collapses to JPY-correlated == total book in single-account case
+blowup-analog: "Knight Capital (Aug 2012). Per kill-switch-design SKILL.md, the Knight class is `existence-of-control != functioning-control under failure`. Direct analog here: SaxoExecutionBackend.account_key (src/forex_system/saxo/execution.py:35-38) lazy-evaluates from client.get_account_info() — first-call-wins. Two loops fed different SAXO_TOKEN env vars resolve to two different AccountKeys with no cross-loop visibility. The protective intent (BC-8 15% cap) exists; under the dual-account failure mode it does not function."
+contamination-check: "clean"
+
+# Wave-8 specific decision content
+account_key_gate_design:
+  recommended_option: B
+  recommended_option_description: |
+    Option B (process-pair lock via launcher script) with one mandatory addition: it
+    must call SaxoClient.get_account_info() FOR EACH child loop (separately, with each
+    loop's resolved SAXO_TOKEN) and assert AccountKey equality BEFORE either child
+    process is allowed to dispatch its first cycle. The launcher writes a single
+    parity record to data/paper_account_key_lock.json containing
+    {launch_ts, account_key, vt_pid, cf_pid, token_fingerprint_vt, token_fingerprint_cf}
+    (token fingerprint = SHA-256 of the raw token, truncated to 12 chars — never the
+    raw token; per log-as-decision-trace item 7 no-secret-leak).
+
+    Each child loop, at startup (BEFORE the first run_cycle invocation, BEFORE any
+    fetch_account_equity call, BEFORE the watchdog.start()), reads the lock file,
+    asserts that its own backend.account_key equals the locked value, and if not,
+    halts with a structured log entry event="startup.parity.failed" and exit code
+    non-zero. If the lock file is absent or older than its stale TTL (default 6h),
+    the child halts and instructs the operator to re-run the launcher.
+
+    Why B over A: option A (pure shared state file with stale-detection) creates a
+    TOCTOU window — loop-1 writes the file, loop-2 reads but each loop's account_key
+    is computed from its own client.get_account_info() which can disagree even when
+    the file passes its read. Option B forces both loops' AccountKey resolutions to
+    be MEASURED ONCE, by the launcher, against the actual Saxo /port/v1/accounts/me
+    response under each token, and locked before either loop runs. The lock file is
+    a record of what was verified, not the verification itself.
+
+    Why not C: an environment-variable-only check (e.g., assert SAXO_TOKEN identical
+    across env) is insufficient — the same token CAN resolve to different account
+    keys depending on the OAuth scope it was issued under, and conversely two different
+    tokens issued for the same Saxo client account WILL resolve to the same AccountKey.
+    The authoritative identity is the API response, not the env var.
+  testability_in_production: |
+    Knight-class testability rubric (per kill-switch-design SKILL.md properties 1-5):
+
+    Property 1 (out-of-band): the parity check runs at process startup BEFORE the
+    paper loop authenticates to Saxo for ordering. It does not depend on either
+    target loop being healthy. PASSES.
+
+    Property 2 (operable by junior on desk): the test is `python scripts/launch_parity_test.py
+    --simulate-mismatch` which spawns a synthetic mismatch (e.g., uses a fake AccountKey
+    in the second child's environment) and asserts the second child halts at startup
+    with the expected log event. One command, one assertion. PASSES.
+
+    Property 3 (SLA): startup-gate halt SLA is "before first dispatch cycle" — i.e.,
+    < interval (default 1800s). In practice the gate fires within seconds of process
+    start (one HTTP call to Saxo /port/v1/accounts/me + one file read). Measure on
+    every test run; record p99 in data/parity_gate_test_results.jsonl. PASSES with
+    measured number.
+
+    Property 4 (testable in prod without causing the outage it prevents): YES — the
+    test injects a deliberate mismatch via a launcher --simulate-mismatch flag that
+    forces one child's resolved AccountKey to differ from the lock file. The actual
+    paper trading does not start; the gate fires; the test asserts the halt. The
+    outage prevented (over-exposure via dual accounts) is NOT staged in the test —
+    only the detection mechanism is. The Knight lesson is satisfied: the same code
+    path the gate uses in real failure IS the code path under test. There is no
+    "developer-only test endpoint."
+
+    Property 5 (observable & attributable): the gate emits one structured log entry
+    per outcome (pass / fail) per log-as-decision-trace items 1, 2, 5, 6:
+      event="startup.parity.checked" (pass path), or
+      event="startup.parity.failed" (fail path),
+      with fields: account_key (truncated to first 6 + last 4 chars), expected_account_key
+      (same redaction), token_fingerprint, lock_file_age_seconds, pid, role, decision_ts,
+      receive_ts, exit_action.
+    Reconstructible from logs alone; no debugger required.
+
+    Verdict: design satisfies all five kill-switch properties. Approval pending QD's
+    implementation passing the testability rubric on the actual code, not just the
+    spec.
+  failure_modes_considered:
+    - "Same SAXO_TOKEN, two child processes: account_key resolves identically; gate passes; intended behavior."
+    - "Different SAXO_TOKEN, same Saxo client account: account_key still resolves identically (per saxo/client.py:262-268 — AccountKey is per-Saxo-account, not per-token); gate passes; intended behavior."
+    - "Different SAXO_TOKEN, different Saxo client accounts (the over-exposure failure mode): account_key resolves to two different values; gate fires on the second child; second child halts; intended behavior."
+    - "Lock file present but stale (older than TTL): each child halts and surfaces a clear operator instruction to re-run launcher; intended behavior. Stale TTL chosen 6h to be longer than longest expected paper trading session segment but short enough that yesterday's lock cannot satisfy today's parity check."
+    - "Lock file absent: each child halts. Loop scripts CANNOT be invoked directly without the launcher having run first. Per PM acceptance no_paper_loop_start_by_orchestrator constraint, this is reinforcement, not a regression."
+    - "Lock file present but tampered (account_key value forged): the child still computes its own account_key from the live Saxo API; if it disagrees with the locked value, the child halts. The lock file is reference, not source-of-truth. Property 1 (out-of-band) preserved — the live API call cannot be subverted by file modification."
+    - "Race between two child processes BOTH writing the lock file: not possible by design — only the launcher writes; child loops only read."
+    - "Saxo API transient failure during launcher's parity verification: launcher itself halts (does not start either child). Same fail-closed semantics."
+    - "Operator manually starts run_paper_trading_*.py outside the launcher: child reads missing/stale lock file and halts. The startup gate is the protection, NOT a launcher-only convention."
+    - "DST / timezone in the stale-TTL check: the lock file timestamp is ISO-8601 UTC; stale comparison uses time.time() against the parsed UTC ts. Per clock-and-ordering item 3 (timezone explicit) and item 9 (DST), no wall-clock arithmetic ambiguity."
+  bypass_paths_audited:
+    - "Env var override (e.g., FOREX_SKIP_PARITY_GATE=1): EXPLICITLY FORBIDDEN. No environment-variable bypass is permitted in the gate code path. If QD adds one for testing, the test suite must verify the env var has NO effect in non-test branches. Per kill-switch-design property 1 — bypassability is exactly the Knight class."
+    - "Lazy evaluation of backend.account_key: AUDITED. Per src/forex_system/saxo/execution.py:35-38, account_key is a @property that lazy-evaluates on first access. The gate must FORCE evaluation at startup (call backend.account_key explicitly before the gate runs) to ensure the property has been resolved, not just checked. Otherwise the test passes against an unresolved None vs lock value."
+    - "Test-mode shortcut: if a future PR adds a `--paper-skip-parity` CLI flag for dev convenience, this is a Knight-class regression. The pre-trade gate must NOT be CLI-bypassable. CI must include a test asserting that no such flag exists in either run_paper_trading_*.py."
+    - "Child loop spawned with --no-loop single-shot mode: STILL must pass the gate. Single-shot mode does not exempt the parity check; one-shot orders are over-exposure orders too."
+    - "Operator running scripts in tmux/screen with a manually-set SAXO_TOKEN that bypasses the launcher: the child still calls saxo/client.py:get_account_key() and compares to the lock file; lock file absent → halt. No scenario where the gate is silently skipped."
+    - "Sentinel value collision: if a test fixture writes a placeholder account_key like 'TEST-KEY' into the lock file, AND a child resolves the SAXO_TOKEN to the same string, the gate would pass spuriously. Mitigation: the launcher writes a sha256-hashed sentinel alongside the raw account_key, and the child verifies BOTH match. Defense-in-depth against fixture pollution into prod."
+    - "Heartbeat-watchdog overlap: the parity gate runs BEFORE watchdog.start() per the recommended startup ordering. A watchdog timeout cannot mask a parity failure because the watchdog is not yet armed. PASSES."
+    - "Drawdown contract instantiation: dd_contract is created in main() AFTER the parity gate would fire. If parity fails, dd_contract is never instantiated — process exits cleanly. No state leak."
+
+cost_model_wiring_risk_assessment:
+  drawdown_contract_interaction: |
+    SUBSTANTIVE INTERACTION RISK identified. Per src/forex_system/risk/drawdown_contract.py:132-146
+    and scripts/run_paper_trading_vt.py:394-428, dd_contract.assess(equity) consumes equity from
+    fetch_account_equity() which returns Saxo's TotalValue (saxo/client.py:214-222). Saxo's
+    TotalValue ALREADY reflects fills net of spread + commission + accrued swap as posted by the
+    SIM venue. If Wave-8 wires explicit cost-deduction into the equity-write path AND that
+    deducted-equity value is passed to dd_contract.assess(), the contract will DOUBLE-COUNT
+    costs and fire the BC-7 ladder (10% / 15% / 20%) at LOWER true drawdowns than intended.
+
+    Concrete numerical risk: with USDJPY round-trip cost ~3 bps per trade and rebalance threshold
+    ~20%, a paper session that triggers one rebalance per week over 20 weeks accumulates ~60 bps
+    of synthetic double-counted cost. Material over the contract's 10% halt-new threshold
+    margin if the paper loop's true drawdown is hovering near 9%.
+
+    Mandatory architectural rule for Wave-8 cost-model wiring: explicit cost-deduction is for
+    research/reporting (the equity-curve write to data/paper_trading_session.log:566-568) ONLY.
+    The equity value passed to dd_contract.assess(), kill_switch.check_and_trigger(), and
+    kill_switch.record_equity_fetch_*() MUST remain the raw Saxo TotalValue. No cost subtraction
+    on the risk-contract path.
+
+    The reverse failure (under-firing) is also possible if the explicit cost deduction is
+    SMALLER than Saxo's actual fill-cost embedding (e.g., model-spread < realized-spread). In
+    that case the explicit-cost equity-curve OVERSTATES P&L vs Saxo's number and the
+    research-reported drawdown LOOKS smaller than the contract-tracked drawdown. Operationally
+    this means the equity-curve report (research view) and the BC-7 ladder fires (risk view)
+    will disagree — operator must be trained to read BC-7 fires from the dd_contract log line
+    (event="drawdown_contract_*"), not from the equity-curve plot.
+
+    Recommended pattern: emit BOTH values to the equity log:
+      {ts, strategy, raw_equity_saxo, explicit_costs_deducted, derived_equity_research}
+    The dd_contract sees raw_equity_saxo only. The research dashboard plots derived_equity_research.
+    No silent rewriting of one to the other. Per log-as-decision-trace item 3 (source named) and
+    item 8 (structured fields).
+  bc8_aggregation_unaffected: true
+  recommended_test_addition: |
+    Add tests/scripts/test_wave8_cost_model_dd_invariance.py with two test cases:
+
+    Test 1 (no double-count): instantiate DrawdownContract with a synthetic equity sequence
+    that crosses the 10% threshold at index N. Wire the cost-deduction primitive to subtract
+    a fixed cost (e.g., 0.5 bps per cycle) into the equity-curve write. Assert dd_contract.assess()
+    fires HALT_NEW_DISPATCH at the SAME index N as a baseline run with no cost deduction. If
+    the assertion fails, cost deduction is leaking into the dd path.
+
+    Test 2 (BC-8 unaffected): compute_exposure() consumes Position.size and Position.entry_price
+    (src/forex_system/risk/exposure_aggregator.py:117). Both fields come from
+    backend.get_positions(), which reads Saxo's NetPositions endpoint — neither is touched by
+    paper-loop equity-write logic. Test asserts that a non-trivial cost-deduction in the equity
+    path leaves an identical ExposureSnapshot vs the no-cost-deduction control. This protects
+    BC-8 (15% JPY cap) from accidental coupling via shared globals or instrumentation.
+
+    Both tests must run within the existing 666-test budget (PM hard constraint
+    total_test_count_must_not_decrease=666 — the addition replaces existing dd-contract tests
+    1:1 OR genuinely adds 2; PM must reconcile in acceptance-criteria delta. Flagged for
+    PM consensus.)
+
+evidence:
+  - "src/forex_system/risk/exposure_aggregator.py:46 — _JPY_CORRELATED frozenset {USDJPY, GBPUSD}; out-of-scope to expand per PM hard-constraint."
+  - "src/forex_system/risk/exposure_aggregator.py:148-215 — check_dispatch_allowed enforces BC-1, BC-8 limits with explicit caller-provided thresholds (no silent defaults). compute_exposure consumes Position.size * entry_price, which originates from backend.get_positions() per-account view."
+  - "src/forex_system/saxo/execution.py:31-38 — SaxoExecutionBackend.account_key is a @property that lazy-evaluates client.get_account_key() once and caches. First-call-wins; two backends in different processes resolve independently."
+  - "src/forex_system/saxo/client.py:262-268 — get_account_key returns accounts[0].AccountKey from /port/v1/accounts/me. Per-token, per-Saxo-account; two different tokens issued against two different Saxo accounts will return two different AccountKeys."
+  - "scripts/run_paper_trading_vt.py:363, 687, 711 — backend.account_key consumed at fetch_account_equity, initial_equity check, and the printed startup banner. No cross-process check."
+  - "scripts/run_paper_trading_carry_fred.py:353, 638, 661 — symmetric usage. No cross-process check."
+  - "scripts/run_paper_trading_vt.py:394-430 — dd_contract.assess(equity) consumes raw equity from fetch_account_equity. BC-7 ladder fires off this value. ANY cost deduction on this path changes BC-7 firing semantics."
+  - "scripts/run_paper_trading_vt.py:566-568 — EQUITY_LOG_PATH write currently records the raw equity value. This is the natural insertion point for explicit-cost reporting WITHOUT touching the dd path."
+  - "src/forex_system/risk/drawdown_contract.py:132-146 — assess() updates running peak with input equity; double-deduction risk concrete."
+  - "src/forex_system/risk/kill_switch.py:208-235 — check_and_trigger(current_equity) compares to day_start_equity; same double-deduction risk if cost-adjusted equity is passed."
+  - "kill-switch-design SKILL.md — five properties: out-of-band, junior-operable, SLA, prod-tested-on-schedule, observable+attributable. Recommended option B satisfies all five for the parity gate."
+  - "trading-firm-regulatory-frameworks SKILL.md — Knight Capital postmortem context routes to SEC Rule 15c3-5 (Market Access Rule); the firm is paper-only / not a US broker-dealer, so 15c3-5 is discipline-alignment not direct obligation. Cited per anti-pattern #2 in that skill: borrowed discipline, not a filing claim."
+  - "log-as-decision-trace SKILL.md — items 1, 2, 3, 4, 5, 6, 7, 8, 9 all apply to gate log emissions; item 7 (no secrets) drives the SHA-256 token-fingerprint redaction."
+  - "clock-and-ordering SKILL.md — item 3 (timezone explicit) and item 9 (DST/session boundary) drive the lock-file UTC ISO-8601 stale-TTL choice."
+  - "data/cf_t9_state.json — n_readings=36, both regime states observed; informational only, does not affect parity-gate or cost-model risk assessment."
+  - "PM hard-constraint paper_only=true and firm rule #1 (no live capital) — both reaffirm that the parity gate's failure mode is reputational/reproducibility risk and audit-trace integrity, not realized capital loss. Severity is HIGH because the over-exposure shape is the same (15× design intent) and the discipline is meant to be transferable to a future live capital regime where the realized-loss risk is direct."
+
+assumptions:
+  - "Wave-8 will not modify _JPY_CORRELATED frozenset (PM out-of-scope) — if it does, this assessment must be redone."
+  - "QD will implement the recommended option B in <=50 LoC across <=4 files (PM hard-constraint production_loc_budget_total=50, files_changed_max=4)."
+  - "The launcher script is a NEW file — not an existing run_paper_trading_*.py modification. If the launcher counts as a 4th file change, only 3 files of run_paper_trading_*.py + risk module modifications are available."
+  - "Saxo SIM /port/v1/accounts/me responds in <2s under nominal load (assumption — should be measured during testability rubric Property 3)."
+  - "The 6-hour stale TTL on the lock file is conservative; QD may propose shorter (e.g., 4h) if paper sessions are reliably shorter."
+  - "The token fingerprint (SHA-256 truncated 12 chars) is non-reversible to the token but stable across processes — assumption verified by sha256 properties, not measurement."
+  - "Saxo's TotalValue includes posted spread, commission, accrued financing as the SIM models them — operational assumption from Saxo SIM documentation; cross-checked elsewhere by the firm's QD team. If false, the cost-model double-count risk is moot AND a separate gap exists where Saxo SIM under-reports realized cost relative to the firm's backtest cost model."
+
+confidence: medium
+
+body: |
+  Risk-architecture summary across two HIGH-priority concerns.
+
+  CONCERN 1 (cost-model wiring): the substantive risk is double-counting. The drawdown
+  contract (BC-7) consumes equity from Saxo's TotalValue, which already embeds SIM-posted
+  costs. If Wave-8's explicit cost-deduction primitive feeds its output into the
+  dd_contract.assess() input — even by accident through a shared variable — the BC-7 ladder
+  will fire at lower true drawdowns than the contract calibration intended. Mitigation is
+  architectural separation: explicit cost deduction is research-side instrumentation written
+  to the equity log, never the value passed to risk-contract primitives. BC-8 aggregation
+  is unaffected because it consumes Position objects from backend.get_positions(), which is
+  not in the equity-write path. One mandatory test addition (cost-DD invariance) anchors
+  the rule structurally.
+
+  CONCERN 2 (account_key parity): the failure mode is Knight-class — protective control
+  exists (BC-8 15% JPY cap) but does not function under the dual-account configuration. The
+  exposure aggregator queries one account's positions; the other account's USDJPY position
+  is invisible. Recommended option B: launcher-mediated parity verification with a written
+  lock file that each child loop reads at startup AND independently verifies its own
+  resolved account_key against. This is testable in production via a --simulate-mismatch
+  injection that exercises the same code path the real failure would, satisfying all five
+  kill-switch properties. Bypass paths enumerated and audited; the most important guarantee
+  is that no env var or CLI flag can disable the gate. size_multiplier=0.0 means: if the
+  parity check fails, the second loop does not start (full halt of the second strategy
+  pending operator action), per the failure-closed default.
+
+  Decision: SIZE-REDUCED with size_multiplier=0.0 conditional on the parity gate. The
+  reduction applies only when parity fails; under nominal (single-account) operation,
+  full per-strategy sizing is restored. This is the kill-switch-design pattern of
+  fail-closed default with a fast-path normal operation.
+
+  Out-of-scope reaffirmed: no _JPY_CORRELATED expansion, no risk-contract modification,
+  no new strategies. Wave-8 is a 50-LoC remediation in 4-file budget; CRO assessment is
+  scoped to that envelope.
+
+sources:
+  - "https://www.sec.gov/rules/final/2010/34-63241.pdf — SEC Rule 15c3-5 final release (Market Access Rule); cited via trading-firm-regulatory-frameworks SKILL.md anti-pattern #2 — discipline alignment, not direct obligation since firm is paper-only."
+  - "https://www.bis.org/publ/bcbs265.pdf — BIS bcbs265 (FRTB consultative); cited via quantitative-risk-management SKILL.md as the calibration anchor for ES/drawdown contract discipline."
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+policy_violations_detected: []
+knowledge_gaps:
+  - "Saxo SIM TotalValue cost-embedding granularity — assumed to include spread+commission+swap; not directly verified in this assessment. If QD finds a gap, the cost-model double-count risk recategorizes from real to moot, but a NEW gap appears (SIM under-reports realized cost vs firm backtest cost model — a research-validity issue, not a risk-contract issue)."
+  - "Realized p99 latency of Saxo /port/v1/accounts/me under nominal load — needed for parity-gate Property 3 SLA verification. QD should measure during implementation."
+  - "Whether the launcher script counts toward the PM files_changed_max=4 budget — PM should clarify; if yes, the launcher consumes one of the four file slots."
+
+claimed_domains:
+  - position-sizing
+  - risk-budget-allocation
+  - kill-switch-design-and-testing
+  - market-access-controls
+  - correlation-and-concentration-limits

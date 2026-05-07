@@ -1,0 +1,489 @@
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: "2026-05-06T00:00:00Z"
+subtask_ref: wave9-precommit-review
+subtask_id: "cto-wave9-arch-review-a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+evidence:
+  - scripts/run_paper_trading_carry_fred.py:634-665 (cost formula block — diff lines +628–+670)
+  - scripts/run_paper_trading_vt.py:674-710 (cost formula block — diff lines +666–+716)
+  - scripts/monitor_regime_triggers.py:258-301 (BC-4 persistent counter addition — diff)
+  - tests/scripts/test_cf_t9_monitor.py:226-262 (TestBC4PersistentCounter — diff)
+  - tests/scripts/test_wave8_high_remediation.py:334-446 (TestE2EParity — EURUSD only)
+  - src/forex_system/backtest/engine.py:544-573 (_to_engine_units JPY convention)
+  - src/forex_system/backtest/engine.py:329-332 (delta-cost charging on rebalance)
+  - docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md (Wave-8 context)
+  - .fintech-org/artifacts/wave9-precommit-review/pm-acceptance-criteria.yaml (PM AC gates)
+  - ruff check src/ → 19 errors (verified by shell execution, no regression)
+  - pytest tests/backtest/test_engine.py::test_no_lookahead → 1 passed (verified)
+  - pytest --co → 686 tests collected (verified, at Wave-8 baseline)
+  - forbidden-phrases scan on all Group A + B files → 0 matches (verified)
+  - forbidden-phrases scan on all Group C scripts → 0 matches (verified)
+  - wc -l Group C scripts → 116,98,147,143,306,177,169,263 lines (verified)
+  - grep execute_signal/SaxoClient/live= on Group C scripts → 0 matches (verified)
+
+assumptions:
+  - The diff shown by `git diff HEAD` represents the complete and accurate uncommitted
+    delta as of the review timestamp.
+  - Wave-8 NHT dissent items (finding-K, NEW-1, NEW-2) are correctly characterized
+    in CONSENSUS_2026-05-05_wave8_remediation.md Section 3 and are still open.
+  - CEO has not yet ratified CONSENSUS_2026-05-05; deferred-decisions.jsonl remains
+    empty per PM AC assumptions.
+  - The sacred test pass and ruff/pytest baseline counts are as returned by the shell
+    commands executed during this review.
+  - Group C scripts have never been connected to a live execution path (confirmed by
+    grep finding zero Saxo execution imports).
+
+confidence: high
+
+body: |
+  ## Scope and Risk Profile
+
+  This review covers Wave-9 pre-commit code under the review-plan + execution-firewall-review +
+  log-as-decision-trace + kill-switch-design rubrics. The change set is HIGH RISK by profile:
+  multi-file, touches paper-trading execution path, irreversible-in-session effects (any cycle
+  that fires under broken code has real broker interaction). Full review depth is warranted.
+
+  Net Group A production LoC delta: +352 lines added, -2 lines removed → net +350 LoC.
+  (Verified by `git diff HEAD` grep: 354 lines added, 2 deleted across the four Group A files.)
+  Group B (new test file): 681 lines, all net-new.
+  Combined production+test wave delta: approximately 1,031 net-new lines.
+
+  ---
+
+  ## F-003: LoC-Cap Deviation Analysis
+
+  The Wave-8 PM AC declared a 50-LoC hard constraint. Actual Group A net delta is +350 LoC (7.0×
+  overage). This is a real deviation that requires CEO ratification.
+
+  However, I do NOT recommend reject-and-shrink. The 50-LoC constraint was set before the scope
+  of Wave-8 remediation was fully understood. CONSENSUS_2026-05-05 Section 7 explicitly deferred
+  the USDJPY unit-convention fix AND the swap-accrual gap AND the atomic lock replacement to
+  Wave-9, yet those three items alone require:
+
+    - assert_account_key_parity (duplicated identically in both scripts): ~70 LoC × 2 = 140 LoC
+    - reset_account_key_lock (duplicated identically in both scripts): ~40 LoC × 2 = 80 LoC
+    - cost-model block + swap accrual + equity-log write (per script): ~45 LoC × 2 = 90 LoC
+    - CLI argument additions: ~20 LoC × 2 = 40 LoC
+    - Total unavoidable production LoC given Wave-8 NHT closures: ~350 LoC
+
+  The duplication (assert_account_key_parity is byte-identical in both scripts) is a design
+  smell and tech-debt target (see Section 6 below), but it is architecturally consistent with
+  the current pattern where both scripts are standalone executables with no shared library.
+
+  RECOMMENDATION: ratify-deviation. The 50-LoC ceiling was an estimate that predates the NHT-
+  directed remediation scope. CEO ratification of the deviation is required before commit but the
+  engineering rationale is sound. The alternative (reject-and-shrink to ≤50 LoC) would mean
+  committing partial HIGH-2 fixes without the reset CLI, which NHT explicitly required.
+
+  Recommend CEO ratification artifact citing: "50-LoC cap set at Wave-8 AC issuance; Wave-9
+  scope expanded by NHT-mandated closure of finding-K preconditions (atomic lock, reset CLI,
+  cost-model block). Actual delta 350 LoC. Ratified per CONSENSUS_2026-05-05 Section 7."
+
+  ---
+
+  ## F-007: Kill-Switch Property 4 / --self-test CLI Flag
+
+  The PM AC explicitly out-of-scopes the --self-test CLI flag for this wave (pm-acceptance-
+  criteria.yaml out-of-scope list, item "--self-test CLI flag for kill-switch Property 4").
+
+  Applying the kill-switch-design rubric to what IS in scope:
+
+  Property 1 (out-of-band): KillSwitch is imported from forex_system.risk.kill_switch and wired
+  into run_cycle. The trigger path (kill_switch.check_and_trigger, kill_switch.trigger) does not
+  require the broker connection to be healthy to fire — it writes to a local audit log
+  (data/kill_switch_audit.log and data/kill_switch_audit_cf.log). The kill_switch.is_triggered
+  guard fires at the top of run_cycle before any broker calls are made. Property 1: CONDITIONALLY
+  PASS (the audit log write is the only dependency; if the local disk is full, the log fails but
+  the halt still fires — acceptable).
+
+  Property 2 (junior-operable): Kill-switch is triggered by equity breach, not requiring manual
+  action. For manual halt, there is no documented "one command" mechanism in the CLI flags
+  reviewed. CTRL+C kills the loop but does not atomically cancel open orders. Property 2: GAP.
+  Not a blocker for this commit (paper-only, no real capital), but should be tracked as a Wave-9+
+  item.
+
+  Property 3 (SLA): No declared time-to-stop SLA found in the scripts. The kill switch halts
+  NEW dispatches at the top of the next cycle (30-minute interval). For paper trading, ~30 minutes
+  is acceptable; for live trading this would be Property 3: GAP.
+
+  Property 4 (tested in prod): --self-test is absent. This is the PM-acknowledged out-of-scope
+  item. The kill-switch-design rubric calls this approve-with-conditions: Property 4 gap that
+  can be fixed in a scheduled test. BLOCKER status is deferred per PM out-of-scope ruling.
+
+  Property 5 (observable and attributable): kill_switch.trigger() writes a structured audit
+  log entry (data/kill_switch_audit.log, data/kill_switch_audit_cf.log). The entry carries
+  TriggerReason. This satisfies Property 5 minimally; it does not capture "who triggered it"
+  for automated triggers (N/A for automated triggers) or the time-to-full-effect measurement.
+
+  KILL-SWITCH VERDICT: approve-with-conditions. Property 4 is a documented deferred item (PM
+  out-of-scope). Properties 2 and 3 are open gaps at the design level but are not blocking for
+  a paper-trading loop. The --self-test absence is not a blocker for THIS commit.
+
+  RECOMMENDATION: Track --self-test as a Wave-10 hard gate before any expansion of paper-trading
+  scope. The kill-switch-design rubric requires quarterly live tests for Tier-0 services. Paper
+  loop should be classified Tier-1 at minimum (semi-annual live test). No test has been conducted.
+
+  ---
+
+  ## F-004 / F-008: Log-Sink Design (log-as-decision-trace rubric)
+
+  Running the 10-item rubric against decision boundaries in the Group A diff:
+
+  ### Decision boundary inventory
+
+  1. assert_account_key_parity: account-key match/mismatch decision
+  2. check_dispatch_allowed: exposure-gate pass/block decision
+  3. kill_switch.check_and_trigger: kill-switch fire/no-fire decision
+  4. cost-model block: cost_usd/swap_usd computation → equity-log write
+  5. Equity-log write: paper_equity_bt_equiv record decision
+
+  ### Item-by-item findings
+
+  **Boundary 1 — assert_account_key_parity:**
+  - Item 1 (outcome named): PASS — "account_key_parity_violation" emitted via logger.critical.
+  - Item 2 (inputs in entry): PASS — account_key and locked_key both in extra dict (vt.py:152-158,
+    carry_fred.py:145-151 in diff).
+  - Item 3 (source of parameters): PARTIAL — lock file path is in the error message ("lock file
+    records") but the lock_path itself is not in the structured log entry. Minor gap.
+  - Item 4 (time explicit): FAIL — the log entry does not include exchange_ts/decision_ts; only
+    the formatter's asctime. Acceptable for startup gate; not a trading-path boundary.
+  - Item 5 (correlation): N/A — startup path, no cycle_id yet.
+  - Item 6 (skipped path): FAIL — the matching-key success path emits nothing (just returns).
+    No "account_key_parity_ok" structured log entry. Cannot distinguish "gate fired and passed"
+    from "gate not reached" from logs alone.
+  - Items 7-10: PASS.
+
+  **Boundary 2 — check_dispatch_allowed (existing, not new in this diff):**
+  - PASS on failure path: dispatch_blocked_aggregation_gate with structured extra dict
+    (vt.py:553-563, carry_fred.py: equivalent block).
+  - Item 6 (skipped path): FAIL — if check_dispatch_allowed does NOT raise (dispatch allowed),
+    no structured log entry is emitted. The ws01 decision trace records signal/action but not
+    "dispatch_allowed=True, exposure=X%" as a named event. Not introduced by this diff, but
+    still present.
+
+  **Boundary 3 — kill_switch.check_and_trigger:**
+  - Out-of-scope for this diff review (not modified in diff); applying to new code only.
+
+  **Boundary 4/5 — cost-model block / equity-log write:**
+  - Item 1 (outcome named): PASS — key "strategy" in JSON distinguishes vt vs carry_fred.
+  - Item 2 (inputs in entry): PARTIAL — cost_pips, cost_usd, swap_usd, equity all present.
+    Notably MISSING: pair (the pair being traded), which is available in the calling scope.
+    Without pair in the log entry, an audit cannot distinguish USDJPY from EURUSD costs.
+  - Item 3 (source of parameters): FAIL — pip_v is hardcoded from the `if "JPY" in pair`
+    heuristic, not sourced from PairInfo.pip_value or any versioned config. The equity log
+    records cost_pips and cost_usd but not which pip_v was applied or where it came from.
+    If the heuristic is wrong (e.g., for an unexpected pair), the log cannot reveal why.
+  - Item 5 (correlation): FAIL — no cycle_id in equity log entry. Cannot join equity-log entries
+    to ws01 decision-trace entries for the same cycle without relying on timestamps.
+  - Item 6 (skipped path): PASS — when needs_action=False, cost_pips/cost_usd=0.0 is written
+    (the no-action path still writes an entry).
+  - Item 8 (structured): PASS — JSON per line, machine-queryable.
+  - Item 9 (enumerable event name): FAIL — no event key; the equity log is a raw JSON line
+    without an "event" field. Not queryable by event type.
+
+  ### Overall log-as-decision-trace verdict: approve-with-conditions
+
+  Three non-trivial gaps found in new code:
+  - (a) assert_account_key_parity success path is silent (Item 6, startup gate).
+  - (b) Equity log is missing pair, cycle_id, and event name (Items 2-partial, 5, 9).
+  - (c) pip_v heuristic source not logged (Item 3).
+
+  The PM AC marks F-005 (pip_v heuristic vs PairInfo.pip_value) as a QD scope item. The logging
+  of pip_v source is a CTO concern under log-as-decision-trace regardless of F-005 disposition.
+
+  RECOMMENDATION: These gaps are non-blocking for commit given paper-trading-only scope, but
+  they are blocking for any live-trading promotion. Track as Wave-10 logging-hardening items.
+  Route to QD for implementation (Item 9 event name, Item 5 cycle_id, Item 3 source logging).
+
+  ---
+
+  ## Group C Script Classification
+
+  All 8 untracked scripts examined via file read and grep. No Saxo execution imports (SaxoClient,
+  SaxoExecutionBackend, live=True/False) found in any Group C script. No executable trading code.
+  Forbidden-phrases scan: 0 matches.
+
+  Per-script classification:
+
+  1. buy_and_hold_baseline.py (116 LoC):
+     CLASS: diagnostic/research — pure backtest simulation using load_parquet + cost arithmetic.
+     No live connection. Reads from data/processed parquet.
+     VERDICT: commit-deferred-no-review-needed. Useful for context; not production candidate.
+
+  2. buy_and_hold_sharpe.py (98 LoC):
+     CLASS: diagnostic/research — Sharpe computation on buy-and-hold equity curves.
+     No live connection.
+     VERDICT: commit-deferred-no-review-needed.
+
+  3. characterize_drawdowns.py (147 LoC):
+     CLASS: diagnostic/research — drawdown characterization on historical data.
+     No live connection.
+     VERDICT: commit-deferred-no-review-needed.
+
+  4. diagnose_carry_momentum.py (143 LoC):
+     CLASS: diagnostic/research — decomposes carry-momentum P&L into components using
+     run_backtest. No live connection.
+     VERDICT: commit-deferred-no-review-needed.
+
+  5. long_only_carry_redesign.py (306 LoC):
+     CLASS: diagnostic/research — tests 4 carry variants, runs walk-forward, NHT gate.
+     No live connection. Uses run_backtest, NullHypothesisGate, BacktestArsonTest.
+     VERDICT: commit-deferred-no-review-needed. Heaviest research script; contains its own
+     simulation loop. Not a production candidate on this review.
+
+  6. run_phase1_revalidate.py (177 LoC):
+     CLASS: diagnostic/research — re-runs Phase 1 carry-momentum on real Saxo data.
+     No live connection. Uses run_backtest, run_walkforward, NullHypothesisGate.
+     VERDICT: commit-deferred-no-review-needed.
+
+  7. vol_target_portfolio.py (169 LoC):
+     CLASS: diagnostic/research — vol-targeting portfolio simulation.
+     No live connection.
+     VERDICT: commit-deferred-no-review-needed.
+
+  8. vol_targeting.py (263 LoC):
+     CLASS: diagnostic/research — vol-targeting USDJPY simulation, parameter sweep.
+     No live connection.
+     VERDICT: commit-deferred-no-review-needed.
+
+  EXECUTION-FIREWALL CHECK ON GROUP C: All 8 scripts are research-role output style (backtesting,
+  diagnostics, offline analysis). None contain executable trading code (no Saxo calls, no order
+  dispatch). No firewall violation detected. Safe to commit as research artifacts, no Group A-level
+  gates required.
+
+  ---
+
+  ## Cross-System Blast Radius
+
+  The modifications in Group A touch:
+  - scripts/run_paper_trading_vt.py: standalone executable, no imports from other production
+    modules beyond existing ones (RealisticCostModel now imported).
+  - scripts/run_paper_trading_carry_fred.py: same as above.
+  - scripts/monitor_regime_triggers.py: adds BC-4 persistent counter writing to
+    data/cf_t9_state.json. If two processes call evaluate_cf_t9 concurrently with the SAME
+    state_path, the read-modify-write is NOT atomic (state_path.read_text() + state_path.write_text()
+    is not O_CREAT|O_EXCL). This is a minor race condition in the monitor script, which is typically
+    not called concurrently. Not a blocking concern for the current single-process use.
+
+  Shared infrastructure affected:
+  - data/paper_account_key_lock.json: NEW shared lock file. If the lock file is corrupted or
+    left with a wrong key by a crash, both paper loops will fail at startup. Operator recovery
+    path is --reset-account-key-lock. This is documented and acceptable.
+  - data/paper_trading_session.log: now SHARED between vt.py and carry_fred.py
+    (EQUITY_LOG_PATH = "data/paper_trading_session.log" in BOTH scripts). If both loops run
+    simultaneously, they will interleave JSON lines into the same file. Python's `open(path, "a")`
+    is not multi-process atomic. This is a FINDING: concurrent equity log writes from two processes
+    may corrupt lines (partial writes interleaved). Mitigation: use separate log paths per strategy
+    (EQUITY_LOG_PATH_VT, EQUITY_LOG_PATH_CF), or add the strategy key to a per-process file.
+
+    NOTE: The equity log already includes "strategy": "vt" vs "strategy": "carry_fred" per entry,
+    which is a partial mitigation (distinguishes entries if they arrive intact), but write-level
+    atomicity is not guaranteed for >4KB lines by POSIX. In practice, single-cycle JSON entries
+    are small (<500 bytes) and POSIX append is atomic for writes < PIPE_BUF (usually 4KB on
+    macOS/Linux), so this is a theoretical rather than practical risk at current scale. Still a
+    design smell worth tracking.
+
+  No modifications to src/ modules; ruff baseline preserved at 19 errors.
+  Sacred test: PASS (verified via shell).
+
+  ---
+
+  ## F-001: USDJPY Cost Formula Analysis (Architecture Scope)
+
+  The NHT NEW-1 finding flags a 150× cost overstatement for USDJPY. Reading the engine code
+  (_to_engine_units at engine.py:544-573) clarifies the issue:
+
+  - Engine: converts USD-nominal to engine units as usd_nominal / price (for JPY pairs).
+    At price≈150, 100,000 USD → 666.67 engine units. Cost is cost_pips * pip_value * 666.67.
+  - Paper loop (current code): cost_usd = cost_pips * 0.01 * target_units where target_units
+    is the USD-nominal from the sizer (e.g., 100,000). This gives cost_pips * 0.01 * 100,000 =
+    1,000× larger than the engine's cost_pips * 0.01 * 666.67.
+
+  The ratio is 100,000 / 666.67 = 150, confirming the 150× overstatement. The paper loop
+  does NOT apply _to_engine_units before computing cost_usd. This is an F-001 gap that NHT NEW-1
+  identified and that is documented as deferred to Wave-9 in CONSENSUS_2026-05-05 Section 7.
+
+  ARCHITECTURE ASSESSMENT: The fix requires inserting `_trade_units_engine = _trade_units / price`
+  for JPY pairs before the `_cost_usd` computation. This is a QD-scope implementation change;
+  I decline to specify the exact code (ROUTE_TO: quant-developer for implementation).
+
+  The TestCostModelParity tests in test_wave8_high_remediation.py test the formula at unit level
+  using USDJPY, but TestE2EParity uses EURUSD only and explicitly comments why ("to avoid the
+  engine's JPY unit-convention conversion"). This means the E2E test does NOT verify the USDJPY
+  cost path end-to-end, confirming NHT NEW-1 remains open.
+
+  F-001 STATUS FOR CTO SCOPE: Open (confirmed). QD must fix. Not a CTO implementation item.
+  PM AC gate A-F001 verdict: do-not-commit for Group A unless QD closes this, OR CEO explicitly
+  accepts the USDJPY parity gap as documented (PM AC gate A-F001 fail-condition). This review
+  does NOT override PM AC; the PM AC fail-condition for F-001 is the governing gate.
+
+  ---
+
+  ## Tech-Debt and Deletion Opportunities (Rip-It-Out Lens)
+
+  Items that could be deleted or simplified rather than grown:
+
+  1. DUPLICATE assert_account_key_parity + reset_account_key_lock: These are byte-identical in
+     vt.py and carry_fred.py (~110 LoC duplicated). The correct fix is to extract to a shared
+     module (e.g., src/forex_system/risk/account_key_gate.py). This would reduce Group A LoC by
+     ~110 and make the gate testable in isolation without importing the full paper-loop script.
+     ROUTE_TO: quant-developer (Wave-10 refactor, not a blocker here).
+
+  2. RotatingFileHandler upgrade: The diff swaps FileHandler for RotatingFileHandler in both
+     scripts. This is the correct long-term behavior (prevents unbounded log growth). However,
+     the maxBytes=10MB and backupCount=5 are magic numbers with no config source. Should be added
+     to config/default.yaml or parameterized. ROUTE_TO: quant-developer.
+
+  3. BC-4 persistent counter (monitor_regime_triggers.py): The read-modify-write pattern
+     (read_text + write_text on same path) is not atomic. If two monitor invocations race
+     (unlikely in current usage, but possible if run by a cron loop), the counter may lose
+     increments. The correct fix is O_CREAT|O_EXCL or a filelock. Low priority given single-
+     process use, but the same pattern that NHT flagged in the lock file is being re-introduced
+     here. TRACK as a design consistency concern.
+
+  4. Equity log shared path: As noted above, both loops share data/paper_trading_session.log.
+     A simple deduplication: use separate paths per strategy from the start.
+
+  Total deletable/extractable: ~110 LoC (the lock-gate duplication). If extracted, net Group A
+  delta drops from +350 to +240 LoC, still above the original 50-LoC cap but a meaningful
+  reduction. Extraction would also eliminate the race condition risk in the write_text path
+  (where both scripts race to write the same lock file from identical copies of the same code,
+  using the SAME ACCOUNT_KEY_LOCK_PATH constant pointing to the SAME FILE — which is actually
+  correct behavior: they should write to the same lock file. But if the shared module were in
+  src/, it would be importable and testable without running the full paper-loop scripts).
+
+  ---
+
+  ## Failure Modes Considered
+
+  1. **Corrupted shared lock file (carry_fred + vt race at exactly the same millisecond):**
+     Both scripts use O_CREAT|O_EXCL on the SAME lock path. The OS guarantees at most one
+     process creates the file; the other gets FileExistsError and reads the file. However, if
+     the first process crashes between O_EXCL create and write, the file is created but empty.
+     The second process will then read empty JSON and crash on json.loads. This is a startup
+     failure, not a trading failure — acceptable for paper scope, but should be hardened.
+
+  2. **Equity log write interleaving under concurrent runs:**
+     Both scripts open data/paper_trading_session.log in append mode. POSIX append is atomic
+     for writes < PIPE_BUF, but this is an OS implementation detail, not a guarantee. If log
+     entries grow (e.g., additional fields added in Wave-10), they may exceed PIPE_BUF and
+     interleave. Result: corrupted JSON lines that break any log parser. Downstream impact: P&L
+     reconciliation would fail silently.
+
+  3. **BC-4 counter race in monitor_regime_triggers.py:**
+     If evaluate_cf_t9 is called concurrently (e.g., from a test harness or cron), two processes
+     may read n_readings=5, both increment to 6, both write. One write wins; the counter loses
+     one increment. For monitoring purposes this is low-severity; for any audit that relies on
+     the counter being exact (e.g., "has this been called ≥N times before paper launch?"), the
+     count is unreliable under concurrency.
+
+  4. **assert_account_key_parity silent success path:**
+     On a healthy startup where keys match, no log entry is emitted. If a deployment error caused
+     carry_fred to be pointed at the wrong account but the lock file was already written by vt
+     with that SAME wrong account key, the parity check would silently pass. Both loops would
+     run against the wrong account without any log evidence that the check occurred. This is a
+     defense-in-depth gap: the gate fires on DIVERGENCE, not on CORRECTNESS.
+
+  5. **USDJPY cost overstatement (150×) in live paper-trading session (F-001 open):**
+     If paper trading on USDJPY starts before F-001 is closed, the equity log will record
+     cost_usd as ~150× the actual cost deducted by the backtest engine. The paper_equity_bt_equiv
+     field will diverge from the backtest equity by a factor of ~150× on every USDJPY trade.
+     Any performance comparison between paper and backtest will be nonsensical for USDJPY pairs.
+     The kill_switch threshold (max_daily_loss_pct) is driven by RAW broker equity (not the
+     paper_equity_bt_equiv), so the overstated cost in the log does NOT trigger a spurious kill
+     — but it does mean the log-based P&L attribution is wrong by two orders of magnitude.
+
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - kill-switch-design
+  - deploy-checklist-trading (applied to Phase 1 Sign-In gates only; deploy is out-of-scope
+    as paper launch authorization is a separate CEO decision)
+
+verdict:
+  group_a_carry_fred_vt_monitor:
+    verdict: commit-after-fixes
+    conditions:
+      - CEO ratification of F-003 LoC-cap deviation (350 LoC vs 50-LoC cap) BEFORE commit
+      - F-001 USDJPY cost formula fix by QD OR CEO explicit acceptance of USDJPY parity gap
+      - PM AC gate A-F001 disposition (do-not-commit if fail-condition; that gate governs)
+    no_blocking_architecture_issues: true
+    notes: |
+      Architecture is sound. The duplicate lock-gate functions are a smell but not blocking.
+      The shared equity log path is a theoretical concern at current scale. The cost formula
+      in Group A files is correctly structured for EURUSD; USDJPY has the documented 150× gap.
+
+  group_b_test_wave8_high_remediation:
+    verdict: commit-after-fixes
+    conditions:
+      - F-002: USDJPY E2E parity test must be added (TestE2EParity covers EURUSD only;
+        PM AC gate B-F002 requires a USDJPY trade tuple test with price≈150)
+    no_blocking_architecture_issues: true
+    notes: |
+      TestCostModelParity correctly exercises USDJPY at the unit level (pip_v=0.01, price-
+      independent cost formula). TestE2EParity deliberately avoids USDJPY to sidestep the
+      _to_engine_units divide-by-price. This means no test exercises the full USDJPY paper-
+      loop path end-to-end. PM AC gate B-F002 fails on this basis.
+
+  group_c_diagnostic_scripts:
+    verdict: commit-as-is (no production gates required)
+    conditions: []
+    notes: |
+      All 8 scripts are diagnostic/research classification. Forbidden-phrases clean. No Saxo
+      execution imports. No F-number gates apply to Group C.
+
+  group_b_test_cf_t9_monitor:
+    verdict: commit-as-is
+    conditions: []
+    notes: |
+      TestBC4PersistentCounter covers the new state-persistence logic in monitor_regime_triggers.
+      Well-formed test with two-invocation scenario and sticky-flag assertions.
+
+what-you-refused-to-do:
+  - Did not write the USDJPY unit-conversion fix code (ROUTE_TO: quant-developer)
+  - Did not implement the --self-test CLI flag (ROUTE_TO: quant-developer, Wave-10)
+  - Did not resolve the NHT NEW-2 cost-feedback-into-equity architectural disagreement
+    (ROUTE_TO: PM for spec amendment or CEO for ruling; not a CTO unilateral decision)
+  - Did not resolve BC-8 multi-strategy aggregation race (ROUTE_TO: CRO + QD for residual
+    control implementation)
+  - Did not increment the trial counter (not a research trial)
+  - Did not write or modify any production code (strict CTO role boundary)
+  - Did not classify any Group C script as production-candidate (all are diagnostic/research
+    on the evidence reviewed; if QD uses any in a paper context, re-route to Group A gates)
+  - Did not run a full pytest suite to avoid side effects on the working tree
+
+claimed_domains:
+  - architecture-scope-review
+  - log-observability
+  - kill-switch-design
+  - loc-governance
+  - blast-radius-assessment
+  - execution-firewall-review
+
+cross_role_observations:
+  cost_feedback_architecture: |
+    NHT NEW-2: dd_contract, kill_switch, and sizer continue to consume raw broker equity.
+    The equity LOG is backtest-equivalent; control-loop DECISIONS are not. This review does
+    NOT take a position on whether this is correct (log-only parity) or a gap that must be
+    closed. That determination requires PM spec amendment or CEO ruling. Surfacing to PM.
+  usdjpy_parity: |
+    F-001 is architecturally confirmed open. The fix is a one-line div-by-price for JPY pairs
+    before cost_usd computation, but it must be routed to QD for correct implementation and
+    corresponding USDJPY E2E test addition (which closes F-002 simultaneously).
+
+knowledge_gaps:
+  - Whether the shared equity log path (data/paper_trading_session.log) was an intentional
+    design choice (single log for both loops) or an oversight; no design doc found addressing
+    this specifically. If intentional, POSIX append atomicity should be explicitly documented.
+  - Whether the RotatingFileHandler maxBytes=10MB/backupCount=5 values were validated against
+    expected cycle frequency and entry size, or are placeholder defaults.
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,436 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent
+timestamp: 2026-05-06T00:00:00Z
+subtask_ref: wave9-precommit-review
+subtask_id: wave9-precommit-nht-001
+
+evidence:
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+    (lines 577-666: cost-deduction path; line 581 sends raw_target_units * multipliers without
+    _to_engine_units conversion; line 648 computes _cost_usd = _cost_pips * _pip_v * _trade_units
+    with _trade_units in USD-nominal units NOT engine-converted units)
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+    (lines 605-711: identical bug pattern; line 609 target_units = _raw_target_units *
+    _dd_sizing_multiplier with NO unit conversion; line 689 cost formula uses USD-nominal
+    units multiplied by 0.01 pip_v for USDJPY, producing 150x overstatement vs engine)
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/backtest/engine.py
+    (lines 296-299: usd_nominal -> _to_engine_units conversion BEFORE cost is charged;
+    line 544-573: _to_engine_units returns usd_nominal/price for JPY pairs;
+    lines 331-332: cost_dollars = cost_pips * pip_value * abs(delta) where delta is in
+    engine-converted units, NOT USD nominal)
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave8_high_remediation.py
+    (TestCostModelParity lines 38-149: SHARED_SIZE THEATRE — both _engine_entry_cost_dollars
+    AND _paper_loop_entry_cost_dollars use self.SIZE = 10_000 directly, identical formulas;
+    test does NOT exercise engine's _to_engine_units codepath; TestE2EParity lines 334-446:
+    explicitly uses EURUSD to "avoid" the JPY conversion (line 339-342 admits this verbatim);
+    no USDJPY E2E parity test exists)
+  - grep -n "_to_engine_units" returns ZERO matches in either paper-trading script
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+    (line 129 assess(current_equity); carry_fred.py:481 and vt.py:498 both pass raw broker
+    TotalValue, NOT cost-adjusted paper_equity_bt_equiv; cost-feedback architecture is
+    LOG-ONLY; the dd_contract and kill_switch consume the same broker equity but neither
+    sees cost-adjusted equity)
+  - grep for fcntl/flock/file_lock/budget_ticket/7.5%/0.075 in scripts and risk modules
+    returns ZERO matches; BC-8 cross-process race control is NOT implemented
+  - TestAtomicLockAndReset (lines 619-680) is the ACCOUNT-KEY lock TOCTOU test, NOT a
+    BC-8 cross-process [read->check->dispatch] race test
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md
+    (line 309: "blocked until Wave-9 residual BC-8 control lands per-strategy 7.5% budget
+    tickets OR cross-process advisory file-lock"; this Wave-9 dispatch claims closure
+    but no such control is implemented)
+
+assumptions:
+  - The dispatch's atomic claims accurately quote the implicit Wave-8 closure narrative.
+  - "Cost-formula 150x overstatement" refers to the engine vs paper-loop divergence on
+    USDJPY where engine multiplies by 0.01 pip_v * (usd_nominal/price=~1/150) while
+    paper-loop multiplies by 0.01 pip_v * usd_nominal directly.
+  - Operational equity for dd_contract/kill_switch means the equity quantity that
+    triggers level transitions, not a separate log field.
+
+confidence: high
+
+claim-tested:
+  - claim_id: F-001
+    text: "The USDJPY cost-formula 150× overstatement documented in CONSENSUS_2026-05-05
+           has been fixed in scripts/run_paper_trading_carry_fred.py and
+           scripts/run_paper_trading_vt.py. The new code matches the backtest engine's
+           _to_engine_units path."
+    adjudication: dissent
+    finding: |
+      The claim is FALSE. _to_engine_units is NOT called anywhere in either paper-loop
+      script (grep returns zero matches). The cost computation at vt.py:689 and
+      carry_fred.py:648 uses _trade_units which is USD-nominal sizer output, NOT
+      engine-converted units. For USDJPY at price ~150, the engine charges
+      cost_pips * 0.01 * (usd_nominal / 150) while the paper-loop charges
+      cost_pips * 0.01 * usd_nominal — a 150x overstatement. The bug is unchanged.
+
+  - claim_id: F-002
+    text: "tests/scripts/test_wave8_high_remediation.py contains an end-to-end parity
+           test driving the engine + paper-loop cost path with a USDJPY trade tuple.
+           The test exercises the unit-conversion path, not a SHARED_SIZE bypass."
+    adjudication: dissent
+    finding: |
+      The claim is FALSE on both counts. (a) TestCostModelParity uses identical
+      SHARED_SIZE=10_000 inputs to two hand-rolled formulas that are mathematically
+      identical (cost_pips * pip_value * SIZE on both sides) — pure theatre. The test
+      does NOT call run_backtest(...) or invoke _to_engine_units; it asserts
+      75 USD == 75 USD by construction. (b) TestE2EParity is the only test that calls
+      run_backtest, but its docstring at lines 339-342 explicitly states it uses EURUSD
+      "to avoid the engine's JPY unit-convention conversion (_to_engine_units divides
+      USD nominal by price for JPY pairs)." This is an admission that the most
+      load-bearing assertion (USDJPY E2E parity) is intentionally not tested. No
+      USDJPY E2E parity assertion exists in the file.
+
+  - claim_id: NEW-2
+    text: "Cost-feedback into operational equity for dd_contract / kill_switch is
+           correctly handled by the uncommitted code."
+    adjudication: dissent
+    finding: |
+      The code implements the LOG-ONLY architecture. fetch_account_equity returns
+      balance.get("TotalValue", ...) — raw broker equity. dd_contract.assess(equity)
+      and kill_switch.check_and_trigger(equity) both consume this raw value (carry_fred
+      lines 455+481+473; vt lines 466+498+484). The cost-adjusted paper_equity_bt_equiv
+      appears only in the JSON log line at carry_fred:665 and vt:710 — never fed back
+      into either contract. CRO's stance was that log-only is correct; NHT's prior
+      material_concern (Wave-8) was that log-only is insufficient because broker equity
+      is not the contract's true denominator. Wave-9 dispatch asks which architecture
+      the code implements: it's log-only. NHT's prior material_concern therefore
+      PERSISTS into Wave-9 unchanged — no PM spec amendment was found that would
+      reclassify log-only as the binding architecture.
+
+  - claim_id: BC-8
+    text: "Cross-process [read→check→dispatch] race is mitigated either by per-strategy
+           7.5% budget tickets or by a cross-process advisory file-lock."
+    adjudication: dissent
+    finding: |
+      Neither mechanism is implemented. grep for fcntl, flock, file_lock, FileLock,
+      LOCK_EX, advisory, budget_ticket, ticket, 7.5%, 0.075 across both paper-loop
+      scripts and the risk/ module returns ZERO matches. The TestAtomicLockAndReset
+      class (test_wave8_high_remediation.py:619-680) is for the account-key parity
+      lock (single value compared at startup) — completely different concern from the
+      cross-process exposure aggregation race. exposure_aggregator.py is in-process
+      only; when carry_fred and vt run as separate processes, both call get_positions
+      then check_dispatch_allowed then execute_signal with no synchronization between
+      them. The CRO veto in CONSENSUS_2026-05-05 (Section 4) explicitly identified
+      this gap and recommended per-strategy 7.5% budget tickets OR fcntl advisory
+      file-lock as Wave-9 residual. Neither has landed. BC-8 remains structurally
+      unclosed.
+
+  - claim_id: NO-REGRESSIONS
+    text: "The sacred test (tests/backtest/test_engine.py::test_no_lookahead) still
+           passes. Pytest baseline (≥686) holds. Ruff baseline (≤19 errors) holds."
+    adjudication: noise-indistinguishable
+    finding: |
+      Cannot verify without execution. NHT skill forbids running pytest/ruff directly
+      (those route through python/ruff toolchain). test_no_lookahead is present at
+      tests/backtest/test_engine.py:55 (verified by grep) but its pass/fail status
+      cannot be inferred from source. ROUTE_TO quant-developer required.
+
+  - claim_id: GROUP-B-ADEQUACY
+    text: "tests/scripts/test_wave8_high_remediation.py (680 LoC) is structured
+           rigorously: clear invariants, entry/non-entry/invalidation coverage, no
+           mocking of the system under test."
+    adjudication: dissent
+    finding: |
+      The file mocks heavily (MagicMock for backend, sizer, strategy, kill_switch,
+      client across nearly every test). Several specific deficiencies:
+      (1) TestCostModelParity assertions are tautological (SHARED_SIZE theatre).
+      (2) test_equity_log_entry_contains_cost_fields only checks JSON keys exist,
+          not that cost_usd is correctly valued.
+      (3) test_swap_usd_nonzero_after_one_day_hold has tolerance abs=5.0 on a 40 USD
+          target (12.5% slop) — barely an oracle.
+      (4) test_rebalance_cost_charged_on_delta_not_full_target uses USDJPY at price
+          150.0 with target=6_500 USD-nominal units; per-engine these would be ~43
+          engine-units but the test asserts cost on full 6_500 — meaning the test
+          itself is wedded to the BROKEN paper-loop formula. If the bug were fixed
+          (i.e., engine-units used), this test would FAIL. The test ENSHRINES the bug.
+      (5) No invariant test checking dollar parity for USDJPY between engine and
+          paper-loop equity curves. (TestE2EParity is EURUSD-only by design.)
+      (6) Mocked sizer.calculate_size pre-supplies USD-nominal output, never exercising
+          the conversion that should happen between sizer and execute_signal.
+
+tests-requested:
+  - id: QD-1
+    description: |
+      Run the FULL pytest suite from repo root with the uncommitted changes applied.
+      Required outputs: total passed/failed/skipped counts; pass/fail status of
+      tests/backtest/test_engine.py::test_no_lookahead by name; pass/fail status of
+      every test in tests/scripts/test_wave8_high_remediation.py by name.
+    target: quant-developer
+    blocking_for: NO-REGRESSIONS adjudication
+
+  - id: QD-2
+    description: |
+      Run python -m ruff check src/ from repo root with the uncommitted changes
+      applied. Report total error count and confirm <= 19 baseline. If higher,
+      list new violations by rule code and file.
+    target: quant-developer
+    blocking_for: NO-REGRESSIONS adjudication
+
+  - id: QD-3
+    description: |
+      Falsification test for F-001 (USDJPY cost parity). Construct a known USDJPY
+      trade tuple at price 150.0 with usd_nominal=10_000 (this is what
+      VolTargetSizer.calculate_size returns). Compute (a) what the engine charges
+      via run_backtest(rebalance_mode="continuous", pair="USDJPY") at the entry
+      bar — read equity_curve drop from initial; (b) what the paper-loop
+      EQUITY_LOG cost_usd field reports for the same fresh-entry cycle (mock
+      sizer.calculate_size to return 10_000.0, mock price=150.0). Print both
+      numbers. Expected if F-001 is closed: equal to within 1e-4. Expected if
+      F-001 is open: paper_loop ~150x larger than engine (e.g., engine=~0.5 USD,
+      paper_loop=~75 USD, ratio ~150).
+    target: quant-developer
+    blocking_for: F-001 final adjudication confirmation
+
+tests-results:
+  - id: QD-1
+    result: deferred to QD
+  - id: QD-2
+    result: deferred to QD
+  - id: QD-3
+    result: |
+      deferred to QD; NHT static-analysis already adjudicates F-001 as DISSENT
+      with high confidence based on code inspection alone (zero _to_engine_units
+      calls; identical SHARED_SIZE theatre in test). QD execution would supply
+      numeric ratio confirmation but is not strictly required for the dissent.
+
+matched-benchmark-sharpe: "n/a — code-review dispatch"
+permutation-results: "n/a — code-review dispatch"
+dsr-assessment: "n/a — code-review dispatch"
+
+dissent-statement: |
+  NHT DISSENT — Wave-9 pre-commit review (verbatim, append-only, must be preserved
+  in CONSENSUS.md if Wave-9 attempts closure):
+
+  Four of the five substantive Wave-8 remediation claims FAIL adversarial
+  re-verification at the code-inspection level (no execution required):
+
+  (1) F-001 (USDJPY cost-formula fix) is FALSE. _to_engine_units is not called
+      anywhere in either run_paper_trading_carry_fred.py or run_paper_trading_vt.py.
+      The cost-deduction lines (vt.py:689, carry_fred.py:648) compute
+      _cost_pips * _pip_v * _trade_units where _trade_units is the raw USD-nominal
+      output of VolTargetSizer.calculate_size — NOT the engine-converted units.
+      For USDJPY at price ~150, the paper-loop cost is therefore ~150x larger
+      than the engine cost. The 150x overstatement bug from CONSENSUS_2026-05-05
+      Finding-J PERSISTS unchanged.
+
+  (2) F-002 (E2E parity test) is THEATRE. TestCostModelParity asserts equality
+      between two hand-rolled formulas that share the same input self.SIZE=10_000
+      and apply mathematically identical multiplications — by construction they
+      can never disagree. TestE2EParity is the only run_backtest-exercising test
+      and it explicitly chooses EURUSD over USDJPY in lines 339-342 to AVOID the
+      conversion that F-001 was supposed to fix. The test that would have
+      caught F-001 — engine USDJPY equity_curve == paper-loop USDJPY
+      paper_equity_bt_equiv at the entry bar — does not exist.
+
+  (3) NEW-2 (cost-feedback architecture). The code implements log-only:
+      drawdown_contract.assess() and kill_switch.check_and_trigger() both consume
+      raw broker TotalValue (carry_fred:455+481+473; vt:466+498+484); the
+      cost-adjusted paper_equity_bt_equiv is written to disk but never read back
+      into either contract. CRO's position is that log-only is correct. NHT's
+      prior material_concern (Wave-8) — that operational equity must include
+      cost-feedback for the contract's threshold semantics to match the
+      pre-registered drawdown ladder — is unaddressed by code and unaddressed by
+      any PM spec amendment in the changeset. The material_concern PERSISTS.
+
+  (4) BC-8 (cross-process race) is structurally UNCLOSED. Neither file-lock
+      (fcntl/flock/LOCK_EX) nor per-strategy 7.5% budget tickets are implemented
+      anywhere in the changeset. The TestAtomicLockAndReset suite tests the
+      ACCOUNT-KEY parity lock, not the BC-8 dispatch race. CRO's BC-8 veto in
+      CONSENSUS_2026-05-05 Section 4 explicitly named these two acceptable
+      residual controls; neither has landed. Multi-strategy paper authorization
+      remains contraindicated until either residual control is wired and tested
+      under a concurrent-process test (two simultaneous run_cycle calls reading
+      stale exposure must NOT both pass check_dispatch_allowed).
+
+  (5) Group-B test adequacy is INADEQUATE. test_rebalance_cost_charged_on_delta_not_full_target
+      asserts cost == 0.75 * 0.01 * 1500 = 11.25 USD on a USDJPY rebalance, which
+      is the BUGGY formula's output. If F-001 were truly fixed (engine-units used),
+      this test would compute cost on engine-units = 1500/150 = 10 units and
+      assert ~0.075 USD — failing the existing assertion. The test ENSHRINES the
+      bug it was supposed to detect. This is the canonical anti-pattern: a
+      regression test that locks in the wrong behavior because it was written
+      against the broken implementation, not against an independent oracle.
+
+  Recommended Wave-9 closure path (NOT in scope of this dissent, surfaced for
+  CEO/PM):
+    - Apply _to_engine_units conversion at the paper-loop sizer-output boundary
+      so target_units sent to backend.execute_signal are in engine-units for JPY
+      pairs. Update the equity-write cost formula to use the same engine-units.
+    - Replace TestCostModelParity SHARED_SIZE assertions with a true E2E test
+      that calls run_backtest on USDJPY with rebalance_mode="continuous" and
+      compares its equity_curve.iloc[1] to a paper-loop run_cycle's
+      paper_equity_bt_equiv at the same entry event.
+    - Either implement fcntl advisory file-lock around the
+      [get_positions -> check_dispatch_allowed -> execute_signal] sequence in
+      both loops (lock acquired BEFORE get_positions and held through
+      execute_signal — a lock acquired after position-read still permits the
+      race), OR wire per-strategy budget tickets at 7.5% each in
+      check_dispatch_allowed config.
+    - Either land cost-adjusted equity feedback into dd_contract/kill_switch, OR
+      produce a PM spec amendment that explicitly downgrades operational equity
+      to broker TotalValue and accepts the resulting threshold drift.
+    - Fix test_rebalance_cost_charged_on_delta_not_full_target to assert against
+      the engine's USDJPY cost (engine-units), not the paper-loop's USD-nominal
+      cost.
+
+  Until items (1)-(4) are remediated by code and items (5) is remediated by
+  test, NHT does NOT co-sign Wave-9 closure of F-001, F-002, NEW-2, or BC-8.
+
+contamination-check: clean
+
+claimed_domains:
+  - cost-formula-parity
+  - drawdown-contract-enforcement
+  - cross-process-race-control
+  - test-adequacy
+
+severity:
+  - claim_id: F-001
+    level: rule_violation
+    rationale: |
+      Hard rule "code matches the engine" is violated; the wired control sequence
+      diverges from the engine by 150x for the primary trading pair (USDJPY).
+      This is not a judgment call — the engine has _to_engine_units and the
+      paper-loop does not.
+  - claim_id: F-002
+    level: rule_violation
+    rationale: |
+      Test theatre — assertions that cannot fail because both sides compute the
+      same expression — violates the firm's "no SHARED_SIZE bypass" rule that
+      was explicitly cited in this Wave-9 dispatch.
+  - claim_id: NEW-2
+    level: material_concern
+    rationale: |
+      Judgment call between log-only and feedback architectures; CRO and NHT
+      hold opposing views; either is defensible if an explicit PM spec is on
+      record. Currently neither is on record beyond the prior CONSENSUS.
+  - claim_id: BC-8
+    level: rule_violation
+    rationale: |
+      CRO veto in CONSENSUS_2026-05-05 Section 4 named two acceptable closure
+      paths verbatim. Neither is implemented. Claim of closure without one of
+      the named mechanisms violates the pre-declared closure condition.
+  - claim_id: NO-REGRESSIONS
+    level: clarification_request
+    rationale: Cannot adjudicate without execution; QD route required.
+  - claim_id: GROUP-B-ADEQUACY
+    level: strong_objection
+    rationale: |
+      Tests freeze the bug rather than detect it; this is the canonical
+      anti-pattern against which the firm's structural-skeptic role exists.
+
+does_block: true
+
+knowledge_gaps:
+  - QD execution required to confirm pytest baseline holds and ruff baseline
+    holds; NHT cannot run python or ruff under domain restrictions.
+    research_attempted: false (out of scope per FORBIDDEN list)
+
+policy_violations_detected:
+  - "F-001 fix claim is asserted in dispatch but the code does not implement it.
+     Hard rule per CLAUDE.md: 'No-Lookahead Guarantee' analog — claims about
+     engine-parity are sacred test territory and require unit-conversion to
+     match. Violating closure of a test-attested invariant on the basis of
+     SHARED_SIZE theatre is a Group-B test-adequacy rule violation."
+  - "BC-8 cross-process race control claimed closed without either of the two
+     pre-declared residual controls (fcntl file-lock OR 7.5% budget tickets).
+     CONSENSUS_2026-05-05 Section 4 cited these as the only acceptable closures."
+
+# v0.3 required fields
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave8_high_remediation.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_cf_t9_monitor.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/backtest/engine.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-05_wave8_remediation.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl (read tail)
+  - /Users/huangtm/Projects/forex-trading-system/data/cf_t9_state.json (read)
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+# Verdict per file group
+verdict:
+  group_a:
+    decision: do-not-commit
+    rationale: |
+      F-001 unfixed in both run_paper_trading_carry_fred.py and run_paper_trading_vt.py.
+      BC-8 cross-process race control absent. Committing as-is would (a) lock in
+      the 150x USDJPY cost overstatement bug Wave-8 was tasked with fixing, and
+      (b) ship Wave-9 closure narrative for BC-8 without any implementation. Both
+      outcomes are worse than not committing at all. The monitor_regime_triggers.py
+      and test_cf_t9_monitor.py changes appear unrelated to F-001/BC-8 and could
+      be split into a separate commit if needed, but the bundled commit as
+      uncommitted is do-not-commit.
+  group_b:
+    decision: do-not-commit
+    rationale: |
+      tests/scripts/test_wave8_high_remediation.py contains theatre tests
+      (TestCostModelParity SHARED_SIZE; TestE2EParity EURUSD-only) and at least
+      one test (test_rebalance_cost_charged_on_delta_not_full_target) that
+      enshrines the F-001 bug. Committing this file freezes the bug into the
+      test baseline and would make subsequent F-001 remediation trigger
+      "regression" alarms. Must be revised before commit: replace SHARED_SIZE
+      tests with engine-call-driven E2E parity for USDJPY; remove or invert the
+      USDJPY rebalance test so it asserts the engine-units value (engine-correct),
+      not the USD-nominal value (paper-loop-broken).
+
+body: |
+  # Wave-9 NHT adversarial re-verification — code-review verdict
+
+  Static analysis at the code level finds Wave-8's claimed remediation is
+  largely unimplemented. Key smoking guns:
+
+  1. **F-001 (USDJPY cost 150x bug):** `_to_engine_units` does not appear in
+     either paper-loop script (grep returns 0 matches). The cost formula at
+     `vt.py:689` and `carry_fred.py:648` multiplies `pip_v=0.01` by USD-nominal
+     `_trade_units` directly, while the engine multiplies `pip_v=0.01` by
+     engine-converted units (`usd_nominal / price` for JPY pairs, ~150x smaller).
+     The 150x overstatement persists.
+
+  2. **F-002 (parity test):** `TestCostModelParity` asserts equality between two
+     hand-rolled formulas with identical inputs (`self.SIZE=10_000`) and
+     identical multiplications — pure tautology. `TestE2EParity` is the only
+     test that calls `run_backtest`, and it explicitly avoids USDJPY (lines
+     339-342: "Uses EURUSD (not USDJPY) to avoid the engine's JPY unit-convention
+     conversion"). The one test that would have caught F-001 was deliberately
+     not written.
+
+  3. **NEW-2 (cost-feedback architecture):** Code implements log-only.
+     `dd_contract.assess(equity)` and `kill_switch.check_and_trigger(equity)`
+     both consume raw broker `TotalValue` from `fetch_account_equity`. The
+     cost-adjusted `paper_equity_bt_equiv` is only written to the JSON log and
+     never fed back. CRO's stance (log-only correct) and NHT's prior
+     material_concern (log-only insufficient) both still apply; no PM spec
+     amendment was added to settle which architecture binds. NHT's
+     material_concern is preserved unchanged.
+
+  4. **BC-8 (cross-process race):** Neither of the two acceptable closures
+     named in CONSENSUS_2026-05-05 Section 4 (fcntl advisory file-lock OR
+     per-strategy 7.5% budget tickets) is implemented. The
+     `TestAtomicLockAndReset` suite is for the unrelated account-key parity
+     lock. BC-8 closure claim is unsupported by code.
+
+  5. **Group-B test adequacy:** The test
+     `test_rebalance_cost_charged_on_delta_not_full_target` enshrines the F-001
+     bug by asserting `cost_usd == 0.75 * 0.01 * 1500 = 11.25` for USDJPY at
+     price 150 — i.e., the broken paper-loop output. The engine for the same
+     rebalance would compute `cost_dollars = 0.75 * 0.01 * (1500/150) = 0.075`.
+     A correct engine-parity assertion would FAIL this test.
+
+  6. **No-regressions / sacred test:** Cannot adjudicate via code review
+     alone. ROUTE_TO quant-developer required.
+
+  Verdict: **do-not-commit** for both Group A (paper loops + monitor +
+  cf_t9 test) and Group B (wave8 remediation test). The F-001 bug must be
+  truly fixed (apply `_to_engine_units` at the paper-loop sizing boundary),
+  the parity test must exercise USDJPY through the engine codepath, BC-8 must
+  receive one of the two named residual controls, and the rebalance test
+  must be inverted to assert engine-correct values before any of this
+  changeset commits.

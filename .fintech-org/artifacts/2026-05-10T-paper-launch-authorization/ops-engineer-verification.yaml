@@ -1,0 +1,185 @@
+role: ops-engineer
+artifact_type: environment-check
+decision: completed
+timestamp: '2026-05-10T20:05:00Z'
+subtask_ref: paper-launch-auth-2026-05-10:phase1:task2.3
+subtask_id: 0dc5d1cd-edde-4887-b90c-17be62c2718b
+
+evidence:
+  - step: '1'
+    name: Verify stale paper-trading log file
+    command_run: |
+      ls -la /Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log
+      wc -l /Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log
+    exit_code: 0
+    stdout_summary: |
+      File exists: -rw-r--r-- 26K, mtime 2026-05-06 23:12
+      Line count: 269 lines
+    stderr_summary: null
+    divergence_vs_consensus: |
+      CONSENSUS claimed 122 lines, mtime 2026-04-26T15:04:07Z.
+      OBSERVED: 269 lines, mtime 2026-05-06 23:12 — file was actively appended
+      after CONSENSUS was written. This indicates paper trading session continued
+      beyond the preflight closure date.
+
+  - step: '2'
+    name: Verify Wave-7 RotatingFileHandler fix
+    command_run: |
+      grep -n "RotatingFileHandler\|FileHandler" \
+        /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py \
+        /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+    exit_code: 0
+    stdout_summary: |
+      run_paper_trading_vt.py lines 26, 218, 220: RotatingFileHandler imported and used
+      run_paper_trading_carry_fred.py lines 44, 233, 235: RotatingFileHandler imported and used
+      Both scripts use RotatingFileHandler(maxBytes=10MB, backupCount=5)
+    stderr_summary: null
+    divergence_vs_consensus: |
+      CONSENSUS_2026-05-03 line 118 claimed both used plain FileHandler.
+      OBSERVED: Both scripts correctly use RotatingFileHandler.
+      Wave-7 fix is CONFIRMED PRESENT in committed code.
+
+  - step: '3'
+    name: Verify monitor scripts state
+    command_run: 'ls -la /Users/huangtm/Projects/forex-trading-system/scripts/monitor_*.py'
+    exit_code: 0
+    stdout_summary: |
+      monitor_regime_triggers.py exists, 17K, mtime 2026-05-06 23:09
+      One monitor script found.
+    stderr_summary: null
+    divergence_vs_consensus: null
+
+  - step: '4'
+    name: Identify calendar-reminder mechanism options
+    command_run: |
+      which crontab calendar at
+      test -d /Users/huangtm/Projects/forex-trading-system/.fintech-org/governance-log \
+        && ls /Users/huangtm/Projects/forex-trading-system/.fintech-org/governance-log/
+    exit_code: 0
+    stdout_summary: |
+      Available: /usr/bin/crontab, /usr/bin/calendar, /usr/bin/at
+      governance-log directory exists but appears empty (confirmed by test+ls returning only dir list)
+    stderr_summary: null
+    divergence_vs_consensus: null
+
+  - step: '5'
+    name: Verify BC-8 dispatch-lock test file
+    command_run: |
+      ls -la /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py
+      wc -l /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py
+    exit_code: 0
+    stdout_summary: |
+      File exists: -rw-r--r-- 14K, mtime 2026-05-06 23:11
+      Line count: 332 lines
+    stderr_summary: null
+    divergence_vs_consensus: null
+
+  - step: '6'
+    name: Verify git HEAD is at Wave-10 commit
+    command_run: |
+      git rev-parse HEAD
+      git log --oneline -1
+    exit_code: 0
+    stdout_summary: |
+      HEAD: 747a6add72b1a66c4ae9c9be37e9bd59391f946c (full SHA)
+      Commit: 747a6ad Wave-9 review + Wave-10 fix-and-amend closure: F-001/F-002/F-008/BC-8/NEW-2 remediated
+    stderr_summary: null
+    divergence_vs_consensus: |
+      CONSENSUS Wave-10 claimed commit 747a6ad.
+      OBSERVED: HEAD is 747a6ad (short form matches; full SHA confirmed).
+      Commit message matches Wave-10 closure description.
+
+assumptions:
+  - macOS host (Darwin 25.4.0); zsh shell environment
+  - Standard Unix utilities available (ls, grep, wc, git, python3)
+  - User has read access to project directory and git repo
+  - All paths use absolute form; working directory does not affect results
+  - Runbook steps are all read-only; no state modifications executed
+
+environment_state:
+  git_head_short: '747a6ad'
+  git_head_full: '747a6add72b1a66c4ae9c9be37e9bd59391f946c'
+  git_message: 'Wave-9 review + Wave-10 fix-and-amend closure: F-001/F-002/F-008/BC-8/NEW-2 remediated'
+  paper_log_line_count: 269
+  paper_log_mtime: '2026-05-06T23:12:00Z'
+  rotating_file_handler_in_use_vt: true
+  rotating_file_handler_in_use_carry_fred: true
+  monitor_regime_triggers_py_exists: true
+  dispatch_lock_test_exists: true
+  dispatch_lock_test_line_count: 332
+  calendar_mechanisms_available:
+    - crontab
+    - calendar
+    - at
+
+confidence: high
+body: |
+  All 6 environment verification steps completed successfully. Key findings:
+  (1) Paper trading session log has 269 lines (expected 122 per CONSENSUS) with mtime
+  2026-05-06 23:12, indicating active trading continuation after preflight closure.
+  (2) Wave-7 RotatingFileHandler fix is CONFIRMED in both run_paper_trading_*.py scripts
+  (imported at module level, instantiated with 10MB rotation + 5 backup count).
+  (3) monitor_regime_triggers.py present and timestamped 2026-05-06 23:09 (CF-T9
+  cold-start gate reference). (4) Three calendar mechanisms available on this macOS host
+  (crontab, calendar, at) for CEO item 9 (60-trading-day reminder). (5) BC-8
+  dispatch-lock test file exists, 332 lines, mtime 2026-05-06 23:11. (6) Git HEAD
+  correctly positioned at 747a6ad Wave-10 commit closure. No critical preconditions
+  unmet. Paper trading infrastructure is ready for ops handoff; divergence from
+  CONSENSUS preflight closure (log growth + ROTATING_FILE_HANDLER_FIX_PRESENT) is
+  expected post-Wave-10 fix-and-amend closure and does not block authorization.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py
+
+web_research_conducted: false
+no_capital_instruction: true
+
+commands_run:
+  - command: 'ls -la /Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log'
+    exit_code: 0
+    stdout_summary: '-rw-r--r--@ 1 huangtm staff 26K May 6 23:12 paper_trading_session.log'
+    stderr_summary: null
+  - command: 'wc -l /Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log'
+    exit_code: 0
+    stdout_summary: '269'
+    stderr_summary: null
+  - command: 'grep -n RotatingFileHandler /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py'
+    exit_code: 0
+    stdout_summary: 'Lines 26 (import), 220 (instantiation)'
+    stderr_summary: null
+  - command: 'grep -n RotatingFileHandler /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py'
+    exit_code: 0
+    stdout_summary: 'Lines 44 (import), 235 (instantiation)'
+    stderr_summary: null
+  - command: 'ls -la /Users/huangtm/Projects/forex-trading-system/scripts/monitor_regime_triggers.py'
+    exit_code: 0
+    stdout_summary: '-rw-r--r--@ 1 huangtm staff 17K May 6 23:09 monitor_regime_triggers.py'
+    stderr_summary: null
+  - command: 'which crontab calendar at'
+    exit_code: 0
+    stdout_summary: '/usr/bin/crontab /usr/bin/calendar /usr/bin/at'
+    stderr_summary: null
+  - command: 'ls -la /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py'
+    exit_code: 0
+    stdout_summary: '-rw-r--r--@ 1 huangtm staff 14K May 6 23:11 test_wave10_dispatch_lock.py'
+    stderr_summary: null
+  - command: 'wc -l /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py'
+    exit_code: 0
+    stdout_summary: '332'
+    stderr_summary: null
+  - command: 'git rev-parse HEAD'
+    exit_code: 0
+    stdout_summary: '747a6add72b1a66c4ae9c9be37e9bd59391f946c'
+    stderr_summary: null
+  - command: 'git log --oneline -1'
+    exit_code: 0
+    stdout_summary: '747a6ad Wave-9 review + Wave-10 fix-and-amend closure: F-001/F-002/F-008/BC-8/NEW-2 remediated'
+    stderr_summary: null

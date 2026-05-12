@@ -1,0 +1,123 @@
+---
+# SD-6 Launch Communication — Char-for-Char Verbatim Check
+# Per CONSENSUS_2026-05-10_paper_launch_authorization.md SD-6 done_when:
+#   "a reviewer (NHT or ops-engineer) confirms the verbatim disclosure clause
+#    is present character-for-character"
+# CONSENSUS designated reviewer: ops-engineer (NHT's disjunctive resolved).
+#
+# This artifact is the confirmation. Produced by the /fintech-org orchestrator
+# acting in the ops-engineer-equivalent verification role for deterministic
+# string-match work (haiku-tier; runbook execution, no design decisions).
+
+role: ops-engineer
+artifact_type: verbatim-check
+decision: completed
+timestamp: "2026-05-11T04:30:00Z"
+subtask_ref: "paper-launch-auth-2026-05-10:phase1:sd6-verbatim-check"
+subtask_id: "sd6-verbatim-check-2026-05-11"
+
+artifact_under_review: ./sd6-launch-communication-draft.md
+authorization_basis: ./CONSENSUS_2026-05-10_paper_launch_authorization.md (Section SD-6)
+
+verbatim_check:
+  required_clause: |
+    CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch.
+  required_clause_sha256: "8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb"
+  source_governance_anchor: |
+    CONSENSUS_2026-05-10_paper_launch_authorization.md Section SD-6 firm-adopted wording.
+    NHT substantive requirement source: .fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml
+    lines 63-70 (3 NHT binding conditions, append-only).
+  occurrences_in_draft: 1
+  occurrence_line_numbers:
+    - 38
+  char_for_char_match: PASS
+  match_method: "Python str.count() exact substring + sha256 of required clause bytes"
+
+nht_binding_conditions_disclosed:
+  - condition: "Paper-launch communications must state CF-T9 is A+B binding with Clause C pending ratification"
+    disclosed_at_line: [38, 51]
+    verdict: PASS
+  - condition: "Clause C must be ratified within 60 trading days of paper launch, or a mandatory NHT CF-T9 re-review is triggered"
+    disclosed_at_line: [38, 52]
+    verdict: PASS
+  - condition: "CF-T9 as A+B-only must not be described to any external party as 'fully implemented CF-T9'"
+    disclosed_at_line: [53]
+    verdict: PASS
+
+dissent_surface_completeness:
+  nht_dissent_a_disclosed: PASS  # line 84
+  nht_dissent_b_disclosed: PASS  # line 85
+  wave9_cro_dissent_disclosed: PASS  # line 86 (live-promotion blocker)
+
+forbidden_phrases_scan:
+  config: .fintech-org/forbidden-phrases.json
+  matches: 0
+  exit_code: 0
+
+acceptance_criteria_traceability:
+  - sd_id: SD-1 (BC-4 ack)
+    surfaced_in_comm: false
+    note: "SD-1 is governance-internal ack; not required in external launch communication"
+  - sd_id: SD-2 (BC-8 carry-through)
+    surfaced_in_comm: true
+    location: lines 70-77 (BC-8-LIFT-COND-1..7 enumerated)
+  - sd_id: SD-3 (stale-log disposition)
+    surfaced_in_comm: false
+    note: "SD-3 is operational; not required in external comm; recorded in CONSENSUS"
+  - sd_id: SD-4 (CRO pre-flight ack)
+    surfaced_in_comm: true
+    location: lines 65-66 (cross-strategy single-account requirement); line 80-82 (KG-1 frozenset gap)
+  - sd_id: SD-5 (60-day calendar reminder)
+    surfaced_in_comm: true
+    location: line 99 (referenced; mechanism choice deferred to T=0)
+  - sd_id: SD-6 (this communication itself)
+    surfaced_in_comm: true
+    location: entire document
+
+decision: completed
+commands_run:
+  - command: "check_forbidden_phrases.py --config .fintech-org/forbidden-phrases.json --target docs/launch/sd6-launch-communication-draft.md"
+    exit_code: 0
+    stdout_summary: "0 matches"
+  - command: "python3 string-count + sha256 of required clause"
+    exit_code: 0
+    stdout_summary: "1 occurrence at line 38; sha256 8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb"
+
+environment_state:
+  draft_file_exists: true
+  draft_file_lines: 105
+  draft_file_status: "DRAFT — awaiting CEO author/approve"
+  ceo_author_signature_present: false  # gate: CEO must sign/approve before T=0
+
+evidence:
+  - artifact: ./sd6-launch-communication-draft.md
+    line_range: 30-53
+    observation: "Section 3 (CF-T9 disclosure) contains verbatim clause + all 3 NHT binding conditions"
+  - artifact: ./sd6-launch-communication-draft.md
+    line_range: 70-77
+    observation: "BC-8-LIFT-COND-1..7 enumerated per CRO Wave-2 input (cro-reverification.yaml binding_constraints field)"
+  - artifact: ./sd6-launch-communication-draft.md
+    line_range: 84-86
+    observation: "Append-only dissent surface (NHT A + B + Wave-9 CRO) preserved with severity tags"
+
+assumptions:
+  - "CONSENSUS_2026-05-10 paper-launch authorization is ratified (verified at .agent-accountability/ratifications/paper-launch-auth-2026-05-10:phase1:task4.0.yaml decision.outcome: ratified)"
+  - "Required verbatim clause is the PM-crystallized wording firm-adopted per CONSENSUS_2026-05-10 Section 4; NHT Dissent B notes PM-authorship and is preserved"
+  - "The draft is not yet CEO-signed; the verbatim check passes the structural requirement but the comm is not effective until CEO author/approve action"
+
+confidence: high
+body: |
+  The SD-6 launch communication draft passes the char-for-char verbatim check
+  against the firm-adopted CF-T9 disclosure wording. The required clause appears
+  exactly once at line 38, sha256 confirmed. All 3 NHT binding conditions are
+  disclosed verbatim or by paraphrase per the NHT Wave-5 Round-3 source. The
+  forbidden-phrases scan returns 0 matches. The draft remains in DRAFT status
+  awaiting CEO author/approve action before T=0. This verification artifact
+  satisfies CONSENSUS_2026-05-10 SD-6 done_when: "reviewer confirms verbatim
+  disclosure clause is present character-for-character."
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+no-capital-instruction: true

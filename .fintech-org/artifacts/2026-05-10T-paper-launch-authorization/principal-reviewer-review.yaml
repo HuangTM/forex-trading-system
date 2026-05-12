@@ -1,0 +1,327 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: '2026-05-10T20:30:00Z'
+subtask_ref: paper-launch-auth-2026-05-10:phase1:task3.0
+subtask_id: 7a3e4b1c-8d2f-4f6a-9c1b-5e8a3d7b9f04
+
+artifact-under-review:
+  - path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+  - path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/nht-dissent-verification-redacted.yaml
+  - path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/cro-reverification-redacted.yaml
+  - path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/ops-engineer-verification-redacted.yaml
+
+rubrics-applied:
+  - name: review-plan
+    verdict: NEEDS-WORK
+    note: Scope reasonable; criteria mostly machine-checkable; specific defects flagged in findings F-001..F-005.
+  - name: execution-firewall-review
+    verdict: PASS-with-observation
+    note: Deliverable is a governance CONSENSUS, not strategy code. No research-vs-execution drift surface present. Verified PM not adjudicating BC-8 lift (correctly framed as CEO decision in SD-2 done_when). One observation captured as F-006 about CRO binding-constraint completeness within the SD-2 done_when language.
+  - name: log-as-decision-trace
+    verdict: NEEDS-WORK
+    note: Decision-trace gaps in SD-2 (redundant w/ prior ratification — replay-from-CONSENSUS will not show which decision is the operative one), SD-5 reminder mechanism not pinned to a sourced log, SD-6 reviewer identity not named. Captured in F-001, F-002, F-004.
+  - name: spec-to-implementation-trace
+    verdict: PASS-with-observation
+    note: Each SD-1..SD-6 maps to a hard-constraints field. MC-1..MC-3 governance criteria trace to v0.4.11 protocol rule and signature ledger. The "verbatim disclosure" string is a 2026-05-03 derived reformulation, not the source NHT dissent text — flagged as F-005.
+  - name: edge-case-enumeration
+    verdict: applied
+    note: |
+      Considered the "what if CEO declines BC-8" branch in SD-2 (covered by done_when alt-clause), the "no T=0 known yet" edge in SD-5 (covered: reminder is provisional), the "launch communication is private not public" edge in SD-6 (covered: file/email/equivalent durable artifact). No new gap.
+  - name: invariant-search
+    verdict: applied
+    note: |
+      Hard-constraint `no_paper_loop_start_by_orchestrator: true` is the load-bearing invariant. The 6 SDs each respect it (none authorizes orchestrator-side loop start). PASS.
+  - name: test-inversion
+    verdict: skipped
+    note: Skipped because no code or tests are under review in this wave; only a governance acceptance-criteria spec. Skip justified per role spec.
+  - name: failure-mode-reasoning
+    verdict: applied
+    note: Considered "CONSENSUS gets signed but SD-6 verbatim check fails post-hoc," "BC-8 disposition recorded inconsistently with prior ratification," "calendar reminder set but not persisted." Findings F-001, F-002, F-004 capture the surfaceable cases.
+  - name: numerical-statistical-correctness
+    verdict: skipped
+    note: Not applicable — this is a governance authorization spec, not a statistical artifact. JPY-correlated cap value (15%) is a hard constraint from upstream CRO; not re-decided here.
+
+contamination-check: clean
+
+evidence:
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '20-35'
+    observation: 'Hard-constraints enums for bc_8_authorization (authorized/declined) and stale_log_disposition (truncate/verify-startup-clears/accept-merged) are well-formed and align with SD-2 / SD-3 done_when token sets.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '43-46'
+    observation: 'SD-2 done_when enumerates three lift-conditions (single shared account, dispatch lock active, aggregate JPY-correlated cap ≤15%) but CRO emitted SEVEN constraints BC-8-LIFT-COND-1..7 in cro-reverification.yaml lines 25-75.'
+  - artifact_path: .agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml
+    line_range: '33-37'
+    observation: 'CEO ratification at 2026-05-06T14:00:00Z explicitly states: "BC-8 second-loop authorization veto LIFTED. CEO authorizes concurrent vt + carry_fred operation against the same paper account. CRO reverification confirmed lock placement is correct and concurrent test passes."'
+  - artifact_path: docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md
+    line_range: '37, 88'
+    observation: 'Wave-10 CONSENSUS line 37 lists "Decide BC-8 second-loop authorization" as a CEO Decision item; line 88 reinforces it as CEO-authority and not PM-authority. The ratification cited above ("yes all") covered all 5 enumerated CEO actions including this one.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '33-35'
+    observation: 'item_10_required_verbatim_disclosure pins the exact string: "CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch."'
+  - artifact_path: .fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml
+    line_range: '63-70'
+    observation: 'Source NHT dissent text reads: "Any paper-launch disclosure (CEO or HoQR) must state that CF-T9 is binding on A+B with Clause C pending ratification." This is the original binding-condition text; the PM-pinned verbatim is a 2026-05-03-era reformulation, not the source-NHT exact text.'
+  - artifact_path: docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+    line_range: '231-235'
+    observation: 'The "required verbatim disclosure clause" with the longer form ("Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch") first appears here as a pm-acceptance-criteria reference, not in the original NHT source dissent. Same wording in CONSENSUS_2026-05-03_preflight_closure.md line 289.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '64-68'
+    observation: 'SD-6 done_when states: "a reviewer (NHT or ops-engineer) confirms the verbatim disclosure clause is present character-for-character." The reviewer identity is disjunctive ("or"), the timing relative to T=0 is "before T=0" (but how-much-before is unspecified), and the artifact path where the confirmation lands is unspecified.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '58-62'
+    observation: 'SD-5 done_when says "If CEO has already set a provisional reminder based on a target launch date, the reminder mechanism (calendar system, task system, or cron entry) is named." But if CEO has NOT set the reminder at CONSENSUS sign time (the expected case per CONSENSUS_2026-05-03 line 288: "Cannot be set until paper loop start date (T=0) is known"), the done_when becomes vacuous — passing on a "commitment to do later" rather than the act itself.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '70-77'
+    observation: 'MC-1 says "CONSENSUS-SUMMARY.md line count ≤ 80" — machine-checkable. MC-2 names the four required signatures (NHT, CRO, ops-engineer, Principal Reviewer) plus PM. MC-3 requires a ratification artifact with closed-set decision enum.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/cro-reverification-redacted.yaml
+    line_range: '21-75'
+    observation: 'CRO emits seven binding constraints BC-8-LIFT-COND-1..7 attached to the lift. BC-8-LIFT-COND-7 label is the only one not redacted: "paper-only-no-live-promotion". The other six are redacted labels and requirements — by construction my context cannot evaluate their content, only their existence and count.'
+  - artifact_path: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+    line_range: '84-96'
+    observation: 'out-of-scope list explicitly excludes: Wave-11 dispatch, push to origin/main, historic-commit cleanup, any new code/backtest/trial pre-reg, kill-switch Properties 2/3/4 remediation, Saxo token revocation, F-006/F-007 deferred items, re-adjudication of prior dissent, modification of prior CONSENSUS docs, CF-T9 Clause C ratification. Scope bounding is comprehensive.'
+
+assumptions:
+  - 'CRO-emitted binding constraints BC-8-LIFT-COND-1..7 (cro-reverification.yaml lines 25-75) carry through to paper launch even though the PM acceptance criteria only names three of them in SD-2 done_when text. The conditions exist on record either way; the question is whether the SD-2 done_when text fully reflects the operative set.'
+  - 'The "verbatim disclosure clause" pinned at PM acceptance criteria line 33-35 is the intended operative string for SD-6 (notwithstanding it differs from the original NHT source dissent text). Treating PM as the authoritative-spec author for this wave; not reopening the 2026-05-03 derivation.'
+  - 'My redacted view shows decision/body fields blanked for NHT, CRO, ops-engineer artifacts. I assume the redaction is complete and the structural fields I read (severity: concern in NHT artifact; CRO seven binding-constraint scaffolding; ops-engineer exit_code=0 evidence) do not themselves leak stance. (NHT severity: concern is a structural-skeptic content classifier, not a binary approve/reject stance — non-stance per spawn-agent.md redaction policy.)'
+
+confidence: high
+
+findings:
+  - id: F-001
+    severity: major
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:43-46 and .agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml:33-37
+    category: spec-drift
+    observation: 'SD-2 frames the BC-8 second-loop authorization decision as a fresh decision the 2026-05-10 CONSENSUS must record. The Wave-10 ratification at 2026-05-06T14:00:00Z (artifact wave10-fix-and-amend:phase1:task1.0.yaml lines 34-37) already records the CEO-authority decision verbatim: "BC-8 second-loop authorization veto LIFTED. CEO authorizes concurrent vt + carry_fred operation against the same paper account." The Wave-10 CONSENSUS (CONSENSUS_2026-05-06_wave10_fix_and_amend.md lines 37, 88) also explicitly framed this as a CEO decision under Wave-10, ratified four days before the 2026-05-10 acceptance-criteria was authored.
+      \nThe acceptance criteria appears to treat this as undecided ("CONSENSUS records one of the two permitted values"), which structurally creates one of two failure modes: (a) the 2026-05-10 CONSENSUS re-records "authorized" — duplicating a prior ratification and creating two ratification entries for the same decision with potentially different conditions attached, OR (b) the 2026-05-10 CONSENSUS records "declined" — silently reversing the 2026-05-06 CEO ratification without explicit "I am reversing my prior ratification" CEO action.
+      \nFor decision-trace integrity, a future reader auditing "when did the CEO authorize concurrent vt + carry_fred?" must be able to identify the single operative ratification. Two parallel ratifications without an explicit subordination relationship break that property.'
+    inference: 'The SD-2 phrasing does not distinguish between (i) a paper-launch-specific re-confirmation that the 2026-05-06 ratification carries through to paper-launch, and (ii) a fresh CEO decision that overrides 2026-05-06. PM must clarify which intent is operative. If (i), the done_when text should reference the prior ratification artifact path and frame SD-2 as "CEO confirms the 2026-05-06 BC-8 lift remains operative for paper-launch under the seven CRO BC-8-LIFT-COND-1..7 constraints." If (ii), the done_when text must include the operative reversal language and an explicit CEO acknowledgment that this overrides the 2026-05-06 ratification.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:43-46'
+      - '.agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml:33-37'
+      - 'docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md:37, 88'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-002
+    severity: major
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:43-46 and .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/cro-reverification-redacted.yaml:21-75
+    category: spec-drift
+    observation: 'CRO re-verification emitted seven binding constraints BC-8-LIFT-COND-1 through BC-8-LIFT-COND-7. The PM SD-2 done_when text enumerates three conditions ("single shared account, dispatch lock active, aggregate JPY-correlated cap ≤15%") inline as the items the CEO acknowledges in the "authorized" branch. The remaining four CRO binding constraints (BC-8-LIFT-COND-1, -2, -3, -5, -6 — by elimination since -4 maps to dispatch-lock and -7 is paper-only-no-live-promotion) are not referenced.'
+    inference: 'When CEO ratifies SD-2 as "authorized," the binding-constraint coverage that travels with the ratification is incomplete relative to CRO emission. Either CRO emitted four constraints PM does not consider operative (in which case the firewall is open and CRO authority is being curated by PM, which is a firewall violation), or PM intended to incorporate all seven constraints by reference rather than enumeration (acceptable, but the done_when must say so explicitly). The acceptance-criteria currently does neither.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:43-46'
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/cro-reverification-redacted.yaml:21-75'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-003
+    severity: minor
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:64-68
+    category: observability-gap
+    observation: 'SD-6 done_when says: "a reviewer (NHT or ops-engineer) confirms the verbatim disclosure clause is present character-for-character." Three sub-gaps: (a) the reviewer identity is disjunctive ("NHT or ops-engineer") with no tie-break rule for who actually performs the check; (b) the timing is "before T=0" but how-much-before is unspecified (an hour, a day, the prior wave?); (c) the artifact path where the confirmation lands is not named — when an auditor later asks "show me the char-for-char verification result for SD-6," there is no spec-anchored place to look.'
+    inference: 'A reviewer-discretion check with no named output artifact is not machine-checkable and fails the log-as-decision-trace item-1 (outcome named) and item-2 (inputs that drove the outcome) when one tries to reconstruct the SD-6 outcome from logs/governance-artifacts alone. The check itself may happen and pass; the trace will not show it happened.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:64-68'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-004
+    severity: minor
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:58-62
+    category: observability-gap
+    observation: 'SD-5 done_when is conditional: "If CEO has already set a provisional reminder based on a target launch date, the reminder mechanism (calendar system, task system, or cron entry) is named." Per CONSENSUS_2026-05-03_preflight_closure.md line 288 ("Cannot be set until paper loop start date (T=0) is known. CEO must set the calendar reminder on the day of first paper bar"), the expected state at CONSENSUS-sign time is that T=0 is unknown, the reminder is NOT yet set, and the SD-5 done_when collapses to "CONSENSUS records the commitment in a dedicated item-9 section" — i.e., a commitment to do a thing, not the thing.'
+    inference: 'SD-5 as currently written is satisfiable by writing a paragraph stating "CEO will set a calendar reminder on T=0." The action that actually matters (the reminder existing, in a system that will fire 60 trading days later) is not check-gateable from CONSENSUS content. This is acceptable IF the orchestrator has a separate gate at T=0 enforcing the reminder existence before the first paper bar; if it does not, SD-5 functionally green-lights paper launch with the reminder unset.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:58-62'
+      - 'docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md:288'
+    recommended-action-class: tighten-invariant
+    owning-role: pm
+
+  - id: F-005
+    severity: minor
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:33-35
+    category: spec-drift
+    observation: 'The PM-pinned "required verbatim disclosure" string ("CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch.") does not appear in the source NHT dissent at .fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml lines 63-70. The source NHT dissent reads: "Any paper-launch disclosure (CEO or HoQR) must state that CF-T9 is binding on A+B with Clause C pending ratification." The longer form first appears in CONSENSUS_2026-05-03_wave7_closure.md line 233 and CONSENSUS_2026-05-03_preflight_closure.md line 289 — both as derived pm-acceptance-criteria references, not as the source dissent text.'
+    inference: '"Verbatim" is being used here to mean "verbatim relative to the 2026-05-03 PM authoring," not "verbatim relative to the source NHT dissent." This is a definitional question, not a defect per se — but the SD-6 acceptance criterion calling the string "verbatim CF-T9 clause" creates the impression of source-accuracy that the lineage does not support. A reader auditing whether the launch communication faithfully reproduces what NHT asked for will find that the pinned string is a longer reformulation. This may be entirely intentional (the 2026-05-03 elaboration was authored to be more precise than the source) but the lineage discrepancy should be acknowledged in the SD-6 body so the audit trail is honest about which "verbatim" applies.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:33-35'
+      - '.fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml:63-70'
+      - 'docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md:231-235'
+      - 'docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md:289'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-006
+    severity: observation
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:38-42
+    category: maintainability
+    observation: 'SD-1 (BC-4 dissent acknowledged verbatim) requires that CONSENSUS body contain CEO-authored acknowledgment citing the verbatim dissent source. The done_when is acceptable as written, but it does not specify where the verbatim dissent is reproduced (in the CONSENSUS body itself, or by reference to a prior document containing it). Both options are valid; only the choice needs to be pinned. Given that NHT artifacts cited in evidence include nht-cold-start-gate-adversarial.yaml as the source, an explicit "verbatim dissent reproduced in Section X of this CONSENSUS, byte-identical to source artifact lines Y-Z" pattern would close the trace.'
+    inference: 'Without a specified location for the verbatim reproduction, two CONSENSUSes could both "satisfy SD-1" while one reproduces the dissent and the other only references its file path. For an append-only audit trail under git, the file-path-only variant works (the dissent travels via git history); for human-readable CONSENSUS auditing, in-body reproduction is friendlier. Pick one and pin it.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:38-42'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-007
+    severity: observation
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:53-57
+    category: maintainability
+    observation: 'SD-4 (CRO pre-flight assumptions acknowledged) done_when permits acknowledgment "by their description or by reference to CONSENSUS_2026-05-03 Section 6." The "by description" branch is unbounded — a CEO who writes "I acknowledge the two CRO pre-flight items" satisfies the done_when literally but produces nothing reconstruction-grade. The "by reference" branch is stronger because Section 6 of CONSENSUS_2026-05-03 contains the two specific assumptions (_JPY_CORRELATED frozenset only contains {USDJPY, GBPUSD}; cross-strategy aggregation requires both paper loops in same Saxo paper account, per line 284 of that doc).'
+    inference: 'The acceptance-criteria offers two satisfaction modes with very different trace accuracy. Recommend tightening to the "by reference to specific section + verbatim re-quote of the two assumption descriptions" mode, since the descriptions are short (one sentence each) and including them in-body keeps SD-4 reconstruction-grade without bloating CONSENSUS.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:53-57'
+      - 'docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md:282-284'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+  - id: F-008
+    severity: observation
+    location: .fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml:1-96 (whole-artifact)
+    category: maintainability
+    observation: 'The artifact has no explicit "decision authority" matrix per sub-decision. SD-2 lift is CEO-with-CRO-input. SD-1, SD-4 are CEO-acknowledgment. SD-3 is CEO-choice-with-Ops-followup. SD-5 is CEO-commitment. SD-6 is CEO-authored-with-reviewer-confirm. Each varies in who owns the decision and who verifies it. The acceptance-criteria as a whole does not surface this allocation; a reader has to infer it from done_when prose.'
+    inference: 'A small "decision authority" table mapping {SD-id → decision-owner, verifier} would tighten the firewall hygiene (the absence of which is the structural-skeptic concern downstream). Not blocking, but a maintainability improvement.'
+    evidence:
+      - '.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml'
+    recommended-action-class: clarify-spec
+    owning-role: pm
+
+rubric_applied_summary:
+  - rubric: review-plan
+    verdict: NEEDS-WORK (3 minor + 2 major + 3 observation = 8 findings)
+    high-level: Scope reasonable. Acceptance-criteria mostly machine-checkable. Major finding on SD-2 redundancy with prior ratification; major finding on incomplete BC-8 binding-constraint coverage in SD-2 done_when. Minor and observation findings on SD-3/SD-4/SD-5/SD-6 done_when phrasing.
+  - rubric: execution-firewall-review
+    verdict: PASS-with-observation
+    high-level: No research-vs-execution drift in this governance acceptance-criteria. PM correctly does not adjudicate the BC-8 lift technical determination. The "incomplete binding-constraint enumeration" in SD-2 (F-002) is a clarity issue, not a firewall breach — CRO's seven constraints are on record in the CRO artifact even if not fully named in SD-2.
+  - rubric: log-as-decision-trace
+    verdict: NEEDS-WORK
+    high-level: Several decision-trace gaps where the SD `done_when` clauses are check-passable but not reconstructable from the resulting CONSENSUS alone (F-001, F-003, F-004, F-006, F-007). When SD-2 is signed, an auditor reading the 2026-05-10 CONSENSUS in isolation will not be able to determine whether SD-2 records a fresh decision or reaffirms the 2026-05-06 ratification — this is exactly the "log says what happened but not why" anti-pattern from the rubric.
+
+knowledge_gaps:
+  - 'The redacted CRO artifact shows seven BC-8-LIFT-COND-* labels, but only BC-8-LIFT-COND-7 ("paper-only-no-live-promotion") survives the label redaction. I cannot independently verify which three of the seven the PM enumerated inline in SD-2 done_when — I can only count that PM names three while CRO emitted seven. Resolving F-002 requires PM to either name all seven by ID or explicitly incorporate them by reference.'
+  - 'Wave-10 binding wording on BC-8 ("CEO authorizes concurrent vt + carry_fred operation against the same paper account. CRO reverification confirmed lock placement is correct and concurrent test passes") does not enumerate the seven CRO BC-8-LIFT-COND constraints. Whether those constraints were considered ratified on 2026-05-06 along with the lift, or are a separate Wave-2 emission specific to 2026-05-10 paper-launch, is a lineage question PM should resolve in SD-2 body.'
+  - 'I have not read the unredacted NHT and CRO artifacts (by design — independence). Findings F-001..F-008 are based solely on the structural fields visible after redaction plus the prior ratifications referenced in evidence.'
+
+policy_violations_detected: []
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/pm-acceptance-criteria-redacted.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/nht-dissent-verification-redacted.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/cro-reverification-redacted.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/pr-redacted/ops-engineer-verification-redacted.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.agent-accountability/ratifications/wave10-fix-and-amend:phase1:task1.0.yaml
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-03_preflight_closure.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-03_wave7_closure.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-02_paper_launch_authorization.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-02T-wave5-round3/nht-tier-b-reverify-cosign.yaml
+  - /Users/huangtm/.claude/skills/review-plan/SKILL.md
+  - /Users/huangtm/.claude/skills/execution-firewall-review/SKILL.md
+  - /Users/huangtm/.claude/skills/log-as-decision-trace/SKILL.md
+  - /Users/huangtm/.claude/skills/fintech-org/roles/principal-reviewer.md
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true
+
+body: |
+  SCOPE REVIEW (review-plan rubric). The PM acceptance-criteria's
+  out-of-scope list is comprehensive (10 items, lines 84-96) and correctly
+  excludes Wave-11 dispatch, push to origin/main, historic-commit cleanup,
+  Saxo token revocation, kill-switch Properties 2/3/4 remediation, the
+  F-006/F-007 deferred items, and modifications to prior CONSENSUS docs.
+  The instrument universe (9 pairs, lines 6-15) is consistent with the
+  CONSENSUS_2026-05-02 authorized set. The hard-constraints enums for BC-8
+  authorization (authorized | declined) and stale-log disposition (truncate
+  | verify-startup-clears | accept-merged) are well-formed and the SD-2 /
+  SD-3 done_when token sets match the enums. Scope is not over-broad and
+  contains no scope creep that should be out.
+
+  ACCEPTANCE-CRITERIA COHERENCE (review-plan rubric, criteria-coherence
+  axis). Of the six sub-decisions: SD-3 (stale-log disposition) is
+  machine-checkable with an enumerated outcome — strongest of the six.
+  SD-2 (BC-8 second-loop) is enum-checkable on the outcome token but
+  carries the structural redundancy issue (F-001) and incomplete-binding-
+  constraint-enumeration issue (F-002). SD-5 (calendar reminder) and SD-6
+  (launch communication) are check-passable but not reconstruction-grade
+  in their current phrasing (F-003, F-004). SD-1 and SD-4 are
+  acknowledgment-form criteria; their done_when leaves verbatim-reproduction-
+  location and assumption-description mode unspecified (F-006, F-007). No
+  internal contradictions found between hard-constraints enums and the
+  matching SD done_when clauses. Cross-criterion consistency PASSES on
+  enums but is weakened by the SD-2 redundancy question.
+
+  FIREWALL INTEGRITY (execution-firewall-review rubric). PM does not
+  adjudicate the BC-8 lift technical determination — the SD-2 done_when
+  correctly frames "CEO records one of {authorized | declined}" as a CEO
+  action, with the three conditions (single shared account, dispatch lock
+  active, JPY-correlated cap ≤15%) sourced from CRO emission. No research-
+  class judgment is being pushed to PM. The two open issues are: (a) SD-2
+  enumerates 3 of 7 CRO BC-8-LIFT-COND-* constraints inline; the other 4
+  are neither named nor incorporated by reference (F-002), which is a
+  firewall-adjacent concern because PM is implicitly curating which CRO
+  constraints "count" by enumeration — recommend explicit by-reference
+  inclusion. (b) SD-2 itself is structurally questionable per F-001
+  because the 2026-05-06 ratification already records the operative CEO
+  decision; PM is framing it as new rather than as carry-through or
+  reversal — this is governance hygiene, not capital risk, hence major
+  rather than blocking.
+
+  DECISION-TRACE ADEQUACY (log-as-decision-trace rubric, applied to the
+  authorization structure rather than runtime code). Question: when the
+  CONSENSUS is signed and ratified, will the resulting governance log
+  enable an auditor to reconstruct (a) what the CEO decided per sub-
+  decision, (b) what evidence each role cited, (c) what dissent items
+  survived, (d) what binding constraints attach to each decision — from
+  the CONSENSUS + linked artifacts ALONE, without attaching the orchestrator?
+  Result: PARTIAL. (a) reconstructable for SD-3 (enumerated outcome) but
+  weak for SD-2 (redundancy with prior ratification creates ambiguity);
+  weak for SD-5 (commitment-to-act vs act-itself); weak for SD-6 (reviewer
+  identity disjunctive). (b) reconstructable via the evidence lists in
+  each role's artifact. (c) reconstructable via append-only dissent
+  preservation, which is established practice. (d) PARTIAL — SD-2's
+  binding-constraint set is enumerated inline as 3 of 7 (F-002). The
+  AUTHORIZATION STRUCTURE has gaps that would make the post-hoc trace
+  incomplete in the dimensions noted; PM addressing F-001..F-005 in the
+  CONSENSUS body closes them.
+
+  SPECIFIC QUESTIONS (from the dispatch).
+  Q6 (SD-2 redundancy): F-001 covers this. The Wave-10 ratification
+  artifact lines 33-37 explicitly records the BC-8 second-loop lift as a
+  CEO-ratified decision at 2026-05-06T14:00:00Z. SD-2 as currently
+  phrased treats this as undecided. Either intent (paper-launch re-
+  confirmation OR fresh decision OR reversal) is admissible; the
+  acceptance-criteria must say which. Per orchestrator instruction this
+  warrants major severity with recommended-action-class: clarify-spec and
+  owning-role: pm. Not blocking — the redundancy is governance hygiene,
+  not capital risk.
+  Q7 (CRO binding constraints in done_when): F-002 covers this. CRO
+  emitted seven BC-8-LIFT-COND-* constraints; PM enumerates three in SD-2
+  done_when. If F-001 is resolved as "carry-through," the seven
+  constraints should be incorporated by reference into SD-2 explicitly; if
+  resolved as "fresh decision," all seven should be enumerated or
+  referenced in the acceptance criteria.
+  Q8 (SD-6 verifiable check): F-003 covers this. Reviewer identity is
+  disjunctive (NHT or ops-engineer), timing is unspecified (only "before
+  T=0"), confirmation-artifact path is not named. PM should pin the
+  reviewer (or specify the tie-break), pin a relative-timing window
+  ("at the time CONSENSUS is signed" or "no more than 24 hours before
+  T=0"), and name the artifact path where the confirmation lands (e.g.,
+  a `launch-comm-verbatim-check.yaml` adjacent to the CONSENSUS).
+
+  OVERALL VERDICT. approve-with-conditions. The acceptance-criteria is
+  structurally sound and the scope is correctly bounded. Two major
+  findings (F-001 SD-2 redundancy with prior ratification, F-002
+  incomplete BC-8 binding-constraint enumeration) and six minor/
+  observation findings should be addressed by PM in the CONSENSUS body
+  itself — they do not require modification of the acceptance-criteria
+  artifact (which can stand as a record of what the launch checklist
+  intended) but the CONSENSUS that satisfies it must close these traces.
+  None of the findings rise to blocking. The PR signature path (per MC-2)
+  is honored; this artifact serves as Principal Reviewer signature.
+
+dissent-statement: ""

@@ -1,0 +1,518 @@
+role: cro
+artifact_type: risk-assessment
+decision: approve
+timestamp: '2026-05-11T03:08:44Z'
+subtask_ref: paper-launch-auth-2026-05-10:phase1:task2.2
+subtask_id: 1752ffc6-3e0e-4635-ae2f-df8594fe6480
+no-capital-instruction: true
+size_multiplier: 1.0
+confidence: high
+
+# ---------------------------------------------------------------------------
+# CRO extensions
+# ---------------------------------------------------------------------------
+
+regime_flags:
+  - paper-only
+  - single-saxo-paper-account-required
+  - jpy-correlated-cap-15pct-active
+  - drawdown-contract-active-10-15-20-ladder
+
+binding_constraints:
+  # These constraints bind the CEO's BC-8 second-loop authorization decision.
+  # If any becomes false during paper operation, BC-8 authorization is auto-revoked
+  # and single-loop-only constraint snaps back into force.
+  - id: BC-8-LIFT-COND-1
+    label: dispatch-lock-active-both-scripts
+    requirement: |
+      fcntl.flock(LOCK_EX | LOCK_NB) MUST wrap the per-cycle
+      [get_positions -> check_dispatch_allowed -> execute_signal -> reconcile]
+      critical section in BOTH scripts. Verified at vt.py:553 outer-try:581
+      and carry_fred.py:534 outer-try:563.
+  - id: BC-8-LIFT-COND-2
+    label: dispatch-lock-released-on-all-exit-paths
+    requirement: |
+      Outer try/finally pattern releases lock on ALL exit paths (return or
+      exception). Verified at vt.py:856-869 and carry_fred.py:805-818.
+      The BlockingIOError early-return branch (lock busy) closes fd inline
+      without entering the protected try (correct; no leak).
+  - id: BC-8-LIFT-COND-3
+    label: single-saxo-paper-account-parity-enforced-at-startup
+    requirement: |
+      Both scripts MUST invoke assert_account_key_parity(backend.account_key)
+      before any order-dispatch path is reachable. Verified at vt.py:923 and
+      carry_fred.py:862. The parity-gate function bodies are byte-identical
+      across the two scripts except for one discriminator string in the error
+      message ("vt loop" vs "carry_fred loop"); see Section A.3 below.
+  - id: BC-8-LIFT-COND-4
+    label: aggregate-jpy-correlated-cap-15pct
+    requirement: |
+      compute_exposure + check_dispatch_allowed enforce the 15% JPY-correlated
+      cap pre-trade. CRO_MAX_CORRELATED_PCT = 0.15 passed explicitly at
+      vt.py:594 and carry_fred.py:571 (no silent default). _JPY_CORRELATED
+      frozenset = {USDJPY, GBPUSD} per exposure_aggregator.py:46.
+  - id: BC-8-LIFT-COND-5
+    label: drawdown-contract-ladder-active
+    requirement: |
+      10pct/15pct/20pct drawdown ladder MUST be assessed per cycle before
+      lock acquisition. Verified at vt.py:505-541 (and equivalent earlier
+      in carry_fred.py - assessed pre-lock in both flows).
+  - id: BC-8-LIFT-COND-6
+    label: kill-switch-trigger-paths-wired-to-both-loops
+    requirement: |
+      Both loops MUST wire: is_triggered check, record_equity_fetch_failure
+      counter, check_and_trigger(equity) daily-loss gate, and reconciliation
+      trigger. Verified at vt.py:468-498,787 and carry_fred.py:433-484,745,792.
+  - id: BC-8-LIFT-COND-7
+    label: paper-only-no-live-promotion
+    requirement: |
+      Kill-switch Properties 1/2/3/4 gaps (per kill-switch-design rubric)
+      remain LIVE-PROMOTION blockers and are NOT lifted by this assessment.
+      Promotion to live capital requires a separate CRO risk-architecture
+      review covering: out-of-band kill switch (Property 1), one-button
+      operator action (Property 2), declared time-to-stop SLA (Property 3),
+      and scheduled prod tests against live sessions (Property 4).
+
+# ---------------------------------------------------------------------------
+# Contamination self-check
+# ---------------------------------------------------------------------------
+
+contamination-check: |
+  clean. The redacted acceptance-criteria yaml contained only the permitted
+  fields (role, artifact_type, subtask_ref, deliverable-type, deadline,
+  instrument-universe, hard-constraints, criteria with id/label/done_when,
+  out-of-scope). No proposer narrative, no body, no task-statement, no
+  criteria.description, no source_reference. Redaction held. I did NOT read
+  pm-acceptance-criteria.yaml in the same directory.
+
+# ---------------------------------------------------------------------------
+# Evidence (file:line citations — disjoint from proposer)
+# ---------------------------------------------------------------------------
+
+evidence:
+  # A.1 — flock placement (lock acquired BEFORE get_positions, check_dispatch_allowed, execute_signal)
+  - section: A.1-flock-placement-vt
+    file: scripts/run_paper_trading_vt.py
+    lines:
+      - 23     # import fcntl
+      - 73     # DISPATCH_LOCK_PATH = "data/dispatch_lock.flock"
+      - 550    # _dl_fd = os.open(...)
+      - 553    # fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+      - 581    # outer try: (protected section starts)
+      - 588    # current_positions = backend.get_positions()
+      - 592    # check_dispatch_allowed(_exposure, ...)
+      - 802    # backend.execute_signal(pair, 0, 0)  (one of four execute_signal call sites)
+      - 856    # finally:
+      - 858    # fcntl.flock(_dl_fd, fcntl.LOCK_UN)
+    finding: PASS
+  - section: A.1-flock-placement-carry-fred
+    file: scripts/run_paper_trading_carry_fred.py
+    lines:
+      - 41     # import fcntl
+      - 92     # DISPATCH_LOCK_PATH = "data/dispatch_lock.flock"
+      - 531    # _dl_fd = os.open(...)
+      - 534    # fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+      - 563    # outer try: (protected section starts)
+      - 565    # current_positions = backend.get_positions()
+      - 569    # check_dispatch_allowed(_exposure, ...)
+      - 757    # backend.execute_signal(pair, 0, 0)  (one of four execute_signal call sites)
+      - 805    # finally:
+      - 807    # fcntl.flock(_dl_fd, fcntl.LOCK_UN)
+    finding: PASS
+
+  # A.2 — lock release on exception path
+  - section: A.2-exception-path-vt
+    file: scripts/run_paper_trading_vt.py
+    lines:
+      - 551    # _dl_acquired = False
+      - 554    # _dl_acquired = True  (set only after flock succeeds)
+      - 565-578  # BlockingIOError branch: os.close(fd) at 566, then return — no fd leak, no half-acquired lock
+      - 856-869  # finally block: if _dl_acquired: LOCK_UN then os.close(_dl_fd) unconditionally
+    finding: |
+      PASS — no code path acquires lock without entering the finally that releases it.
+      BlockingIOError path closes fd inline and returns; _dl_acquired stays False.
+      All early-return paths PRIOR to fd-open (lines 489, 498, 521, 535) cannot leak
+      because the fd has not been opened yet.
+  - section: A.2-exception-path-carry-fred
+    file: scripts/run_paper_trading_carry_fred.py
+    lines:
+      - 532    # _dl_acquired = False
+      - 535    # _dl_acquired = True
+      - 546-560  # BlockingIOError branch
+      - 805-818  # finally block: same shape as vt
+    finding: |
+      PASS — symmetric structure with vt.
+
+  # A.3 — account-key parity gate byte-identical (modulo one discriminator)
+  - section: A.3-parity-gate-byte-identical
+    file: scripts/run_paper_trading_vt.py
+    lines: [69, 114-165, 922, 923]
+    finding: |
+      /usr/bin/diff between the two assert_account_key_parity function bodies
+      (vt lines 114-165 vs carry_fred lines 131-182) produces EXACTLY ONE
+      differing line: the discriminator string inside the error message
+      ("vt loop has account_key=..." vs "carry_fred loop has account_key=...").
+      This is intentional discriminator, not drift. Both functions:
+        - share the same lock_path constant: data/paper_account_key_lock.json
+        - use the same atomic os.open(O_CREAT|O_EXCL|O_WRONLY) primitive
+        - read+compare via _json.loads(p.read_text()).get("account_key", "")
+        - sys.exit(1) on mismatch with logger.critical
+      No drift detected since Wave-10 commit 747a6ad.
+  - section: A.3-parity-gate-carry-fred
+    file: scripts/run_paper_trading_carry_fred.py
+    lines: [88, 131-182, 861, 862]
+    finding: PASS
+
+  # A.4 — concurrent test exists
+  - section: A.4-test-presence
+    file: tests/scripts/test_wave10_dispatch_lock.py
+    lines:
+      - 24     # import fcntl
+      - 55     # fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB) — worker subprocess
+      - 60     # fcntl.flock(fd, fcntl.LOCK_UN)
+      - 85-230 # TestDispatchLockConcurrentProcesses class: 4 subprocess tests
+      - 238-332 # TestDispatchLockMechanism class: 7 in-process tests
+    finding: |
+      PASS — file exists, 11 test functions present, tests exercise the
+      exact fcntl primitives (LOCK_EX | LOCK_NB) used by the paper
+      loops via subprocess.Popen workers + in-process unit tests.
+      Per instruction, presence verified by reading; NOT executed.
+
+  # B.1 — _JPY_CORRELATED frozenset
+  - section: B.1-jpy-correlated-frozenset
+    file: src/forex_system/risk/exposure_aggregator.py
+    lines: [46, 49-57]
+    finding: |
+      _JPY_CORRELATED: frozenset[str] = frozenset({"USDJPY", "GBPUSD"})
+      Matches CONSENSUS_2026-05-03 Section 6 Assumption 1 exactly: USDJPY (direct)
+      and GBPUSD (indirect tail-risk). EURUSD correctly absent.
+      NOTE: The PM instrument-universe (lines 6-15 of redacted-AC) lists
+      EUR/JPY, GBP/JPY, AUD/JPY, NZD/JPY as in-scope pairs. These cross-JPY
+      pairs are NOT in the frozenset. The module docstring at line 19 narrows
+      "universe EURUSD/USDJPY/GBPUSD" — this is consistent with the code, but
+      INCONSISTENT with the PM's broader instrument-universe. See knowledge_gaps
+      for the binding-constraint implication.
+
+  # B.2 — single-account requirement
+  - section: B.2-single-account-design
+    file: src/forex_system/risk/exposure_aggregator.py
+    lines: [94-140]
+    finding: |
+      compute_exposure(positions: list[Position]) takes a flat list of positions
+      with no account discriminator. The aggregator is account-agnostic by
+      design — correctness depends on the CALLER passing positions from ONE
+      account. The single-account contract is therefore enforced upstream by
+      assert_account_key_parity (vt:923, carry_fred:862), which sys.exit(1)s
+      if the two loops point at divergent accounts. Composition is correct:
+      aggregator + parity gate together satisfy Assumption 2 of
+      CONSENSUS_2026-05-03 Section 6.
+
+  # C — kill-switch live-promotion blocker scope
+  - section: C-kill-switch-rubric-application
+    file: src/forex_system/risk/kill_switch.py
+    lines: [1-403]
+    finding: |
+      Applied kill-switch-design rubric to the implementation, scoped to PAPER
+      operation:
+        Property 1 (out-of-band): FAIL for live; ACCEPTABLE for paper. The
+          KillSwitch is in-process — a Python crash/hang disables it. With no
+          production-account capital at risk in paper, this is a deferred concern.
+        Property 2 (one-button operator): FAIL for live; N/A for paper. Reset
+          requires Python call (KillSwitch.reset or scripts/reset_kill_switch.py).
+          BUT: trigger paths (daily-loss, fetch-failure, reconciliation) auto-fire
+          without operator action — paper operation does not require Property 2.
+        Property 3 (declared SLA): FAIL for live; N/A for paper. No declared
+          time-to-stop SLA, but paper cycle cadence IS the effective SLA.
+        Property 4 (scheduled prod test against live sessions): FAIL for live;
+          PARTIAL for paper. 43 unit tests in tests/risk/test_kill_switch.py
+          cover the mechanism but no scheduled live-session test exists.
+        Property 5 (observable / attributable): PASS. JSON-lines audit log via
+          _write_audit_entry (lines 86-91), invoked at lines 196-206 (force-reset),
+          307-319 (trigger), 372-384 (reset). Captures timestamp, event, operator,
+          reason, previous_state, new_state, strategy_id.
+      VERDICT: Properties 2/3/4 do NOT bleed into paper-loop operation. The
+      paper loop's trigger paths fire automatically without operator intervention,
+      on the cycle cadence the paper loop already runs at. CONSENSUS_2026-05-06
+      line 32 scoping is CORRECT: Properties 2/3/4 are live-promotion blockers,
+      not paper-loop blockers.
+  - section: C-kill-switch-wiring-vt
+    file: scripts/run_paper_trading_vt.py
+    lines: [52, 447, 468, 476, 490, 492, 787]
+    finding: |
+      PASS — all four trigger paths wired (is_triggered, fetch-failure,
+      daily-loss, reconciliation).
+  - section: C-kill-switch-wiring-carry-fred
+    file: scripts/run_paper_trading_carry_fred.py
+    lines: [72, 409, 433, 467, 481, 483, 745, 792]
+    finding: |
+      PASS — all four trigger paths wired (is_triggered, fetch-failure,
+      daily-loss, reconciliation).
+
+# ---------------------------------------------------------------------------
+# Assumptions
+# ---------------------------------------------------------------------------
+
+assumptions:
+  - id: A-1
+    text: |
+      "Paper-only" means: no live capital, all order routing terminates at the
+      Saxo SIM environment, no production credentials, no real P&L. This is the
+      operative scope for BC-8 lift; live promotion requires a separate review.
+  - id: A-2
+    text: |
+      Both paper loops run on the same host with the same data/ directory
+      visible (so DISPATCH_LOCK_PATH "data/dispatch_lock.flock" and
+      ACCOUNT_KEY_LOCK_PATH "data/paper_account_key_lock.json" are the same
+      inode for both processes). Cross-host fcntl.flock would NOT provide
+      mutual exclusion. This is per the assumed deployment topology (single
+      operator workstation or single VM).
+  - id: A-3
+    text: |
+      Verification was performed by READING the source files in the working
+      tree. I did NOT execute the tests (per task instruction: "verify presence,
+      not execution"). Behavioral verification of fcntl semantics under real
+      contention requires running the tests; this artifact only verifies the
+      code shape.
+  - id: A-4
+    text: |
+      The _JPY_CORRELATED frozenset {USDJPY, GBPUSD} is consistent with
+      CONSENSUS_2026-05-03 Section 6 Assumption 1 AND with the exposure_aggregator
+      module docstring's stated universe (EURUSD/USDJPY/GBPUSD). It is NOT a
+      complete coverage of the PM's broader instrument-universe (which includes
+      cross-JPY pairs). See knowledge_gaps.
+
+# ---------------------------------------------------------------------------
+# Knowledge gaps (not blockers, but worth flagging to CEO)
+# ---------------------------------------------------------------------------
+
+knowledge_gaps:
+  - id: KG-1
+    text: |
+      Cross-JPY pairs (EUR/JPY, GBP/JPY, AUD/JPY, NZD/JPY) appear in the PM
+      instrument-universe but are NOT in _JPY_CORRELATED. If either paper loop
+      ever generates a signal on a cross-JPY pair, the aggregator will treat
+      that position's notional as NON-JPY-correlated — under-counting JPY tail
+      risk. For Phase 1 (vol_target_carry primary = USDJPY, carry_fred = USDJPY)
+      this is not an active gap, but if the strategy scope expands to any cross-JPY
+      pair without amending the frozenset, the 15% cap becomes silently wrong.
+      RECOMMENDED CEO ACTION: confirm that for paper Phase 1 the only traded pair
+      is USDJPY (no cross-JPY signals fire), OR amend the frozenset before
+      enabling cross-JPY trading. NOT BLOCKING for current scope.
+  - id: KG-2
+    text: |
+      No verification was performed of WHETHER cross-host or symlink-based
+      deployment topologies could defeat the fcntl advisory lock. fcntl.flock
+      provides mutual exclusion only between processes on the same kernel
+      sharing the same file. If deployment evolves to two-host topology (e.g.,
+      paper loops running in containers with separate filesystems), the lock
+      becomes vacuous. The current topology (single workstation) is assumed
+      and binding; any deployment change is a CRO re-review trigger.
+  - id: KG-3
+    text: |
+      Kill-switch live-promotion gaps (Properties 1/2/3/4) are not assessed
+      for closure-pathway here. CONSENSUS_2026-05-06 line 32 records them as
+      live-promotion blockers; this CRO artifact CONFIRMS that scoping but
+      does NOT propose a remediation plan. That belongs in a separate
+      pre-live-promotion review.
+
+# ---------------------------------------------------------------------------
+# Policy violations detected
+# ---------------------------------------------------------------------------
+
+policy_violations_detected: []
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+sources:
+  # Working-tree files inspected:
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave10_dispatch_lock.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/risk/test_kill_switch.py  # presence/count only
+  - /Users/huangtm/Projects/forex-trading-system/tests/risk/test_drawdown_contract.py  # presence/count only
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/cro-redacted-acceptance-criteria.yaml
+  # Skills loaded:
+  - /Users/huangtm/.claude/skills/kill-switch-design/SKILL.md
+  - /Users/huangtm/.claude/skills/fintech-org/roles/cro.md
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+# ---------------------------------------------------------------------------
+# Body — explicit verdict per section
+# ---------------------------------------------------------------------------
+
+body: |
+  ## Section A — BC-8 second-loop authorization conditions
+
+  Independently re-verified all four conditions against the current working-tree
+  state (post-Wave-10 commit 747a6ad). All four PASS.
+
+  ### A.1 fcntl.flock placement — PASS
+
+  Both scripts acquire fcntl.LOCK_EX|LOCK_NB BEFORE get_positions, before
+  check_dispatch_allowed, and before all four execute_signal call sites:
+
+  | Step | vt.py line | carry_fred.py line |
+  | --- | --- | --- |
+  | fd open | 550 | 531 |
+  | flock LOCK_EX\|LOCK_NB | 553 | 534 |
+  | outer try: (protected section starts) | 581 | 563 |
+  | backend.get_positions() | 588 | 565 |
+  | check_dispatch_allowed(...) | 592 | 569 |
+  | backend.execute_signal(...) (one of 4 sites) | 802 | 757 |
+  | finally: LOCK_UN | 856-858 | 805-807 |
+
+  The lock IS the per-cycle gate around the [get_positions ->
+  check_dispatch_allowed -> execute_signal -> reconcile] critical section,
+  matching the BC-8 option-B specification verbatim.
+
+  ### A.2 Lock-release on exception path — PASS
+
+  Both scripts use the same try/finally shape:
+    - fd opened BEFORE flock attempt (lines 550 / 531)
+    - _dl_acquired = False sentinel (lines 551 / 532)
+    - inside try, _dl_acquired := True ONLY after flock succeeds
+    - BlockingIOError branch closes fd inline and early-returns (no leak)
+    - outer try wraps the protected section
+    - finally releases ONLY if _dl_acquired, then unconditionally closes fd
+
+  No code path acquires the lock without entering the finally that releases it.
+  No code path leaks an fd. Pre-lock early-returns (equity-fetch fail, kill-switch
+  trigger, drawdown halts at vt 489/498/521/535) occur BEFORE fd-open, so they
+  cannot leak.
+
+  ### A.3 Account-key parity gate — PASS (byte-identical modulo discriminator)
+
+  /usr/bin/diff between assert_account_key_parity bodies (vt:114-165 vs
+  carry_fred:131-182) yields exactly ONE differing line: the loop-name
+  discriminator inside the error-message f-string ("vt loop" vs "carry_fred loop").
+  This is intentional discriminator, not drift. Both functions share:
+    - same lock_path constant: data/paper_account_key_lock.json (vt:69, cf:88)
+    - same atomic primitive: os.open(O_CREAT|O_EXCL|O_WRONLY)
+    - same comparison: _json.loads(p.read_text()).get("account_key", "")
+    - same fatal exit: sys.exit(1) on mismatch
+  Both scripts invoke the function BEFORE any dispatch path (vt:923, cf:862).
+  No drift since Wave-10 commit 747a6ad.
+
+  ### A.4 Concurrent test exists — PASS
+
+  tests/scripts/test_wave10_dispatch_lock.py present, 11 test functions across
+  two classes:
+    - TestDispatchLockConcurrentProcesses (4 tests): subprocess.Popen workers
+      that race for the actual flock primitive, asserting exactly one ACQUIRES
+      and one reports SKIP_DISPATCH_LOCK_BUSY (lines 85-230).
+    - TestDispatchLockMechanism (7 tests): in-process unit tests of fcntl
+      semantics + sentinel-constant existence in both paper scripts (lines
+      238-332).
+  Worker script (lines 38-67) directly invokes fcntl.flock(fd, LOCK_EX|LOCK_NB)
+  and fcntl.flock(fd, LOCK_UN) — the SAME mechanism the paper loops use. Per
+  task instruction: presence verified by reading; tests were NOT executed.
+
+  ### A — Verdict: BC-8 LIFTABLE CONFIRMED
+
+  All four conditions PASS. The BC-8 second-loop authorization is LIFTABLE
+  conditional on the seven binding_constraints enumerated above. I emphasize:
+  this is INPUT to the CEO's decision, not a pre-decided lift. The CEO must
+  record the authorization decision in CONSENSUS per SD-2 of the redacted AC.
+  If the CEO authorizes, my binding_constraints attach to that authorization
+  and bind further changes to require fresh CRO review.
+
+  ## Section B — CRO pre-flight items (SD-4 sources)
+
+  ### B.1 _JPY_CORRELATED frozenset — CONFIRMED
+
+  src/forex_system/risk/exposure_aggregator.py:46:
+    _JPY_CORRELATED: frozenset[str] = frozenset({"USDJPY", "GBPUSD"})
+
+  Exact match to CONSENSUS_2026-05-03 Section 6 Assumption 1.
+
+  FLAG (not regression, but architectural note): the PM's instrument-universe
+  (redacted-AC lines 6-15) includes cross-JPY pairs (EUR/JPY, GBP/JPY, AUD/JPY,
+  NZD/JPY). These are NOT in the frozenset. The module docstring narrows
+  "universe EURUSD/USDJPY/GBPUSD" — internally consistent, but a mismatch
+  against the broader PM universe. For Phase 1 (USDJPY-only signals) this is
+  inert; before enabling cross-JPY trading, the frozenset MUST be amended.
+  See KG-1.
+
+  ### B.2 Cross-strategy aggregation single-account requirement — CONFIRMED
+
+  exposure_aggregator.compute_exposure() takes positions: list[Position] with
+  no account discriminator. The aggregator is account-agnostic by design;
+  correctness depends on positions originating from a single account. The
+  single-account contract is enforced upstream by assert_account_key_parity()
+  invoked at vt:923 / carry_fred:862 BEFORE any dispatch path. Composition is
+  correct.
+
+  ### B — Verdict: BOTH CRO PRE-FLIGHT ASSUMPTIONS HOLD
+
+  CONSENSUS_2026-05-03 Section 6 Assumption 1 and Assumption 2 are accurate
+  against the current codebase. CEO may acknowledge both per SD-4 done_when.
+
+  ## Section C — Kill-switch live-promotion blocker scope
+
+  Applied the kill-switch-design rubric (5 properties) to
+  src/forex_system/risk/kill_switch.py scoped to PAPER operation.
+
+  ### Property-by-property paper-scope assessment
+
+  - Property 1 (out-of-band): live-FAIL, paper-ACCEPTABLE. In-process; a Python
+    crash disables it. No production-account capital at risk in paper.
+  - Property 2 (one-button operator action): live-FAIL, paper-N/A. Trigger
+    paths (daily-loss, fetch-failure, reconciliation) auto-fire without
+    operator intervention; paper operation does not depend on Property 2.
+  - Property 3 (declared SLA): live-FAIL, paper-N/A. No declared time-to-stop,
+    but cycle cadence IS the effective paper SLA.
+  - Property 4 (scheduled prod test against live sessions): live-FAIL,
+    paper-PARTIAL. 43 unit tests cover the mechanism; no scheduled live-session
+    test.
+  - Property 5 (observable / attributable): PASS. JSON-lines audit log meets
+    log-as-decision-trace items 1-5.
+
+  ### Paper-loop trigger wiring
+
+  Both paper loops correctly wire all three auto-trigger paths:
+    - is_triggered check at cycle start (vt:468, cf:433)
+    - record_equity_fetch_failure (vt:476-490, cf:467-481)
+    - check_and_trigger(equity) daily-loss (vt:492, cf:483)
+    - kill_switch.trigger(TriggerReason.RECONCILIATION, ...) (vt:787, cf:745/792)
+
+  ### C — Verdict: SCOPE CORRECTLY BOUNDED
+
+  Properties 2/3/4 do NOT bleed into paper-loop operation. The paper-launch
+  authorization is correctly framed as separate from kill-switch live-promotion
+  blockers. CONSENSUS_2026-05-06 line 32 and Wave-9 CRO dissent scoping holds.
+  Live-promotion remains gated on a fresh CRO review covering Properties
+  1/2/3/4.
+
+  ## Overall decision: approve (size_multiplier 1.0)
+
+  All three re-verification targets pass against the current working tree.
+  No regression vs Wave-10 commit 747a6ad detected. BC-8 LIFTABLE is confirmed
+  CONDITIONAL on the seven enumerated binding_constraints; the CEO's decision
+  remains unconditional within those constraints. size_multiplier = 1.0 — no
+  risk-impacting issues uncovered that would warrant reduction. No new dissent
+  artifact emitted: this is a routine re-verification with PASS outcomes, not
+  a structural risk-architecture objection. Existing Wave-9 CRO dissent on
+  kill-switch Properties 2/3/4 (live-promotion blocker) persists append-only
+  per dissent-preservation discipline — this artifact does NOT overturn or
+  smooth over that dissent; it confirms its scope.
+
+  ## Blowup-analog
+
+  blowup-analog: |
+    "none — but adjacent." The BC-8 concern this artifact closes is a
+    composite of two historical patterns: (a) MF Global's cross-account
+    co-mingling (mitigated here by the account-key parity gate enforcing
+    single-account discipline) and (b) Knight Capital's in-flight runaway
+    (mitigated by drawdown-contract ladder + per-cycle dispatch-lock + the
+    Property 5 auditable kill-switch). The Knight analogy is partial because
+    we're paper-only, but the architectural shape — pre-trade gate + at-trade
+    kill + observable audit — is the right shape for live-promotion later.
+
+contamination-evidence: ''

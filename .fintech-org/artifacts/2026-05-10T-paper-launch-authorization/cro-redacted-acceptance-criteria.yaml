@@ -1,0 +1,95 @@
+role: pm
+artifact_type: acceptance-criteria
+subtask_ref: paper-launch-auth-2026-05-10:phase1:task1.0
+deliverable-type: spec-completion
+deadline: '2026-05-11T23:59:59Z'
+instrument-universe:
+- EUR/USD
+- USD/JPY
+- GBP/USD
+- AUD/USD
+- NZD/USD
+- EUR/JPY
+- GBP/JPY
+- AUD/JPY
+- NZD/JPY
+hard-constraints:
+  paper_only: true
+  no_live_capital: true
+  no_paper_loop_start_by_orchestrator: true
+  bc_4_dissent_acknowledged_verbatim: required
+  bc_8_authorization_decision_recorded: required
+  bc_8_authorization_decision_must_be_one_of:
+  - authorized
+  - declined
+  stale_log_disposition_one_of:
+  - truncate
+  - verify-startup-clears
+  - accept-merged
+  cro_preflight_assumption_1_acknowledged: required
+  cro_preflight_assumption_2_acknowledged: required
+  item_9_calendar_reminder_set_at_T0: required
+  item_10_launch_communication_contains_verbatim_cf_t9_clause: required
+  item_10_required_verbatim_disclosure: '"CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch."
+
+    '
+criteria:
+- id: SD-1
+  label: BC-4 dissent acknowledged verbatim
+  done_when: 'CONSENSUS body contains CEO-authored acknowledgment citing the verbatim dissent source (artifact path or section reference) and confirming Wave-7 item 2 closure as the resolution.
+
+    '
+- id: SD-2
+  label: BC-8 second-loop authorization decision recorded
+  done_when: "CONSENSUS records one of the two permitted values; if \"authorized,\" also records the specific conditions (single shared account, dispatch lock active, aggregate JPY-correlated cap \u2264\
+    15%) as acknowledged. If \"declined,\" records that single-loop-only constraint remains in force.\n"
+- id: SD-3
+  label: Stale-log disposition chosen
+  done_when: 'CONSENSUS records the chosen disposition by its canonical name (truncate / verify-startup-clears / accept-merged) and any operational steps required (e.g., if verify-startup-clears: ops-engineer
+    confirms RotatingFileHandler startup behavior; if truncate: confirms truncation step in run-book).
+
+    '
+- id: SD-4
+  label: CRO pre-flight assumptions acknowledged
+  done_when: 'CONSENSUS contains explicit CEO acknowledgment of both assumptions by their description or by reference to CONSENSUS_2026-05-03 Section 6. No action items need be generated unless CEO chooses
+    to open a Wave-11 sub-item.
+
+    '
+- id: SD-5
+  label: Item 9 calendar reminder commitment recorded
+  done_when: 'CONSENSUS records the commitment in a dedicated item-9 section. If CEO has already set a provisional reminder based on a target launch date, the reminder mechanism (calendar system, task system,
+    or cron entry) is named.
+
+    '
+- id: SD-6
+  label: Launch communication authored and contains verbatim CF-T9 clause
+  done_when: 'CONSENSUS contains or links to the launch communication text; a reviewer (NHT or ops-engineer) confirms the verbatim disclosure clause is present character-for-character. The communication
+    need not be public; it must exist as a durable artifact (file, email, or equivalent) before T=0.
+
+    '
+- id: MC-1
+  label: CONSENSUS-SUMMARY.md companion authored per v0.4.11 rule
+  done_when: "Both files exist at the wave working directory. CONSENSUS-SUMMARY.md line count \u2264 80. CONSENSUS-SUMMARY.md contains all required sections per pm.md template (Decision, Top-3 risks, Dissents,\
+    \ Open items, Ratification prompt).\n"
+- id: MC-2
+  label: Signatures collected from required roles
+  done_when: 'CONSENSUS.md lists a signed artifact path for each of: NHT, CRO, ops-engineer, Principal Reviewer. PM artifact (this file) counts as PM signature.
+
+    '
+- id: MC-3
+  label: Ratification artifact produced before gate is considered passed
+  done_when: 'Ratification artifact exists at the expected path with all required fields populated. CEO decision outcome is one of the closed-set enum values.
+
+    '
+out-of-scope:
+- 'Wave-11 dispatch: F-100/F-101/F-102/F-103 non-blocking findings (routed to Wave-11 binding ticket per Wave-10 CONSENSUS)'
+- 'Push to origin/main: currently 51 commits ahead; push is a separate CEO-authorized action'
+- 'Historic-commit cleanup: 4 historic commits containing account-key literals in pre-rewrite content (cleanup deferred)'
+- Any new code, backtest, strategy registration, or trial pre-registration
+- 'Kill-switch Properties 2/3/4 remediation: these gate live-promotion only, not paper-loop operation (Wave-9 CRO dissent; persists as live-promotion blocker)'
+- 'Saxo token revocation: manual user action; orchestrator cannot perform; user must revoke via Saxo developer portal'
+- 'F-006 equity-log shared-path race: deferred Wave-11 per Wave-10 CONSENSUS'
+- 'F-007 carry_fred regime-inactive decision-trace gap: deferred'
+- Re-adjudication of any NHT dissent already recorded as append-only in prior CONSENSUS docs
+- 'Modification to CONSENSUS_2026-05-02_paper_launch_authorization.md or CONSENSUS_2026-05-03_preflight_closure.md: those documents are ratified and unmodified'
+- 'CF-T9 Clause C ratification: deferred; 60-trading-day window post-launch (triggered by SD-5 calendar reminder)'

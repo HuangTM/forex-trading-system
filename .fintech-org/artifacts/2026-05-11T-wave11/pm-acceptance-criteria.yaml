@@ -1,0 +1,486 @@
+---
+# PM Acceptance Criteria — Wave-11 Deferred Binding Tickets
+# Produced: 2026-05-11
+# PM role. Coordination artifact only. Does not make technical adjudications.
+
+role: pm
+artifact_type: acceptance-criteria
+subtask_ref: "wave11-2026-05-11:phase1:task1.0"
+subtask_id: "c7e2a4b1-3f8d-4c9e-a501-8b0d6f2e3c47"
+
+# --- Base schema fields (required by handoff.md) ---
+
+decision: approve
+# PM owns acceptance-criteria-authoring per pm.md quality_gate.domains_owned.
+# Approving this artifact makes the Wave-11 acceptance criteria available for
+# downstream wave use (CTO/QD/CRO/NHT fan-out in wave-2; Principal Reviewer in wave-3).
+
+timestamp: "2026-05-11T08:00:00Z"
+
+confidence: high
+# All 5 scoped items trace directly to ratified CONSENSUS artifacts and verified
+# code locations. F-103 doc-contradiction is verified against the two source
+# documents. Scope-exclusion decisions (KG-1, KG-2, F-003..F-005) are
+# coordination-level calls, not technical adjudications.
+
+evidence:
+  - path: ".fintech-org/artifacts/wave10-fix-and-amend/pm-acceptance-criteria.yaml"
+    lines: "422-434"
+    supports: "Item 1 (shared-module extraction) — Wave-11 binding ticket authored by this artifact; parameterize-via-argument constraint derived from wave11-binding block"
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "114-165"
+    supports: "Item 1 — assert_account_key_parity at lines 114-165 confirmed by grep; reset_account_key_lock at line 168"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "131-185"
+    supports: "Item 1 — byte-identical functions confirmed at lines 131 and 185 by grep; discriminator string ('vt loop' vs 'carry_fred loop') is the parameterization target"
+  - path: "docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md"
+    supports: "Items 1-5 deferred-binding source; Wave-10 CONSENSUS line 28+ deferred-binding tickets"
+  - path: "docs/specs/drawdown_ladder_amendment_2026-05-06.md"
+    lines: "46"
+    supports: "Item 5 (F-103) — Section-2 line 46 'ROUTE_TO CRO' text that contradicts HC-6 pass-condition completion semantics"
+  - path: ".fintech-org/artifacts/wave10-fix-and-amend/pm-acceptance-criteria.yaml"
+    lines: "110-123, 295-305"
+    supports: "Item 5 (F-103) — HC-6 pass-condition and fail-condition; the five required elements and CRO-sign-off fail-condition"
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "565"
+    supports: "Item 3 (F-101) — BlockingIOError-only catch confirmed at line 565; OSError gap verified"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "546"
+    supports: "Item 3 (F-101) — symmetric BlockingIOError-only catch confirmed at line 546"
+  - path: "tests/scripts/test_wave10_dispatch_lock.py"
+    lines: "35-75"
+    supports: "Item 4 (F-102) — _WORKER_SCRIPT inline constant and subprocess.Popen confirmed; run_cycle path not directly exercised"
+
+assumptions:
+  - "Wave-10 commit 747a6ad is the current HEAD; F-001/F-002/F-008/BC-8/NEW-2 remediations from that commit are in effect and are NOT reopened by this wave."
+  - "The byte-identical functions in the two paper scripts differ only in the loop-name discriminator string ('vt loop' vs 'carry_fred loop'); CTO wave-2 verification confirms this. PM does not adjudicate the implementation approach."
+  - "docs/specs/drawdown_ladder_amendment_2026-05-06.md Section-2 line 46 ('ROUTE_TO CRO … before Wave-10 commit') and HC-6 pass-condition are both in force as authored. The contradiction is document-level only; no code behavior is affected. PM clarification in wave-2 will record the authoritative completion semantics."
+  - "KG-1 (_JPY_CORRELATED frozenset) is Phase-1 USDJPY-only and is NOT a blocking gap for Wave-11 progress. Expanding the frozenset would change trade scope, which requires a separate CEO-authorized trade-scope amendment beyond Wave-11."
+  - "KG-2 (fcntl.flock single-host-only) is documentation-only. Cross-host deployment is out of scope for the current single-host paper-loop architecture."
+  - "PR F-003, F-004, F-005 are recorded as resolved in CONSENSUS_2026-05-10 and are NOT reopened here."
+  - "No-ceo mode is active per CEO direction 2026-05-11; distributed-ratification per protocols/distributed-ratification.md governs consensus closure unless forbidden-interim is triggered."
+  - "Wave-11 is backtest-and-paper-loop governance only; no live capital is involved at any stage."
+
+body: |
+  ## Scope rationale: why exactly 5 items
+
+  Items 1-5 are the complete deferred-binding ticket set from Wave-10 CONSENSUS
+  line 28+ and CONSENSUS_2026-05-06_wave10_fix_and_amend.md. They are included
+  because they were explicitly carried forward as binding Wave-11 obligations.
+
+  ### Item 1 — Shared-module extraction (architecture)
+  The CTO Wave-2 (2026-05-10 session) confirmed that assert_account_key_parity
+  and reset_account_key_lock are byte-identical across both paper scripts
+  except for the loop-name discriminator string. This is a CTO-domain
+  architecture decision (owning role per Wave-10 CONSENSUS). QD implements
+  under CTO direction. PM does NOT prescribe the target module path — that is
+  a CTO technical decision. PM encodes the structural requirement: duplication
+  eliminated, parameterization proven, both scripts pass existing regression
+  gates after the extraction.
+
+  ### Item 2 — F-100: JPY mid-price silent fallback guard (risk)
+  The silent fallback to USD-nominal when mid <= 0 for JPY pairs was surfaced
+  as a non-blocking finding during Wave-10 Principal Reviewer review. CRO owns
+  risk-domain impact assessment. QD adds the explicit guard. PM does NOT
+  adjudicate what the guard should do on failure (halt, skip, raise); that is
+  a CRO technical decision. PM encodes: the fallback must NOT be silent; it
+  must emit a structured log per log-as-decision-trace rubric; the decision
+  boundary must be observable from the log alone.
+
+  ### Item 3 — F-101: OSError coverage on outer dispatch-lock try (risk + code)
+  BlockingIOError is a subclass of OSError but does not catch broader OS-level
+  failures (e.g., stale NFS handle, read-only filesystem, dead-man scenarios).
+  The asymmetry is confirmed at vt.py:565 and carry_fred.py:546. The fix must
+  be symmetric: both scripts, same clause. CRO owns the dispatch-lock invariant
+  impact; QD implements. PM encodes: the change is symmetric and does not alter
+  the existing BlockingIOError sentinel behavior.
+
+  ### Item 4 — F-102: Real-cycle subprocess test coverage (testing)
+  test_wave10_dispatch_lock.py uses _WORKER_SCRIPT (an inline helper, not the
+  actual run_cycle path) for concurrent process testing. This means the
+  concurrent test exercises fcntl.flock OS semantics but not the full
+  run_cycle code path. QD adds a test that exercises the actual run_cycle
+  entry point. NHT adversarially re-verifies the coverage claim. PM does NOT
+  prescribe the test architecture; QD decides whether subprocess or a test-
+  harness shim is appropriate, subject to NHT's adequacy assessment.
+
+  ### Item 5 — F-103: PM clarification of HC-6 / Section-2 doc contradiction
+  The contradiction: HC-6 in wave10-fix-and-amend/pm-acceptance-criteria.yaml
+  treats the drawdown_ladder_amendment doc as HC-6-PASS once 5 structural
+  elements are present (with code-comments citing the spec). But Section-2
+  line 46 of that same doc says "The CRO's determination must be appended to
+  this document before Wave-10 commit." Wave-10 closed with the HC-6
+  criterion satisfied (5 elements present, code-comments updated, CRO
+  reverification yaml signed off) — but the doc itself retains the
+  "must be appended" clause as unresolved text. PM will author a clarification
+  addendum in wave-2 (PM is the owning role; this is a PM-domain doc-level
+  fix). The clarification records: (a) the authoritative completion semantics
+  for HC-6 (structural-only per the AC pass-condition, not doc-appendage),
+  (b) that CRO's recalibration determination was captured via
+  cro-reverification.yaml (wave10 artifact), not by doc-appendage, (c) the
+  "before Wave-10 commit" clause in Section-2 is superseded by Wave-10
+  CONSENSUS closure as of commit 747a6ad. No code change is required.
+
+  ## Scope decision on knowledge gaps (KG-1, KG-2) and PR items (F-003..F-005)
+
+  KG-1 (_JPY_CORRELATED frozenset gap) and KG-2 (fcntl.flock single-host
+  caveat) are excluded from Wave-11 scope. KG-1 would expand the authorized
+  trade instrument universe (adding cross-JPY pairs to the exposure cap),
+  which requires a CEO-authorized trade-scope amendment separate from this
+  engineering wave. Including it here would violate the Wave-10 out-of-scope
+  line "any change to authorized instrument scope." KG-2 is documentation-
+  only; the single-host architecture is the current deployment target and
+  cross-host is explicitly out of scope.
+
+  PR items F-003, F-004, F-005 (SD-6 reviewer disjunction, SD-5 commitment-
+  only gate, SD-6 wording lineage) are documented as resolved in
+  CONSENSUS_2026-05-10 and are not reopened here.
+
+  Both KG-1 and KG-2 are recorded in this artifact's knowledge-gaps routing
+  field for the skill-gap.md loop per pm.md v0.4.10 aggregation discipline.
+  They are NOT in Wave-11 criteria; they are routed as documentation gaps.
+
+knowledge_gaps:
+  - topic: "KG-1: _JPY_CORRELATED frozenset scope — only USDJPY+GBPUSD; cross-JPY pairs bypass 15% cap if added; Phase-1 USDJPY-only means NOT blocking now; expanding frozenset requires trade-scope CEO amendment"
+    originating_role: cro
+    research_attempted: false
+    suggested_resolution: "If CEO ever authorizes cross-JPY paper pairs, open a dedicated frozenset-amendment dispatch with CRO + CEO sign-off before code change."
+    routed_to_protocol: "skill-gap.md"
+  - topic: "KG-2: fcntl.flock is single-host-only; cross-host deployment would require a distributed advisory lock (e.g., Redis-based or NFS-safe lock); current architecture is single-host paper loop only"
+    originating_role: cro
+    research_attempted: false
+    suggested_resolution: "Document in operational runbook as a deployment constraint; no code change until cross-host deployment is planned."
+    routed_to_protocol: "skill-gap.md"
+
+policy_violations_detected: []
+
+sources: []
+# All context sourced from working-directory files. No external URLs cited.
+
+web_research_conducted: false
+
+no-capital-instruction: true
+# Wave-11 is a code/doc fix wave. No trading recommendations are made.
+# No live capital is involved. Paper-loop governance only.
+
+# ── PM-specific required fields ───────────────────────────────────────────────
+
+task-statement: >
+  Implement 5 deferred Wave-10 binding tickets: shared-module extract,
+  F-100 JPY guard, F-101 OSError catch, F-102 real-cycle test, F-103 doc clarification.
+
+deliverable-type: code-review
+# code-review is the closest enum: wave-2 produces code changes (Items 1-4)
+# and a doc clarification (Item 5) which are reviewed by Principal Reviewer
+# in wave-3. spec-completion is not used since the primary deliverables are code diffs.
+
+deadline: "2026-05-13T23:59:59Z"
+# ~48h from wave-1 close (2026-05-11 08:00 UTC) to allow fan-out + review + consensus.
+
+instrument-universe:
+  - USDJPY
+  # vol_target_carry and carry_fred both operate on USDJPY as primary.
+  # No additional pairs are authorized for paper-loop in the current
+  # CONSENSUS_2026-05-10 scope. Cross-JPY pairs are NOT in scope (KG-1 excluded).
+
+# ── Hard constraints (per-item; machine-checkable) ────────────────────────────
+hard-constraints:
+
+  - id: HC-W11-1
+    scope-item: "Item 1 — shared-module extraction"
+    constraint: >
+      paper_only: true; no_live_capital: true; no_paper_loop_start_by_orchestrator: true.
+      shared_module_byte_identical_assertion_proven: required. The shared module
+      must be extracted without altering the behavioral contract of either paper script.
+      The loop-name discriminator string ('vt loop' vs 'carry_fred loop') must be
+      preserved as a parameterized argument — the strings themselves are NOT changed,
+      only their origin (inline vs argument). Both paper scripts must pass their
+      existing regression gates (test_no_lookahead, ruff check src/, pytest count
+      >= current baseline) after extraction.
+
+  - id: HC-W11-2
+    scope-item: "Item 2 — F-100 JPY mid-price guard"
+    constraint: >
+      f100_jpy_mid_guard_explicit: required. The silent fallback to USD-nominal
+      when mid <= 0 must be replaced by an EXPLICIT guard that (a) logs a
+      structured decision-boundary event (not a bare print or silent pass),
+      (b) names the triggering condition (mid <= 0 for JPY pair), (c) names
+      the action taken (whether skip, halt, or fallback — CRO decides which).
+      The guard must appear symmetrically in BOTH vol_target_carry.py and
+      carry_fred.py. Fail-condition: guard is silent (no structured log on mid
+      <= 0 path) or guard is present in only one of the two files.
+
+  - id: HC-W11-3
+    scope-item: "Item 3 — F-101 OSError coverage"
+    constraint: >
+      f101_oserror_catch_added_symmetrically: required. The except clause at
+      run_paper_trading_vt.py:565 and run_paper_trading_carry_fred.py:546 must
+      catch OSError (which subsumes BlockingIOError) or catch both explicitly.
+      The SKIP_DISPATCH_LOCK_BUSY sentinel behavior on BlockingIOError must NOT
+      be changed. The symmetric change in carry_fred at its corresponding line
+      must be identical in structure. Fail-condition: change applied to only one
+      script, or BlockingIOError sentinel behavior altered, or OSError catch
+      swallows exceptions that should propagate (CRO determines the boundary).
+
+  - id: HC-W11-4
+    scope-item: "Item 4 — F-102 real-cycle subprocess test"
+    constraint: >
+      f102_real_cycle_subprocess_test_present: required. At least one test in
+      tests/scripts/test_wave10_dispatch_lock.py must invoke the actual run_cycle
+      entry point (not _WORKER_SCRIPT or an equivalent inline helper) via
+      subprocess. The test must still assert the three required conditions from
+      Wave-10 HC-5: (a) exactly one lock acquired, (b) SKIP_DISPATCH_LOCK_BUSY
+      emitted by the contending process, (c) aggregate JPY-correlated exposure
+      peak <= 15%. The existing _WORKER_SCRIPT tests may remain; this criterion
+      requires an ADDITIONAL test using the real code path. Fail-condition: no
+      test exercises the actual run_cycle path via subprocess, or the three
+      Wave-10 HC-5 assertions are absent from the new test.
+
+  - id: HC-W11-5
+    scope-item: "Item 5 — F-103 doc clarification"
+    constraint: >
+      f103_doc_contradiction_clarified: required. A clarification addendum must
+      be appended to docs/specs/drawdown_ladder_amendment_2026-05-06.md (or
+      authored as a sibling file, PM decides format in wave-2). The addendum
+      must: (a) cite both the HC-6 pass-condition and Section-2 line 46 as the
+      contradicting sources, (b) state which governs (the HC-6 AC pass-condition
+      is the authoritative completion test for HC-6), (c) record that CRO's
+      recalibration determination is captured in
+      .fintech-org/artifacts/wave10-fix-and-amend/cro-reverification.yaml
+      (not by doc-appendage), (d) state that the 'before Wave-10 commit' clause
+      in Section-2 is superseded by Wave-10 CONSENSUS closure (commit 747a6ad).
+      No code change. No change to ladder threshold values. Fail-condition:
+      addendum absent, or either contradicting source not cited, or the
+      authoritative completion source not identified.
+
+# ── Criteria (one per Wave-11 item; machine-checkable done_when predicates) ───
+criteria:
+
+  - id: W11-1
+    label: "Shared-module extraction complete"
+    hard-constraint-ref: HC-W11-1
+    description: >
+      assert_account_key_parity and reset_account_key_lock extracted from both
+      paper scripts into a shared module. CTO determines target module path.
+      Loop-name discriminator parameterized via argument, not hardcoded in each
+      copy. Both scripts import from the shared module.
+    done_when: >
+      (a) A new shared module file exists under src/forex_system/ (exact path is
+      a CTO decision) containing assert_account_key_parity and reset_account_key_lock.
+      (b) Both scripts import these functions from the shared module (no local
+      definition of either function remains in either script). (c) The loop-name
+      discriminator string is passed as an argument, not hardcoded. (d) pytest
+      (all) passes at a count >= the pre-Wave-11 baseline. (e) ruff check src/
+      reports no new violations above the pre-Wave-11 baseline. (f) tests/backtest/
+      test_engine.py::test_no_lookahead PASS.
+    routing: >
+      CTO: decide target module path and architecture.
+      QD: implement the extraction under CTO direction.
+      Principal Reviewer: verify behavioral equivalence and import correctness.
+    verdict-if-fail: do-not-commit
+
+  - id: W11-2
+    label: "F-100 JPY mid-price explicit guard present in both files"
+    hard-constraint-ref: HC-W11-2
+    description: >
+      Silent fallback to USD-nominal when mid <= 0 replaced by explicit guard
+      with structured log event in both vol_target_carry.py and carry_fred.py.
+      CRO decides the action (skip, halt, or explicit-fallback with warning).
+    done_when: >
+      (a) Both src/forex_system/strategies/vol_target_carry.py and
+      src/forex_system/strategies/carry_fred.py contain an explicit conditional
+      guard on the mid <= 0 path for JPY pairs. (b) The guard emits a structured
+      log entry (not a silent pass, not a bare print) naming the triggering
+      condition and the action taken. (c) The guard is covered by at least one
+      unit test asserting the structured log event fires on mid <= 0 input for
+      a JPY pair. (d) No silent fallback path remains (NHT to adversarially verify
+      the code path cannot produce USD-nominal usage when mid <= 0 without logging).
+    routing: >
+      CRO: determine the action on mid <= 0 (skip cycle, raise, or explicit fallback
+      with warning log); this is a risk-domain decision.
+      QD: implement the guard per CRO direction.
+      NHT: adversarially verify no silent fallback path remains.
+    verdict-if-fail: do-not-commit
+
+  - id: W11-3
+    label: "F-101 OSError catch added symmetrically"
+    hard-constraint-ref: HC-W11-3
+    description: >
+      Outer except clause at vt.py:565 and carry_fred.py:546 covers OSError
+      in addition to (or instead of) BlockingIOError. SKIP_DISPATCH_LOCK_BUSY
+      sentinel behavior on BlockingIOError preserved.
+    done_when: >
+      (a) run_paper_trading_vt.py line ~565 except clause catches OSError (or
+      equivalent superset that includes both BlockingIOError and broader OS
+      filesystem errors). (b) The identical change is present in
+      run_paper_trading_carry_fred.py at its corresponding line (~546).
+      (c) The SKIP_DISPATCH_LOCK_BUSY sentinel event is still emitted on
+      BlockingIOError (the existing behavior is preserved, not removed).
+      (d) At least one test in tests/scripts/ covers the broader OSError path
+      (e.g., simulating a read-only lock-file scenario), or the existing
+      concurrent tests implicitly cover it (QD and CRO jointly determine
+      whether new test coverage is required). (e) ruff check src/ no new
+      violations. (f) pytest (all) no regressions.
+    routing: >
+      QD: implement symmetric change.
+      CRO: determine dispatch-lock invariant impact; verify the OSError
+      catch does not introduce a new silent-failure mode at the lock boundary.
+    verdict-if-fail: do-not-commit
+
+  - id: W11-4
+    label: "F-102 real-cycle subprocess test present"
+    hard-constraint-ref: HC-W11-4
+    description: >
+      tests/scripts/test_wave10_dispatch_lock.py gains at least one test that
+      invokes the actual run_cycle entry point (not the inline _WORKER_SCRIPT)
+      via subprocess and asserts all three Wave-10 HC-5 conditions.
+    done_when: >
+      (a) A test function exists in test_wave10_dispatch_lock.py whose subprocess
+      invocation target is the real run_cycle function (not _WORKER_SCRIPT or an
+      equivalent inline helper script). (b) The test asserts: exactly one process
+      acquires the lock, the contending process emits SKIP_DISPATCH_LOCK_BUSY, and
+      aggregate JPY-correlated exposure peak <= 15% during the test. (c) The test
+      PASSES in the project's pytest run. (d) The existing _WORKER_SCRIPT tests
+      continue to pass (they are not removed). (e) NHT confirms the new test
+      exercises a materially different code path from _WORKER_SCRIPT tests.
+    routing: >
+      QD: design and implement the real-cycle subprocess test.
+      NHT: adversarially assess whether the new test exercises a meaningfully
+      different code path from the existing _WORKER_SCRIPT-based tests; dissent
+      if NHT judges the coverage claim is not materially strengthened.
+    verdict-if-fail: do-not-commit
+
+  - id: W11-5
+    label: "F-103 drawdown ladder amendment doc contradiction clarified"
+    hard-constraint-ref: HC-W11-5
+    description: >
+      PM authors a clarification addendum resolving the contradiction between
+      HC-6 pass-condition (structural-5-elements = done) and Section-2 line 46
+      ('CRO determination must be appended before Wave-10 commit'). PM owns
+      this in wave-2 as the document author; no technical adjudication required.
+    done_when: >
+      (a) A clarification addendum exists (appended to
+      docs/specs/drawdown_ladder_amendment_2026-05-06.md or as a sibling file
+      at docs/specs/drawdown_ladder_amendment_2026-05-06_clarification.md; PM
+      decides in wave-2). (b) Addendum cites both contradicting sources by their
+      exact location (HC-6 pass-condition in wave10 AC yaml lines 295-305; Section-2
+      line 46 of the amendment doc). (c) Addendum states which source governs
+      (HC-6 AC pass-condition is authoritative for Wave-10 HC-6 closure).
+      (d) Addendum records that CRO's recalibration determination is captured
+      in .fintech-org/artifacts/wave10-fix-and-amend/cro-reverification.yaml.
+      (e) Addendum states that the 'before Wave-10 commit' clause is superseded
+      by Wave-10 CONSENSUS closure (commit 747a6ad). (f) No code change and no
+      change to ladder threshold values. (g) Principal Reviewer confirms the
+      clarification resolves the contradiction without introducing new ambiguity.
+    routing: >
+      PM: owns wave-2 authoring of this clarification (PM-domain doc fix).
+      Principal Reviewer: confirm the clarification is unambiguous and does
+      not contradict any other ratified artifact.
+    verdict-if-fail: revise-before-consensus
+    # Softer verdict than do-not-commit: doc-only; does not block code commit
+    # but must be resolved before CONSENSUS is signed.
+
+# ── Global success gate ────────────────────────────────────────────────────────
+wave11-success-gate: >
+  ALL of the following must be satisfied before Wave-11 CONSENSUS is eligible
+  for distributed-ratification:
+    W11-1 PASS (shared-module extracted, both scripts import, regression gates hold)
+    W11-2 PASS (explicit guard + structured log in both strategy files, NHT clean)
+    W11-3 PASS (OSError catch symmetric, SKIP sentinel preserved, no regressions)
+    W11-4 PASS (real-cycle subprocess test present and passing, NHT endorses coverage)
+    W11-5 PASS (doc clarification authored, PR confirms unambiguous)
+  A single HC failure on W11-1..W11-4 = do-not-commit; QD must fix before PR.
+  W11-5 failure = revise-before-consensus; PM must fix before CONSENSUS is signed.
+
+# ── Out of scope (verbatim from Wave-10 line 57-69 and dispatch brief) ─────────
+out-of-scope:
+  - "Paper-loop operational state: paper-launch ratified 2026-05-11; T=0 prep docs at docs/launch/*; Wave-11 does not touch paper-loop launch authorization."
+  - "Kill-switch Properties 2/3/4 remediation for production-promotion: Wave-9 CRO dissent; live-promotion blocker; not relevant to paper-loop operation."
+  - "Push to origin/main: 51 commits ahead; push is a separate CEO-authorized action; Wave-11 commit goes to local main only."
+  - "Historic-commit account-key literal cleanup: separate dispatch; not in Wave-11 scope."
+  - "Saxo token revocation: manual user action only; orchestrator cannot perform; historical tokens are expired (8 tokens, filter-branch applied 2026-05-06)."
+  - "KG-1 frozenset amendment (_JPY_CORRELATED expansion to cross-JPY pairs): expanding instrument scope requires CEO-authorized trade-scope amendment separate from this engineering wave."
+  - "KG-2 cross-host deployment documentation: out of scope for single-host paper-loop architecture."
+  - "PR F-003, F-004, F-005: resolved in CONSENSUS_2026-05-10; not reopened."
+  - "Any new backtest, strategy registration, or trial pre-registration."
+  - "F-006 equity-log shared-path race: deferred; not in Wave-11 binding tickets."
+  - "F-007 carry_fred regime-inactive decision-trace gap: deferred."
+  - "F-009 JPY pip heuristic vs PairInfo lookup: deferred."
+  - "Any re-adjudication of NHT dissents already recorded as append-only in prior CONSENSUS docs."
+  - "CF-T9 Clause C ratification: deferred; 60-trading-day window post-launch."
+
+# ── Roles staffed (recommended set) ───────────────────────────────────────────
+roles-staffed:
+
+  - role: pm
+    wave: 1
+    rationale: >
+      Produces acceptance criteria (this artifact); authors F-103 doc clarification
+      in wave-2 (PM owns wave10 ladder amendment doc as its author); drafts CONSENSUS.md
+      + CONSENSUS-SUMMARY.md at wave-4; collects signatures; routes knowledge gaps to
+      skill-gap.md loop. Exempt from technical adjudication per role spec.
+
+  - role: cto
+    wave: 2
+    rationale: >
+      Architecture decision domain for Item 1 (shared-module extraction): decides
+      target module path under src/forex_system/, approves the parameterization
+      approach for the discriminator string. CTO sign-off required for any architecture
+      decision per distributed-ratification quorum rule (CTO required if architecture).
+
+  - role: quant-developer
+    wave: 2
+    rationale: >
+      Implements all code changes: Item 1 extraction, Item 2 guard in both strategy
+      files, Item 3 OSError catch in both paper scripts, Item 4 real-cycle subprocess
+      test. QD is the ONLY role that writes production code or tests in Wave-11.
+      Verifies regression gates (pytest, ruff, test_no_lookahead) before submitting
+      for review.
+
+  - role: cro
+    wave: 2
+    rationale: >
+      Item 2 (F-100): determines the action on mid <= 0 (skip, halt, or explicit
+      fallback with warning); risk-domain decision that QD implements.
+      Item 3 (F-101): verifies OSError catch does not introduce a new silent-failure
+      mode at the dispatch-lock boundary; owns dispatch-lock invariant. CRO sign-off
+      required for both items per distributed-ratification quorum rule (CRO required
+      if risk).
+
+  - role: nht
+    wave: 2
+    rationale: >
+      Item 2 (F-100): adversarially verifies no silent fallback path remains after
+      the guard is added. Item 4 (F-102): determines whether the new real-cycle
+      subprocess test exercises a materially different code path from the existing
+      _WORKER_SCRIPT tests; dissents if the coverage claim is not materially
+      strengthened. NHT structural-skeptic authority per fintech-org/SKILL.md rule 6.
+
+  - role: principal-reviewer
+    wave: 3
+    rationale: >
+      Independent staff-grade review of the complete Wave-11 changeset: confirms
+      all 5 items meet their done_when predicates; verifies no out-of-scope items
+      bled into wave-2 output; confirms F-103 clarification (W11-5) is unambiguous;
+      confirms shared-module behavioral equivalence (W11-1); flags any acceptance-
+      criteria drift. Required for CONSENSUS sign-off gate.
+
+# ── Attestations ──────────────────────────────────────────────────────────────
+no-capital-instruction: true
+# PM does not author trading recommendations. This artifact defines governance
+# criteria for code and doc fixes only.
+
+web_research_conducted: false
+# Coordination task. No external URLs fetched or searched.
+
+sources: []
+# All context sourced from working-directory files:
+#   .fintech-org/artifacts/wave10-fix-and-amend/pm-acceptance-criteria.yaml (lines 110-123, 295-305, 422-434)
+#   scripts/run_paper_trading_vt.py (lines 114-168, 565) — grep-verified
+#   scripts/run_paper_trading_carry_fred.py (lines 131-185, 546) — grep-verified
+#   docs/specs/drawdown_ladder_amendment_2026-05-06.md (line 46)
+#   tests/scripts/test_wave10_dispatch_lock.py (lines 35-75) — grep-verified
+#   docs/decisions/CONSENSUS_2026-05-06_wave10_fix_and_amend.md
+# No external URLs cited.
+
+policy_violations_detected: []

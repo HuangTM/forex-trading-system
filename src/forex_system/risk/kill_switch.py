@@ -44,6 +44,7 @@ class TriggerReason(Enum):
     DAILY_LOSS = "daily_loss_exceeded"
     RECONCILIATION = "reconciliation_mismatch"
     AUTH_DEATH = "auth_chain_dying"
+    INFRASTRUCTURE = "infrastructure_failure"
     MANUAL = "manual_trigger"
     ERROR = "internal_error"
 

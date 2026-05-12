@@ -1,0 +1,436 @@
+role: cro
+artifact_type: quality-gate-review
+decision: approve
+timestamp: '2026-05-11T00:00:00Z'
+subtask_ref: wave11-2026-05-11:phase1:task2.3
+subtask_id: cro-risk-review-2026-05-11
+no-capital-instruction: true
+size_multiplier: 1.0
+contamination-check: clean
+blowup-analog: knight-capital-2012
+confidence: high
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+claimed_domains:
+  - risk-budget-allocation
+  - kill-switch-design-and-testing
+  - market-access-controls
+  - drawdown-contracts
+  - correlation-and-concentration-limits
+
+rubric_applied: log-as-decision-trace + clock-and-ordering + kill-switch-design
+
+binding_constraints:
+  - "F-100 (Decision A): the mid<=0 path MUST halt the current cycle (option 2), MUST NOT silently fall back to USD-nominal, MUST emit a structured decision-boundary log entry per log-as-decision-trace items 1-10, and MUST be symmetric in both vol_target_carry paper script and carry_fred paper script. Lock-release-via-finally invariant MUST hold (dispatch-lock released on the halt path)."
+  - "F-101 (Decision B): OSError MUST NOT be folded identically into the BlockingIOError handler. The catch MUST be 'except BlockingIOError' preserving SKIP_DISPATCH_LOCK_BUSY semantics, PLUS a distinct 'except OSError as exc' branch that (a) closes the fd, (b) emits SKIP_DISPATCH_LOCK_FS_ERROR with errno+strerror, (c) triggers the kill-switch with TriggerReason.INFRASTRUCTURE (Knight-class filesystem failure is not a normal retry condition)."
+  - "Both decisions are symmetric: identical structural changes in run_paper_trading_vt.py AND run_paper_trading_carry_fred.py. Asymmetric implementation is a reject-condition."
+  - "Decision A halt path MUST release the dispatch-lock (return from the inner try-block at line 581 in vt / line 563 in carry_fred lets the finally at line 856 / line 805 release the lock and close fd). Decision B OSError path MUST close the fd inline (lock was never acquired)."
+  - "Existing _JPY_CORRELATED frozenset ({USDJPY, GBPUSD}) and the 15% jpy_correlated_pct cap are NOT modified by this wave. The aggregation gate at line 591-597 (vt) / line 568-574 (carry_fred) remains the binding pre-trade check."
+
+regime_flags:
+  - jpy-cost-mispricing-class-closed-wave10-but-degenerate-data-path-still-open
+  - paper-only-no-live-capital
+  - dispatch-lock-bc8-active
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:641 — mid computed as (bid+ask)/2 with fallback to ohlcv close; bid/ask default to 0 from quote.get(...,0) if Quote dict missing fields."
+  - "scripts/run_paper_trading_vt.py:738 — '_engine_units = (_trade_units_nom / mid) if (\"JPY\" in pair.upper() and mid > 0) else _trade_units_nom' is the silent USD-nominal fallback path on mid<=0."
+  - "scripts/run_paper_trading_vt.py:745 — same silent fallback applied to held-position swap accrual (_held_engine_units)."
+  - "scripts/run_paper_trading_carry_fred.py:622 / :700 / :704 — symmetric mid handling and silent fallback."
+  - "src/forex_system/sizing/vol_target.py:72 — 'if signal_strength <= 0 or current_price <= 0 or account_equity <= 0: return 0.0'. Confirms that on mid<=0 the sizer already returns 0 units, so NO ORDER fires. The defect of the silent fallback is bounded to cost-accounting / swap-accrual, NOT order sizing."
+  - "src/forex_system/risk/exposure_aggregator.py:46 — '_JPY_CORRELATED = frozenset({USDJPY, GBPUSD})'. The aggregator computes notional = abs(pos.size) * pos.entry_price using broker-reported entry_price, NOT the current cycle's mid. Therefore Decision A path does NOT directly cause a _JPY_CORRELATED cap violation."
+  - "scripts/run_paper_trading_vt.py:771-778 — _cost_usd and _swap_usd are written to EQUITY_LOG_PATH and paper_equity_bt_equiv = equity - _cost_usd + _swap_usd is computed. A 150x cost-mismark on the close/swap path therefore propagates into equity-state and can falsely trip the drawdown ladder. This is the operational risk Decision A closes."
+  - "scripts/run_paper_trading_vt.py:550-578 — outer try at line 552 wraps only fcntl.flock(...LOCK_NB). except BlockingIOError at line 565 closes _dl_fd and returns SKIP_DISPATCH_LOCK_BUSY. Verified: on this path _dl_acquired remains False, so the fd is properly released and the lock is NOT held."
+  - "scripts/run_paper_trading_vt.py:581-869 — inner try at line 581 (lock-held region) with finally at line 856 that releases the lock IFF _dl_acquired AND always closes the fd. Verified: lock-acquired-then-released-on-all-paths invariant is maintained for the inner try; the outer try has no finally because flock() either succeeds (going into the inner try) or raises (handled by the inline except)."
+  - "scripts/run_paper_trading_carry_fred.py:533-560 / :563-805 — structurally identical to vt; BlockingIOError handler at line 546, inner try at line 563, finally at line 805."
+  - "Python stdlib: 'class BlockingIOError(OSError): ...' — BlockingIOError IS-A OSError. Therefore 'except OSError' (alone) would catch BlockingIOError as well; ordering of except clauses determines which fires first."
+  - ".fintech-org/artifacts/2026-05-11T-wave11/cro-redacted-acceptance-criteria.yaml — HC-W11-2 and HC-W11-3 read; no proposer narrative present; contamination check clean."
+
+assumptions:
+  - "Paper-only mode: no production-account capital at risk during Wave-11 execution per CONSENSUS_2026-05-10 and HC-W11 paper_only:true clauses."
+  - "kill-switch infrastructure (TriggerReason enum, kill_switch.trigger call) is already wired in the paper scripts; if INFRASTRUCTURE TriggerReason does not exist, QD MUST add it and report back. The kill-switch design itself was reviewed in Wave-7 cold-start gate and is operational."
+  - "mid<=0 is a data-quality / feed-corruption event, NOT a market condition. Probability is near-zero in normal operation. No legitimate FX quote can produce mid<=0; the only path is bid=0 AND ask=0 (Saxo Quote dict missing fields) AND ohlcv close=0 (corrupted bar). This is consistent with the probability-statistics rubric base-rate framing: the event is structurally pathological."
+  - "Sizer's current_price<=0 guard (sizing/vol_target.py:72) is preserved and is the first line of defense — order size is already 0 on mid<=0. Decision A closes the SECONDARY defect (cost accounting)."
+  - "Dispatch-lock fd is opened on a local-filesystem path (DISPATCH_LOCK_PATH). OSError from flock on a local filesystem is rare but represents Knight-class infrastructure failure (EIO, EBADF, ENOSPC, EBUSY at the FS layer)."
+
+body: |
+  ==============================================================
+  DECISION A — F-100 JPY mid<=0 action (W11-2)
+  ==============================================================
+
+  Base rates and risk surface
+  ---------------------------
+  mid<=0 cannot arise from any legitimate FX market state. Paths to mid<=0:
+    (i)  Saxo Quote dict missing Bid/Ask keys (defaults to 0) AND ohlcv close also <= 0 → mid == 0 (data-quality)
+    (ii) Numerical fault in upstream arithmetic → mid < 0 (corruption; structurally impossible from real prices)
+
+  Per probability-statistics base-rate reasoning: this event probability in steady state
+  is near-zero; if it fires, the data pipeline is broken. There is no normal-regime
+  scenario in which the strategy must trade through mid<=0.
+
+  Risk consequences if left as silent USD-nominal fallback (status quo on mid<=0 path):
+    - Sizer (sizing/vol_target.py:72) ALREADY returns 0 units on current_price<=0, so
+      no NEW order fires. The aggregation gate is NOT directly violated.
+    - BUT for held positions (is_close=True, target_units==0 + cur_pos): _trade_units_nom
+      = cur_units in USD-nominal, and _engine_units = _trade_units_nom (silent fallback,
+      NOT divided by mid since mid>0 is false). For USDJPY this mismarks cost by ~150x
+      (pip_v=0.01 sized for engine-units, applied to USD-nominal magnitude).
+    - The mismarked _cost_usd / _swap_usd is written to EQUITY_LOG_PATH and feeds
+      paper_equity_bt_equiv. The drawdown ladder reads equity state. A 150x cost
+      mismark could falsely trip drawdown thresholds 10/15/20.
+    - This is a SECONDARY consequence of the F-001 fix being scoped to mid>0. The fix
+      landed Wave-10 closed the cost-mispricing class for normal data; Wave-11 closes
+      the degenerate-data path.
+
+  CRO ruling: option 2 (halt-cycle)
+  ---------------------------------
+  Action: when mid <= 0 on a JPY pair (and conservatively on ANY pair — see "scope"
+  below), the cycle MUST halt at the JPY-mid guard point. The halt path:
+    - Logs a structured decision-boundary event (per log-as-decision-trace rubric)
+    - Does NOT execute any signal for this bar
+    - Returns through the inner try-block at line 581 (vt) / 563 (carry_fred), which
+      lets the finally block at line 856 (vt) / 805 (carry_fred) release the
+      dispatch-lock and close the fd. Lock invariant preserved.
+    - Does NOT trip the kill-switch on a single-cycle event (false-positive cost is
+      low on transient feed gaps; rate-escalation deferred to a follow-up gap)
+
+  Why NOT skip-position (option 1): does not address the held-position swap-accrual
+  case where cost is mismarked while sizer returns 0. Halt-cycle aborts BEFORE any
+  cost/swap accounting fires.
+
+  Why NOT kill-switch (option 3) on first-fire: false-positive cost is paper-run loss
+  on a transient feed gap. CRO reserves kill-switch trigger for repeated firing OR
+  Decision B (filesystem-level infrastructure failure). A rate-escalator is appropriate
+  but is deferred to a follow-up gap.
+
+  Why NOT raise-exception (option 4): violates the lock-acquired-then-released
+  invariant unless the operator-visible exception still hits the finally. raise inside
+  the inner try DOES hit the finally (Python semantics), so this is technically safe,
+  BUT it produces an uncaught exception in the loop runner that interacts with the
+  main-loop retry/heartbeat logic in ways not in scope to verify this wave. Halt-cycle
+  via structured return is the safer composability choice.
+
+  mid==0 vs mid<0 treatment
+  -------------------------
+  Treat IDENTICALLY at the code-path level (one guard, one log statement). Distinguish
+  POST-HOC via the mid value field in the log entry. Splitting into two paths adds
+  complexity without benefit — both are pathological, both halt the cycle, only the
+  forensic story differs.
+
+  Scope (JPY-only vs all-pairs)
+  -----------------------------
+  The redacted AC HC-W11-2 specifies the guard for the JPY mid<=0 path. CRO's
+  binding ruling: apply the guard symmetrically for ALL pairs at the unit-conversion
+  boundary. Reason: the silent fallback bug is gated on '"JPY" in pair.upper() and
+  mid > 0' — non-JPY pairs use identity (_trade_units_nom directly), so for non-JPY
+  pairs the bug doesn't apply. BUT mid<=0 on a non-JPY pair still means corrupted
+  data and the cycle should not proceed. The guard should be expression-positioned
+  BEFORE the JPY conversion, applying to all pairs uniformly.
+
+  Required structured log event (binding, per log-as-decision-trace items 1-10)
+  -----------------------------------------------------------------------------
+  event_name: "data.invalid.mid_non_positive"  (item 9 — dotted enumerable)
+  level: WARNING  (item 8 distinct from DEBUG)
+  fields (item 2 — every input that drove the outcome):
+    - event: "SKIP_INVALID_MID"  (item 1 — outcome named via enumerable)
+    - cycle_id: <correlation id, item 5>
+    - pair: <pair string>
+    - mid: <float; the actual value, can be 0.0 or negative>
+    - bid: <raw bid from broker>
+    - ask: <raw ask from broker>
+    - ohlcv_close: <fallback value if bid/ask unavailable>
+    - mid_source: "broker_quote" or "ohlcv_close_fallback"  (item 3 — source named)
+    - action: "halt_cycle"  (item 1)
+    - decision_ts: <datetime.now(timezone.utc).isoformat()>  (item 4 — wall clock named)
+    - cro_decision_artifact: ".fintech-org/artifacts/2026-05-11T-wave11/cro-risk-review.yaml"
+    - guard_version: "wave11-f100"
+
+  Per clock-and-ordering item 1: the timestamp source is named wall-clock (UTC ISO).
+  This is acceptable for a logging decision-trace; no clock-arithmetic across sources.
+
+  Per log-as-decision-trace item 6: the SKIPPED path is the one being logged. The
+  taken path (mid>0 normal) is already covered by the existing cost_compute.decision
+  log at line 755 (vt) / 712 (carry_fred); no new log needed for the normal branch.
+
+  Per item 7 (no sensitive data leaks): no API keys, no PII; pair/mid/bid/ask are
+  market-data only. Clean.
+
+  Symmetric file requirement
+  --------------------------
+  Same guard, same log fields, same halt return at:
+    scripts/run_paper_trading_vt.py — between line 641 (mid computed) and line 651
+      (sizer.calculate_size called). Recommended insertion: immediately after line 641.
+    scripts/run_paper_trading_carry_fred.py — between line 622 and line 626.
+      Recommended insertion: immediately after line 622.
+
+  Asymmetric implementation is a REJECT condition (per HC-W11-2 fail-condition).
+
+  Composes with drawdown ladder + dispatch lock
+  ---------------------------------------------
+  - Drawdown ladder: closing this defect REMOVES a false-positive trip source. Net
+    risk decrease.
+  - Dispatch lock (BC-8): the guard fires AFTER the dispatch-lock is acquired (the
+    lock acquisition is at line 552-565, the mid is computed at line 641). The halt
+    return passes through the inner-try's finally (line 856) which releases the lock.
+    Lock invariant preserved.
+
+  ==============================================================
+  DECISION B — F-101 OSError catch impact on dispatch-lock invariant (W11-3)
+  ==============================================================
+
+  Structural verification of the dispatch-lock invariant
+  ------------------------------------------------------
+  Read run_paper_trading_vt.py lines 548-578:
+    548: _dl_path = Path(DISPATCH_LOCK_PATH)
+    549: _dl_path.parent.mkdir(...)
+    550: _dl_fd = os.open(str(_dl_path), os.O_CREAT | os.O_WRONLY, 0o644)   ← fd acquired
+    551: _dl_acquired = False
+    552: try:                                                                ← outer try
+    553:     fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)               ← lock attempt
+    554:     _dl_acquired = True
+    555-564:   logger.info("dispatch_lock.acquired", ...)
+    565: except BlockingIOError:                                              ← contention
+    566:     os.close(_dl_fd)                                                  ← fd released inline
+    567-577:   logger.warning("dispatch_lock.busy", ...) + return SKIP_*
+
+    581: try:                                                                 ← inner try (lock held)
+    ...
+    856: finally:                                                             ← releases lock + fd
+    857:     if _dl_acquired:
+    858:         fcntl.flock(_dl_fd, fcntl.LOCK_UN)
+    ...
+    869:     os.close(_dl_fd)
+
+  Carry_fred symmetric: line 531 fd open; 533 outer try; 546 except BlockingIOError
+  + close at 547 + return at 560; 563 inner try; 805 finally releases lock + closes fd.
+
+  Lock invariant verification: lock-acquired-then-released-on-all-paths
+  --------------------------------------------------------------------
+  Paths through this region:
+    1. flock succeeds → _dl_acquired=True → enter inner try → exit via any path →
+       finally at 856 releases lock (LOCK_UN) and closes fd. INVARIANT HOLDS.
+    2. flock raises BlockingIOError → _dl_acquired stays False → except at 565 closes
+       fd inline → return. Lock was never acquired; no release needed. INVARIANT HOLDS.
+    3. flock raises some other OSError (current behavior) → uncaught → propagates up.
+       _dl_fd is leaked (no inline close). INVARIANT VIOLATED (fd leak), though
+       lock was never acquired so no unreleased lock.
+    4. flock raises some other OSError (with naive 'except OSError' addition that
+       folds it into the SKIP_DISPATCH_LOCK_BUSY path) → fd closed inline, return.
+       INVARIANT HOLDS structurally BUT semantics are wrong — emits busy sentinel
+       on a filesystem failure (mislabeled, Knight-class hidden).
+
+  Does adding OSError to the catch preserve or violate the invariant?
+  -------------------------------------------------------------------
+  STRUCTURALLY preserves it (the inline os.close is symmetric to BlockingIOError
+  path). SEMANTICALLY introduces a hole: filesystem failures are silently downgraded
+  to lock-contention, which the operator then sees as "another cycle will retry."
+  For EIO/ENOSPC/EBADF, "retry next cycle" is wrong — the infrastructure is broken.
+
+  This is the Knight Capital pattern: an infrastructure anomaly handled with a
+  too-friendly recovery path that masks the underlying break. Knight's failure
+  was code-deployment state mismatch; the class is "graceful handling of an
+  infrastructure event hides the operator-attention signal."
+
+  CRO binding ruling: distinct paths (option C — explicit lock-release-and-distinct-handler)
+  ------------------------------------------------------------------------------------------
+  The catch MUST be split into two clauses:
+
+    try:
+        fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _dl_acquired = True
+        # ... existing acquired-log
+    except BlockingIOError:
+        os.close(_dl_fd)
+        # ... existing SKIP_DISPATCH_LOCK_BUSY emit
+        return {"_action": SKIP_DISPATCH_LOCK_BUSY}
+    except OSError as exc:
+        os.close(_dl_fd)
+        logger.error(
+            "dispatch_lock.fs_error",
+            extra={
+                "event": "SKIP_DISPATCH_LOCK_FS_ERROR",
+                "errno": exc.errno,
+                "strerror": exc.strerror,
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "lock_path": DISPATCH_LOCK_PATH,
+                "decision_ts": datetime.now(timezone.utc).isoformat(),
+                "cro_decision_artifact": ".fintech-org/artifacts/2026-05-11T-wave11/cro-risk-review.yaml",
+            },
+        )
+        _emit_ws01(cycle_id, pair, "SKIP_DISPATCH_LOCK_FS_ERROR")  # ws02 in carry_fred
+        # Knight-class: filesystem failure during lock acquisition is NOT a
+        # normal retry condition. Trigger kill-switch.
+        try:
+            kill_switch.trigger(TriggerReason.INFRASTRUCTURE,
+                                f"dispatch_lock OSError errno={exc.errno}", equity)
+        except Exception:
+            # Kill-switch trigger must not itself fail the dispatch — if the
+            # trigger fails, the OSError still escalates via the return path.
+            pass
+        return {"_action": "SKIP_DISPATCH_LOCK_FS_ERROR"}
+
+  Ordering note: BlockingIOError MUST appear before OSError in the except chain
+  (Python catches the first matching clause). BlockingIOError IS-A OSError; if
+  OSError appeared first, BlockingIOError would never be reached. This is the
+  specific Python-language sequencing the QD must respect.
+
+  Why kill-switch trigger and not halt-cycle (Decision A's choice)?
+  ----------------------------------------------------------------
+  Decision A's mid<=0 is data-quality (transient, recoverable next cycle).
+  Decision B's OSError is infrastructure-failure (persistent, NOT recoverable by
+  retrying; lock-file on a broken filesystem won't heal). Knight-class reasoning
+  applies: the second-Knight pattern is "graceful retry hides the operator-attention
+  signal." Halt the system, page the operator.
+
+  If TriggerReason.INFRASTRUCTURE does not exist as an enum value, QD MUST add it
+  with no other behavior change and report back via knowledge-gap. The kill-switch
+  itself was validated in Wave-7 cold-start gate.
+
+  Lock-acquired-then-released invariant for new OSError path
+  ----------------------------------------------------------
+  Path 4 (revised): flock raises OSError (non-BlockingIOError) → _dl_acquired=False
+  → except OSError catches → fd closed inline → kill-switch triggered → return.
+  Lock was never acquired (acquire raised), so no release needed. INVARIANT HOLDS.
+
+  Symmetric file requirement
+  --------------------------
+  Apply identical split-clause pattern at:
+    scripts/run_paper_trading_vt.py — line 565 (the except BlockingIOError clause)
+    scripts/run_paper_trading_carry_fred.py — line 546 (its symmetric except clause)
+
+  Differences between the two scripts:
+    - vt uses _emit_ws01; carry_fred uses _emit_ws02. Each script's existing
+      sentinel-emit helper is preserved.
+    - Otherwise the OSError handler structure is identical.
+
+  Test coverage requirement (binding)
+  -----------------------------------
+  Per HC-W11-3 done_when (d): at least one test in tests/scripts/ MUST simulate
+  the OSError path (e.g., monkeypatch fcntl.flock to raise OSError(errno=5,
+  "Input/output error")) and assert:
+    - SKIP_DISPATCH_LOCK_FS_ERROR event emitted
+    - kill_switch.trigger called with TriggerReason.INFRASTRUCTURE
+    - fd is closed (no leak; verifiable via fd-count delta or by reopening the
+      lock-file in the same test)
+    - return action is "SKIP_DISPATCH_LOCK_FS_ERROR"
+
+  No regression of existing BlockingIOError-path tests is permitted.
+
+  ==============================================================
+  Summary of CRO binding clauses (recap for QD)
+  ==============================================================
+  1. Decision A: halt-cycle on mid<=0 with structured log per log-as-decision-trace
+     items 1-10. Insertion point: immediately after mid is computed (line 641 vt /
+     622 carry_fred), BEFORE sizer.calculate_size. Symmetric in both files.
+     Lock-release-via-finally invariant preserved by returning through the inner try.
+
+  2. Decision B: split except clauses. BlockingIOError preserved verbatim (existing
+     SKIP_DISPATCH_LOCK_BUSY semantics). New 'except OSError as exc' that closes fd,
+     emits SKIP_DISPATCH_LOCK_FS_ERROR with errno+strerror, triggers kill-switch
+     with TriggerReason.INFRASTRUCTURE. Order: BlockingIOError BEFORE OSError.
+     Symmetric in both files.
+
+  3. Both decisions MUST be symmetric across the two paper scripts. Asymmetry is
+     a reject condition.
+
+  4. Both decisions MUST emit structured log entries that include the artifact_id
+     of this CRO decision (path:
+     .fintech-org/artifacts/2026-05-11T-wave11/cro-risk-review.yaml).
+
+  5. size_multiplier remains 1.0. These are defect-fixes on degenerate-data and
+     infrastructure-failure paths; they do not change strategy alpha or sizing
+     under normal operation.
+
+findings:
+  - file: scripts/run_paper_trading_vt.py
+    line: 641
+    severity: high
+    description: "mid computed from broker quote with fallback to ohlcv close; on bid=0 AND ask=0, mid = ohlcv close which itself can be 0 if data corrupted. No guard against mid<=0 before downstream cost-accounting. Per HC-W11-2, requires explicit halt-cycle guard with structured log. Decision A binding."
+
+  - file: scripts/run_paper_trading_vt.py
+    line: 738
+    severity: high
+    description: "Silent USD-nominal fallback on mid<=0: '_engine_units = _trade_units_nom' when JPY pair AND mid<=0. For USDJPY this is the ~150x cost-mismark path that propagates into equity-log (line 771-778) and can falsely trip drawdown ladder. Decision A halt-cycle closes this defect by aborting BEFORE the cost computation."
+
+  - file: scripts/run_paper_trading_vt.py
+    line: 745
+    severity: medium
+    description: "Same silent-fallback pattern for held-position swap accrual. Closed by Decision A halt-cycle (cycle aborts before line 745 reached)."
+
+  - file: scripts/run_paper_trading_carry_fred.py
+    line: 622
+    severity: high
+    description: "Symmetric mid computation; same defect class as vt:641. Decision A guard MUST be applied symmetrically here."
+
+  - file: scripts/run_paper_trading_carry_fred.py
+    line: 700
+    severity: high
+    description: "Symmetric silent USD-nominal fallback; same defect class as vt:738."
+
+  - file: scripts/run_paper_trading_carry_fred.py
+    line: 704
+    severity: medium
+    description: "Symmetric held-position swap accrual fallback; same defect class as vt:745."
+
+  - file: scripts/run_paper_trading_vt.py
+    line: 565
+    severity: high
+    description: "except BlockingIOError handles only lock-contention. Other OSError types (EIO, ENOSPC, EBADF) propagate uncaught and leak _dl_fd. Decision B binding: split into BlockingIOError + OSError clauses, the latter triggers kill-switch."
+
+  - file: scripts/run_paper_trading_carry_fred.py
+    line: 546
+    severity: high
+    description: "Symmetric to vt:565. Same Decision B treatment required."
+
+  - file: src/forex_system/sizing/vol_target.py
+    line: 72
+    severity: informational
+    description: "Sizer's 'current_price <= 0' guard correctly returns 0 units, preventing erroneous orders on mid<=0. This is the first line of defense and is NOT removed by Wave-11. Decision A closes the SECONDARY defect (cost accounting) that survives this guard."
+
+  - file: src/forex_system/risk/exposure_aggregator.py
+    line: 46
+    severity: informational
+    description: "_JPY_CORRELATED frozenset({USDJPY, GBPUSD}) is the binding correlation set per CRO Wave-4 envelope. KG-1 (cross-JPY expansion) is out of scope per redacted AC. Verified that aggregator uses broker-reported entry_price, NOT current-cycle mid, so Decision A path does NOT directly cause cap violation. The propagation is via equity-log → drawdown ladder, addressed by Decision A halt-cycle."
+
+approve_when_check:
+  - sizing-recommendation-respects-firm-risk-contract: "n/a — no sizing change; size_multiplier=1.0; defect-fixes only"
+  - kill-switch-tested-in-prod-without-causing-outage-it-prevents: "Decision B kill-switch trigger on OSError requires test coverage per HC-W11-3 done_when (d). QD MUST verify TriggerReason.INFRASTRUCTURE exists or add it; the kill-switch design itself was reviewed in Wave-7 (cold-start gate) and is operational."
+  - tail-risk-measured-with-Expected-Shortfall-not-only-VaR: "n/a — this wave does not touch tail-metric calculation"
+  - drawdown-contract-explicit-and-machine-checkable: "Wave-10 ladder amendment (10/15/20) is in force; Decision A halt-cycle REMOVES a false-positive trip source. Net contract integrity improves."
+
+reject_when_check:
+  - sizing-recommendation-derived-from-rationale-CRO-cannot-see: "Contamination self-check: clean. Redacted AC contains no proposer narrative."
+  - kill-switch-design-untestable-in-prod: "Decision B requires the OSError path be testable via fcntl.flock monkeypatch (no real filesystem corruption needed). Test path defined in body."
+  - tail-risk-reported-as-VaR-only-without-ES: "n/a"
+  - position-would-violate-pre-declared-firm-risk-contract: "No position is being authorized; defect-fixes only. _JPY_CORRELATED cap, dispatch-lock, drawdown ladder all preserved."
+  - regulatory-framework-cited-by-name-without-rule-number: "No regulatory citation made in this artifact. Knight Capital reference is to the SEC 34-70694 administrative proceeding pattern (graceful-retry-hides-infrastructure-failure); cited as analog only, not as binding rule."
+
+knowledge_gaps:
+  - id: KG-A1
+    description: "TriggerReason.INFRASTRUCTURE existence not verified in this review. If the enum value does not exist, QD MUST add it without altering other kill-switch behavior. Report back via knowledge-gap if blocked."
+  - id: KG-A2
+    description: "Rate-escalation policy for repeated Decision-A mid<=0 fires within a single session is NOT specified in this artifact. Recommended follow-up: track a per-session counter and escalate to kill-switch on N fires within M minutes (M, N TBD). Out of scope for Wave-11; logged as follow-up gap."
+  - id: KG-A3
+    description: "Decision A applies a single guard for mid<=0 regardless of pair. CRO recommends applying it to ALL pairs at the unit-conversion boundary (uniform halt-cycle). The redacted AC HC-W11-2 specifies the JPY pair case; CRO extends to all pairs as part of the binding ruling. If QD reads this and detects ambiguity, treat the all-pairs application as the CRO-binding interpretation."
+
+policy_violations_detected: []
+
+sources:
+  - "scripts/run_paper_trading_vt.py lines 548-578, 581-869, 641, 738, 745, 771-778"
+  - "scripts/run_paper_trading_carry_fred.py lines 525-560, 563-805, 622, 700, 704"
+  - "src/forex_system/sizing/vol_target.py:55-85"
+  - "src/forex_system/risk/exposure_aggregator.py:46-58, 94-130"
+  - ".fintech-org/artifacts/2026-05-11T-wave11/cro-redacted-acceptance-criteria.yaml"
+  - "Python stdlib io / exceptions: BlockingIOError is a subclass of OSError"
+  - "log-as-decision-trace skill: items 1-10 rubric"
+  - "clock-and-ordering skill: items 1, 3, 4 (wall-clock named, timezone explicit, no cross-source arithmetic)"
+  - "kill-switch-design skill: Knight Capital pattern, infrastructure-failure-not-retry-condition"
+  - "probability-statistics skill: base-rate framing for pathological-data events"
+
+dispatch-lock-invariant-verified: true
+clock-sources-named: ["datetime.now(timezone.utc) — wall clock, UTC, named per clock-and-ordering item 1"]
+lookahead-found: false
+contamination-evidence: ""

@@ -1,0 +1,53 @@
+role: null-hypothesis-tester
+session: wave11-2026-05-11
+subtask_ref: "wave11-2026-05-11:phase1:task2.4"
+artifact_type: dissent
+timestamp: "2026-05-11T00:00:00Z"
+decision: dissent
+severity: concern
+does_block: false
+
+linked_consensus: "docs/decisions/CONSENSUS_2026-05-12_wave11.md"
+source_artifact: ".fintech-org/artifacts/2026-05-11T-wave11/nht-adversarial-verification.yaml"
+
+dissent-statement: |
+  NHT structural dissent — Wave-11 Phase 1 Task 2.4 (append-only):
+
+  Both adversarial claims (W11-2-CLAIM-A silent JPY mid<=0 fallback,
+  W11-4-CLAIM-B real-cycle dispatch-lock test) are CONFIRMED REAL by
+  independent code reading. However, the prompt's source-line references
+  for W11-2 are factually incorrect:
+
+  - Prompt states F-001 unit conversion logic is at
+    src/forex_system/strategies/vol_target_carry.py:700-760
+    → Actual file is 94 lines total; F-001 logic is not in this file.
+  - Prompt states symmetric path in
+    src/forex_system/strategies/carry_fred.py:648
+    → Actual file is 226 lines; F-001 logic is not in this file.
+
+  The actual F-001 fix sites (four occurrences total) are:
+    - scripts/run_paper_trading_vt.py:738 (trade engine_units)
+    - scripts/run_paper_trading_vt.py:745 (held engine_units for swap)
+    - scripts/run_paper_trading_carry_fred.py:700 (trade engine_units)
+    - scripts/run_paper_trading_carry_fred.py:704 (held engine_units)
+
+  If the implementation engineer follows the prompt's file:line pointers
+  literally, they will look in strategies/ and find no defect. This is
+  a documentation defect in the upstream planning artifact.
+
+  Severity: concern (not strong_objection) because the defects themselves
+  are real and the fix is straightforward once the actual sites are
+  located. NHT recommends that PM correct the file:line references in
+  W11-2 acceptance criteria BEFORE implementation begins.
+
+  Additionally, NHT records that the existing tests/scripts/
+  test_wave8_high_remediation.py tests F-001 only at price=150 (happy
+  path). The W11-2 remediation MUST add at minimum one test case at
+  mid=0, mid<0, and mid=NaN to lock down the four call sites against
+  regression — without this, the fix is unverified for the actual
+  failure mode being claimed.
+
+resolution_in_session: |
+  File-pointer error corrected before QD implementation began.
+  W11-2 tests cover mid=0, mid<0, mid=NaN per NHT requirement.
+  Dissent preserved append-only per fintech-org rule 6.

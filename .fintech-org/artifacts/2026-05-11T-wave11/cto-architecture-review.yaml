@@ -1,0 +1,703 @@
+---
+# CTO Architecture Review + Quality-Gate Quorum Signature — Wave-11 Item W11-1
+# Single combined artifact: architecture verdict AND distributed-ratification
+# quorum signature for the shared-module extraction.
+#
+# Under --no-ceo per protocols/distributed-ratification.md, this artifact's
+# decision: approve counts as one of the ≥2 required quorum signatures for
+# the W11-1 architecture-touching decision. CTO is STRUCTURALLY REQUIRED here
+# because "architecture-decisions" and "tech-debt-tracking" appear in
+# domains_owned per cto.md frontmatter.
+
+role: cto
+artifact_type: quality-gate-review
+subtask_ref: "wave11-2026-05-11:phase1:task2.1"
+subtask_id: "9d3f1a07-5c82-4e6b-bb19-7e4ad8c0f2a5"
+
+decision: approve
+
+timestamp: "2026-05-11T10:15:00Z"
+
+confidence: high
+# Evidence is direct file:line citations from the two paper scripts and
+# corroborating CRO Wave-2 re-verification artifact. The byte-identity claim
+# is independently verified by CRO Section A.3 (/usr/bin/diff). The module
+# layer recommendation follows established precedent (5 existing risk/
+# modules with the same pattern). Low residual uncertainty.
+
+# ---------------------------------------------------------------------------
+# Evidence — direct file:line citations
+# ---------------------------------------------------------------------------
+evidence:
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "114-165"
+    supports: "assert_account_key_parity body in vt script; uses os.O_CREAT|O_EXCL|O_WRONLY atomic primitive; discriminator string 'vt loop' at line 153"
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "168-203"
+    supports: "reset_account_key_lock body in vt script"
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "69"
+    supports: "ACCOUNT_KEY_LOCK_PATH = 'data/paper_account_key_lock.json' constant — same value in both scripts"
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "895-903, 923"
+    supports: "Call sites: reset_account_key_lock invoked at 902 under --reset-account-key-lock flag; assert_account_key_parity invoked at 923 before any dispatch path"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "131-182"
+    supports: "assert_account_key_parity body in carry_fred script; identical primitive; discriminator string 'carry_fred loop' at line 170"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "185-220"
+    supports: "reset_account_key_lock body in carry_fred script — symmetric to vt"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "88"
+    supports: "ACCOUNT_KEY_LOCK_PATH constant — same string literal"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    lines: "840-844, 862"
+    supports: "Call sites: reset_account_key_lock at 844; assert_account_key_parity at 862"
+  - path: ".fintech-org/artifacts/2026-05-10T-paper-launch-authorization/cro-reverification.yaml"
+    lines: "147-164"
+    supports: "CRO Wave-2 Section A.3: /usr/bin/diff shows EXACTLY ONE differing line between the two assert_account_key_parity bodies — the discriminator string. Byte-identity claim independently verified."
+  - path: "src/forex_system/risk/"
+    lines: "(directory listing)"
+    supports: "Existing risk/ layer contains 5 modules following the pre-dispatch-gate pattern: bet1_sizing.py, drawdown_contract.py, exposure_aggregator.py, heartbeat_watchdog.py, kill_switch.py — directly comparable shape to the proposed account_key_parity gate"
+  - path: "src/forex_system/risk/exposure_aggregator.py"
+    lines: "94-140"
+    supports: "Precedent: exposure_aggregator.compute_exposure + check_dispatch_allowed are pre-trade dispatch gates that BOTH paper scripts already import from risk/. The account-key parity gate is a startup-time pre-dispatch gate of the same family."
+  - path: "scripts/run_paper_trading_vt.py"
+    lines: "45-52"
+    supports: "Established import pattern: scripts import from forex_system.risk.<module>. Adding one more risk/ import follows the existing convention exactly."
+  - path: "tests/risk/"
+    lines: "(directory listing — test_exposure_aggregator.py, test_kill_switch.py, test_drawdown_contract.py, test_heartbeat_watchdog.py)"
+    supports: "tests/risk/ exists and contains one test file per risk module — the existing layout that the new module's test should follow"
+  - path: ".fintech-org/artifacts/2026-05-11T-wave11/pm-acceptance-criteria.yaml"
+    lines: "186-199, 259-281"
+    supports: "PM HC-W11-1 and W11-1 done_when predicates — the contract this approval is gated on"
+
+# ---------------------------------------------------------------------------
+# Assumptions
+# ---------------------------------------------------------------------------
+assumptions:
+  - "CRO Wave-2 byte-identity claim (cro-reverification.yaml Section A.3) is accurate — exactly one differing line between the two function bodies, namely the loop-name discriminator in the f-string at vt.py:153 / carry_fred.py:170. I did NOT re-run /usr/bin/diff; I rely on CRO's evidence."
+  - "The reset_account_key_lock pair (vt:168-203 vs carry_fred:185-220) is symmetrically byte-identical except for any incidental discriminator. PM AC and Wave-10 CONSENSUS both name this function for extraction; CRO Section A.3 implies symmetry across both pair functions."
+  - "ACCOUNT_KEY_LOCK_PATH ('data/paper_account_key_lock.json') is identical in both scripts (vt:69 vs carry_fred:88) and is intended to remain a single shared constant after extraction — not duplicated in each call site."
+  - "The 5 existing risk/ modules (bet1_sizing, drawdown_contract, exposure_aggregator, heartbeat_watchdog, kill_switch) are accepted precedent for where pre-dispatch risk gates live in this codebase. CLAUDE.md's Module-layers table does not list risk/ explicitly (the doc predates the layer) but the established convention dominates over the not-yet-updated table."
+  - "Both paper scripts pass their existing regression suite at HEAD (commit 747a6ad). The extraction must not change test outcomes; QD's implementation is the gate on this."
+  - "The discriminator string ('vt loop' / 'carry_fred loop') is an operator-readable label for the error message ONLY — not a typed enum used elsewhere. A plain str parameter is sufficient; a LoopName enum would over-engineer."
+  - "Under --no-ceo per protocols/distributed-ratification.md, this approval counts as one of ≥2 required signatures. CRO co-signature on W11-2/W11-3 is separate and not blocking for W11-1 (no risk-domain constraint binds W11-1 specifically — the extracted module preserves behavior, does not alter it)."
+  - "No live capital is involved. Paper-loop governance only. The architectural decision does not touch trading recommendations."
+
+# ---------------------------------------------------------------------------
+# Domains claimed for quorum signature
+# ---------------------------------------------------------------------------
+claimed_domains:
+  - architecture-decisions          # per cto.md domains_owned (frontmatter)
+  - shared-module-extraction        # subset of architecture-decisions
+  - tech-debt-tracking              # extraction eliminates a documented duplication (CTO domains_owned)
+  - cross-system-blast-radius       # both paper scripts depend on the extracted module
+  - logging-and-observability-standards  # the extracted gate emits a structured log (logger.critical) at the decision boundary
+  - firewall-enforcement-between-research-and-execution
+    # No research-emitted code in scope; verified.
+
+# ---------------------------------------------------------------------------
+# Rubric applied
+# ---------------------------------------------------------------------------
+rubric_applied: |
+  review-plan dimensions (Correctness, Design, Completeness, Clarity, Risk)
+  applied at "moderate-risk" depth: multiple files, shared interface,
+  reversible (code rollback), follows established precedent. Skip
+  Performance dimension (extraction is byte-identical; no performance
+  delta). Skip Security beyond decision-boundary observability (no new
+  attack surface; no input validation surface introduced; no secrets).
+  Apply log-as-decision-trace as a sanity check on the extracted gate's
+  observability (the gate emits logger.critical on mismatch — decision
+  boundary IS observable from the log alone).
+  trading-platform-architectures NOT loaded: this is an internal small-
+  surface-area utility extraction, not a comparison-against-industry-
+  practice architectural question (no latency-stack, no OMS plumbing,
+  no research-to-prod pipeline, no kernel-bypass implications). Per the
+  skill's "When this skill is loaded" table, the trigger is "should we
+  build X like Y?" — not present here.
+
+# ---------------------------------------------------------------------------
+# Findings (none gate-blocking; design verdict is approve)
+# ---------------------------------------------------------------------------
+findings:
+  - id: F-W11-1-A
+    severity: non-blocking
+    label: suggestion
+    dimension: Design
+    description: |
+      Recommend the extracted module include an explicit __all__ tuple listing
+      the two public symbols (assert_account_key_parity, reset_account_key_lock)
+      plus the ACCOUNT_KEY_LOCK_PATH constant. Makes the API surface explicit
+      and prevents future grep-and-replace drift. Not blocking — QD discretion.
+    location: "proposed src/forex_system/risk/account_key_parity.py"
+    fix: |
+      Add __all__ = ('assert_account_key_parity', 'reset_account_key_lock',
+      'ACCOUNT_KEY_LOCK_PATH') at the top of the new module.
+
+  - id: F-W11-1-B
+    severity: non-blocking
+    label: suggestion
+    dimension: Clarity
+    description: |
+      The loop_name discriminator should be a keyword-only argument, not
+      positional. Both functions currently take account_key as positional;
+      adding loop_name as positional would risk argument-order errors at
+      the two call sites (vt:923 and carry_fred:862). Keyword-only forces
+      explicit naming at the call site: assert_account_key_parity(
+      backend.account_key, loop_name='vt loop'). This is consistent with
+      Python typing-best-practice for short discriminator strings.
+    location: "proposed API signature"
+    fix: |
+      Define the signature as:
+      assert_account_key_parity(account_key: str, *, loop_name: str,
+                                lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None
+      The keyword-only marker (*) makes loop_name a named argument at every
+      call site. reset_account_key_lock does NOT take loop_name (its error
+      messages do not include it per vt:168-203 / carry_fred:185-220), so its
+      signature stays:
+      reset_account_key_lock(new_key: str, *, lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None
+
+  - id: F-W11-1-C
+    severity: non-blocking
+    label: suggestion
+    dimension: Design
+    description: |
+      Do NOT introduce a typed LoopName enum for this. The discriminator is
+      operator-readable text inside an error message and a structured-log
+      'event' field; it is not a typed key used as a dict lookup, switch,
+      or registry index anywhere else. A LoopName enum would be over-
+      engineering for a 2-valued string used for a single error-message
+      f-string substitution. If a third paper loop is added in the future,
+      a value-set assertion in the function body (e.g., assert
+      loop_name in {'vt loop', 'carry_fred loop'}) is the right escalation
+      step — not now.
+    location: "proposed API signature"
+    fix: |
+      Keep loop_name as plain str. No enum.
+
+  - id: F-W11-1-D
+    severity: non-blocking
+    label: issue
+    dimension: Risk
+    description: |
+      Preserve the discriminator string VALUES verbatim ('vt loop' and
+      'carry_fred loop' — note the lowercase, the trailing 'loop' word,
+      and the space). These strings appear in the error message that
+      operators will see on parity violation; changing them would alter
+      log-search patterns and any operator runbook that greps for the
+      exact text. HC-W11-1 calls this out ('the strings themselves are
+      NOT changed, only their origin').
+    location: "vt.py:153 and carry_fred.py:170"
+    fix: |
+      QD MUST pass loop_name='vt loop' from vt.py call site and
+      loop_name='carry_fred loop' from carry_fred.py call site. The
+      strings are operator contracts; do not normalize, capitalize, or
+      shorten them. This is also a Principal Reviewer verification target.
+
+  - id: F-W11-1-E
+    severity: non-blocking
+    label: suggestion
+    dimension: Completeness
+    description: |
+      The extracted module should ALSO own the ACCOUNT_KEY_LOCK_PATH
+      constant (currently duplicated at vt.py:69 and carry_fred.py:88
+      with identical value 'data/paper_account_key_lock.json'). Leaving
+      the constant duplicated after extracting the functions would re-
+      introduce the exact class of drift that motivated the extraction —
+      one script could change the path without the other noticing.
+      Eliminate the class, not just the instance (engineer-mindset rule 9).
+    location: "vt.py:69, carry_fred.py:88"
+    fix: |
+      Move ACCOUNT_KEY_LOCK_PATH into the new module as the single source
+      of truth. Both scripts import it: from forex_system.risk.account_key_parity
+      import (assert_account_key_parity, reset_account_key_lock,
+      ACCOUNT_KEY_LOCK_PATH). Remove the local constant definitions from
+      both scripts.
+
+  - id: F-W11-1-F
+    severity: non-blocking
+    label: praise
+    dimension: Design
+    description: |
+      The existing implementation correctly uses os.open(O_CREAT|O_EXCL|
+      O_WRONLY) — an atomic file-creation primitive — instead of the
+      Path.exists()+write_text() pattern that has a TOCTOU race. This
+      design choice (already in place; not part of the extraction) is
+      correct and should be preserved verbatim during the extraction.
+      Highlighting because the extraction must NOT regress this property.
+    location: "vt.py:142, carry_fred.py:159"
+
+# ---------------------------------------------------------------------------
+# Approve-when satisfaction items (per cto.md quality_gate.approve_when)
+# ---------------------------------------------------------------------------
+approve_when_check:
+  - item: "architecture-decision-has-rollback-path"
+    satisfied: true
+    evidence: |
+      The extraction is a pure refactor — no behavioral change. Rollback
+      = git revert the extraction commit and the two scripts return to
+      their pre-extraction shape with no data, no schema, and no protocol
+      to migrate. The behavior under test (assert + reset semantics) is
+      preserved by HC-W11-1 'shared_module_byte_identical_assertion_proven'.
+      Cost of rollback: a single git revert + ruff format.
+  - item: "logs-allow-decision-reconstruction-without-rerun"
+    satisfied: true
+    evidence: |
+      The extracted assert_account_key_parity emits logger.critical(
+      'account_key_parity_violation', extra={'event': 'ACCOUNT_KEY_PARITY_VIOLATION',
+      'account_key': ..., 'locked_key': ...}) at vt.py:160-164 (mirrored
+      at carry_fred.py:177-181). The decision boundary (parity violation)
+      emits a structured event with both the proposed key and the locked
+      key — a future incident can reconstruct WHY the gate fired from
+      log lines alone. After extraction, the discriminator (loop_name)
+      should ALSO be added to the structured-log 'extra' dict so the log
+      line answers WHICH loop tripped the gate without grepping call
+      stacks. (See findings F-W11-1-G below.)
+  - item: "new-vendor-passed-red-team-premortem"
+    satisfied: true
+    evidence: |
+      Not applicable — no new vendor, no new datastore, no new runtime,
+      no new OSS library is introduced. The extraction stays within the
+      established stdlib (os, json, pathlib, datetime, logging, sys) and
+      the existing src/forex_system/risk/ layer.
+  - item: "deploy-meets-three-phase-checklist-trading"
+    satisfied: not-applicable
+    evidence: |
+      This is a code refactor, not a deploy. deploy-checklist-trading
+      governs production-deploy gates. Wave-11 commit goes to local main
+      only (per PM AC out-of-scope line: 'Push to origin/main is a
+      separate CEO-authorized action').
+
+# ---------------------------------------------------------------------------
+# Reject-when triggered conditions (empty — none triggered)
+# ---------------------------------------------------------------------------
+reject_when_check: []
+  # Checked all five reject_when conditions from cto.md quality_gate:
+  #   - research-role-emitted-executable-trading-code:
+  #       NOT TRIGGERED. PM is a coordination role; the artifact contains
+  #       no executable code. QD will write code in wave-2 (an
+  #       implementation role).
+  #   - deploy-proposed-during-pre-declared-freeze:
+  #       NOT TRIGGERED. Not a deploy; no freeze in effect.
+  #   - architecture-change-with-unbounded-blast-radius:
+  #       NOT TRIGGERED. Blast radius is two scripts + one new module.
+  #       Bounded, enumerable, and covered by existing regression suite.
+  #   - logging-insufficient-for-incident-reconstruction:
+  #       NOT TRIGGERED. Existing structured log preserved; recommendation
+  #       to ADD loop_name to extra dict is a non-blocking improvement.
+  #   - security-critical-change-not-routed-through-security-review:
+  #       NOT TRIGGERED. No auth, no secrets, no PII surface change. The
+  #       account_key string IS sensitive (operator-account identifier),
+  #       but the extraction does not alter how it is handled — same
+  #       primitive, same paths, same logging shape.
+
+# ---------------------------------------------------------------------------
+# Architecture-specific extension fields (required by dispatch brief)
+# ---------------------------------------------------------------------------
+
+proposed_module_path: "src/forex_system/risk/account_key_parity.py"
+# RATIONALE:
+#   - risk/ layer hosts pre-dispatch risk gates: drawdown_contract,
+#     exposure_aggregator, heartbeat_watchdog, kill_switch, bet1_sizing.
+#     The account-key parity gate is a startup-time pre-dispatch risk
+#     gate that PREVENTS two paper loops from dispatching to divergent
+#     Saxo accounts. CRO BC-8-LIFT-COND-3 explicitly classifies this as
+#     a risk constraint. It fits the risk/ family precisely.
+#   - core/ is reserved for domain types (frozen dataclasses), abstract
+#     interfaces (Strategy, DataSource, CostModel, PositionSizer), YAML
+#     config loading, constants, errors. The parity gate is neither a
+#     domain type nor an interface; it is an active runtime gate with
+#     side effects (file I/O, sys.exit). core/ is the wrong layer.
+#   - data/ is for OHLCV validation, Parquet I/O, resampling/gap-filling.
+#     The parity gate has nothing to do with market data. data/ is wrong.
+#   - scripts/common/ would be a new layer outside src/forex_system/.
+#     This adds a third top-level location that operator/CI scripts must
+#     know about, fragments the src/ vs scripts/ boundary that the
+#     project has carefully maintained, and contradicts the W11-1
+#     done_when predicate (a) which says 'A new shared module file exists
+#     under src/forex_system/'. REJECTED.
+#   - Naming: account_key_parity matches the function naming convention
+#     (snake_case, descriptive, no abbreviation). Matches sibling modules
+#     in risk/ (exposure_aggregator, kill_switch — noun-phrase, not
+#     verb-phrase). Also matches the file naming convention.
+
+proposed_api_signatures:
+  - signature: "assert_account_key_parity(account_key: str, *, loop_name: str, lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None"
+    rationale: |
+      account_key first (positional) because it is the primary input
+      every caller must supply. loop_name keyword-only (after the *)
+      to force explicit naming at the call site — prevents
+      argument-order errors when a third loop is eventually added.
+      lock_path keyword-only with sensible default for test override
+      (existing tests in tests/scripts/ may want to inject a tmp_path).
+      Return type None — function raises SystemExit(1) on mismatch via
+      sys.exit, otherwise returns normally; the contract is enforce-or-
+      die.
+  - signature: "reset_account_key_lock(new_key: str, *, lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None"
+    rationale: |
+      No loop_name parameter — the existing reset_account_key_lock
+      bodies (vt:168-203 vs carry_fred:185-220) do not embed a loop-
+      name discriminator in their output; the reset is a global state
+      change, not a per-loop assertion. Keep the API minimal.
+  - signature: "ACCOUNT_KEY_LOCK_PATH: Final[str] = 'data/paper_account_key_lock.json'"
+    rationale: |
+      The shared constant lives in the new module. Both scripts import
+      it; neither defines a local copy. typing.Final marker prevents
+      accidental reassignment in tests or downstream callers.
+
+import_diagram: |
+  Before the refactor: scripts/run_paper_trading_vt.py and
+  scripts/run_paper_trading_carry_fred.py each define
+  assert_account_key_parity, reset_account_key_lock, and
+  ACCOUNT_KEY_LOCK_PATH inline. No shared import.
+
+  After the refactor: a new module
+  src/forex_system/risk/account_key_parity.py owns the two functions
+  and the constant. Both scripts add a single import line of the form:
+  from forex_system.risk.account_key_parity import (
+      ACCOUNT_KEY_LOCK_PATH, assert_account_key_parity,
+      reset_account_key_lock,
+  )
+  alongside their existing forex_system.risk imports
+  (drawdown_contract, exposure_aggregator, heartbeat_watchdog,
+  kill_switch). No new top-level package; no new layer.
+
+  Circular-import check: the new module imports ONLY from the Python
+  standard library (os, json, pathlib, datetime, logging, sys). It
+  does NOT import from forex_system.* or from scripts/*. Therefore
+  no circular import is possible. The scripts/ layer already imports
+  from forex_system.risk.* (5 modules) and is the leaf direction; the
+  new module being a sibling in risk/ extends that pattern by one.
+
+  Dependency direction: scripts/ -> src/forex_system/risk/ (unchanged
+  direction). src/forex_system/risk/account_key_parity.py -> stdlib
+  only (new module). tests/risk/test_account_key_parity.py -> the new
+  module (matches existing tests/risk/ -> src/forex_system/risk/
+  test layout).
+
+test_target_recommendation: "tests/risk/test_account_key_parity.py"
+# RATIONALE:
+#   - The existing layout follows the convention tests/<layer>/
+#     test_<module>.py. risk/ has its own test directory at tests/risk/
+#     with one test file per module (test_drawdown_contract.py,
+#     test_exposure_aggregator.py, test_heartbeat_watchdog.py,
+#     test_kill_switch_per_strategy.py, test_kill_switch.py).
+#     Placing the new tests at tests/risk/test_account_key_parity.py
+#     matches this 1:1 mapping.
+#   - tests/scripts/ is for tests of the script entry-point behavior
+#     (test_run_paper_trading_vt_wiring.py, test_run_paper_trading_carry_fred.py,
+#     test_wave10_dispatch_lock.py). Those tests SHOULD continue to
+#     verify the scripts call the parity gate at startup; that wiring
+#     test is separate from testing the parity gate itself. After
+#     extraction, the wiring tests can mock or assert on the
+#     forex_system.risk.account_key_parity import, while the unit
+#     tests of the gate's behavior (atomic create, parity mismatch
+#     -> SystemExit, reset semantics) live at tests/risk/.
+#   - Minimum test coverage required (informs QD; verified by NHT/PR):
+#       1. First-call atomic create writes the account_key payload.
+#       2. Second-call with same account_key passes (no exception).
+#       3. Second-call with different account_key triggers SystemExit
+#          and emits structured log with both keys + the loop_name
+#          discriminator.
+#       4. loop_name is rendered correctly in the error-message
+#          f-string (verify the exact strings 'vt loop' and
+#          'carry_fred loop' appear when those values are passed —
+#          contract preservation, per F-W11-1-D).
+#       5. reset_account_key_lock atomically replaces the file when
+#          present and creates it when absent.
+#       6. Concurrent access: two os.O_EXCL opens cannot both succeed
+#          (covered by the existing fcntl-style concurrent test
+#          pattern in tests/scripts/test_wave10_dispatch_lock.py;
+#          adapt the same pattern here).
+
+# ---------------------------------------------------------------------------
+# Knowledge gaps (none identified for this scope)
+# ---------------------------------------------------------------------------
+knowledge_gaps: []
+  # No knowledge gaps. PM-listed KG-1 (_JPY_CORRELATED frozenset) and
+  # KG-2 (fcntl single-host-only) are out of W11-1 scope per PM AC.
+  # CTO does not re-open them.
+
+# ---------------------------------------------------------------------------
+# Policy violations detected
+# ---------------------------------------------------------------------------
+policy_violations_detected: []
+  # Verified:
+  #   - No Python code blocks emitted in this artifact (firewall AST
+  #     lint compliance). All API signatures presented as prose
+  #     signature strings.
+  #   - No research-role emitting executable trading code (CTO is not
+  #     a research role; the artifact is a review, not a strategy spec).
+  #   - No new-vendor / new-datastore / new-runtime introduction —
+  #     stays within stdlib + established risk/ layer.
+  #   - No deploy proposed during freeze (no freeze; not a deploy).
+  #   - No security-critical-change-not-routed (no auth/secrets/PII
+  #     surface change).
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py
+  - /Users/huangtm/Projects/forex-trading-system/CLAUDE.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-11T-wave11/pm-acceptance-criteria.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-10T-paper-launch-authorization/cro-reverification.yaml
+  - /Users/huangtm/.claude/skills/fintech-org/roles/cto.md
+  - /Users/huangtm/.claude/skills/review-plan/SKILL.md
+  # Skills loaded but not extracting industry comparisons:
+  #   trading-platform-architectures NOT loaded (not an industry-
+  #   comparison architectural question; small-surface-area internal
+  #   utility extraction).
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+# ---------------------------------------------------------------------------
+# Body — narrative verdict
+# ---------------------------------------------------------------------------
+body: |
+  ## Verdict: APPROVE — proceed to QD implementation
+
+  W11-1 (shared-module extraction of assert_account_key_parity and
+  reset_account_key_lock) is APPROVED as a CTO architecture decision under
+  --no-ceo distributed-ratification. This artifact ALSO carries the CTO
+  quality-gate-review quorum signature required by protocols/
+  distributed-ratification.md because "architecture-decisions" appears in
+  the CTO's domains_owned and W11-1 is an architecture-touching item.
+
+  ## Why this duplication is real and should be eliminated
+
+  CRO Wave-2 Section A.3 confirmed that /usr/bin/diff between vt.py:114-165
+  and carry_fred.py:131-182 yields EXACTLY ONE differing line — the loop-
+  name discriminator inside an f-string. This is not parallel-evolution
+  drift; it is copy-paste-with-rename. The duplication has no deployment
+  justification: both scripts run on the same host, write to the same lock
+  file path ('data/paper_account_key_lock.json'), use the identical atomic
+  primitive (os.O_CREAT|O_EXCL|O_WRONLY), and produce structurally identical
+  logger.critical output. Three similar lines is acceptable; 52 lines
+  duplicated with a one-string difference is a maintenance liability.
+
+  Future class-of-bug this extraction prevents: a future engineer fixes a
+  bug in the parity gate in vt.py (e.g., adds a permission-check on the
+  lock-file parent directory) and forgets to mirror the change in
+  carry_fred.py. The gate's invariant — both loops see the same account-
+  key contract — is then silently broken. Eliminating the duplication
+  removes this drift surface.
+
+  ## Why src/forex_system/risk/account_key_parity.py is the right home
+
+  The risk/ layer is the established home for pre-dispatch risk gates:
+    - drawdown_contract.py  — pre-cycle drawdown ladder check
+    - exposure_aggregator.py — pre-trade JPY-correlated exposure cap
+    - heartbeat_watchdog.py  — staleness gate
+    - kill_switch.py         — at-trade halt-everything
+    - bet1_sizing.py         — pre-trade size multiplier
+
+  The account-key parity gate is a startup-time pre-dispatch risk gate:
+  it asserts that this paper loop and any sibling paper loop target the
+  same Saxo paper account, and sys.exit(1)s if not. CRO BC-8-LIFT-COND-3
+  explicitly classifies it as a risk constraint. It joins this family.
+
+  Alternative considered: scripts/common/account_key_parity.py. Rejected
+  because (a) it creates a new top-level location operator scripts must
+  know about, (b) it fragments the src/-vs-scripts/ boundary the project
+  has otherwise kept clean, (c) PM W11-1 done_when (a) requires the module
+  to live under src/forex_system/, and (d) tests/risk/ already exists as
+  the test sibling; tests/scripts/common/ would be a parallel-new test
+  location.
+
+  Alternative considered: src/forex_system/core/account_key_parity.py.
+  Rejected because core/ is reserved for domain types, abstract interfaces,
+  config loading, constants, and errors per CLAUDE.md. The parity gate is
+  none of those — it is an active runtime gate with side effects (file
+  I/O, sys.exit). Putting it in core/ would dilute the layer's stated
+  purpose.
+
+  CLAUDE.md's Module-layers table does not list risk/ (the doc predates
+  the layer); the precedent set by 5 existing risk/ modules dominates.
+  This is one of the residual items CLAUDE.md should eventually be
+  updated to reflect — flagging as a non-blocking documentation gap
+  outside W11-1 scope.
+
+  ## API signatures — keyword-only loop_name, no enum
+
+  Recommended signatures (verbatim prose; no code block per firewall):
+    assert_account_key_parity(account_key: str, *, loop_name: str,
+                               lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None
+    reset_account_key_lock(new_key: str, *,
+                           lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None
+
+  Three design choices:
+
+  1. account_key is positional first; both callers pass backend.account_key
+     here today (vt:923, cf:862) and the positional convention is established.
+
+  2. loop_name is KEYWORD-ONLY (after the * in the signature). At the
+     call site vt.py:923 becomes:
+       assert_account_key_parity(backend.account_key, loop_name='vt loop')
+     and cf:862 becomes:
+       assert_account_key_parity(backend.account_key, loop_name='carry_fred loop')
+     This forces explicit naming, preventing argument-order errors if a
+     third loop is added (a future engineer who calls the function with
+     two positional strings would silently swap account_key and
+     loop_name; the keyword-only marker makes that mistake a TypeError
+     at parse time).
+
+  3. NO LoopName enum. The discriminator is operator-readable text
+     inside an error-message f-string and a structured-log 'event'
+     field. It is not used as a dict key, switch-case label, or registry
+     index. A LoopName enum would be overengineering. If a third loop
+     is ever added, escalate to a runtime assert (e.g., assert loop_name
+     in known set inside the function body) — but not now.
+
+  The discriminator string VALUES ('vt loop', 'carry_fred loop') are
+  preserved verbatim per HC-W11-1. Operator runbook expectations are
+  not changed.
+
+  ## Constant co-location: move ACCOUNT_KEY_LOCK_PATH
+
+  The constant ACCOUNT_KEY_LOCK_PATH = 'data/paper_account_key_lock.json'
+  is currently duplicated at vt.py:69 and carry_fred.py:88. Leaving the
+  constant duplicated after extracting the functions would re-introduce
+  the same drift class (engineer-mindset rule 9: fix the class, not the
+  instance). The new module owns the constant; both scripts import it.
+
+  ## Test target: tests/risk/test_account_key_parity.py
+
+  Follows the 1:1 mapping convention established by the 5 existing
+  risk/ modules and their tests/risk/ siblings. tests/scripts/ remains
+  the home for test_run_paper_trading_*_wiring.py-style tests that
+  assert the scripts WIRE the parity gate correctly (they call it at
+  startup, before any dispatch path). That wiring concern is distinct
+  from testing the gate's behavior in isolation.
+
+  Minimum behavioral test surface (informs QD; PR/NHT verify in wave-3):
+    1. First-caller atomic create writes the payload.
+    2. Second-caller with same key passes silently.
+    3. Second-caller with different key raises SystemExit AND emits
+       the structured log with both keys + the loop_name discriminator.
+    4. Both discriminator strings render correctly in the error message
+       (the operator-contract preservation check).
+    5. reset_account_key_lock atomically replaces an existing lock
+       file and creates one when absent.
+    6. Concurrent O_EXCL race: only one of two simultaneous opens can
+       win (mirror the pattern from
+       tests/scripts/test_wave10_dispatch_lock.py).
+
+  ## Inversion check: imagine this shipped and caused a P0
+
+  Scenario 1: extraction silently changes the discriminator string from
+  'vt loop' to 'vt' (trailing word dropped during refactor). Operator
+  log-grep pattern stops matching the parity-violation alert. Mitigated
+  by F-W11-1-D (preserve verbatim) + test 4 (assert exact strings).
+
+  Scenario 2: ACCOUNT_KEY_LOCK_PATH gets a relative-path-vs-absolute-path
+  mismatch between the new module and a leftover script constant. Two
+  loops use different lock files; parity gate is vacuous. Mitigated by
+  F-W11-1-E (move the constant; remove local copies).
+
+  Scenario 3: extracted module accidentally imports from
+  forex_system.strategies or forex_system.backtest, creating a circular
+  import that breaks at process start. Mitigated by stdlib-only import
+  contract (verified in import_diagram above; PR confirms).
+
+  Scenario 4: QD adds a try/except in the extracted body that swallows
+  FileExistsError beyond the existing scope, silently breaking the
+  re-read-and-compare path. Mitigated by behavioral test 3 (parity
+  mismatch -> SystemExit). NOT a Wave-11 in-scope risk if QD preserves
+  byte-equivalence as HC-W11-1 demands.
+
+  None of these are gate-blockers; all are mitigable within the W11-1
+  done_when predicates.
+
+  ## What CTO refused to do
+
+  - CTO did NOT write the implementation. QD owns the code in wave-2.
+  - CTO did NOT specify the test bodies. QD designs tests; NHT
+    adversarially verifies in wave-3.
+  - CTO did NOT re-run /usr/bin/diff on the two function bodies; relied
+    on CRO Wave-2 Section A.3 evidence (assumption A-2 above).
+  - CTO did NOT load python skill, deep-learning skill, or any
+    forbidden-skill content (per cto.md forbidden_skills declaration).
+  - CTO did NOT re-adjudicate any of the 5 NHT dissents preserved in
+    prior CONSENSUS docs.
+  - CTO did NOT touch W11-2 (CRO domain), W11-3 (QD+CRO), W11-4 (QD+NHT),
+    or W11-5 (PM doc). Those have their own owning roles per PM AC.
+
+  ## Confidence and residual risk
+
+  Confidence: high. The duplication is independently verified by CRO,
+  the target layer follows established precedent, the API surface is
+  small and the parameterization is mechanical. Rollback cost is trivial
+  (single git revert). The principal residual risk is QD introducing a
+  silent semantic change during the extraction; HC-W11-1's behavioral-
+  equivalence requirement + Principal Reviewer verification in wave-3
+  + the existing test suite (test_no_lookahead and tests/scripts/
+  test_wave10_dispatch_lock.py + the new tests/risk/test_account_key_parity.py)
+  collectively cover this.
+
+  ## Failure modes considered (min 3 per cto.md handoff schema)
+
+  1. Silent discriminator-string drift during extraction — mitigated
+     by F-W11-1-D and test 4.
+  2. ACCOUNT_KEY_LOCK_PATH left duplicated — mitigated by F-W11-1-E.
+  3. Circular import via accidental forex_system.* dependency in the
+     new module — mitigated by stdlib-only contract and import_diagram
+     verification.
+  4. Future addition of a third paper loop with a third discriminator
+     — handled by keyword-only loop_name argument (F-W11-1-B) +
+     escalation path noted in F-W11-1-C (add value-set assertion when
+     count > 2).
+  5. Test placement inconsistency (tests/scripts/ vs tests/risk/) —
+     mitigated by test_target_recommendation above and the existing
+     1:1 mapping convention.
+
+  ## Routed-to / co-signature posture
+
+  QD (wave-2): implements the extraction per the signatures and
+  module-path above; writes tests/risk/test_account_key_parity.py with
+  the 6 behavioral cases enumerated; verifies regression gates
+  (pytest count >= baseline, ruff check src/, test_no_lookahead PASS).
+
+  Principal Reviewer (wave-3): verifies behavioral equivalence between
+  pre-extraction and post-extraction (the parity-violation path still
+  fires correctly with the exact discriminator strings preserved),
+  verifies import correctness (no circular import, no leftover local
+  constant), confirms test coverage on the 6 cases.
+
+  No CRO co-signature is required for W11-1 specifically. W11-1 is a
+  pure architecture/refactor decision with no risk-domain delta —
+  the function bodies' SEMANTICS are preserved exactly. CRO's
+  co-signature attaches to W11-2 (mid-price guard), W11-3 (OSError
+  catch), and is already on file via cro-reverification.yaml for BC-8
+  posture, which is unchanged by this extraction.
+
+what-you-refused-to-do:
+  - "Write the implementation code for the extracted module (QD owns; CTO routes)."
+  - "Specify test bodies (QD designs tests; NHT verifies adequacy)."
+  - "Re-run /usr/bin/diff on the two function bodies (relied on CRO Wave-2 Section A.3 evidence)."
+  - "Load forbidden skills (python, technical-analysis, forex-trading) — used policy-rubric reads only on file shape and import graph."
+  - "Re-adjudicate the 5 NHT dissents preserved in prior CONSENSUS docs."
+  - "Touch W11-2 (CRO domain), W11-3 (QD+CRO), W11-4 (QD+NHT), W11-5 (PM doc)."
+  - "Update CLAUDE.md's Module-layers table to add risk/ (out-of-scope for W11-1; noted as a documentation gap)."
+  - "Author a separate quality-gate-review artifact — combined into this single artifact per the dispatch brief's permitted shape."
+
+failure-modes-considered:
+  - "Silent discriminator-string drift during extraction → test 4 + F-W11-1-D"
+  - "Constant duplication (ACCOUNT_KEY_LOCK_PATH) left behind → F-W11-1-E"
+  - "Circular import via accidental forex_system.* dependency → stdlib-only contract"
+  - "Future third paper loop with new discriminator → keyword-only loop_name + value-set assertion escalation path"
+  - "Test placement inconsistency (tests/scripts/ vs tests/risk/) → tests/risk/ per 1:1 convention"
+
+# ---------------------------------------------------------------------------
+# No-capital-instruction attestation
+# ---------------------------------------------------------------------------
+no-capital-instruction: true
+# This artifact contains no trading recommendation, no live-capital
+# instruction, no position-sizing decision. It is a code-architecture
+# review for a paper-loop refactor.

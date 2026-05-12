@@ -43,7 +43,9 @@ This is the CRO-recommended log-only architecture. The explicit re-anchoring has
 
 3. The log-only field `paper_equity_bt_equiv` (written to `EQUITY_LOG_PATH` in both scripts) serves as a hypothesis-test audit trail only. It does not govern any risk halt decision.
 
-**Recalibration status:** ROUTE_TO CRO. The CRO must determine whether the current threshold values (10%/15%/20%) require adjustment given explicit broker-equity anchoring, or whether the values are already correctly expressed in broker-equity terms. The CRO's determination must be appended to this document before Wave-10 commit. PM does not adjudicate threshold values.
+**Recalibration status:** RESOLVED 2026-05-06 by CRO Wave-10 re-verification. The CRO determined that the threshold values (10%/15%/20%) are already correctly expressed in broker-equity terms (no adjustment required) — source: `.fintech-org/artifacts/wave10-fix-and-amend/cro-reverification.yaml` (BC-8 LIFTABLE determination + ladder-amendment Section verdict). PM does not adjudicate threshold values; this paragraph records the CRO outcome.
+
+**Clarification (W11-5, 2026-05-11):** The earlier phrasing "must be appended to this document before Wave-10 commit" was satisfied at the Wave-10 dispatch level via the CRO re-verification artifact cited above (the artifact itself is the appended determination; the path is durable and referenced from this document). HC-6 of `wave10-fix-and-amend/pm-acceptance-criteria.yaml` requires the doc to contain 5 specific elements; the CRO determination is the implicit 6th element required by this paragraph's promise. This clarification eliminates the apparent contradiction between HC-6 fail-condition and the past-tense "before Wave-10 commit" predicate.
 
 ---
 

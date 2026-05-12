@@ -61,6 +61,10 @@ from forex_system.analysis.trade_log import TradeLog
 from forex_system.core.config import load_config
 from forex_system.core.types import Direction
 from forex_system.costs.model import RealisticCostModel
+from forex_system.risk.account_key_parity import (
+    assert_account_key_parity,
+    reset_account_key_lock,
+)
 from forex_system.risk.bet1_sizing import bet1_size_multiplier, regime_active_status
 from forex_system.risk.drawdown_contract import DrawdownContract, DrawdownLevel
 from forex_system.risk.exposure_aggregator import (
@@ -85,7 +89,6 @@ QUIET_HOURS = (20, 8)
 
 WS02_TRACE_PATH = "data/ws02_trace.log"
 EQUITY_LOG_PATH = "data/paper_trading_session.log"
-ACCOUNT_KEY_LOCK_PATH = "data/paper_account_key_lock.json"
 # BC-8 option-B: cross-process advisory file-lock (shared with vt loop).
 # Lock acquired BEFORE get_positions; held through execute_signal + reconciliation.
 # See docs/specs/drawdown_ladder_amendment_2026-05-06.md and CRO Wave-9 ruling.
@@ -126,99 +129,8 @@ SKIP_DD_FULL_HALT: str = "SKIP_DD_FULL_HALT"
 SKIP_DD_HALT_NEW: str = "SKIP_DD_HALT_NEW"
 # BC-8 sentinel: emitted when the per-cycle dispatch lock is busy (another loop holds it).
 SKIP_DISPATCH_LOCK_BUSY: str = "SKIP_DISPATCH_LOCK_BUSY"
-
-
-def assert_account_key_parity(
-    account_key: str,
-    lock_path: str = ACCOUNT_KEY_LOCK_PATH,
-) -> None:
-    """HIGH-2: Startup account_key parity gate (atomic O_EXCL acquire).
-
-    Attempts an atomic O_CREAT|O_EXCL open to write this process's account_key
-    to the shared lock file on first call.  If the file already exists
-    (FileExistsError), re-reads and compares; raises SystemExit(1) on mismatch.
-
-    Uses O_CREAT|O_EXCL (not Path.exists()+write_text) so two simultaneous
-    launches cannot both silently succeed when pointing at divergent accounts.
-
-    To reset: run with --reset-account-key-lock NEW_KEY --confirm-account-reset
-    (see main()).  Do NOT delete the lock file manually — operator deletion is
-    a documented bypass that bypasses the gate entirely under stress.
-
-    Must be called before any order-dispatch path is reachable.
-    """
-    import json as _json
-    p = Path(lock_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    payload = _json.dumps({
-        "account_key": account_key,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    })
-    try:
-        # Atomic create: raises FileExistsError if another process beat us here.
-        fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        try:
-            os.write(fd, payload.encode())
-        finally:
-            os.close(fd)
-        return  # We created the lock — we are first; proceed normally.
-    except FileExistsError:
-        pass  # Lock already exists — fall through to parity check.
-    locked = _json.loads(p.read_text()).get("account_key", "")
-    if locked != account_key:
-        msg = (
-            f"ACCOUNT_KEY_PARITY_VIOLATION: carry_fred loop has account_key={account_key!r} "
-            f"but lock file records {locked!r}. "
-            "Both paper loops must target the same Saxo paper account. "
-            "To reset: pass --reset-account-key-lock NEW_KEY --confirm-account-reset "
-            "and restart — do NOT delete the lock file manually."
-        )
-        print(f"FATAL: {msg}")
-        logger.critical(
-            "account_key_parity_violation",
-            extra={"event": "ACCOUNT_KEY_PARITY_VIOLATION",
-                   "account_key": account_key, "locked_key": locked},
-        )
-        sys.exit(1)
-
-
-def reset_account_key_lock(new_key: str, lock_path: str = ACCOUNT_KEY_LOCK_PATH) -> None:
-    """Atomically replace the account-key lock with a new key.
-
-    Called only when both --reset-account-key-lock and --confirm-account-reset
-    are passed.  Prints old and new keys, replaces atomically, then exits.
-    This is the ONLY sanctioned way to change the locked account key.
-    """
-    import json as _json
-    p = Path(lock_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    old_key = "NONE (no lock file)"
-    if p.exists():
-        try:
-            old_key = _json.loads(p.read_text()).get("account_key", "UNKNOWN")
-        except Exception:
-            old_key = "UNREADABLE"
-    print("  Resetting account-key lock:")
-    print(f"    OLD key: {old_key!r}")
-    print(f"    NEW key: {new_key!r}")
-    payload = _json.dumps({
-        "account_key": new_key,
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "reset_by": "cli_reset",
-    })
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".aklock_reset_")
-    try:
-        os.write(fd, payload.encode())
-        os.close(fd)
-        os.replace(tmp, p)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    print(f"  Lock reset successfully to {new_key!r}. Exiting.")
-    sys.exit(0)
+# F-101 sentinel: emitted when an unexpected OS-level error prevents dispatch-lock acquisition.
+SKIP_DISPATCH_LOCK_FS_ERROR: str = "SKIP_DISPATCH_LOCK_FS_ERROR"
 
 
 # ---------------------------------------------------------------------------
@@ -558,6 +470,30 @@ def run_cycle(
         _emit_ws02(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY,
                    regime_active=regime_active, size_multiplier=size_multiplier)
         return {"_action": SKIP_DISPATCH_LOCK_BUSY}
+    except OSError as exc:
+        os.close(_dl_fd)
+        logger.warning(
+            "dispatch_lock.fs_error",
+            extra={
+                "event": SKIP_DISPATCH_LOCK_FS_ERROR,
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "lock_path": DISPATCH_LOCK_PATH,
+                "errno": getattr(exc, "errno", None),
+                "strerror": getattr(exc, "strerror", None) or repr(exc),
+                "decision_ts": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        kill_switch.trigger(
+            TriggerReason.INFRASTRUCTURE,
+            detail=(
+                f"dispatch_lock_fs_error: errno={getattr(exc, 'errno', None)}"
+                f" strerror={getattr(exc, 'strerror', None) or repr(exc)}"
+            ),
+        )
+        _emit_ws02(cycle_id, pair, SKIP_DISPATCH_LOCK_FS_ERROR,
+                   regime_active=regime_active, size_multiplier=size_multiplier)
+        return {"_action": SKIP_DISPATCH_LOCK_FS_ERROR}
 
     # Lock held — the finally below releases it on ALL exit paths (return or exception).
     try:
@@ -620,6 +556,22 @@ def run_cycle(
         except Exception:
             bid = ask = float(ohlcv["close"].iloc[-1])
         mid = (bid + ask) / 2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
+
+        # F-100 guard (CRO Decision A): halt-cycle on degenerate mid for JPY pairs
+        if "JPY" in pair.upper() and (mid <= 0 or math.isnan(mid)):
+            logger.warning(
+                "f100_jpy_mid_guard_triggered",
+                extra={
+                    "event": "F100_JPY_MID_GUARD",
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "mid": mid,
+                    "action": "halt-cycle",
+                    "cro_artifact": ".fintech-org/artifacts/2026-05-11T-wave11/cro-risk-review.yaml",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            return {"_action": "SKIP_F100_JPY_MID_GUARD"}
 
         # Compute raw target units from sizer then apply BC-2 size_multiplier.
         # Also honor REDUCE_SIZING if the drawdown contract requires it.
@@ -859,7 +811,7 @@ def main():
     client = SaxoClient(args.token, live=False)
     backend = SaxoExecutionBackend(client)
     # HIGH-2: account_key parity gate — must run before any order dispatch.
-    assert_account_key_parity(backend.account_key)
+    assert_account_key_parity(backend.account_key, loop_name="carry_fred loop")
     sizer = VolTargetSizer(
         leverage_cap=leverage_cap,
         min_order_size=config.backtest.position_sizing.get("min_order_size", 100)

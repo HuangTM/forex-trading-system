@@ -1,0 +1,277 @@
+role: null-hypothesis-tester
+artifact_type: overfitting-audit
+decision: dissent
+timestamp: 2026-05-11T00:00:00Z
+subtask_ref: wave11-2026-05-11:phase1:task2.4
+subtask_id: nht-adversarial-verification-w11-2-and-w11-4
+no-capital-instruction: true
+
+confidence: high
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:738 (F-001 ternary defective pattern: _engine_units = ... mid > 0 ... else _trade_units_nom)"
+  - "scripts/run_paper_trading_vt.py:745 (symmetric held-units fix site for swap accrual)"
+  - "scripts/run_paper_trading_carry_fred.py:700 (F-001 ternary defective pattern: trade engine_units)"
+  - "scripts/run_paper_trading_carry_fred.py:704 (symmetric held-units fix site for swap accrual)"
+  - "src/forex_system/saxo/history.py:33-36 (bars_to_dataframe: .get('CloseBid', 0) + .get('CloseAsk', 0) default that propagates mid=0 when both fields absent)"
+  - "tests/scripts/test_wave10_dispatch_lock.py:38-67 (_WORKER_SCRIPT inline definition — re-implements fcntl primitive, does not call run_cycle)"
+  - "tests/scripts/test_wave10_dispatch_lock.py:553-578 (run_cycle fcntl block in scripts/run_paper_trading_vt.py whose removal would silently pass all existing _WORKER_SCRIPT tests)"
+  - "src/forex_system/backtest/engine.py:544-573 (canonical to_engine_units reference)"
+  - "tests/scripts/test_wave8_high_remediation.py:530-660 (existing F-001 cost tests exercise only mid=150 happy path; mid=0/NaN not covered)"
+
+sources:
+  - file: src/forex_system/strategies/vol_target_carry.py
+    purpose: verify-claim-A-source-of-F-001-fix
+    note: prompt referenced "lines 700-760" but file is 94 lines; F-001 fix is NOT in this file
+  - file: src/forex_system/strategies/carry_fred.py
+    purpose: verify-claim-A-source-of-F-001-fix
+    note: prompt referenced ":648" but file is 226 lines; F-001 fix is NOT in this file
+  - file: src/forex_system/backtest/engine.py
+    range: 544-573
+    purpose: canonical-to_engine_units-reference
+  - file: scripts/run_paper_trading_vt.py
+    range: 619-770
+    purpose: actual-F-001-fix-call-site-in-paper-loop
+  - file: scripts/run_paper_trading_carry_fred.py
+    range: 598-730
+    purpose: actual-F-001-fix-call-site-in-paper-loop
+  - file: src/forex_system/saxo/history.py
+    range: 12-58
+    purpose: bars_to_dataframe-uses-.get-with-default-0-for-missing-fields
+  - file: tests/scripts/test_wave10_dispatch_lock.py
+    range: 1-333
+    purpose: existing-dispatch-lock-test-coverage
+  - file: tests/scripts/test_ws01_decision_log.py
+    range: 1-50
+    purpose: existing-run_cycle-integration-test-pattern
+  - file: tests/scripts/test_wave8_high_remediation.py
+    range: 530-660
+    purpose: existing-F-001-cost-tests-do-not-cover-mid-le-0
+
+assumptions:
+  - prompt-source-locations-may-be-imprecise-actual-F-001-fix-lives-in-scripts-not-strategies
+  - mid-can-realistically-be-0-via-saxo-bars_to_dataframe-missing-CloseBid-CloseAsk-fields
+  - NaN-mid-is-also-reachable-when-OHLCV-close-is-NaN-because-NaN-gt-0-evaluates-False
+  - existing-_WORKER_SCRIPT-tests-only-exercise-the-fcntl-OS-primitive-not-the-run_cycle-call-site
+  - no-row-level-data-quality-validation-exists-on-mid-or-ohlcv-close-in-paper-loop
+
+policy_violations_detected: []
+
+knowledge_gaps:
+  - have-not-measured-empirical-rate-of-Saxo-API-returning-zero-or-missing-CloseBid-CloseAsk-in-production
+  - have-not-confirmed-whether-account-equity-rules-or-other-gates-would-short-circuit-before-cost-compute-for-pathological-mid
+  - W11-2-and-W11-4-implementation-plans-not-read-only-the-claim-statements-per-instruction
+
+body: |
+  ADVERSARIAL VERIFICATION VERDICT — Wave-11 Phase 1 Task 2.4
+
+  =============================================================
+  Claim W11-2-CLAIM-A: silent USD-nominal fallback on mid<=0 for JPY pairs
+  =============================================================
+
+  VERDICT: CONFIRMED REAL DEFECT — claim survives adversarial verification.
+  SEVERITY: concern (not material_concern, see reachability discussion below)
+
+  Evidence trail:
+
+  1. The prompt's file/line pointers are WRONG. The F-001 fix is NOT in
+     src/forex_system/strategies/vol_target_carry.py:700+ (that file is 94
+     lines) nor in src/forex_system/strategies/carry_fred.py:648 (that file
+     is 226 lines). The actual F-001 fix lives in:
+       - scripts/run_paper_trading_vt.py:738, 745
+       - scripts/run_paper_trading_carry_fred.py:700, 704
+
+  2. The exact defect-of-interest at scripts/run_paper_trading_vt.py:738:
+       _engine_units = (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
+
+     The ternary's else-branch returns _trade_units_nom UNCONDITIONALLY for
+     any JPY pair when mid <= 0 (or NaN). This is silent USD-nominal
+     treatment — IDENTICAL to the pre-F-001 defect class, just in a
+     different branch of the same expression. Confirmed by:
+       - For USDJPY at expected price ~150: correct engine_units = 666.67
+       - Under fallback at mid<=0: engine_units = 100_000 (USD-nominal)
+       - Cost magnitude differs by factor ~150 (the same overcharge ratio
+         the F-001 fix was created to eliminate)
+
+  3. The identical pattern is duplicated at vt:745 (held_engine_units for
+     swap accrual) and twice in carry_fred:700, 704. So the defect class
+     has FOUR call-sites in current HEAD, not one.
+
+  4. Reachability — IS mid<=0 actually reachable?
+     a. mid construction chain (vt:636-641):
+        - client.get_info_price(pair) → quote.get("Bid", 0), quote.get("Ask", 0)
+          defaults missing fields to 0
+        - On exception: bid = ask = float(ohlcv["close"].iloc[-1])
+        - mid = (bid+ask)/2 if (bid and ask) else float(ohlcv["close"].iloc[-1])
+        - The (bid and ask) Python truthiness check fails for 0 (0 is falsy)
+        - Then mid = float(ohlcv["close"].iloc[-1])
+
+     b. ohlcv["close"] origin (src/forex_system/saxo/history.py:30-44,
+        bars_to_dataframe):
+        - close_mid = (bar.get("CloseBid", 0) + bar.get("CloseAsk", 0)) / 2
+        - If Saxo returns a bar with missing CloseBid AND CloseAsk fields,
+          close_mid = 0
+        - If exactly one is missing, close_mid = (0 + present_value)/2 —
+          not zero but invalid mid; would silently underprice cost without
+          tripping the mid>0 guard
+
+     c. NaN path: if Saxo returns NaN values (or pandas parses them as NaN
+        for partial bars), bool(NaN) is True so (bid and ask) is True,
+        producing mid=NaN; then mid > 0 is False → fallback engaged.
+
+     d. NO row-level guard exists in fetch_recent_bars or the run_cycle
+        cost-compute block to reject mid=0 or mid=NaN before it reaches
+        the cost formula. The only data guard is ohlcv.empty (vt:620).
+
+  5. Tests do NOT cover this branch. test_wave8_high_remediation.py
+     exercises the F-001 fix only at price=150 (happy path). No test in
+     tests/scripts/ exercises mid=0 or mid=NaN.
+
+  Why severity is "concern" not "material_concern":
+    - The fallback only fires when Saxo data quality degrades AND
+      account_equity fetch did not previously short-circuit
+    - The cost-compute block runs AFTER WS01 emission, so an auditor
+      reviewing post-incident logs could detect mid_price=0 in the
+      COST_COMPUTED event (line 763)
+    - However: any silent overcharge of ~150x on a JPY pair is a
+      first-order risk-control failure. The cost is reduction in tracked
+      paper P&L by a factor of 150 of true cost — i.e., the system
+      will appear to have lost $150 of every $1 of real cost,
+      potentially triggering the drawdown contract on noise. This is
+      a real but data-conditional defect.
+
+  Recommendation: harden the ternary to fail loudly, e.g.:
+      if "JPY" in pair.upper() and mid <= 0:
+          raise CostComputeError("mid<=0 for JPY pair; refuse to fall back to USD-nominal")
+  rather than the current silent fall-through. The prompt's
+  characterization "silent fallback is a defect" is verified.
+
+  =============================================================
+  Claim W11-4-CLAIM-B: real-cycle subprocess test materially strengthens
+  coverage beyond _WORKER_SCRIPT
+  =============================================================
+
+  VERDICT: CONFIRMED MATERIAL COVERAGE GAP — claim survives adversarial
+  verification. Existing _WORKER_SCRIPT is OS-primitive theatre.
+  SEVERITY: concern
+
+  What _WORKER_SCRIPT actually tests (tests/scripts/test_wave10_dispatch_lock.py
+  lines 38-67, 70-77, 85-230):
+    - That fcntl.flock with LOCK_EX|LOCK_NB raises BlockingIOError on
+      concurrent acquire from a second OS process (the OS primitive)
+    - That O_CREAT|O_WRONLY creates the lock file
+    - That after the holder exits, a second acquirer succeeds (lock release)
+    - That SKIP_DISPATCH_LOCK_BUSY constant exists in both paper-loop
+      modules (string equality assertion at line 294)
+    - That DISPATCH_LOCK_PATH constant exists and contains the substring
+      "dispatch_lock" (line 313)
+
+  What _WORKER_SCRIPT does NOT test (because it re-implements the lock
+  inline rather than calling run_cycle):
+    - That run_cycle ACTUALLY USES fcntl.flock at all. A regression that
+      removes the fcntl block at vt:548-578 entirely would leave every
+      _WORKER_SCRIPT test passing (they test the OS, not the application).
+    - That the lock is placed BEFORE the critical section
+      [get_positions → compute_exposure → check_dispatch_allowed →
+       execute_signal → reconcile]. If someone moved the lock to AFTER
+      execute_signal, _WORKER_SCRIPT would not detect it.
+    - That the finally block at vt:858 actually releases the lock on
+      exception inside the critical section.
+    - That _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY) is called
+      on the busy path (this is the audit-trace contract).
+    - That the run_cycle return value is {"_action": SKIP_DISPATCH_LOCK_BUSY}
+      not e.g. {"_action": "SKIP"} which would silently desync exposure
+      tracking.
+    - That the lock survives across the dd_contract / kill_switch /
+      aggregation_gate branches (multiple early-return paths exist
+      between line 540 and line 580 — see _HALT_REQUESTED at line 460,
+      kill_switch at line 468, equity is None at line 475, etc.).
+
+  False-negative risk of the proposed real-cycle test:
+    A test that mocks SaxoClient + invokes run_cycle directly will pass
+    even if:
+      - The fcntl call is left in place but the surrounding logic is
+        broken (e.g., the WS01 emission is dropped)
+      - The lock is held but released too early (before reconcile)
+    These false negatives are smaller than the false-positive risk of
+    _WORKER_SCRIPT but non-zero. Recommendation: the new test should
+    assert (a) the actual fcntl.flock call occurs by patching fcntl and
+    counting calls, AND (b) the WS01 sentinel appears on the busy path,
+    AND (c) the return value's _action matches SKIP_DISPATCH_LOCK_BUSY.
+
+  Coverage delta (concrete, not theoretical):
+    - Existing _WORKER_SCRIPT: 7 fcntl/OS-primitive assertions + 4
+      string-equality assertions = 11 test functions, but ZERO assertions
+      of the form "run_cycle was called with X and returned Y"
+    - Proposed real-cycle test would add: at minimum 1 assertion per
+      branch in the lock-acquire path (acquired vs busy) = 2 new
+      behavioural assertions; with the patching recommendation above,
+      4-6 new high-value assertions
+
+  The W11-4 claim is therefore valid: real-cycle subprocess test
+  represents material coverage improvement, NOT test-theater.
+
+  =============================================================
+  STRUCTURAL VERDICT
+  =============================================================
+  Both W11-2 and W11-4 ticket claims pass adversarial verification:
+    - W11-2: real defect, real reachability, real cost magnitude
+      (~150x overcharge on the same defect class as F-001)
+    - W11-4: real coverage gap; existing _WORKER_SCRIPT cannot detect
+      removal of the dispatch-lock from run_cycle
+
+  Decision: DISSENT — not because the claims are wrong, but because the
+  prompt's stated source-line references are wrong (W11-2 fix is in
+  scripts/, not strategies/). NHT flags this as a documentation hygiene
+  concern: any spec or PM artifact pointing to the wrong file:line will
+  create review-time confusion and risk of missing the actual fix sites.
+  If the planning artifacts retained the wrong pointers, future audits
+  will misroute attention. The implementation engineer who acts on the
+  spec must locate the actual call-sites (4 of them, not 1) before
+  making changes.
+
+  This dissent does NOT block the W11-2 / W11-4 work itself; it flags a
+  metadata defect in the upstream planning artifact that must be
+  corrected before implementation begins.
+
+dissent-statement: |
+  NHT structural dissent — Wave-11 Phase 1 Task 2.4 (append-only):
+
+  Both adversarial claims (W11-2-CLAIM-A silent JPY mid<=0 fallback,
+  W11-4-CLAIM-B real-cycle dispatch-lock test) are CONFIRMED REAL by
+  independent code reading. However, the prompt's source-line references
+  for W11-2 are factually incorrect:
+
+  - Prompt states F-001 unit conversion logic is at
+    src/forex_system/strategies/vol_target_carry.py:700-760
+    → Actual file is 94 lines total; F-001 logic is not in this file.
+  - Prompt states symmetric path in
+    src/forex_system/strategies/carry_fred.py:648
+    → Actual file is 226 lines; F-001 logic is not in this file.
+
+  The actual F-001 fix sites (four occurrences total) are:
+    - scripts/run_paper_trading_vt.py:738 (trade engine_units)
+    - scripts/run_paper_trading_vt.py:745 (held engine_units for swap)
+    - scripts/run_paper_trading_carry_fred.py:700 (trade engine_units)
+    - scripts/run_paper_trading_carry_fred.py:704 (held engine_units)
+
+  If the implementation engineer follows the prompt's file:line pointers
+  literally, they will look in strategies/ and find no defect. This is
+  a documentation defect in the upstream planning artifact.
+
+  Severity: concern (not strong_objection) because the defects themselves
+  are real and the fix is straightforward once the actual sites are
+  located. NHT recommends that PM correct the file:line references in
+  W11-2 acceptance criteria BEFORE implementation begins.
+
+  Additionally, NHT records that the existing tests/scripts/
+  test_wave8_high_remediation.py tests F-001 only at price=150 (happy
+  path). The W11-2 remediation MUST add at minimum one test case at
+  mid=0, mid<0, and mid=NaN to lock down the four call sites against
+  regression — without this, the fix is unverified for the actual
+  failure mode being claimed.
+
+severity: concern

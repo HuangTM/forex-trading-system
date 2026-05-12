@@ -1,0 +1,263 @@
+role: pm
+artifact_type: acceptance-criteria
+timestamp: "2026-05-12T00:00:00Z"
+subtask_ref: "t0-dispatch-runbook:phase1:task1.0"
+subtask_id: "t0-dispatch-runbook-pm-ac-2026-05-12"
+
+body: "Acceptance criteria for T=0 dispatch runbook combining SD-3 + SD-5 + SD-6 + persistent paper-loop runner. Structured fields only; CRO redacted view."
+
+task-statement: >
+  Author a single ordered T=0 runbook combining SD-3, SD-5, SD-6, and persistent
+  paper-loop runner setup, executable by CEO in one terminal session.
+
+deliverable-type: spec-completion
+
+deadline: "2026-05-12T23:59:59Z"
+
+instrument-universe:
+  - USDJPY
+  - GBPUSD
+# frozenset — BC-8 ratified scope; no cross-JPY expansion without CRO re-review
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "no_paper_loop_start_by_orchestrator: true"
+  # orchestrator stages; only the human operator (CEO huangtm@gmail.com) executes
+  - "BC-8-LIFT-COND-1..7-binding: true"
+  # seven CRO binding constraints from CONSENSUS_2026-05-10 Section SD-2 must be
+  # preserved in every step that touches dispatch lock, account-key parity,
+  # JPY-correlated cap 15%, drawdown ladder, or kill-switch trigger paths:
+  #   COND-1: dispatch lock (fcntl LOCK_EX|LOCK_NB) active in both scripts
+  #   COND-2: lock released on ALL exit paths (try/finally)
+  #   COND-3: account-key parity gate enforced at startup
+  #   COND-4: aggregate JPY-correlated cap <= 15% (frozenset {USDJPY, GBPUSD})
+  #   COND-5: drawdown ladder 10/15/20 assessed per cycle pre-lock
+  #   COND-6: kill-switch trigger paths wired to both loops
+  #   COND-7: paper-only; no production-account promotion authorized
+  - "sd3_log_truncate_done_before_first_paper_bar: true"
+  # data/paper_trading_session.log must be at 0 lines immediately before paper loop start;
+  # current state: 317 lines, mtime 2026-05-12 09:19
+  - "sd5_calendar_reminder_set_with_pre_warning_at_T0+75: true"
+  # both reminders (T0+75 pre-warning, T0+84 hard deadline) must be set at T=0;
+  # NOT satisfiable by commitment-only — the actual reminder must be created and verified
+  - "sd6_ceo_sign_present_on_draft_before_launch_announcement: true"
+  # docs/launch/sd6-launch-communication-draft.md line 94 CEO signature line must be
+  # populated; verbatim CF-T9 clause confirmed at sha256 8fe92e0...
+  # (sd6-launch-comm-verbatim-check.yaml: char_for_char_match: PASS; structural gate PASSED;
+  #  CEO author/approve action is the remaining open gate)
+  - "persistent_runner_uses_fcntl_flock_LOCK_EX_NB_unchanged: true"
+  # whatever supervisor mechanism ops-engineer selects (launchd / tmux / cron), it MUST NOT
+  # alter the fcntl.flock(LOCK_EX|LOCK_NB) dispatch-lock semantics already in
+  # scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py;
+  # any wrapper that changes process ownership, user, or lock-file path requires CRO re-review
+  - "both_paper_scripts_on_same_host_same_data_dir: true"
+  # CRO assumption A-2 (CONSENSUS_2026-05-10 Section "Assumptions"): cross-host deployment
+  # defeats fcntl advisory lock; this constraint is binding for paper Phase 1
+  - "no_new_code_in_runbook: true"
+  # runbook may reference existing scripts and config only; code changes require separate dispatch
+
+criteria:
+  - id: C-1
+    label: "SD-3 truncate executed and verified before first paper bar"
+    done_when: >
+      CEO has executed `truncate -s 0 data/paper_trading_session.log` (or `: >` equivalent),
+      `wc -l data/paper_trading_session.log` returns 0, and the disposition is recorded in
+      docs/launch/sd6-launch-comm-verbatim-check.yaml under `sd3_disposition_executed_at_T0`
+      with `option_chosen: a`, `post_disposition_line_count: 0`, and ISO 8601 timestamp.
+    verification_command: "wc -l data/paper_trading_session.log"
+    expected_output: "0 data/paper_trading_session.log"
+    source_runbook: "docs/launch/sd3-truncate-stale-log-runbook.md"
+    gate_order: 1
+
+  - id: C-2
+    label: "SD-6 CEO author/approve signature present on launch communication draft"
+    done_when: >
+      The CEO signature line at docs/launch/sd6-launch-communication-draft.md line 94
+      ("**Author/approver:** *(CEO signature required before T=0)*") is populated with
+      CEO's name/date. The verbatim CF-T9 clause sha256 8fe92e0... remains intact
+      (already PASS in sd6-launch-comm-verbatim-check.yaml; must not regress if the
+      draft is re-edited before signing).
+    verification_command: >
+      grep -n "Author/approver" docs/launch/sd6-launch-communication-draft.md
+    expected_output: "line 94 contains a non-placeholder value (name + date)"
+    source_runbook: "docs/launch/sd6-launch-communication-draft.md"
+    gate_order: 2
+    note: >
+      Verbatim check artifact already PASS at docs/launch/sd6-launch-comm-verbatim-check.yaml
+      (decision: completed, 2026-05-11T04:30:00Z, char_for_char_match: PASS).
+      CEO sign is the only remaining open gate for SD-6.
+
+  - id: C-3
+    label: "SD-5 calendar reminder (pre-warning T0+75 AND hard-deadline T0+84) set and verified"
+    done_when: >
+      Both calendar reminders have been set via at least one mechanism (crontab, Calendar.app,
+      or `at`) and verified by a mechanism-specific output check. The disposition is recorded
+      in docs/launch/sd6-launch-comm-verbatim-check.yaml under `sd5_calendar_reminder_set_at_T0`
+      with `t0_date`, `pre_warning_date` (T0+75), `hard_deadline_date` (T0+84), `mechanism_chosen`,
+      and `verification_command_output` (non-empty; e.g., `crontab -l | grep CF-T9` output or
+      Calendar.app event summary).
+    verification_command: >
+      crontab -l | grep CF-T9   # if crontab chosen; else calendar query or atq
+    expected_output: "at least two matching entries (pre-warning and hard deadline)"
+    source_runbook: "docs/launch/sd5-calendar-reminder-template.md"
+    gate_order: 3
+    note: >
+      SD-5 hard-constraint requires BOTH reminders present and verified; commitment-only
+      (writing "I will set a reminder") does NOT satisfy this criterion.
+
+  - id: C-4
+    label: "Persistent paper-loop runner staged and both scripts confirmed healthy before first bar"
+    done_when: >
+      A supervisor mechanism (launchd service / tmux session / cron) is running or staged for
+      both scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py such that
+      (a) each script restarts automatically on crash without human intervention,
+      (b) the fcntl.flock(LOCK_EX|LOCK_NB) dispatch lock is unchanged (COND-1/COND-2),
+      (c) both processes run on the same host with the same data/ directory (COND cross-host),
+      (d) a dry-run or startup log confirms each script reaches its main loop without error,
+      (e) the ops-engineer runbook body documents the exact start command and how to confirm
+          the supervisor is live.
+    verification_command: >
+      # mechanism-dependent; ops-engineer body must supply the concrete command
+      # example for tmux: tmux ls | grep paper-vt && tmux ls | grep paper-carry
+      # example for launchd: launchctl list | grep forex-paper
+    expected_output: "both supervisor units present and not in error state"
+    gate_order: 4
+    note: >
+      Supervisor mechanism selection (launchd vs tmux vs cron) is an ops-engineer + CRO
+      decision in wave 2. PM does NOT make this choice. The runbook body must include a
+      pre-flight smoke test showing each script starts, acquires its lock, and logs at
+      least one cycle without error before the paper bar clock starts.
+
+  - id: C-5
+    label: "Runbook is a single ordered document covering all 4 actions end-to-end"
+    done_when: >
+      A single runbook file exists at docs/launch/t0-dispatch-runbook.md (or equivalent path
+      agreed by ops-engineer in wave 2) that contains, in order: SD-3 truncate steps →
+      SD-6 CEO sign steps → SD-5 calendar reminder steps → persistent runner startup steps →
+      a post-launch verification checklist. Each step has an exact command and expected output.
+      The document is self-contained: a CEO with one terminal window can execute it start-to-end
+      without consulting any other doc.
+    gate_order: 5
+    note: >
+      Order rationale: SD-3 (log clear) must precede first bar; SD-6 (comm sign) should precede
+      or coincide with loop start for governance completeness; SD-5 (calendar) must be set before
+      first bar but has no strict ordering relative to SD-3/SD-6; persistent runner is the final
+      step that starts the paper clock. Exact sequencing is ops-engineer's wave-2 decision.
+
+  - id: C-6
+    label: "Runbook body reviewed and co-signed by CRO for BC-8-LIFT-COND-1..7 dispatch-lock steps"
+    done_when: >
+      CRO has reviewed the persistent-runner setup steps (C-4) and any step that touches
+      dispatch lock, account-key parity, or JPY-correlated cap configuration, and has emitted
+      a typed artifact (artifact_type: risk-review, decision: approve OR veto) confirming
+      BC-8-LIFT-COND-1..7 are preserved by the chosen supervisor mechanism.
+    gate_order: 6
+
+  - id: C-7
+    label: "NHT has probed runbook for steps that LOOK complete but skip a precondition check"
+    done_when: >
+      NHT has reviewed the runbook body (wave 3) and emitted a typed artifact listing any
+      steps that appear complete but skip a precondition check (e.g., assumes git HEAD is
+      authorized without verifying, assumes lock file is absent without checking, assumes
+      account-key parity without the startup gate log line). If NHT finds a blocking gap,
+      ops-engineer must address before C-5 is satisfied.
+    gate_order: 7
+
+out-of-scope:
+  - "Live-account promotion (any step that touches the production Saxo account)"
+  - "Kill-switch Properties 2/3/4 remediation (live-promotion blocker; paper-only operation is not blocked)"
+  - "Push to origin/main (51 commits ahead; separate CEO-authorized action)"
+  - "Wave-11 F-100/F-101 items (already routed as non-blocking tickets)"
+  - "Historic-commit account-key literal cleanup (deferred from Wave-10)"
+  - "Saxo token revocation (manual user action; orchestrator cannot execute)"
+  - "Any scope expansion beyond USDJPY + GBPUSD instrument universe"
+  - "CF-T9 Clause C ratification (60-trading-day window; triggered by SD-5 reminder)"
+  - "Strategy backtest, trial pre-registration, or new code changes"
+  - "CONSENSUS.md authoring for this wave (wave-4 PM work; follows fan-out return)"
+  - "Adjudication of any prior append-only NHT or CRO dissent"
+
+roles-staffed:
+  - role: pm
+    rationale: >
+      Acceptance-criteria authoring (this artifact). Wave-4: CONSENSUS draft + signature
+      collection + ratification artifact. Does not make technical decisions.
+
+  - role: ops-engineer
+    rationale: >
+      Primary author of the runbook body (wave 2). Owns: exact commands for SD-3 truncate,
+      SD-6 sign workflow, SD-5 reminder mechanism execution, persistent runner setup
+      (supervisor selection + start commands + smoke test). Must include verification
+      predicates for each step and post-launch checklist.
+
+  - role: cro
+    rationale: >
+      Risk co-sign on persistent-runner setup and any step touching dispatch lock, account-key
+      parity, JPY-correlated cap, or drawdown ladder. Must confirm BC-8-LIFT-COND-1..7 are
+      preserved by whatever supervisor mechanism ops-engineer selects. No new risk decisions
+      — CRO confirms existing constraints hold under the new supervisor pattern.
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Mandatory skeptic (wave 3). Probes runbook for steps that LOOK complete but skip a
+      precondition check — e.g., step assumes authorized git HEAD without verifying it,
+      assumes flock file absent without checking, assumes both scripts reach main loop
+      without a confirming log line. NHT dissent is append-only per fintech-org rule 6.
+
+# --- Wave-1 meta-fields ---
+
+decision: authored
+confidence: high
+
+evidence:
+  - path: "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+    note: "Master authorization; SD-1..SD-6 definitions; 7 BC-8-LIFT-COND binding constraints"
+  - path: "docs/decisions/CONSENSUS-SUMMARY_2026-05-10_paper_launch_authorization.md"
+    note: "Ratified 2026-05-11T04:05:00Z by huangtm@gmail.com"
+  - path: ".agent-accountability/ratifications/paper-launch-auth-2026-05-10:phase1:task4.0.yaml"
+    note: "Formal ratification; outcome: ratified; timestamp 2026-05-11T04:05:00Z"
+  - path: "docs/launch/sd3-truncate-stale-log-runbook.md"
+    note: "SD-3 existing per-action runbook; option (a) truncate confirmed recommended"
+  - path: "docs/launch/sd5-calendar-reminder-template.md"
+    note: "SD-5 template; pre-warning T0+75, hard-deadline T0+84; 3 mechanism options"
+  - path: "docs/launch/sd6-launch-communication-draft.md"
+    note: "SD-6 draft; verbatim check PASS; CEO author/approve is only remaining open gate"
+  - path: "docs/launch/sd6-launch-comm-verbatim-check.yaml"
+    note: "Verbatim check artifact; CF-T9 sha256 8fe92e0...; decision: completed; ceo_author_signature_present: false"
+  - path: "data/paper_trading_session.log"
+    note: "Current state: 317 lines, mtime 2026-05-12 09:19; will be truncated at SD-3"
+
+assumptions:
+  - "HEAD is at commit 747a6ad or a ratified successor; runbook must include git rev-parse HEAD pre-flight"
+  - "Both paper scripts use fcntl.flock(LOCK_EX|LOCK_NB) dispatch lock unchanged from Wave-10"
+  - "Both scripts run on the same host with same data/ directory (COND cross-host constraint)"
+  - "No supervisor (launchd / tmux / cron) is currently in place for either paper script"
+  - "log state has grown from 269 lines (2026-05-11 ops-engineer read) to 317 lines (2026-05-12 current) — ad-hoc invocations since Wave-10"
+
+knowledge_gaps:
+  - topic: >
+      Which supervisor mechanism (launchd vs tmux vs cron) is the right default for this
+      macOS single-user setup; relevant to whether BC-8-LIFT-COND-1/2 (lock acquire/release)
+      survive supervisor-triggered restarts cleanly.
+    research_attempted: false
+    suggested_resolution: "ops-engineer + CRO to assess in wave 2"
+
+policy_violations_detected: []
+
+sources:
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+  - "docs/decisions/CONSENSUS-SUMMARY_2026-05-10_paper_launch_authorization.md"
+  - ".agent-accountability/ratifications/paper-launch-auth-2026-05-10:phase1:task4.0.yaml"
+  - "docs/launch/sd3-truncate-stale-log-runbook.md"
+  - "docs/launch/sd5-calendar-reminder-template.md"
+  - "docs/launch/sd6-launch-communication-draft.md"
+  - "docs/launch/sd6-launch-comm-verbatim-check.yaml"
+  - "~/.claude/skills/fintech-org/roles/pm.md"
+  - "~/.claude/skills/fintech-org/templates/handoff.md"
+  - "~/.claude/skills/review-plan/SKILL.md"
+  - "~/.claude/skills/agent-accountability/SKILL.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

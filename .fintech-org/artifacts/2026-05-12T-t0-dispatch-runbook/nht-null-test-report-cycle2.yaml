@@ -1,0 +1,128 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report-cycle2
+subtask_ref: "t0-dispatch-runbook:phase2b-v2:task2.0"
+subtask_id: "nht-t0-dispatch-cycle2-2026-05-12"
+timestamp: "2026-05-12T00:00:00Z"
+
+body: "All 7 BLOCKING findings (NHT-B1..B7) are closed in v2; closure rate 7/7 BLOCKING, 9/13 CONCERN+NOTE (4 deferred TODO(v3): #14, #16, #20, #3-SD). Cycle-1 dissent is superseded on all blocking points; one new non-blocking idempotency gap noted in v2 tmux steps."
+confidence: "high"
+
+decision: "survives"
+contamination-check: "clean"
+
+# Per-finding closure (NHT-B1..NHT-B7 BLOCKING) — fill closure_status + evidence_v2_line_ref
+findings-from-cycle1-status:
+  - finding_id: NHT-B1
+    cycle1_ref: "G-1"
+    description: "tmux omits --token + --loop; SAXO_TOKEN not in env; scripts exit; observationally identical to success"
+    expected_v2_fix: "Steps 2.4.1/2.4.2 add --loop --interval 1800 and SAXO_TOKEN=$SAXO_TOKEN; Phase-1 precondition asserts SAXO_TOKEN set"
+    expected_v2_lines: "~396-411"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:447 — 'SAXO_TOKEN=$SAXO_TOKEN python3 scripts/run_paper_trading_vt.py --loop --interval 1800'"
+    notes: "Phase-1 preamble line 27 also asserts SAXO_TOKEN with fatal exit; Amendment 1 confirmed APPLIED."
+
+  - finding_id: NHT-B2
+    cycle1_ref: "G-3"
+    description: "SD-5 pre-warning 2026-07-26 = Sunday; 9-trading-day mark is 2026-07-22 (Wed)"
+    expected_v2_fix: "Step 2.3 escalates to CRO for trading-day calendar definition; does NOT execute reminder until ratified"
+    expected_v2_lines: "~368-380"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:323 — 'DO NOT execute...until CRO ratifies the trading-day calendar definition'"
+    notes: "Line 325 adds explicit REQUIRED ACTION to escalate; Amendment 8 confirmed APPLIED."
+
+  - finding_id: NHT-B3
+    cycle1_ref: "G-5 + G-13 + G-14"
+    description: "3 Phase-3 verifications accept silence/empty/0-byte as success (parity, lock, log-growth)"
+    expected_v2_fix: "Step 3.4 positive parity check via paper_account_key_lock.json json.load; Step 2.4.5 lsof live lock; Step 3.2 heartbeat mtime ≤300s"
+    expected_v2_lines: "Steps 2.4.5 (~593-615), 3.2 (~653-673), 3.4 (~702-720)"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:534 — 'lsof data/dispatch_lock.flock | grep python3 | wc -l'"
+    notes: "3.4 uses json.load (line 612); 3.2 uses mtime ≤300s heartbeat check (line 588); Amendments 3,4,5 all APPLIED."
+
+  - finding_id: NHT-B4
+    cycle1_ref: "G-9"
+    description: "Post-sign CF-T9 grep is 8-word fragment, not SHA-256; smart-quote autocorrect passes grep undetected"
+    expected_v2_fix: "Step 2.2.3 adds python3 -c hashlib SHA-256 re-verification post-signing"
+    expected_v2_lines: "~449-468"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:295 — 'h = hashlib.sha256(m.group().encode()).hexdigest()'"
+    notes: "Full SHA-256 hash comparison against hardcoded expected value; Amendment 6 confirmed APPLIED."
+
+  - finding_id: NHT-B5
+    cycle1_ref: "G-4"
+    description: "macOS at daemon disabled by default; at command nonfunctional"
+    expected_v2_fix: "Option 3 (at) removed from Step 2.3.1 entirely"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:403 — 'Option 3: REMOVED (at daemon disabled by default on macOS)'"
+    notes: "Amendment 13 confirmed APPLIED; explicit cross-reference note credits NHT WebSearch finding."
+
+  - finding_id: NHT-B6
+    cycle1_ref: "G-2"
+    description: "zsh empty glob /tmp/*.flock errors; wrong dir (locks in data/)"
+    expected_v2_fix: "Step 1.4 replaced with find data -maxdepth 1 -name '*.flock' -mmin +60; explicit checks for data/dispatch_lock.flock + data/paper_account_key_lock.json"
+    expected_v2_lines: "~199-227"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:117 — 'find data -maxdepth 1 -name '*.flock' -mmin +60 2>/dev/null'"
+    notes: "Lines 119-120 also explicitly check data/dispatch_lock.flock and data/paper_account_key_lock.json; Amendment 7 confirmed APPLIED."
+
+  - finding_id: NHT-B7
+    cycle1_ref: "G-6"
+    description: "git status --short example wrong (returns 4 lines incl. runbook file itself)"
+    expected_v2_fix: "Phase-1 precondition update; specific git-status expectation"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:87 — 'Count the M lines. Only data/paper_trading_session.log and .fintech-org/spawns.jsonl should be modified'"
+    notes: "Expected output updated to 3-line block (2 M + 1 ??); instruction to count M lines and halt if unexpected."
+
+# CONCERN + NOTE summary
+concern_and_note_closure_summary:
+  - "9 of 13 concern/note findings closed in v2 (Amendments 10,11,12,13,15,17,18,19,21 confirmed APPLIED); 4 deferred TODO(v3): #14 (Calendar.app pre-flight), #16 (phase-confirmation blocks), #20 (ps aux formatting), #3-SD (parity.py logger.info patch)"
+
+new_blocking_gaps_in_v2:
+  - gap_id: "NHT-V2-G1"
+    severity: "non-blocking"
+    description: "Steps 2.4.1 and 2.4.2 use 'tmux new-session -d -s <name>' without 'has-session' guard; second execution at same T=0 would exit non-zero and the executor may misread as launch failure."
+    affected_steps: "2.4.1, 2.4.2"
+    recommendation: "TODO(v3): prefix each tmux invocation with 'tmux has-session -t <name> 2>/dev/null || ' to make idempotent; low urgency given single-T=0 usage pattern."
+
+date-arithmetic-v2-verification:
+  v2_handling: "escalates-to-cro"
+  evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:323 — 'pre-warning date (2026-07-26) is Sunday...NOT equivalent to 9 trading days'"
+  closure: "closed"
+  nht-independent-check: "T0=2026-05-12 + 75 calendar days = 2026-07-26; Python: datetime(2026,5,12)+timedelta(75) = 2026-07-26; day-of-week: Monday=0...Sunday=6 => 2026-07-26 is weekday() == 6 (Sunday). Cycle-1 finding confirmed correct. v2 escalates rather than hardcodes — correctly closed."
+
+hash-verification-v2:
+  sha256_recheck_added: true
+  evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:299 — 'assert h == exp, f'CF-T9 hash MISMATCH: got {h}''"
+
+idempotency_audit_v2:
+  - step: "Step 2.4.1 tmux new-session paper-vt"
+    v2_idempotent: false
+    notes: "No has-session guard; 'tmux new-session -d -s paper-vt' returns exit 1 if session already exists — see NHT-V2-G1."
+  - step: "Step 2.4.2 tmux new-session paper-carry"
+    v2_idempotent: false
+    notes: "Same pattern as 2.4.1; no has-session guard — see NHT-V2-G1."
+  - step: "Step 1.2 backup cp"
+    v2_idempotent: true
+    notes: "Backup filename includes UTC timestamp (line 208: date -u +%Y%m%dT%H%M%SZ) so each run produces a unique file."
+
+dissent-statement-update: "Cycle-1 dissent stands as the append-only record; v2 closures noted. All 7 BLOCKING findings verified closed by direct line evidence in v2 runbook. 4 CONCERN items deferred TODO(v3) are non-blocking. One new non-blocking idempotency gap (NHT-V2-G1) noted; does not affect T=0 single-execution context."
+
+evidence:
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    note: "v2 runbook under cycle-2 verification"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/nht-null-test-report.yaml"
+    note: "cycle-1 dissent (append-only)"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result-v2.yaml"
+    note: "v2 amendment_id mapping (structured fields only; body redacted per independence)"
+
+assumptions:
+  - "ops-engineer amendment_id -> v2 line mapping is accurate"
+  - "T0 execution is a single first-run event; tmux idempotency gap (NHT-V2-G1) is non-blocking in that context"
+knowledge_gaps: []
+sources:
+  - "docs/launch/t0-dispatch-runbook.md"
+  - ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/nht-null-test-report.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

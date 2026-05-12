@@ -1,0 +1,73 @@
+# Redacted view of PM acceptance-criteria for CRO + NHT wave-2b dispatch.
+# Per protocols/spawn-agent.md step 5: task-statement, body, assumptions text, rationale are STRIPPED.
+# Only structured fields are exposed.
+
+role: pm-redacted
+source_artifact: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/pm-acceptance-criteria.yaml"
+redaction_applied_by: orchestrator
+redaction_timestamp: "2026-05-12T17:30:00Z"
+
+# Whitelisted fields ONLY:
+deliverable-type: spec-completion
+
+deadline: "2026-05-12T23:59:59Z"
+
+instrument-universe:
+  - USDJPY
+  - GBPUSD
+# frozenset — BC-8 ratified scope
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "no_paper_loop_start_by_orchestrator: true"
+  - "BC-8-LIFT-COND-1..7-binding: true"
+  - "sd3_log_truncate_done_before_first_paper_bar: true"
+  - "sd5_calendar_reminder_set_with_pre_warning_at_T0+75: true"
+  - "sd6_ceo_sign_present_on_draft_before_launch_announcement: true"
+  - "persistent_runner_uses_fcntl_flock_LOCK_EX_NB_unchanged: true"
+  - "both_paper_scripts_on_same_host_same_data_dir: true"
+  - "no_new_code_in_runbook: true"
+
+bc8_lift_cond_definitions:
+  COND-1: "dispatch lock (fcntl LOCK_EX|LOCK_NB) active in both scripts"
+  COND-2: "lock released on ALL exit paths (try/finally)"
+  COND-3: "account-key parity gate enforced at startup"
+  COND-4: "aggregate JPY-correlated cap <= 15% (frozenset {USDJPY, GBPUSD})"
+  COND-5: "drawdown ladder 10/15/20 assessed per cycle pre-lock"
+  COND-6: "kill-switch trigger paths wired to both loops"
+  COND-7: "paper-only; no production-account promotion authorized"
+
+# Portfolio-state-snapshot references (no narrative)
+state-snapshot-refs:
+  - "data/paper_trading_session.log (current 317 lines; will be truncated by SD-3)"
+  - "git HEAD: e6aaa43 Wave-11 ratified"
+  - "scripts/run_paper_trading_vt.py — fcntl.flock(LOCK_EX|LOCK_NB) at data/dispatch_lock.flock"
+  - "scripts/run_paper_trading_carry_fred.py — fcntl.flock(LOCK_EX|LOCK_NB) at data/dispatch_lock.flock"
+  - "src/forex_system/risk/account_key_parity.py — startup parity gate, ACCOUNT_KEY_PARITY_VIOLATION on mismatch"
+
+# Out-of-scope (structured list; no rationale)
+out-of-scope:
+  - live-account-promotion
+  - kill-switch-properties-2-3-4-remediation
+  - push-to-origin-main
+  - wave-11-f100-f101-followups
+  - historic-commit-account-key-cleanup
+  - saxo-token-revocation
+  - scope-expansion-beyond-USDJPY-GBPUSD
+  - cf-t9-clause-c-ratification
+  - strategy-backtest-or-new-code
+  - consensus-md-authoring-this-wave
+  - prior-nht-or-cro-dissent-adjudication
+
+# Roles staffed (no rationale text)
+roles-staffed:
+  - pm
+  - ops-engineer
+  - cro
+  - null-hypothesis-tester
+
+# Artifacts available for review
+review_targets:
+  runbook: "docs/launch/t0-dispatch-runbook.md"
+  ops_engineer_artifact: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result.yaml"

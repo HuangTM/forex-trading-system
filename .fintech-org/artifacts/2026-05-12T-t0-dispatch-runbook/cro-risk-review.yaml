@@ -1,0 +1,372 @@
+---
+role: cro
+artifact_type: risk-assessment
+subtask_ref: "t0-dispatch-runbook:phase2b:task1.0"
+subtask_id: "t0-dispatch-runbook-cro-2026-05-12"
+timestamp: "2026-05-12T18:15:00Z"
+
+decision: approve-with-binding-conditions
+size_multiplier: 1.0  # N/A — runbook does not size positions; declared as formality per spawn instructions
+confidence: high
+
+contamination-check: "clean"
+# Verified inputs are structured only. ops-engineer.yaml `body` describes operational
+# outcomes (what was authored, supervisor mechanism selected) — not proposer rationale
+# about why a trading strategy is a good idea. PM redacted yaml has no narrative.
+# CONSENSUS_2026-05-10 was read only for COND definitions (Section SD-2), not narrative.
+
+regime_flags:
+  - paper-launch-t0
+  - first-concurrent-paper-loop-of-vt-and-carry_fred
+  - bc8-second-loop-authorization-active-since-2026-05-06
+
+binding_constraints:
+  # Re-affirmed from CONSENSUS_2026-05-10 SD-2 + CRO re-verification wave-2:
+  - "BC-8-LIFT-COND-1: dispatch lock fcntl LOCK_EX|LOCK_NB active in both scripts"
+  - "BC-8-LIFT-COND-2: lock released on all exit paths (try/finally)"
+  - "BC-8-LIFT-COND-3: account-key parity gate enforced at startup before any cycle"
+  - "BC-8-LIFT-COND-4: aggregate JPY-correlated cap <=15% (frozenset {USDJPY, GBPUSD})"
+  - "BC-8-LIFT-COND-5: drawdown ladder 10/15/20 assessed per cycle pre-lock"
+  - "BC-8-LIFT-COND-6: kill-switch trigger paths wired to both loops"
+  - "BC-8-LIFT-COND-7: paper-only; live=False hardcoded; no production-account promotion"
+  # New conditions CRO attaches to this runbook execution:
+  - "RUNBOOK-COND-A: scripts MUST be invoked with --loop flag (continuous operation requires it)"
+  - "RUNBOOK-COND-B: SAXO_TOKEN must be in environment OR --token passed on each invocation"
+  - "RUNBOOK-COND-C: lock-release on SIGKILL is impossible; manual flock cleanup documented"
+  - "RUNBOOK-COND-D: account-key parity gate emits no log on success; verification must be positive (not absence-based)"
+
+evidence:
+  - path: "scripts/run_paper_trading_vt.py"
+    line: 465
+    note: "fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB) inside outer try block"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: "807-820"
+    note: "finally: if _dl_acquired: fcntl.flock(_dl_fd, fcntl.LOCK_UN); os.close(_dl_fd) — releases on normal return AND exception"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    line: 446
+    note: "fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB) — same pattern"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    line: "757-770"
+    note: "finally: lock release symmetric to vt.py"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: 874
+    note: "assert_account_key_parity(backend.account_key, loop_name='vt loop') — called immediately after backend instantiation, BEFORE kill_switch instantiation, BEFORE dd_contract, BEFORE any cycle"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    line: 814
+    note: "assert_account_key_parity(backend.account_key, loop_name='carry_fred loop') — same position"
+  - path: "src/forex_system/risk/account_key_parity.py"
+    line: "56-63"
+    note: "On first call: os.open with O_CREAT|O_EXCL|O_WRONLY; if success returns silently with NO LOG EMITTED. Only failure (FileExistsError + mismatch) emits ACCOUNT_KEY_PARITY_VIOLATION."
+  - path: "src/forex_system/risk/exposure_aggregator.py"
+    line: 46
+    note: "_JPY_CORRELATED: frozenset[str] = frozenset({'USDJPY', 'GBPUSD'}) — config-driven, immutable at runtime"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: "418-451"
+    note: "dd_contract.assess(equity) at line 418, BEFORE flock acquire at line 465 — COND-5 preserved"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: 871
+    note: "client = SaxoClient(args.token, live=False) — paper-only hardcoded"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    line: 811
+    note: "client = SaxoClient(args.token, live=False) — paper-only hardcoded"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: "828, 856-858"
+    note: "argparse: --loop is opt-in (action='store_true'); --token defaults to env SAXO_TOKEN; without token sys.exit(1)"
+  - path: "scripts/run_paper_trading_vt.py"
+    line: "722-729"
+    note: "EQUITY_LOG_PATH (data/paper_trading_session.log) write only at trade-equity-write boundary, NOT per cycle. With default 1800s cycle, log may be silent for hours."
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    line: "396-398"
+    note: "tmux new-session invokes 'python3 scripts/run_paper_trading_vt.py' with NO --loop and NO --token — runs a single cycle then exits, defeating supervisor purpose"
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    line: "503-511"
+    note: "Step 3.2 expects log delta >=1 in 10 seconds — impossible since EQUITY_LOG only written at trade events, default cycle is 1800s"
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    line: "530-535"
+    note: "Step 3.4 verifies parity gate by ABSENCE of 'VIOLATION' — negative confirmation. Parity gate emits no log on success."
+
+blowup-analog: "Knight Capital, Aug 2012 — kill-switch and supervisor present but invoked incorrectly. Adjacent class: a runbook that invokes a long-running daemon as a single-shot, then declares it 'running' because the tmux session is 'live' (it is — for ~3 seconds before the script exits). Until the supervisor mechanism is verified to keep the script alive through the first 1800s cycle, the run is operationally indistinguishable from no run at all."
+
+findings:
+  - check_id: 1
+    check_name: "Dispatch lock (COND-1, COND-2) — try/finally semantics under signals"
+    status: gap
+    observation: "Code has correct try/finally around fcntl.flock at vt.py:464-820 and carry_fred.py:445-770. Lock released on normal exit and uncaught exception (Python's finally semantics). Under SIGINT and SIGTERM, Python translates these into KeyboardInterrupt and signal handler defaults (SIGTERM default = terminate without finally unless handler installed). Neither script installs a SIGTERM handler. On `tmux kill-session` (default sends SIGHUP/SIGTERM to child), the finally block may NOT run. On SIGKILL, finally definitely does NOT run. The runbook does not address this. fcntl POSIX advisory locks auto-release on process death (kernel reclaims file descriptors), so lock state is recovered automatically — BUT the os.close + flock(LOCK_UN) audit log is lost. There is no documented manual flock cleanup procedure or lock-file age check."
+    runbook_section_or_file_line: "runbook Step 2.4, no SIGTERM/SIGKILL section; vt.py:807-820 finally block; no signal handler"
+    severity: concern
+    remediation: "Add to runbook: 'tmux kill-session sends SIGHUP/SIGTERM. Python's finally MAY run on SIGTERM but does not on SIGKILL. fcntl locks auto-release on process death (kernel-level), so the lock state recovers, but the audit log entry is lost. If you need to verify lock-released audit log entries, use tmux send-keys C-c (SIGINT) for graceful shutdown, then tmux kill-session.'"
+
+  - check_id: 2
+    check_name: "Account-key parity gate (COND-3) — positive confirmation"
+    status: fail
+    observation: "account_key_parity.py:63 returns silently with NO LOG on success (the O_EXCL succeeds, code writes payload, returns). The runbook Step 3.4 verification grep 'account_key' will return EMPTY on success. This is the kill-switch-design rubric anti-pattern: a gate that only logs on failure cannot give positive confirmation of success. The runbook explicitly accepts 'No lines OR lines showing successful parity lock acquisition' — i.e. accepts empty as proof of pass. Empty also means 'gate code path never reached', which is a different failure."
+    runbook_section_or_file_line: "runbook line 530-535 Step 3.4; src/forex_system/risk/account_key_parity.py:63"
+    severity: blocking
+    remediation: "Either (a) modify account_key_parity.py to emit a positive INFO log on successful gate acquisition (preferred — small, surgical, makes the gate testable in prod), OR (b) the runbook must verify parity by checking that data/paper_account_key_lock.json exists AND contains the expected account_key AND was written within the last 60s of script start. Option (a) is the right fix; this is one log statement."
+
+  - check_id: 3
+    check_name: "JPY-correlated cap (COND-4) — config-driven frozenset"
+    status: pass
+    observation: "exposure_aggregator.py:46 defines _JPY_CORRELATED as a frozenset literal {'USDJPY', 'GBPUSD'} at module level — immutable at runtime, no config override path. CRO_MAX_CORRELATED_PCT=0.15 hardcoded in both scripts (vt.py:94, carry_fred.py:~91). Runbook does not enforce this — relies on script's pre-existing enforcement. Runbook does not imply scope expansion."
+    runbook_section_or_file_line: "src/forex_system/risk/exposure_aggregator.py:46; vt.py:94"
+    severity: note
+    remediation: "None. Runbook is correctly silent on this and the script's enforcement is binding. Out-of-scope per redacted PM spec."
+
+  - check_id: 4
+    check_name: "Drawdown ladder (COND-5) — assessed per cycle pre-lock"
+    status: pass-with-gap
+    observation: "vt.py:418 dd_contract.assess(equity) runs BEFORE fcntl.flock at line 465 — structurally correct. Same pattern in carry_fred.py. HOWEVER: the runbook Step 3.5 verification (line 539-547) greps for 'drawdown\\|ladder' in data/paper_trading_session.log — but the drawdown_contract logger emits to the module logger (data/ws01_trace.log via RotatingFileHandler, not paper_trading_session.log). The runbook's verification grep targets the wrong file. Step 3.5 will return empty regardless of whether the ladder fired."
+    runbook_section_or_file_line: "vt.py:412-451 (correct); runbook line 539-547 (wrong file)"
+    severity: concern
+    remediation: "Runbook Step 3.5 should grep data/ws01_trace.log (vt) and data/ws02_trace.log (carry_fred), not data/paper_trading_session.log. Alternative: grep both files. The current grep target file is the equity-write file, which is written only at trade events."
+
+  - check_id: 5
+    check_name: "Kill-switch trigger paths (COND-6) — arming check + manual test path"
+    status: gap
+    observation: "KillSwitch instantiated in vt.py:888 and carry_fred.py:828 with per-loop audit log paths (kill_switch_audit.log and kill_switch_audit_cf.log respectively — distinct, no cross-contamination). __post_init__ refuses to start if last audit event was HALTED (lines 158-188), unless KILL_SWITCH_FORCE_RESET=1 is set. Runbook does NOT include a 'kill-switch armed' positive confirmation step. Runbook does NOT include a manual test path (e.g., 'trip a sandbox violation and confirm flatten + halt'). Runbook does NOT pre-check the audit log files for stale HALTED state — if either audit log's last entry is HALTED, the script will RuntimeError on startup. tmux session may then appear 'live' for milliseconds before exit, evading runbook's Phase 3 detection."
+    runbook_section_or_file_line: "runbook no Step on kill-switch arming; src/forex_system/risk/kill_switch.py:158-188"
+    severity: blocking
+    remediation: "Add a Phase 1 pre-flight step: 'Step 1.6 — verify kill-switch audit logs are clean. For each of data/kill_switch_audit.log and data/kill_switch_audit_cf.log, if the file exists, the last line MUST NOT contain new_state=HALTED. If it does, halt the runbook — operator must investigate why the previous session halted before relaunching.' Also add Step 3.6: 'Verify kill-switch status. tmux capture-pane -t paper-vt -p | grep -i \"Kill switch:\" — must show NORMAL or RUNNING state, not TRIGGERED.'"
+
+  - check_id: 6
+    check_name: "Paper-only enforcement (COND-7)"
+    status: pass
+    observation: "Both scripts hardcode live=False at SaxoClient construction (vt.py:871, carry_fred.py:811). Runbook contains zero references to live-broker, live-account, production-Saxo, or paper-flagged-but-real venue. Runbook explicitly references paper-only authorization throughout."
+    runbook_section_or_file_line: "vt.py:871; carry_fred.py:811; runbook passim"
+    severity: note
+    remediation: "None."
+
+  - check_id: 7
+    check_name: "Cross-host caveat — same-host enforcement"
+    status: fail
+    observation: "PM spec hard-constraint #9 'both_paper_scripts_on_same_host_same_data_dir: true' is operationally enforced ONLY by the fact that both scripts use a relative path data/dispatch_lock.flock — i.e. flock semantics work only within the same OS kernel. There is NO step in the runbook that verifies the OPERATOR is on the expected host (hostname check, or pwd check, or absolute-path check). If the CEO runs the runbook from /Users/huangtm/Projects/forex-trading-system on macOS, then later attempts the same runbook from a different machine, the dispatch lock IS DIFFERENT (different filesystem, no cross-host fcntl). The two loops would silently run without mutual exclusion. Runbook line 27 has a `cd` to the absolute project path, but no hostname assertion."
+    runbook_section_or_file_line: "runbook line 6 mentions 'single terminal' but no host check; runbook line 27 cd is path-only"
+    severity: concern
+    remediation: "Add to Step 1.1 (or new Step 1.0): 'hostname; expected: <CEO laptop hostname>. If different from prior runs, halt — cross-host dispatch lock does NOT provide mutual exclusion.' Even a `pwd && hostname && date -u` triple-print at the top of the runbook would document the host at execution time for the audit trail."
+
+  - check_id: 8
+    check_name: "Clock-and-ordering — timestamp consistency"
+    status: gap
+    observation: "Runbook Step 2.1.1 uses `date +%Y%m%dT%H%M%S` for backup filename — this is LOCAL time (LA timezone per LOCAL_TZ in scripts), no timezone suffix. Paper-trading log entries use datetime.now(timezone.utc).isoformat() — UTC ISO 8601. SD-5 calendar dates (July 26, August 4) are local civil dates; crontab option uses '0 9 26 7 *' which is server-local time. Calendar.app option uses 'July 26, 2026 9:00 AM' which is calendar-local. None of these reference UTC. If the CEO laptop ever changes timezone (travel, DST), the calendar reminder may fire ~1 hour off, and the backup filename may collide if two backups are made in the same local-time second across a DST boundary. T0+75 and T0+84 are calendar-day offsets and the runbook does not specify which calendar (Gregorian, business-day, trading-day) — but PM acceptance criteria call them 'calendar days', which is unambiguous."
+    runbook_section_or_file_line: "runbook line 132 (backup), line 275 (crontab), line 310 (Calendar.app)"
+    severity: concern
+    remediation: "Two surgical fixes: (a) backup filename use UTC: `date -u +%Y%m%dT%H%M%SZ` (note trailing Z). (b) SD-5 disposition record includes the timezone explicitly: 'pre_warning_date: 2026-07-26 (local America/Los_Angeles 09:00)'. The crontab/Calendar mechanism choice should be documented as local-time-fires. None of these are blocking for paper operation; they are audit-trail hygiene."
+
+  - check_id: 9
+    check_name: "Deploy-checklist-trading rubric — Sign In / Time Out / Sign Out"
+    status: pass-with-gap
+    observation: "Runbook is structured exactly as the WHO three-phase checklist (Phase 1 Sign In, Phase 2 Time Out, Phase 3 Sign Out). Each step has Precondition / Expected output / Verification / Rollback. HOWEVER, the deploy-checklist-trading SKILL requires NAMED ROLES with VERBAL 'confirmed' acknowledgment per phase. In a single-CEO setup, this collapses to a single role. The runbook does NOT require the CEO to emit explicit 'confirmed' acknowledgment per phase (it relies on silent execution). The runbook also does NOT include Phase 2 item 7 (kill switch named, last-tested date known) — see check 5. Phase 1 item 6 (clock semantics) is partially addressed but not explicitly affirmed."
+    runbook_section_or_file_line: "runbook passim — three-phase structure present, verbal confirmation absent"
+    severity: concern
+    remediation: "Add at the end of each phase: 'Phase X confirmed by: <operator name>, <UTC timestamp>. Append this confirmation to docs/launch/sd6-launch-comm-verbatim-check.yaml.' This converts silent execution into an audit-trail-bearing confirmation."
+
+  - check_id: 10
+    check_name: "Log-as-decision-trace — replay-from-logs"
+    status: gap
+    observation: "If Step 2.4 fails (e.g., tmux session dies in 3 seconds because --loop wasn't passed and the script ran a single cycle), the runbook's log-trace verification at Step 3.2 (`grep account_key`) and Step 3.5 (`grep drawdown\\|ladder`) will fail by ABSENCE — there's no positive log signal that 'the loop is alive and idling between cycles'. The scripts do emit per-cycle WS-01 traces to data/ws01_trace.log (vt) and data/ws02_trace.log (carry_fred), but the runbook never checks those files. The decision-trace machinery exists; the runbook's verification probes the wrong target."
+    runbook_section_or_file_line: "runbook Steps 3.2-3.5; vt.py:194 ws01 emit goes to logger (handled by ws01 file handler), not EQUITY_LOG_PATH"
+    severity: concern
+    remediation: "Step 3.2 should target the WS-01/WS-02 trace files for liveness: 'tail -1 data/ws01_trace.log data/ws02_trace.log; both should have entries within the last cycle_interval seconds.' Step 3.5 same fix. The current target file (paper_trading_session.log) is for trade-event equity audit, not loop liveness."
+
+# Status summary per BC-8-LIFT-COND
+bc8_lift_cond_status:
+  - cond: COND-1
+    preserved_by_runbook: true
+    evidence_pointer: "vt.py:465 + carry_fred.py:446 fcntl.flock(LOCK_EX|LOCK_NB) — code path is reached when --loop is set"
+    notes: "Lock acquire IS in script; runbook does NOT prevent it from running. But see RUNBOOK-COND-A: without --loop, scripts run a single cycle and exit, lock acquired-then-released-then-process-exits. Per-cycle mutual exclusion holds during the brief execution; the contention window the lock was designed to prevent (overlapping concurrent cycles) is satisfied trivially because there is no second cycle."
+
+  - cond: COND-2
+    preserved_by_runbook: true
+    evidence_pointer: "vt.py:807-820 + carry_fred.py:757-770 try/finally release"
+    notes: "Code is correct. tmux kill-session sends SIGTERM, which by default in Python WILL run finally blocks (signal.default_int_handler raises a Python exception that propagates through try/finally). SIGKILL is uncatchable; fcntl locks auto-release via kernel FD reclamation, but the audit log entry is lost. Runbook does not document this caveat."
+
+  - cond: COND-3
+    preserved_by_runbook: true
+    evidence_pointer: "vt.py:874 + carry_fred.py:814 assert_account_key_parity called at startup"
+    notes: "Gate IS called at startup. Runbook's verification (Step 3.4) is the issue — see Finding 2. Gate fires correctly; verification is unable to confirm it positively."
+
+  - cond: COND-4
+    preserved_by_runbook: true
+    evidence_pointer: "exposure_aggregator.py:46 _JPY_CORRELATED frozenset; vt.py:94 + carry_fred.py CRO_MAX_CORRELATED_PCT=0.15"
+    notes: "Both pair set and cap are config-immutable; runbook does not modify."
+
+  - cond: COND-5
+    preserved_by_runbook: true
+    evidence_pointer: "vt.py:418 + carry_fred.py: dd_contract.assess(equity) BEFORE fcntl.flock"
+    notes: "Code is correct: ladder runs pre-lock, every cycle. Runbook verification (Step 3.5) probes wrong log file — see Finding 4. Ladder will fire correctly when applicable; verification cannot confirm it from the file the runbook checks."
+
+  - cond: COND-6
+    preserved_by_runbook: false
+    evidence_pointer: "KillSwitch instantiated in vt.py:888 + carry_fred.py:828; runbook has no arming-check step"
+    notes: "Code is wired; runbook is silent on whether the kill-switch is in NORMAL state at startup vs already-HALTED from previous run. If audit log shows HALTED, script RuntimeErrors on import — tmux session dies. Runbook Phase 3 may detect this as 'session is dead', but only after manual investigation. Pre-flight check missing. See Finding 5."
+
+  - cond: COND-7
+    preserved_by_runbook: true
+    evidence_pointer: "vt.py:871 + carry_fred.py:811 live=False hardcoded; runbook references paper-only only"
+    notes: "No live-broker reference anywhere. Hard-coded paper at SaxoClient instantiation."
+
+kill_switch_arming_check_present: false
+
+recommended_runbook_amendments:
+  - id: AMENDMENT-1
+    priority: blocking
+    text: |
+      Step 2.4.1 and 2.4.2 commands MUST include --loop and --token flags. Current text:
+        tmux new-session -d -s paper-vt 'cd ... && python3 scripts/run_paper_trading_vt.py'
+      Correct text:
+        tmux new-session -d -s paper-vt 'cd ... && SAXO_TOKEN=$SAXO_TOKEN python3 scripts/run_paper_trading_vt.py --loop --interval 1800'
+      Similarly for paper-carry. Without --loop the script runs ONE cycle then exits; the tmux session 'lives' for a few seconds and then is dead. The runbook then declares 'session alive' based on a tmux ls executed within those seconds — a Phase-3 false-positive.
+    rationale-pointer: "vt.py:828 --loop is opt-in; vt.py:983 single-shot branch exits after one cycle; PM hard-constraint persistent_runner_uses_fcntl_flock_LOCK_EX_NB_unchanged: true implies persistent operation"
+
+  - id: AMENDMENT-2
+    priority: blocking
+    text: |
+      Add Step 1.6 Kill-switch audit-log pre-flight check:
+        for f in data/kill_switch_audit.log data/kill_switch_audit_cf.log; do
+          if [ -f "$f" ]; then
+            LAST=$(tail -1 "$f")
+            if echo "$LAST" | grep -q '"new_state":.*HALTED'; then
+              echo "FATAL: $f last entry is HALTED. Operator must investigate."
+              exit 1
+            fi
+          fi
+        done
+      Without this check, a stale HALTED audit entry causes KillSwitch.__post_init__ to RuntimeError on script startup — tmux session dies in milliseconds, evading naive Phase-3 'is the session alive' checks.
+    rationale-pointer: "src/forex_system/risk/kill_switch.py:181-188 _check_audit_log_on_startup raises RuntimeError"
+
+  - id: AMENDMENT-3
+    priority: blocking
+    text: |
+      Step 3.4 (account-key parity verification) MUST be a POSITIVE check, not an absence check. Current text greps for 'account_key' in paper_trading_session.log and accepts empty as pass. Correct verification:
+        test -f data/paper_account_key_lock.json && \
+          python3 -c "import json; print('account_key=' + json.load(open('data/paper_account_key_lock.json'))['account_key'])"
+      The file must exist and contain the same account_key both loops are using. ALTERNATIVELY (preferred): patch src/forex_system/risk/account_key_parity.py to emit a logger.info('account_key_parity_lock_acquired', extra={...}) on the success-create path (line 63 before return) AND on the success-match path (after line 67 if the keys match). This is one log statement and makes the gate observable per the kill-switch-design rubric Property 5.
+    rationale-pointer: "account_key_parity.py:63 returns silently with no log; kill-switch-design Property 5 requires positive observable confirmation"
+
+  - id: AMENDMENT-4
+    priority: concern
+    text: |
+      Step 3.2 (log is growing) and Step 3.5 (drawdown ladder snapshot) target the WRONG log file. data/paper_trading_session.log is the equity-write trade-event audit, written only on trade execution. Per-cycle liveness must be checked in data/ws01_trace.log (vt loop) and data/ws02_trace.log (carry_fred loop). Replace verification commands:
+        tail -1 data/ws01_trace.log  # vt liveness
+        tail -1 data/ws02_trace.log  # carry liveness
+      Both should have a recent timestamp within the last cycle_interval (1800s) of execution.
+    rationale-pointer: "vt.py:119-142 ws01 handler writes to data/ws01_trace.log; vt.py:722 EQUITY_LOG only on trade event"
+
+  - id: AMENDMENT-5
+    priority: concern
+    text: |
+      Add hostname assertion at top of runbook (after the cd):
+        echo "host=$(hostname) cwd=$(pwd) utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        # Operator: confirm this matches your prior runs of this runbook.
+      The cross-host caveat (PM hard-constraint #9) is invisible from the runbook today. The fcntl.flock semantics work only within the same kernel; running the two scripts on different hosts silently bypasses BC-8-LIFT-COND-1.
+    rationale-pointer: "PM acceptance hard-constraint #9; fcntl POSIX advisory locks are per-kernel"
+
+  - id: AMENDMENT-6
+    priority: concern
+    text: |
+      Step 2.1.1 backup filename should use UTC, not local time, for consistency with the paper log:
+        cp data/paper_trading_session.log "data/paper_trading_session.log.pre-launch-$(date -u +%Y%m%dT%H%M%SZ).bak"
+      Note the trailing Z makes the timestamp self-describing.
+    rationale-pointer: "clock-and-ordering rubric item 3 (timezone explicit); script uses datetime.now(timezone.utc).isoformat()"
+
+  - id: AMENDMENT-7
+    priority: concern
+    text: |
+      Add to runbook a NAMED-ROLE confirmation block at end of each phase:
+        Phase X confirmed by: huangtm@gmail.com at <UTC ISO 8601 timestamp>
+        (append to docs/launch/sd6-launch-comm-verbatim-check.yaml)
+      This converts silent CEO execution into a verbal-confirmation-equivalent that satisfies the Gawande/WHO checklist structure in a single-operator setup.
+    rationale-pointer: "deploy-checklist-trading SKILL: 'Verbalize or it did not happen.'"
+
+  - id: AMENDMENT-8
+    priority: note
+    text: |
+      Document the SIGKILL caveat:
+        On SIGKILL (kill -9 PID or 'tmux kill-session' on some configurations), Python's
+        finally block does NOT run. The fcntl advisory lock auto-releases via kernel
+        FD reclamation, BUT the DISPATCH_LOCK_RELEASED audit log entry is lost. If
+        graceful shutdown is needed: tmux send-keys -t paper-vt C-c (SIGINT), wait
+        for 'Stopped by operator.' in the log, then tmux kill-session -t paper-vt.
+    rationale-pointer: "vt.py:807-820 finally runs on SIGINT (KeyboardInterrupt) but not on SIGKILL"
+
+body: |
+  Decision: approve-with-binding-conditions. The runbook structure (three-phase
+  Sign In / Time Out / Sign Out) is correct and the underlying scripts preserve
+  all seven BC-8-LIFT-COND-1..7 constraints by code. Two blocking findings and
+  five concern-level findings prevent unconditional approval:
+
+  Blocking (must fix before CEO executes):
+  (i) Step 2.4 invokes scripts WITHOUT --loop and WITHOUT --token; the tmux
+      session 'lives' only for the single-cycle execution then exits — runbook
+      declares 'session alive' based on Phase-3 polling that runs within those
+      seconds, producing a Phase-3 false-positive. Persistent runner is
+      defeated.
+  (ii) Account-key parity gate (COND-3) returns silently on success with NO LOG.
+       Runbook Step 3.4 verifies by ABSENCE — accepts empty grep as pass.
+       Cannot positively confirm the gate fired. Kill-switch-design rubric
+       Property 5 violation. Fix: one logger.info statement in
+       account_key_parity.py OR a positive lock-file check in the runbook.
+  (iii) Kill-switch audit logs are not pre-checked for stale HALTED state.
+        KillSwitch.__post_init__ raises RuntimeError if last audit event was
+        HALTED — script dies on startup, tmux session dies in ms, runbook may
+        not detect it. Pre-flight check missing.
+
+  Concerns (audit-trail and verification quality):
+  - Step 3.2 / 3.5 target wrong log file (paper_trading_session.log is
+    trade-event-only; per-cycle liveness lives in data/ws0[12]_trace.log)
+  - Cross-host caveat not enforced (no hostname assertion)
+  - Backup filename uses local time (rest of system UTC)
+  - Verbal-confirmation per phase not required (CEO single-operator collapse)
+  - SIGKILL caveat undocumented (lock auto-releases, but audit log lost)
+
+  None of the 10 risk-architecture checks fully passes without amendment. All
+  seven BC-8-LIFT-COND constraints are preserved at the code level; runbook
+  EXECUTION may fail to verify two of them positively (COND-3 and COND-6) and
+  may misverify two more (COND-5 in Phase 3, COND-1 if --loop omitted).
+  The blowup-analog is Knight: present-but-bypassed safety. Eight amendments
+  are listed; three are blocking, five are concern-level. If amendments 1, 2,
+  3 are applied, decision shifts to approve. Without them, CEO should not
+  execute Phase 2.
+
+assumptions:
+  - "CEO will execute the runbook on the host where the dispatch lock file's filesystem lives (single host: huangtm laptop, per Wave-10 environment)"
+  - "Both scripts have been previously run successfully against the same Saxo paper account; data/paper_account_key_lock.json either does not exist (clean) or contains the account_key the current Saxo token resolves to"
+  - "Default cycle interval 1800s (30 min) is acceptable for paper operation; first per-cycle log entry may not appear in any file for up to that interval after startup if no trade event occurs"
+  - "SAXO_TOKEN env variable is set before runbook execution; the runbook itself does not export it"
+  - "tmux SIGTERM on kill-session allows Python finally blocks to execute (verified by standard CPython signal handling, not by independent test in this review)"
+  - "macOS local timezone is America/Los_Angeles per the LOCAL_TZ constant in scripts; crontab and Calendar.app fire in that local time"
+  - "T0 = 2026-05-12 calendar day; T0+75 and T0+84 are calendar-day offsets (not trading-day)"
+
+knowledge_gaps:
+  - topic: "Behavior of Python's try/finally under tmux kill-session in macOS (does tmux default send SIGTERM or SIGHUP first; does Python convert this to a KeyboardInterrupt that runs finally)"
+    significance: "moderate — affects whether DISPATCH_LOCK_RELEASED audit entry appears for tmux-initiated shutdowns"
+    mitigation: "Operator should prefer 'tmux send-keys C-c' for graceful shutdown over 'tmux kill-session'. Audit-trail-bearing shutdown documented in amendment 8."
+
+  - topic: "Whether data/paper_account_key_lock.json from a prior Saxo token (different account_key) currently exists and would cause parity gate to fail with VIOLATION on the first run of either script"
+    significance: "moderate — could surface as a runbook Phase 3 unexpected halt"
+    mitigation: "Add to Step 1.5 (or 1.6): 'ls -la data/paper_account_key_lock.json; if exists, check its age and contents. If it predates the current Saxo token issuance, reset via --reset-account-key-lock NEW_KEY --confirm-account-reset before launch.'"
+
+  - topic: "Whether KillSwitch.__post_init__ stale-HALTED check would block startup in current state (audit log files from prior dispatch testing)"
+    significance: "blocking if stale HALTED present"
+    mitigation: "Pre-flight check in Amendment 2 covers this."
+
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/t0-dispatch-runbook.md"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/account_key_parity.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/pm-acceptance-criteria-redacted-for-cro-nht.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result.yaml"
+  - "~/.claude/skills/kill-switch-design/SKILL.md"
+  - "~/.claude/skills/deploy-checklist-trading/SKILL.md"
+  - "~/.claude/skills/clock-and-ordering/SKILL.md"
+  - "~/.claude/skills/log-as-decision-trace/SKILL.md"
+  - "~/.claude/skills/fintech-org/roles/cro.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

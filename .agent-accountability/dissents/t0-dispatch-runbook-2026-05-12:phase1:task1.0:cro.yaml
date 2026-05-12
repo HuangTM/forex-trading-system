@@ -1,0 +1,116 @@
+schema_version: "1.0"
+artifact_type: dissent
+track_id: t0-dispatch-runbook-2026-05-12
+addressed_unit: t0-dispatch-runbook-2026-05-12:phase1:task1.0
+
+dissenter:
+  name: cro
+  role: cro
+  authority_basis: |
+    CRO structural-skeptic authority for risk-architecture decisions per
+    fintech-org/SKILL.md and dissent-preservation.md table:
+    "CRO: blocks on rule 1 (no live capital), rule 2 (CRO contamination),
+    rule 3 (Execution-Researcher Firewall). Risk-architecture concerns
+    (not rule violations) are surfaced as strong_objection with does_block: false."
+
+dissent_text: |
+  CRO BLOCKING FINDINGS — T=0 DISPATCH RUNBOOK 2026-05-12
+  (verbatim from cro-risk-review.yaml `findings` field, BLOCKING entries only)
+
+  BLOCKING FINDING 1 — check_id 2: Account-key parity gate (COND-3) — positive confirmation
+  status: fail
+  observation: "account_key_parity.py:63 returns silently with NO LOG on success (the O_EXCL succeeds,
+  code writes payload, returns). The runbook Step 3.4 verification grep 'account_key' will return
+  EMPTY on success. This is the kill-switch-design rubric anti-pattern: a gate that only logs on
+  failure cannot give positive confirmation of success. The runbook explicitly accepts 'No lines OR
+  lines showing successful parity lock acquisition' — i.e. accepts empty as proof of pass. Empty also
+  means 'gate code path never reached', which is a different failure."
+  runbook_section_or_file_line: "runbook line 530-535 Step 3.4; src/forex_system/risk/account_key_parity.py:63"
+  severity: blocking
+  remediation: "Either (a) modify account_key_parity.py to emit a positive INFO log on successful gate
+  acquisition (preferred — small, surgical, makes the gate testable in prod), OR (b) the runbook must
+  verify parity by checking that data/paper_account_key_lock.json exists AND contains the expected
+  account_key AND was written within the last 60s of script start. Option (a) is the right fix; this
+  is one log statement."
+
+  BLOCKING FINDING 2 — check_id 5: Kill-switch trigger paths (COND-6) — arming check + manual test path
+  status: gap
+  observation: "KillSwitch instantiated in vt.py:888 and carry_fred.py:828 with per-loop audit log paths
+  (kill_switch_audit.log and kill_switch_audit_cf.log respectively — distinct, no cross-contamination).
+  __post_init__ refuses to start if last audit event was HALTED (lines 158-188), unless
+  KILL_SWITCH_FORCE_RESET=1 is set. Runbook does NOT include a 'kill-switch armed' positive confirmation
+  step. Runbook does NOT include a manual test path (e.g., 'trip a sandbox violation and confirm flatten
+  + halt'). Runbook does NOT pre-check the audit log files for stale HALTED state — if either audit
+  log's last entry is HALTED, the script will RuntimeError on startup. tmux session may then appear
+  'live' for milliseconds before exit, evading runbook's Phase 3 detection."
+  runbook_section_or_file_line: "runbook no Step on kill-switch arming; src/forex_system/risk/kill_switch.py:158-188"
+  severity: blocking
+  remediation: "Add a Phase 1 pre-flight step: 'Step 1.6 — verify kill-switch audit logs are clean.
+  For each of data/kill_switch_audit.log and data/kill_switch_audit_cf.log, if the file exists, the
+  last line MUST NOT contain new_state=HALTED. If it does, halt the runbook — operator must investigate
+  why the previous session halted before relaunching.' Also add Step 3.6: 'Verify kill-switch status.
+  tmux capture-pane -t paper-vt -p | grep -i \"Kill switch:\" — must show NORMAL or RUNNING state,
+  not TRIGGERED.'"
+
+  BLOCKING FINDING 3 — (from CRO body): Step 2.4 invocations defeat the persistent-runner purpose
+  "(i) Step 2.4 invokes scripts WITHOUT --loop and WITHOUT --token; the tmux session 'lives' only
+  for the single-cycle execution then exits — runbook declares 'session alive' based on Phase-3
+  polling that runs within those seconds, producing a Phase-3 false-positive. Persistent runner is
+  defeated. [...]"
+  blowup-analog: "Knight Capital, Aug 2012 — kill-switch and supervisor present but invoked incorrectly.
+  Adjacent class: a runbook that invokes a long-running daemon as a single-shot, then declares it
+  'running' because the tmux session is 'live' (it is — for ~3 seconds before the script exits).
+  Until the supervisor mechanism is verified to keep the script alive through the first 1800s cycle,
+  the run is operationally indistinguishable from no run at all."
+  rationale-pointer: "vt.py:828 --loop is opt-in; vt.py:983 single-shot branch exits after one cycle;
+  PM hard-constraint persistent_runner_uses_fcntl_flock_LOCK_EX_NB_unchanged: true implies persistent operation"
+
+  CRO OVERALL DECISION: approve-with-binding-conditions
+  "If amendments 1, 2, 3 [--loop, kill-switch pre-check, parity positive confirmation] are applied,
+  decision shifts to approve. Without them, CEO should not execute Phase 2."
+
+  — cro, 2026-05-12T18:15:00Z
+
+severity:
+  level: strong_objection
+  rationale: |
+    Severity = strong_objection because the CRO found 3 blocking risk-architecture defects (not
+    pre-declared rule violations). CRO's authority for rule violations (no-live-capital, contamination,
+    Execution-Researcher Firewall) is not triggered here — the runbook correctly maintains paper=true.
+    The blocking findings are operational/engineering risk concerns. strong_objection surfaces these
+    prominently to the accountable party (CEO) without blocking the gate on a judgment call.
+
+does_block: false
+
+blocking_condition_met:
+  required: false
+  # CRO's pre-declared blocking conditions (rule 1: no live capital; rule 2: contamination; rule 3:
+  # Execution-Researcher Firewall) are NOT triggered. Both scripts hardcode live=False. No
+  # contamination detected. No Execution-Researcher Firewall violation (runbook references only
+  # existing scripts). The 3 blocking *findings* are risk-architecture concerns, not rule violations.
+
+surfaces_to:
+  consensus_artifact: "docs/decisions/CONSENSUS_2026-05-12_t0_dispatch_runbook.md"
+  ratification_artifact: ".agent-accountability/ratifications/t0-dispatch-runbook-2026-05-12:phase1:task1.0.yaml"
+  # Prospective reference per dissent-preservation.md write-order timing rule.
+
+related_gaps: []
+
+sources:
+  - ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/cro-risk-review.yaml"
+  - "docs/launch/t0-dispatch-runbook.md"
+  - "scripts/run_paper_trading_vt.py"
+  - "scripts/run_paper_trading_carry_fred.py"
+  - "src/forex_system/risk/account_key_parity.py"
+  - "src/forex_system/risk/kill_switch.py"
+  - "~/.claude/skills/agent-accountability/templates/dissent.md"
+  - "~/.claude/skills/agent-accountability/protocols/dissent-preservation.md"
+
+write_metadata:
+  written_at: "2026-05-12T00:00:00Z"
+  written_by: "fintech-org/pm"
+  schema_version: "1.0"
+  immutability_assertion: "this artifact is append-only; any modification after written_at is a protocol violation"
+
+web_research_conducted: false
+no-capital-instruction: true

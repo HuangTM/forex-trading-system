@@ -1,0 +1,888 @@
+---
+role: null-hypothesis-tester
+artifact_type: dissent
+subtask_ref: "t0-dispatch-runbook:phase2b:task2.0"
+subtask_id: "t0-dispatch-runbook-nht-2026-05-12"
+timestamp: "2026-05-12T17:55:00Z"
+
+decision: dissent
+confidence: high
+
+evidence:
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    note: "Runbook under review — 628 lines; multiple gaps located by line/section"
+  - path: "scripts/run_paper_trading_vt.py"
+    note: "--loop and --token argparse defaults verified; without --loop, single-cycle exit confirmed"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    note: "Same argparse pattern as vt.py"
+  - path: "src/forex_system/risk/account_key_parity.py"
+    note: "Verified: gate returns silently on success (no log on success path)"
+  - path: "data/dispatch_lock.flock"
+    note: "Confirmed pre-exists at 0 bytes from May 6 — pre-flight glob check fails as a result"
+  - finding: "date arithmetic 2026-05-12 + 75 calendar days = 2026-07-26 = Sunday (independently computed)"
+  - finding: "macOS at daemon disabled by default on recent versions (ss64.com + Apple Community thread)"
+  - finding: "SAXO_TOKEN absent from current shell env per env|grep SAXO"
+
+claim-tested: >
+  This runbook, executed end-to-end by the CEO on T=0 in one terminal session,
+  will satisfy all 7 acceptance criteria (C-1..C-7) without requiring any
+  external knowledge, prior verbal coordination, or undocumented manual
+  intervention.
+
+# ============================================================================
+# SUMMARY OF DECISION
+# ============================================================================
+# The claim does NOT survive. The runbook contains AT LEAST FOUR independent
+# blocking gaps each of which, by itself, would cause the persistent paper-loop
+# to fail to start (or to start in an unobservable / mis-observable state).
+# Two of these failures are SILENT: the runbook's verification predicates would
+# falsely report success while the underlying objective failed. The other two
+# would surface as visible errors, but with diagnostic text that does NOT
+# point at the actual missing CEO action.
+#
+# The most material gap (G-1, --token + --loop omitted) is unrecoverable
+# without re-reading the script's argparse block — a step no operator would
+# undertake during a launch ritual. The second (G-3, SD-5 date math is wrong:
+# 2026-07-26 is a Sunday and is NOT the 9-trading-day-remaining mark) commits
+# a calendar-clock-source confusion that will hide an NHT re-review trigger
+# for ~6 calendar days past when it should have fired.
+#
+# Prior held: claim is noise. Evidence sufficient to confirm prior.
+# ============================================================================
+
+tests-requested:
+  - "Verify both paper script's required CLI args (--token, --loop) against runbook tmux invocations"
+  - "Verify --loop control flow → without --loop, script runs one cycle and exits"
+  - "Empirically test tmux session behavior when child process exits immediately (sys.exit(1))"
+  - "Empirically test tmux new-session idempotency when session name already exists"
+  - "Independently compute T0+75 and T0+84 calendar dates; verify weekdays"
+  - "Independently compute 60 trading-day deadline from T0=2026-05-12 (Mon-Fri, no holidays)"
+  - "Independently SHA-256 the CF-T9 clause string; compare to claimed hash 8fe92e0..."
+  - "Verify SD-6 file line count + line-94 content (verify the sed addressing assumption)"
+  - "Check macOS atd / atrun default state (WebSearch)"
+  - "Verify presence of SAXO_TOKEN env var in current shell"
+  - "Inspect account_key_parity.py to determine success vs failure log line format"
+  - "Inspect dispatch_lock fcntl path location (/tmp vs data/)"
+  - "List existing data/dispatch_lock.flock and data/paper_account_key_lock.json state"
+  - "Idempotency audit: for each runbook step, classify as idempotent / not / unspecified"
+  - "Inspect git status --short actual output vs runbook expected example"
+  - "Verify zsh glob behavior on /tmp/*.flock when no matches exist (verification false-positive)"
+
+# Tests requested were performed directly via Read/Bash/WebSearch.
+# Note: tests-results is included inline within gaps-found and the auxiliary
+# date-arithmetic-verification / hash-verification sections.
+
+# ============================================================================
+# DATE ARITHMETIC VERIFICATION (independent)
+# ============================================================================
+date-arithmetic-verification:
+  T0: "2026-05-12"
+  T0_weekday: "Tuesday"
+  T0_plus_75_calendar_days_computed: "2026-07-26"
+  T0_plus_75_weekday: "Sunday"
+  T0_plus_84_calendar_days_computed: "2026-08-04"
+  T0_plus_84_weekday: "Tuesday"
+  runbook_claimed_prewarn_date: "2026-07-26"
+  runbook_claimed_deadline_date: "2026-08-04"
+  calendar_dates_match_runbook: true
+  # BUT the SEMANTIC question is whether these dates correspond to the
+  # claimed concepts ("9 trading days remaining", "60 trading days").
+  semantic_check_60_trading_days_from_T0:
+    interpretation: "60 weekdays Mon-Fri, no public-holiday adjustment"
+    computed_date: "2026-08-04"
+    weekday: "Tuesday"
+    matches_runbook_hard_deadline: true
+    caveat_1: "Does NOT account for US public holidays (Memorial Day 2026-05-25, Independence Day 2026-07-03, Independence Day observed if 7/4 falls on weekend) — would shift deadline 2 trading days later, i.e. 2026-08-06"
+    caveat_2: "Forex trading-day convention is ambiguous: USDJPY trades 24 hours Mon-Fri, but does an exchange holiday-closed day count? CONSENSUS does not specify."
+    caveat_3: "Runbook hardcodes calendar dates as constants rather than computing them; no logic preserved for next reuse"
+  semantic_check_9_trading_days_remaining:
+    interpretation: "51st weekday-Mon-Fri past T0 (i.e. 9 trading days before 60-TD mark)"
+    computed_date: "2026-07-22"
+    weekday: "Wednesday"
+    runbook_claim: "2026-07-26"
+    runbook_claim_weekday: "Sunday"
+    matches: false
+    discrepancy_calendar_days: 4
+    impact_class: "BLOCKING — pre-warning fires at the wrong time AND on a non-working day"
+
+# ============================================================================
+# HASH VERIFICATION (independent)
+# ============================================================================
+hash-verification:
+  required_clause_text: "CF-T9 is binding on Clauses A and B. Clause C is accepted as a known-incomplete deferral and is pending ratification within 60 trading days of paper launch."
+  required_clause_length_chars: 156
+  recomputed_sha256: "8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb"
+  claimed_sha256_in_verbatim_check_yaml: "8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb"
+  match: true
+  caveat: |
+    The hash matches the bare clause string (no trailing newline). The clause
+    appears at line 38 of sd6-launch-communication-draft.md inside a markdown
+    blockquote prefixed with '> **"' and suffixed with '"**'. The runbook's
+    verbatim-check (Step 2.2.3) uses grep -c "CF-T9 is binding on Clauses A and B"
+    which counts occurrences of an 8-word substring, NOT a hash check. A
+    well-meaning CEO who replaces the smart-quote characters (' " etc.) during
+    editing in nano/vim would not be caught by the grep, but WOULD break the
+    sha256 hash. The runbook does NOT re-run the sha256 verification after
+    SD-6 signing. The pre-T=0 verbatim-check is stale (timestamp 2026-05-11);
+    a sufficient invariant for SD-6 done_when is to re-hash after the signature
+    edit — runbook omits this.
+  runbook_re_verifies_hash_post_sign: false
+  runbook_re_verifies_only_via_grep: true
+
+# ============================================================================
+# IDEMPOTENCY AUDIT (per step)
+# ============================================================================
+idempotency_audit:
+  - step_id: "1.1"
+    idempotent: true
+    notes: "git rev-parse HEAD is read-only"
+  - step_id: "1.2"
+    idempotent: true
+    notes: "git status is read-only"
+  - step_id: "1.3"
+    idempotent: true
+    notes: "python -c import is read-only; but writes pycache on first run (harmless)"
+  - step_id: "1.4"
+    idempotent: true
+    notes: "ls is read-only; HOWEVER under zsh with empty glob the pattern becomes a literal arg and `ls` errors → pipe to wc -l swallows error and returns 0 (false positive). See G-7."
+  - step_id: "1.5"
+    idempotent: true
+    notes: "test/echo are read-only"
+  - step_id: "2.1.1"
+    idempotent: false
+    notes: "cp with date-stamped filename — re-running within the same second produces identical filename and overwrites prior backup (lose-prior-snapshot). Re-running later creates a SECOND backup file (clutter, but acceptable)."
+  - step_id: "2.1.2"
+    idempotent: true
+    notes: ": > file is idempotent (always truncates to 0)"
+  - step_id: "2.1.3"
+    idempotent: true
+    notes: "wc -l is read-only"
+  - step_id: "2.2.1"
+    idempotent: true
+    notes: "sed -n '94p' is read-only"
+  - step_id: "2.2.2"
+    idempotent: false
+    notes: "Manual editor edit — re-running may produce TWO signature lines if CEO doesn't remove the placeholder. No automated check on this."
+  - step_id: "2.2.3"
+    idempotent: true
+    notes: "grep is read-only"
+  - step_id: "2.3.1-opt1"
+    idempotent: false
+    notes: "`(crontab -l; echo ...) | crontab -` APPENDS — re-running creates duplicate entries. Verification 'returns 2' only on first run; on second run, returns 4."
+  - step_id: "2.3.1-opt2"
+    idempotent: false
+    notes: "AppleScript `make new event` creates duplicates each run. Re-running yields 2 → 4 → 6 events."
+  - step_id: "2.3.1-opt3"
+    idempotent: false
+    notes: "`at` queues new jobs each invocation; rerun = duplicate jobs."
+  - step_id: "2.3.2"
+    idempotent: false
+    notes: "cat >> appends to YAML; re-running creates DUPLICATE sd5_calendar_reminder_set_at_T0 keys in same document → invalid YAML on the second run (PyYAML / yq would raise). Runbook 'verification' uses grep -c which only confirms presence, NOT validity."
+  - step_id: "2.4.1"
+    idempotent: false
+    notes: "`tmux new-session -d -s paper-vt` FAILS with 'duplicate session: paper-vt' on second invocation (empirically verified). Runbook offers no rerun / detach-existing path."
+  - step_id: "2.4.2"
+    idempotent: false
+    notes: "Same as 2.4.1 for paper-carry."
+  - step_id: "2.4.3"
+    idempotent: true
+    notes: "tmux ls is read-only"
+  - step_id: "2.4.4"
+    idempotent: true
+    notes: "sleep + tail are read-only"
+  - step_id: "2.4.5"
+    idempotent: true
+    notes: "ls is read-only"
+  - step_id: "3.1"
+    idempotent: true
+    notes: "tmux ls is read-only"
+  - step_id: "3.2"
+    idempotent: true
+    notes: "wc + sleep are read-only"
+  - step_id: "3.3"
+    idempotent: true
+    notes: "grep is read-only"
+  - step_id: "3.4"
+    idempotent: true
+    notes: "grep is read-only"
+  - step_id: "3.5"
+    idempotent: true
+    notes: "grep is read-only"
+  - step_id: "3.6"
+    idempotent: false
+    notes: "cat >> appends YAML — same problem as 2.3.2; re-running creates duplicates."
+
+idempotency_summary:
+  total_steps: 25
+  idempotent_steps: 16
+  non_idempotent_steps: 9
+  non_idempotent_critical_failure_modes:
+    - "2.4.1 / 2.4.2 — tmux duplicate-session error if re-run after a prior partial start"
+    - "2.3.1-opt1 — crontab duplicates on re-run (double-fires the reminder)"
+    - "2.3.2 / 3.6 — YAML append produces duplicate keys, breaking downstream parsers"
+    - "2.2.2 — manual editor edit may leave both placeholder and signature lines"
+
+# ============================================================================
+# GAPS FOUND
+# ============================================================================
+gaps-found:
+
+  - gap_id: "G-1"
+    class: "failure-mode"
+    description: |
+      The runbook's tmux invocations omit BOTH --token AND --loop arguments:
+
+        tmux new-session -d -s paper-vt \
+          'cd /Users/huangtm/Projects/forex-trading-system && python3 scripts/run_paper_trading_vt.py'
+
+      The script (scripts/run_paper_trading_vt.py line 856-858) hard-exits
+      with sys.exit(1) and prints "Error: --token or SAXO_TOKEN required" when
+      neither arg nor env var is set. Verified: SAXO_TOKEN is NOT currently
+      set in the shell environment. Without --loop (script line 949), even
+      with token, the script runs exactly ONE cycle and exits — tmux session
+      dies within seconds. Empirically verified: a tmux session whose child
+      exits is removed from `tmux ls`. Step 2.4.3 verification ("tmux ls |
+      grep paper-vt") would then return empty and the CEO would see "session
+      missing" but the runbook offers no diagnostic pointing at the missing
+      CLI flags.
+    runbook_section_or_line: "Step 2.4.1 and Step 2.4.2 (lines 396-397, 411-412)"
+    severity: blocking
+    suggested_fix: |
+      Append `--auto --loop --interval 1800` to BOTH tmux command strings AND
+      require either SAXO_TOKEN env var to be pre-set (with explicit verify
+      step in Phase 1) or pass --token explicitly. Add a Phase 1 precondition
+      'SAXO_TOKEN env var is set and non-empty' before any state change.
+
+  - gap_id: "G-2"
+    class: "verification"
+    description: |
+      Step 1.4 runs `ls /tmp/*.flock 2>/dev/null | wc -l` and expects "0".
+      Under zsh (the user's default shell — verified), an unmatched glob with
+      nullglob/nomatch off causes zsh to ERROR with "no matches found" and
+      `ls` is never executed; output is empty; `wc -l` returns 0. The
+      verification passes for the WRONG reason. Worse, the runbook checks
+      /tmp/*.flock but the ACTUAL dispatch lock lives at
+      data/dispatch_lock.flock (verified at scripts/run_paper_trading_vt.py:76
+      and scripts/run_paper_trading_carry_fred.py:95). The runbook fails to
+      check whether a stale data/dispatch_lock.flock file exists with a held
+      fcntl lock from a previous tmux session, OR whether stale
+      data/paper_account_key_lock.json points at a wrong (or pre-Wave-10)
+      account_key that will conflict at startup.
+    runbook_section_or_line: "Step 1.4 (lines 84-93)"
+    severity: blocking
+    suggested_fix: |
+      Replace with:
+        find /tmp data -maxdepth 2 -name '*.flock' -mmin +60 2>/dev/null
+      and require result is empty. Additionally add explicit check that
+      data/paper_account_key_lock.json either does not exist OR contains the
+      same account_key that the current SAXO_TOKEN resolves to (this requires
+      a script-level helper; recommend a one-line python invocation).
+
+  - gap_id: "G-3"
+    class: "date-math"
+    description: |
+      Step 2.3 claims the pre-warning reminder fires on "2026-07-26" labelled
+      as "9 trading days remaining". Independent computation:
+        - 2026-07-26 is a SUNDAY (no trading occurs)
+        - the actual 9-trading-days-before-60-TD-deadline is 2026-07-22 (Wed)
+      The runbook uses naive +75 calendar days. The pre-warning will fire on
+      a Sunday at 09:00, when nobody is reviewing trading systems, AND it
+      will fire 4 calendar days (~3 trading days) TOO LATE relative to the
+      "9 trading days remaining" promise. By the time the warning is acted
+      on (Monday 2026-07-27), only ~6 trading days remain.
+      The hard-deadline 2026-08-04 (Tue) happens to coincide with naive 60
+      Mon-Fri count, but is NOT robust to US public holidays (Memorial Day
+      2026-05-25 and Independence Day observed 2026-07-03 each shift the
+      deadline 1 trading day later → 2026-08-06). Forex doesn't close on
+      US bank holidays but CME-cleared margin and Saxo Bank operating-hours
+      may. CONSENSUS_2026-05-10 does not define "trading day" precisely
+      — the runbook commits an interpretation by hardcoding a date.
+    runbook_section_or_line: "Step 2.3, lines 247-256 (date table) and 270-273"
+    severity: blocking
+    suggested_fix: |
+      Move date computation into a small python helper that takes T0 and a
+      well-defined trading-day calendar, computes 51-TD and 60-TD dates,
+      and emits them. Definition of "trading day" must be ratified by CRO
+      (FX market hours? Saxo Bank business days? US-NY banking calendar?).
+      Until then, runbook should explicitly REFUSE to set reminders and
+      escalate to CRO.
+
+  - gap_id: "G-4"
+    class: "failure-mode"
+    description: |
+      Step 2.3.1 Option 3 (`at`) requires the macOS atrun daemon to be
+      enabled. Independent check: `which atd` returns "atd not found" on the
+      target machine; per Apple Community references and ss64.com, atrun's
+      LaunchDaemon plist has `Disabled = true` by default on modern macOS,
+      and enabling it requires:
+        sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.atrun.plist
+      which on macOS 26 with SIP enabled may be rejected (System Integrity
+      Protection blocks modifications to /System/Library). The runbook's
+      `at` command will SILENTLY succeed (job queued in /var/at/spool) but
+      the job will NEVER run because atrun is disabled. `atq` will list the
+      jobs (verification passes) but they will never fire.
+    runbook_section_or_line: "Step 2.3.1 Option 3, lines 325-345"
+    severity: concern  # not blocking only because Options 1 and 2 are listed first
+    suggested_fix: |
+      Either remove Option 3 entirely, or add an explicit precondition:
+        sudo launchctl list | grep com.apple.atrun
+      that returns a non-disabled entry. If `at` is to remain, require Phase
+      1 verification that `atrun` is loaded AND a test job fires within
+      60 seconds end-to-end.
+
+  - gap_id: "G-5"
+    class: "silent-confirm"
+    description: |
+      Step 3.4 verifies "account-key parity gate passed" via:
+        grep -i "account_key" data/paper_trading_session.log
+      and accepts EMPTY OUTPUT as success (line 535: "no log because it
+      already passed"). Inspection of src/forex_system/risk/account_key_parity.py
+      lines 50-65 confirms the gate emits NO log line on the SUCCESS-by-write
+      path (it returns after O_CREAT|O_EXCL succeeds; only logs on
+      FileExistsError + mismatch). Therefore:
+        (a) gate passed silently (write path) → empty grep
+        (b) script crashed before reaching line 874 → empty grep
+        (c) script never started (G-1) → empty grep
+      Empty grep is observationally equivalent across (a), (b), (c). The
+      runbook's silence-as-success verification is unsound. Compounded
+      with G-1, the most likely outcome at T=0 (script never started due
+      to missing --token/--loop) produces an EMPTY grep that the runbook
+      explicitly labels success.
+    runbook_section_or_line: "Step 3.4, lines 526-535"
+    severity: blocking
+    suggested_fix: |
+      Replace the silent-OK verification with a POSITIVE signal: either
+        (i) require a SUCCESS log emit in account_key_parity.py on the
+            O_CREAT|O_EXCL path (small code change — out of scope for this
+            runbook, must be lifted to a follow-up SD), OR
+        (ii) verify the parity lock file was MODIFIED in the last 60
+            seconds AND its content's account_key matches the current
+            SAXO backend account, via a small python one-liner.
+      Until parity-positive-signal exists, runbook must verify cycle_id=1
+      cycle-start log line (which IS emitted) instead.
+
+  - gap_id: "G-6"
+    class: "precondition"
+    description: |
+      Step 1.2 expected output enumerates exactly:
+        M data/paper_trading_session.log
+        M .fintech-org/spawns.jsonl
+        ?? .fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/
+      Actual `git status --short` on the current tree (verified) returns
+      FOUR lines including:
+        ?? docs/launch/t0-dispatch-runbook.md
+      The runbook itself is currently untracked. The runbook's narrative
+      ("CRITICAL: no other tracked file should be modified") technically
+      passes because the runbook is untracked, not modified. But the
+      example output does NOT include the runbook file, so a careful
+      CEO would flag this as anomalous and halt at Phase 1, blocking the
+      entire ritual. Worse, if the runbook is committed before T=0, the
+      expected-output example becomes obsolete.
+    runbook_section_or_line: "Step 1.2, lines 42-55"
+    severity: concern
+    suggested_fix: |
+      Either commit the runbook (and update the expected output to drop
+      the ?? artifact dir if also committed), OR have the runbook
+      explicitly list its own path in the "untracked is acceptable"
+      enumeration. Better: replace the example-match check with a
+      machine-checkable predicate:
+        git status --porcelain | grep '^ M' | grep -v -E '^(M data/paper_trading_session\.log| M \.fintech-org/spawns\.jsonl)$'
+      should be empty.
+
+  - gap_id: "G-7"
+    class: "verifier-tool"
+    description: |
+      Step 2.3.1 Option 2 uses AppleScript `tell calendar "Home"`. This
+      assumes (a) a calendar literally named "Home" exists, (b) it's
+      enabled for write, (c) iCloud sync is online, (d) macOS Calendar
+      app has the "automation permission" granted for this terminal /
+      Terminal.app / iTerm. None of these are verified. On first run
+      after a fresh OS install or after macOS privacy-prompt revocation,
+      osascript will fail with -1719 ("Calendar got an error") or similar.
+      The runbook's verification — "Open Calendar.app and check that both
+      events appear" — requires manual visual inspection, with no
+      automated catch.
+      Additionally, the Calendar.app `date "July 26, 2026 9:00 AM"` syntax
+      is LOCALE-DEPENDENT — on a machine set to non-US-English locale,
+      date() may parse "July" as a string and fail.
+    runbook_section_or_line: "Step 2.3.1 Option 2, lines 305-322"
+    severity: concern
+    suggested_fix: |
+      Pre-flight check: `osascript -e 'tell application "Calendar" to name of calendars' | grep "^Home$"`.
+      Use ISO-8601 date construction (`current date` + offsets) instead of
+      `date "July 26, 2026..."`. Or recommend Option 1 (crontab) as the
+      sole supported mechanism.
+
+  - gap_id: "G-8"
+    class: "order"
+    description: |
+      The runbook narrates "SD-3 → SD-6 → SD-5 → start". But the dependencies
+      between these are not machine-enforced. In particular:
+        - SD-3 truncates the log. If the CEO does 2.4.x FIRST (e.g. by
+          re-running from an editor), the truncate destroys real first-bar
+          log entries. The order is critical but the precondition checks
+          in Phase 1 don't gate Phase 2 step-order.
+        - SD-6 sign + SD-3 truncate are commutative, but SD-3 must run
+          before the persistent loop starts. The runbook narrates this but
+          provides no machine-checkable assertion.
+        - The verification predicate at 2.1.3 only checks "log == 0 lines"
+          which would be satisfied if SD-3 ran AT ANY TIME relative to
+          2.4.x — including AFTER the first paper bar logged something
+          (data loss).
+    runbook_section_or_line: "Phase 2 overall (lines 115-119) and 2.1.3 (lines 162-170)"
+    severity: concern
+    suggested_fix: |
+      Each step's precondition block should EXPLICITLY verify all prior
+      steps' completion: e.g., Step 2.4 should check "wc -l
+      data/paper_trading_session.log == 0 OR most recent line predates
+      tmux session start by > 1 cycle". And after step 2.4, the runbook
+      should never permit step 2.1 to re-execute.
+
+  - gap_id: "G-9"
+    class: "hash"
+    description: |
+      The verbatim-check yaml (timestamp 2026-05-11T04:30:00Z) recorded
+      sha256 = 8fe92e0...PASS. Independent re-computation CONFIRMS this
+      hash matches the bare clause text (verified via python hashlib).
+      HOWEVER: the runbook's only post-sign integrity check is
+        grep -c "CF-T9 is binding on Clauses A and B"
+      which is a substring count on the FIRST 8 WORDS of a 156-character
+      clause. A signing edit could break the clause's quote marks, em-dash,
+      colon, suffix, OR any character past the 8-word grep prefix without
+      the verification noticing. The runbook does NOT re-hash post-signing.
+      The runbook does NOT re-validate the entire clause string. The
+      runbook does NOT confirm the verbatim-check yaml's record of line 38
+      remains accurate (line numbers can shift when editing nearby).
+      Compounding: the verbatim-check yaml itself claims the file has 105
+      lines, but the actual file is 97 lines as of this audit (timestamp
+      mismatch — the yaml is stale).
+    runbook_section_or_line: "Step 2.2.3, lines 230-241"
+    severity: blocking
+    suggested_fix: |
+      After signing, re-run:
+        python3 -c "import hashlib, re; t=open('docs/launch/sd6-launch-communication-draft.md').read(); m=re.search(r'CF-T9 is binding[^\"]*paper launch\\.', t); print('match=', bool(m), 'sha256=', hashlib.sha256(m.group().encode()).hexdigest())"
+      Compare against 8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb.
+      Refuse to launch on mismatch.
+
+  - gap_id: "G-10"
+    class: "clock"
+    description: |
+      Step 2.1.1 backup filename uses `$(date +%Y%m%dT%H%M%S)` — LOCAL
+      time, NO timezone marker. The paper log timestamps are emitted via
+      `datetime.now(timezone.utc).isoformat()` in the scripts (UTC). The
+      verification yaml example at line 372-381 uses
+      `"2026-05-12T14:23:45Z"` (UTC). The backup filename will be in CEO's
+      local timezone (presumably PDT/PST) and is NOT comparable to log
+      timestamps without manual conversion. If the CEO crosses a DST
+      boundary or is in a non-US-Pacific zone, the backup filename
+      misorders relative to log times.
+      Additionally, the crontab time `0 9 26 7 *` is in the system's
+      LOCAL time per cron(8). CEO traveling on 2026-07-26 to a different
+      timezone receives the warning at a different local time than
+      expected (or fails to receive it if the laptop is suspended).
+    runbook_section_or_line: "Step 2.1.1 (line 132); Step 2.3.1 Option 1 (line 275-278)"
+    severity: concern
+    suggested_fix: |
+      Use `date -u +%Y%m%dT%H%M%SZ` for backup filenames. Use UTC-anchored
+      reminder mechanism (e.g., a script that re-checks date against a
+      fixed UTC target) rather than wall-clock-dependent crontab.
+
+  - gap_id: "G-11"
+    class: "precondition"
+    description: |
+      The runbook assumes `tmux` is installed and on PATH. Verified: tmux
+      3.5a is installed via homebrew at /opt/homebrew/bin/tmux. But the
+      runbook offers no explicit Phase 1 check (Phase 1 has 5 steps; tmux
+      check is absent). If a different machine or post-fresh-install
+      scenario is encountered, Step 2.4 would fail with "command not
+      found: tmux", and the user would be advised by Troubleshooting Quick
+      Reference to "Install tmux" — fine, but it's not a Phase 1 gate.
+      Similarly, the runbook assumes `nano` is acceptable (line 200) but
+      doesn't verify any editor is available.
+    runbook_section_or_line: "Phase 1 overall; Step 2.4.1 (line 396)"
+    severity: note
+    suggested_fix: |
+      Add Step 1.6: `which tmux && tmux -V` → expected non-empty.
+
+  - gap_id: "G-12"
+    class: "failure-mode"
+    description: |
+      Step 2.1.1 (backup the stale log via cp) doesn't check disk space
+      first. If `data/` partition is full, `cp` will produce a 0-byte
+      backup file (or fail). The verification `ls -la data/paper_trading_session.log.pre-launch-*.bak`
+      "shows at least one file" — a 0-byte backup satisfies this. The
+      rollback at line 156 would then `mv` a 0-byte backup over a
+      truncated log, effectively destroying the 317 lines of pre-launch
+      audit trail.
+    runbook_section_or_line: "Step 2.1.1 (lines 130-141)"
+    severity: concern
+    suggested_fix: |
+      Add df -h check in Phase 1 (require > 100MB free in data/). Verify
+      backup file size matches original after cp:
+        [[ $(wc -c < $BACKUP) -eq $(wc -c < $ORIG) ]]
+
+  - gap_id: "G-13"
+    class: "verification"
+    description: |
+      Step 2.4.5 verifies `ls -la data/dispatch_lock.flock` shows a 0-byte
+      file. But the file ALREADY exists at 0 bytes (verified: -rw-r--r-- 1
+      huangtm staff 0B May 6 23:11 data/dispatch_lock.flock from a prior
+      session). The mere presence + 0-byte size does NOT confirm any
+      process is actually holding the fcntl lock right now — fcntl locks
+      are kernel-side, advisory, and tied to the process. A stale file
+      from May 6 satisfies the verification but proves nothing about
+      May 12 lock state. The verification's stated purpose ("the lock is
+      held in memory via fcntl") is unverifiable from `ls`.
+    runbook_section_or_line: "Step 2.4.5 (lines 464-477)"
+    severity: blocking
+    suggested_fix: |
+      Use `lsof data/dispatch_lock.flock` and verify the output names a
+      python3 process with PID inside one of the tmux sessions:
+        lsof data/dispatch_lock.flock | grep python3 | wc -l
+      should be ≥ 1. Caveat: lsof on macOS may require root for some
+      processes; verify behavior with non-root first.
+
+  - gap_id: "G-14"
+    class: "verification"
+    description: |
+      Step 3.2 ("log is growing") measures delta over 10 seconds. But the
+      default cycle interval is 1800 seconds. If the FIRST cycle hasn't
+      logged yet (script just spawned 5-10 seconds ago in step 2.4.4),
+      and subsequent cycles are 30 minutes apart, delta=0 over 10 seconds
+      is the expected normal-operation state mid-cycle. The runbook
+      acknowledges "may be idle or blocked on the lock. Wait another
+      cycle (1800s)" — but this means the only thing the 10-second test
+      actually detects is rapid initial logging during cycle 1 startup.
+      For ALL subsequent runtime, delta=0 is normal AND the verification
+      offers no signal.
+      Compounded: under G-1 (script never started), delta=0 forever, AND
+      the runbook tells the CEO "wait another 1800s" → a 30-minute
+      false-comfort window during which capital exposure (paper or
+      otherwise) is silently zero.
+    runbook_section_or_line: "Step 3.2 (lines 498-512)"
+    severity: blocking
+    suggested_fix: |
+      Replace with: check heartbeat file `data/heartbeats/{vt,carry_fred}.json`
+      (referenced in script as HEARTBEAT_PATH) modification time is within
+      last 5 minutes (heartbeat writes are per-cycle but the test should
+      look at file existence + recency, not at log line count).
+
+  - gap_id: "G-15"
+    class: "precondition"
+    description: |
+      The kill_switch audit log paths diverge between scripts:
+        VT script:    data/kill_switch_audit.log
+        Carry script: data/kill_switch_audit_cf.log
+      Runbook never instructs CEO to check either. If one script's kill
+      switch fires at startup (e.g., infrastructure trigger from
+      dispatch_lock fs_error per VT script line 510-512), it will write
+      to a file the runbook does not surface. The runbook's "no FATAL
+      errors in log" check (step 3.3) only inspects
+      data/paper_trading_session.log, not the kill-switch audit files.
+    runbook_section_or_line: "Step 3.3 (lines 515-524)"
+    severity: concern
+    suggested_fix: |
+      Add to Phase 3:
+        for f in data/kill_switch_audit.log data/kill_switch_audit_cf.log; do
+          [[ -s "$f" ]] && tail -5 "$f"
+        done
+      AND require any non-empty kill-switch audit entry since session
+      start triggers HALT.
+
+  - gap_id: "G-16"
+    class: "precondition"
+    description: |
+      Phase 1.3 (`python3 -c "import scripts.run_paper_trading_vt; ..."`)
+      requires that `scripts/` is on sys.path or that the CWD is the
+      project root with an appropriate sys.path config. The runbook
+      assumes CEO ran `cd /Users/huangtm/Projects/forex-trading-system`
+      at the top, AND that `python3` finds the right venv. Without
+      `pip install -e ".[dev]"` previously executed, the import resolves
+      `scripts.*` only if scripts/__init__.py exists or if the harness
+      uses a PEP 420 namespace package. Verification of which Python
+      interpreter (`which python3`, version check) is absent.
+      Compounded: macOS 26 ships with a system python3 (Apple's
+      bundled) that lacks project dependencies. Without an explicit
+      venv-activation gate in Phase 1, the import may fail (or worse,
+      "succeed" on a Python with wrong package versions producing
+      subtle behavior drift).
+    runbook_section_or_line: "Step 1.3 (lines 62-77)"
+    severity: concern
+    suggested_fix: |
+      Add Step 1.0: verify `which python3` points at the project venv
+      (e.g., `which python3 | grep -q ".venv/bin/python3"`) AND
+      `python3 -c "import forex_system; print(forex_system.__file__)"`
+      points at src/forex_system.
+
+  - gap_id: "G-17"
+    class: "failure-mode"
+    description: |
+      Step 2.4.4 (`sleep 5; tail -10 data/paper_trading_session.log`) —
+      5 seconds is insufficient for script initialization. Reading the
+      VT script: it constructs SaxoClient, calls fetch_account_equity
+      (which hits the Saxo API and could take 1-10s on a cold connection),
+      constructs KillSwitch, DrawdownContract, prints a banner, then
+      enters the loop. Initial network round-trip plus per-pair OHLCV
+      fetch may take 15-30 seconds before the first WS-01 log line is
+      emitted. tail -10 after 5s on a freshly-truncated log very likely
+      shows nothing or only the print()-banner stderr captured. The
+      runbook says "compare line count before and after" but the
+      "before" reference is the post-SD-3 state (0 lines), and the
+      "after" is 5 seconds later — almost certainly still 0 lines on
+      first launch.
+    runbook_section_or_line: "Step 2.4.4 (lines 439-461)"
+    severity: concern
+    suggested_fix: |
+      Replace with a polling loop: up to 60s wait for any line in the
+      log file, OR until a specific event marker appears
+      (e.g., "DISPATCH_LOCK_ACQUIRED").
+
+  - gap_id: "G-18"
+    class: "failure-mode"
+    description: |
+      Step 2.2.2 (manual editor edit) places the burden of correctly
+      replacing the placeholder string on the human, mid-launch ritual.
+      Common error modes:
+        (a) CEO types `huangtm@gmail.com - 2026-05-12T14:00Z` (ASCII
+            hyphen instead of em-dash; runbook line 211 has em-dash —
+            but the runbook example mixes em-dash with smart-quote-prone
+            characters).
+        (b) CEO leaves the placeholder line AND adds the signature
+            below it → grep returns count 2, but the runbook's
+            verification (step 2.2.3, count of CF-T9 substring) is on a
+            DIFFERENT string. The duplicate placeholder is undetected.
+        (c) Editor introduces autocorrect smart quotes ('Author/approver:'
+            becomes 'Author/approver:’ with curly apostrophe in some
+            editors).
+      No automated post-edit predicate validates the SIGNATURE LINE
+      content — only the CF-T9 clause count.
+    runbook_section_or_line: "Step 2.2.2 (lines 196-226)"
+    severity: concern
+    suggested_fix: |
+      Replace manual editor edit with a deterministic sed:
+        sed -i.bak "s|\\*(CEO signature required before T=0)\\*|huangtm@gmail.com — $(date -u +%Y-%m-%dT%H:%MZ)|" docs/launch/sd6-launch-communication-draft.md
+      AND post-validation: count of "CEO signature required before T=0"
+      must drop to 0; count of "huangtm@gmail.com —" must rise to 1.
+
+  - gap_id: "G-19"
+    class: "verifier-tool"
+    description: |
+      Phase 3 troubleshooting block (line 614) recommends:
+        ps aux | grep run_paper
+      to find zombie processes. macOS `ps aux` requires the user to
+      have permission to see the process (own user, OK). But the
+      command uses `|` inside a markdown table cell (line 614:
+      "Check for zombie processes: `ps aux \| grep run_paper`"). The
+      escaped pipe `\|` is markdown-rendering syntax, not a shell
+      construct. If CEO copy-pastes verbatim, `\|` produces a literal
+      backslash and a pipe — the backslash may be eaten by some
+      shells but is non-standard. Minor but a usability risk in a
+      stress-launch context.
+    runbook_section_or_line: "Troubleshooting table, line 614"
+    severity: note
+    suggested_fix: |
+      Remove the backslash; or move the troubleshooting commands out of
+      a markdown table into a code block.
+
+  - gap_id: "G-20"
+    class: "verification"
+    description: |
+      Step 3.5 (drawdown ladder snapshot) `grep -i "drawdown\|ladder"
+      ... | head -3`. The runbook accepts "(may show no entries if
+      drawdown snapshot is logged differently)" as valid. Inspection of
+      the VT script (line 412-424) shows drawdown is logged on TRIGGER
+      events (full_halt etc.), not at startup. On a fresh start with no
+      drawdown, the log will be empty for "drawdown" tokens. The
+      verification is structurally unable to distinguish "drawdown
+      ladder is INSTALLED and operational" from "drawdown ladder code
+      was never reached". Same silence-is-success failure mode as G-5.
+    runbook_section_or_line: "Step 3.5 (lines 540-548)"
+    severity: concern
+    suggested_fix: |
+      Add a per-cycle drawdown SNAPSHOT log emission to both scripts
+      (out-of-scope code change), OR replace verification with: import
+      the contract module in a python -c invocation and print its
+      thresholds, verifying they match CRO_DD_HALT_NEW_THRESHOLD=0.10
+      etc.
+
+findings_count_blocking: 7
+# G-1, G-2, G-3, G-5, G-9, G-13, G-14
+findings_count_concern: 10
+# G-4, G-6, G-7, G-8, G-10, G-12, G-15, G-16, G-17, G-18, G-20 (= 11; recount)
+# Recount: concerns = G-4, G-6, G-7, G-8, G-10, G-12, G-15, G-16, G-17, G-18, G-20 = 11
+findings_count_concern_corrected: 11
+findings_count_note: 2
+# G-11, G-19
+
+# ============================================================================
+# BODY — terse summary
+# ============================================================================
+body: |
+  DECISION: dissent (claim fails the null test).
+
+  The runbook FAILS the atomic claim. Seven independent BLOCKING gaps were
+  found, plus eleven concerns and two notes. The three most material
+  findings, ranked by how likely each is to silently destroy the launch:
+
+  TOP-1 (G-1 — script never starts):
+    The tmux invocations in Steps 2.4.1/2.4.2 omit --token, --auto, and
+    --loop. Both scripts hard-exit at line ~856 with "Error: --token or
+    SAXO_TOKEN required" because SAXO_TOKEN is NOT set in the CEO's
+    environment (verified). The tmux session dies within seconds (verified
+    empirically). Even with token, without --loop the script runs ONE
+    cycle and exits — no persistence. The runbook's downstream verification
+    (Step 3.4 account-key parity "empty grep is acceptable") then FALSELY
+    confirms success on a never-started script. Most-likely real-world
+    failure mode at T=0.
+
+  TOP-2 (G-3 — date math wrong):
+    Pre-warning reminder fires 2026-07-26, a SUNDAY (verified). The
+    independently-computed "9 trading days remaining" date is 2026-07-22
+    (Wed). The runbook conflates "T0+75 calendar days" with "9 trading
+    days before 60-trading-day deadline" — these are NOT the same. CEO
+    will receive an unactionable Sunday-morning notification 4 days late.
+    By the time anyone responds Monday 2026-07-27, only ~6 trading days
+    remain, not the promised 9. This is a CF-T9 Clause C governance
+    failure cued by a calendar-arithmetic bug.
+
+  TOP-3 (G-5 + G-13 + G-14 — silence is not success):
+    Three Phase-3 verifications (account-key parity gate, dispatch lock
+    held, log growing) accept silence/0-byte/empty-grep as confirmation.
+    Inspected account_key_parity.py confirms the gate emits NOTHING on
+    the success path. The dispatch_lock.flock file already exists at 0
+    bytes from a May 6 session; its presence does not prove a live lock.
+    Log-growth check over 10 seconds is meaningless given the 1800s
+    cycle interval. Compounded with G-1, the most likely real outcome
+    (scripts never started) is observationally identical to the runbook's
+    definition of success.
+
+  These three TOP findings are entangled: G-1 ensures scripts don't
+  start; G-5/13/14 ensure the runbook reports success anyway. A naive
+  CEO walks away believing paper trading is live when in fact NOTHING is
+  running. There is no observability gap because there is no
+  observability — every Phase-3 check is silent-OK.
+
+  Additional structural concerns: 9 of 25 steps are NOT idempotent (G-2
+  audit), so a re-run after partial failure compounds the state. The
+  hash-check claim (G-9) is technically correct ex-ante but the runbook
+  does not re-verify post-signing, so a smart-quote or em-dash mishap
+  during nano editing breaks SHA-256 without detection.
+
+  Recommended disposition: REJECT — runbook must be amended to address
+  AT LEAST G-1, G-2, G-3, G-5, G-13, G-14, G-9 before T=0. The remaining
+  concerns/notes should be tracked but are not individually blocking.
+
+  This dissent is APPEND-ONLY in CONSENSUS and must not be paraphrased.
+
+# ============================================================================
+# DISSENT STATEMENT — verbatim for CONSENSUS
+# ============================================================================
+dissent-statement: |
+  NHT DISSENT — T=0 DISPATCH RUNBOOK 2026-05-12
+
+  The runbook fails the atomic acceptance claim. Seven blocking gaps
+  were found, of which the following four are unrecoverable without
+  amendment:
+
+  D-1. The tmux invocations omit --token and --loop. Both scripts will
+       exit within seconds of spawn; no persistent paper loop will
+       exist. SAXO_TOKEN is not set in the CEO's environment as of
+       this audit. (gap G-1, blocking)
+
+  D-2. The SD-5 pre-warning date (2026-07-26) is a Sunday. The actual
+       9-trading-days-remaining date is 2026-07-22 (Wednesday). The
+       runbook conflates calendar arithmetic with trading-day
+       arithmetic. CF-T9 Clause C ratification reminder will fire
+       4 calendar days late and on a non-working day. (gap G-3,
+       blocking)
+
+  D-3. Three Phase-3 verifications (account-key parity, dispatch lock
+       held, log growth) accept silence as success. Combined with D-1,
+       the most likely outcome at T=0 — scripts never started — is
+       observationally indistinguishable from "launch succeeded". The
+       CEO will be told the launch is live when nothing is running.
+       (gaps G-5, G-13, G-14, all blocking)
+
+  D-4. The post-signing CF-T9 verbatim check uses an 8-word grep
+       substring, not the SHA-256 originally computed. Smart-quote
+       autocorrect, em-dash substitution, or any edit past word 8 of
+       the 156-character clause will pass grep and fail SHA-256
+       without detection. The verbatim-check.yaml is also already
+       stale (claims 105 lines; actual 97). (gap G-9, blocking)
+
+  NHT recommends the runbook NOT be ratified for T=0 execution.
+  Amendments to address G-1 / G-2 / G-3 / G-5 / G-9 / G-13 / G-14 are
+  required. Until amended, T=0 should be deferred.
+
+  Per role contract: this dissent is append-only. Subsequent agreement
+  by CRO / PM / CTO that the runbook is acceptable does NOT erase
+  this dissent from CONSENSUS.md. CEO is to see this verbatim.
+
+  — null-hypothesis-tester, 2026-05-12T17:55Z
+
+# ============================================================================
+# ASSUMPTIONS (this NHT review)
+# ============================================================================
+assumptions:
+  - "T0 = 2026-05-12 (Tuesday) per CONSENSUS_2026-05-10 ratification timestamp; runbook header confirms"
+  - "60 trading days means 60 weekdays Mon-Fri unless a separate definition is ratified — used naive weekday count for date math"
+  - "Standard US-Pacific timezone for CEO; not verified but referenced in clock-source discussion"
+  - "macOS 26.4.1 confirmed on target machine; tmux 3.5a confirmed"
+  - "Current shell is zsh (default for macOS 10.15+); cron behavior on macOS is per cron(8)"
+  - "SAXO_TOKEN env var was not set when this audit ran; the CEO MIGHT set it manually before reading the runbook, but the runbook does not instruct them to"
+  - "Wave-11 commit e6aaa43 is the authorized HEAD per pm-acceptance-criteria"
+  - "The verbatim-check.yaml's claim that line 105 contains certain content is interpreted as stale data, not contradiction; the file is currently 97 lines"
+  - "The runbook itself (docs/launch/t0-dispatch-runbook.md) is the latest version; not regenerated mid-audit"
+
+# ============================================================================
+# KNOWLEDGE GAPS
+# ============================================================================
+knowledge_gaps:
+  - topic: "Whether CEO will set SAXO_TOKEN env var as part of pre-flight setup outside this runbook"
+    significance: "modulates severity of G-1 — if CEO knows to set it, G-1 reduces to '--loop missing' blocker only"
+    mitigation_assumed: "none — runbook must be self-contained per the atomic claim"
+  - topic: "Exact definition of 'trading day' for CF-T9 Clause C (FX calendar? Saxo Bank business days? NYSE? CME?)"
+    significance: "high — G-3 severity depends on which calendar applies; CONSENSUS_2026-05-10 does not specify"
+    mitigation_assumed: "CRO ratification required before SD-5 dates can be defended"
+  - topic: "Whether the runbook will be committed to git before T=0 (which would change git-status expected output)"
+    significance: "low — G-6 trivially fixable"
+    mitigation_assumed: "either commit or amend expected output"
+  - topic: "Whether CRO's parallel review (wave-2b) catches the same gaps; non-overlap risk if both miss the same class"
+    significance: "moderate — NHT and CRO have overlapping but different lenses (G-1 is more ops-shaped; CRO might catch it; G-3 is statistical/clock-shaped; NHT lens)"
+    mitigation_assumed: "CONSENSUS will surface both artifacts; CEO sees union"
+  - topic: "Whether existing data/dispatch_lock.flock and lack of data/paper_account_key_lock.json indicate a partially-rolled-back prior session"
+    significance: "moderate — environment state is not pristine, but neither file is functionally blocking"
+    mitigation_assumed: "Phase 1 should explicitly inspect these files"
+
+# ============================================================================
+# SOURCES
+# ============================================================================
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/t0-dispatch-runbook.md"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/pm-acceptance-criteria-redacted-for-cro-nht.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/account_key_parity.py"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd6-launch-communication-draft.md"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd6-launch-comm-verbatim-check.yaml"
+  - "https://ss64.com/mac/at.html"
+  - "https://discussions.apple.com/thread/253382003"
+  - "~/.claude/skills/fintech-org/roles/null-hypothesis-tester.md"
+  - "~/.claude/skills/probability-statistics/SKILL.md"
+
+# ============================================================================
+# METADATA
+# ============================================================================
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 0
+contamination-check: "clean"
+# Rationale: prompt described the atomic claim and probe-class methodology
+# without containing proposer narrative defending the runbook. The
+# ops-engineer artifact's `body` field WAS visible during read but per
+# protocol I confined my analysis to environment_state, assumptions,
+# knowledge_gaps, and verification_predicates_per_step. The ops-engineer's
+# narrative justifying choices was not consumed.
+
+no-capital-instruction: true

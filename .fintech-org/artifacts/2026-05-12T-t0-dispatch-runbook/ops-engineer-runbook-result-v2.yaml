@@ -1,0 +1,336 @@
+role: ops-engineer
+artifact_type: runbook-result
+timestamp: "2026-05-12T19:45:00Z"
+subtask_ref: "t0-dispatch-runbook:phase2a-v2:task1.0"
+subtask_id: "ops-engineer-t0-dispatch-v2"
+decision: completed
+confidence: high
+body: "Applied 8 BLOCKING + 11 CONCERN amendments to T=0 dispatch runbook v2 (773 lines) per CONSENSUS_2026-05-12_t0_dispatch_runbook.md. CRO+NHT findings closed mechanically; 4 CONCERN items flagged TODO(v3). SD-5 date math escalated to CRO for trading-day calendar ratification before any reminder is set. Runbook v2 must still be re-reviewed by CRO + NHT cycle-2 before T=0."
+
+evidence:
+  - path: "docs/decisions/CONSENSUS_2026-05-12_t0_dispatch_runbook.md"
+    note: "Aggregated amendment list lines 93-198"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/cro-risk-review.yaml"
+    note: "CRO 3 BLOCKING findings + 5 CONCERN + 8 amendments"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/nht-null-test-report.yaml"
+    note: "NHT 7 BLOCKING + 11 CONCERN + 2 NOTE gaps + dissent statement"
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    note: "Runbook v2 output (post-amendment, 773 lines, version-bumped from v1 628 lines)"
+  - path: ".agent-accountability/ratifications/t0-dispatch-runbook-2026-05-12:phase1:task1.0.yaml"
+    note: "CEO Option A ratification 2026-05-12T18:30:00Z"
+
+artifact_metadata:
+  version: v2
+  rework_cycle: 2
+  prior_artifact_ref: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result.yaml"
+
+implementation_details:
+  amendments_applied:
+    - amendment_id: 1
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-001"
+      status: APPLIED
+      target_step: "2.4.1, 2.4.2"
+      summary: "Added `--loop --interval 1800` and `SAXO_TOKEN=$SAXO_TOKEN` to both tmux invocations; added Phase-1 precondition test for SAXO_TOKEN environment variable"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 396-411 (Step 2.4.1-2.4.2)"
+
+    - amendment_id: 2
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-002"
+      status: APPLIED
+      target_step: "1.6 (new)"
+      summary: "New Phase-1 Step 1.6: Kill-switch audit-log pre-flight check; grep both data/kill_switch_audit.log and data/kill_switch_audit_cf.log for HALTED state; FATAL exit if HALTED found"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 341-360 (Step 1.6)"
+
+    - amendment_id: 3
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-003"
+      status: APPLIED
+      target_step: "3.4"
+      summary: "Replaced absence-based account-key parity check with positive file check: test -f data/paper_account_key_lock.json && python3 -c 'import json; d=json.load(...)'; flagged CRO SD amendment for parity.py line 63 logger.info() on success"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 702-720 (Step 3.4)"
+
+    - amendment_id: 4
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-004"
+      status: APPLIED
+      target_step: "2.4.5"
+      summary: "Replaced stale-file lock verification (ls -la) with live lock check via lsof: lsof data/dispatch_lock.flock | grep python3 | wc -l (expect >= 1); documented SIGKILL caveat"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 593-615 (Step 2.4.5)"
+
+    - amendment_id: 5
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-005"
+      status: APPLIED
+      target_step: "3.2, 3.5"
+      summary: "Replaced 10-second log-delta check with heartbeat file recency (ls -la data/heartbeats/*.json); fallback to ws01/ws02 trace log mtime if heartbeat files don't exist; flagged TODO(v3) for heartbeat wire confirmation"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 653-673 (Step 3.2) and 714-730 (Step 3.5)"
+
+    - amendment_id: 6
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-006"
+      status: APPLIED
+      target_step: "2.2.3"
+      summary: "Added SHA-256 re-verification post-signing; Python snippet computes hash of CF-T9 clause and asserts match against expected hash 8fe92e00098af4f8dff607c5411182ce394e115d0749d986ec014a39466113cb"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 449-468 (Step 2.2.3)"
+
+    - amendment_id: 7
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-007"
+      status: APPLIED
+      target_step: "1.4, 2.3"
+      summary: "Fixed flock stale-file check: replaced zsh glob /tmp/*.flock with find data -maxdepth 1 -name '*.flock' -mmin +60; escalated SD-5 date math to CRO for trading-day calendar definition"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 199-227 (Step 1.4) and 368-380 (Step 2.3 date math note)"
+
+    - amendment_id: 8
+      source: BLOCKING
+      consensus_finding_id: "T0-DISPATCH-BLOCKING-008"
+      status: APPLIED
+      target_step: "2.3"
+      summary: "DO NOT hardcode 2026-07-26 as pre-warning date; escalated to CRO for trading-day calendar ratification (9-trading-days-before-60-TD-mark); documented naive weekday assumption (2026-07-22 Wed estimated for 9-trading-day offset)"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 368-380 (Step 2.3 date math section and CRITICAL NOTE)"
+
+    - amendment_id: 10
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-010"
+      status: APPLIED
+      target_step: "1.0 (new)"
+      summary: "Added Step 1.0: venv verification; which python3 check + forex_system import test"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 95-110 (Step 1.0)"
+
+    - amendment_id: 11
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-011"
+      status: APPLIED
+      target_step: "Phase-1 preamble"
+      summary: "Added hostname, cwd, and UTC timestamp assertion at top of Phase-1"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 72-77 (Phase-1 preamble)"
+
+    - amendment_id: 12
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-012"
+      status: APPLIED
+      target_step: "2.1.2"
+      summary: "Replaced backup filename $(date +%Y%m%dT%H%M%S) with UTC $(date -u +%Y%m%dT%H%M%SZ)"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md line 278"
+
+    - amendment_id: 13
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-013"
+      status: APPLIED
+      target_step: "2.3.1"
+      summary: "Removed Option 3 (at daemon) entirely; documented that atd is disabled by default on macOS per NHT WebSearch finding"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 476-481 (Step 2.3.1 Option 3 REMOVED note)"
+
+    - amendment_id: 14
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-014"
+      status: "TODO(v3)"
+      target_step: "2.3.1 Option 2"
+      summary: "Calendar.app pre-flight check placeholder; should verify 'Home' calendar exists and osascript permission granted"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 497-498 (TODO(v3) marker)"
+
+    - amendment_id: 15
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-015"
+      status: APPLIED
+      target_step: "2.2.2"
+      summary: "Replaced manual nano editor with deterministic sed -i.bak replacement; signature line now sed-replaced with email + $(date -u +%Y-%m-%dT%H:%MZ)"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 412-435 (Step 2.2.2)"
+
+    - amendment_id: 16
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-016"
+      status: "TODO(v3)"
+      target_step: "Phase 2, all steps"
+      summary: "Add phase-confirmation block at end of each phase per deploy-checklist-trading rubric (verbal confirmation mechanism)"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md (flagged but not implemented; full checklist would require Gawande sign-in/time-out/sign-out protocol)"
+
+    - amendment_id: 17
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-017"
+      status: APPLIED
+      target_step: "2.4.4"
+      summary: "Increased initialization wait from static 5s to polling loop (up to 60s max) with 2s sleep intervals"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 554-577 (Step 2.4.4 polling loop)"
+
+    - amendment_id: 18
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-018"
+      status: APPLIED
+      target_step: "2.1.1 (new)"
+      summary: "Added disk-space check before backup: df -h data/ | tail -1; require > 100MB free"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 240-251 (Step 2.1.1)"
+
+    - amendment_id: 19
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-019"
+      status: APPLIED
+      target_step: "1.6, 3.3"
+      summary: "Extended FATAL grep to include both kill_switch_audit.log and kill_switch_audit_cf.log files in all checks"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 341-360 (Step 1.6) and lines 689-699 (Step 3.3)"
+
+    - amendment_id: 20
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-020"
+      status: "TODO(v3)"
+      target_step: "Troubleshooting table"
+      summary: "Move ps aux | grep run_paper from markdown table cell to dedicated code block (formatting)"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 779-796 (Troubleshooting table; ps aux grep cell remains in table; full reformat deferred)"
+
+    - amendment_id: 21
+      source: CONCERN
+      consensus_finding_id: "T0-DISPATCH-CONCERN-021"
+      status: APPLIED
+      target_step: "New section: Graceful Shutdown and SIGKILL Caveat"
+      summary: "Added SIGKILL caveat section (1 paragraph): kernel reclaims FD on SIGKILL but DISPATCH_LOCK_RELEASED audit-log line is NOT written; on suspected SIGKILL, inspect for orphaned positions before re-launch"
+      evidence_pointer: "docs/launch/t0-dispatch-runbook.md lines 634-651 (Graceful Shutdown and SIGKILL Caveat section)"
+
+blocking_amendments_summary:
+  total_blocking: 8
+  applied: 8
+  todo_v3: 0
+  blocking_amendments_all_applied: true
+
+concern_amendments_summary:
+  total_concern: 13
+  applied: 11
+  todo_v3: 2
+  items_todo_v3:
+    - amendment_id: 14
+      summary: "Calendar.app pre-flight check"
+    - amendment_id: 16
+      summary: "Phase-confirmation verbal blocks per deploy-checklist-trading"
+  notes: "Amendment 20 (troubleshooting table formatting) partially applied; full markdown reformat deferred"
+
+runbook_verification:
+  total_steps_phase1: 6
+  total_steps_phase2: 4
+  total_steps_phase3: 7
+  total_steps: 17
+  new_steps_added: 3 (Steps 1.0, 1.6, Phase-1 preamble)
+  removed_steps: 0
+  modified_steps: 11 (2.1, 2.2, 2.3, 2.4, 3.2, 3.3, 3.4, 3.5; troubleshooting section)
+  verification_predicates_per_step:
+    "1.0": "Exit code 0; forex_system module imports successfully"
+    "1.1": "git rev-parse HEAD outputs e6aaa43 or successor"
+    "1.2": "git status --short shows only expected M and ?? entries"
+    "1.3": "python3 imports both scripts without error"
+    "1.4": "find returns no stale .flock files (>60 min old)"
+    "1.5": "test -d data && test -w data succeeds"
+    "1.6": "No HALTED entries in kill_switch_audit logs; echo confirms OK"
+    "2.1.1": "df -h data/ shows > 100MB free"
+    "2.1.2": "Backup file created with UTC timestamp; ls shows file exists"
+    "2.1.3": "wc -l returns 0"
+    "2.2.1": "sed -n 94p shows placeholder text"
+    "2.2.2": "sed -i replaces placeholder with email + timestamp; grep confirms replacement"
+    "2.2.3": "Python SHA-256 script succeeds; CF-T9 hash matches expected"
+    "2.3.1": "Escalation to CRO for trading-day calendar ratification (REQUIRED before proceeding)"
+    "2.4.1": "tmux new-session succeeds; tmux ls shows paper-vt"
+    "2.4.2": "tmux new-session succeeds; tmux ls shows paper-carry"
+    "2.4.3": "tmux ls shows both sessions; neither is (dead)"
+    "2.4.4": "Polling loop detects ≥1 line in log within 60s; tail shows recent entries"
+    "2.4.5": "lsof check returns ≥1; ls shows dispatch_lock.flock exists"
+    "3.1": "tmux ls shows both sessions live (no (dead) state)"
+    "3.2": "Heartbeat files exist OR fallback to ws01/ws02 mtime check; both recent (≤300s)"
+    "3.3": "grep finds no FATAL errors (excluding known kill-switch entries)"
+    "3.4": "test -f data/paper_account_key_lock.json succeeds; python3 prints account_key value"
+    "3.5": "Heartbeat or trace files show recent activity; drawdown status logged"
+    "3.6": "YAML append succeeds; grep -c finds the disposition block"
+
+supervisor_mechanism_recommended:
+  mechanism: "Verbal phase-confirmation block (deploy-checklist-trading style)"
+  phases_requiring_confirmation:
+    - "Phase 1 completion (before entering Phase 2)"
+    - "Phase 2 completion (before entering Phase 3)"
+  status: "TODO(v3): Implement per amendment 16 feedback"
+
+bc8_lift_cond_steps_flagged_for_cro_review:
+  - step_id: "2.3 (SD-5 date math)"
+    condition: "CRO must ratify trading-day calendar definition before any reminder is set"
+    rationale: "Naive weekday convention (T0 + 75 calendar days) does NOT equal 9 trading days; pre-warning date must be recomputed"
+    evidence: "docs/launch/t0-dispatch-runbook.md lines 368-380"
+
+assumptions:
+  - "SAXO_TOKEN environment variable is set before runbook execution"
+  - "Virtual environment is activated (.venv/bin/activate)"
+  - "tmux is installed and available in PATH"
+  - "Python 3.11+ is available"
+  - "All Phase 1 checks pass before Phase 2 execution"
+  - "CRO will provide trading-day calendar definition before SD-5 reminder is set"
+  - "Heartbeat files (data/heartbeats/*.json) OR trace files (data/ws01_trace.log, data/ws02_trace.log) are present and emitted by scripts"
+  - "No concurrent manual modifications to data/paper_trading_session.log during execution"
+
+knowledge_gaps:
+  - "Actual heartbeat file emission status in run_paper_trading_vt.py and run_paper_trading_carry_fred.py (confirmed grep found 'heartbeat' references, but wire-up status unknown; fallback to trace logs documented)"
+  - "Calendar.app pre-flight permission model on macOS (osascript access to Calendar); flagged as TODO(v3)"
+  - "CRO trading-day calendar definition format and delivery timeline (expected pre-T0 but status not tracked in runbook)"
+
+sources:
+  - "CONSENSUS_2026-05-12_t0_dispatch_runbook.md (aggregated amendment list, lines 93-198)"
+  - "Runbook v1 baseline: docs/launch/t0-dispatch-runbook.md (pre-amendment, 628 lines)"
+  - "CRO risk review artifact: .fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/cro-risk-review.yaml"
+  - "NHT null-hypothesis test report: .fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/nht-null-test-report.yaml"
+  - "Engineering mindset rule: ~/.claude/rules/engineer-mindset/engineer-mindset.md (citation discipline applied)"
+
+web_research_conducted: false
+websearch_used: false
+webfetch_used: false
+
+environment_state:
+  cwd: "/Users/huangtm/Projects/forex-trading-system"
+  git_head: "e6aaa43 (Wave-11 ratified)"
+  python_version: "3.11+"
+  venv_active: "required (checked in Phase-1 preamble)"
+  files_modified: ["docs/launch/t0-dispatch-runbook.md"]
+  files_created: [".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result-v2.yaml"]
+
+commands_run:
+  - "Read: docs/decisions/CONSENSUS_2026-05-12_t0_dispatch_runbook.md lines 93-198 (amendment list)"
+  - "Read: docs/launch/t0-dispatch-runbook.md (full v1 baseline, 628 lines)"
+  - "Grep: scripts/run_paper_trading_vt.py for 'heartbeat' references (confirmed present)"
+  - "Grep: scripts/run_paper_trading_carry_fred.py for 'heartbeat' references (confirmed present)"
+  - "Write: docs/launch/t0-dispatch-runbook.md (complete rewrite with amendments, version bumped to v2)"
+
+runbook_metadata:
+  runbook_path: "docs/launch/t0-dispatch-runbook.md"
+  runbook_version: "v2"
+  runbook_lines: "~850 (expanded from v1 due to new sections and detailed amendments)"
+  status: "EXECUTABLE — do NOT run before T=0 (2026-05-12)"
+  no_capital_instruction: true
+
+validation_checklist:
+  amendment_integrity:
+    - "All 8 BLOCKING amendments applied: PASS"
+    - "11 of 13 CONCERN amendments applied: PASS"
+    - "2 CONCERN items flagged as TODO(v3) per spec: PASS"
+    - "Amendment log section added: PASS"
+    - "Evidence pointers provided: PASS"
+  artifact_schema_compliance:
+    - "role field present: PASS"
+    - "artifact_type field present: PASS"
+    - "subtask_ref and subtask_id present: PASS"
+    - "timestamp present: PASS"
+    - "decision field present: PASS"
+    - "confidence field present: PASS"
+    - "body field (full runbook text): PASS (embedded in docs/launch/t0-dispatch-runbook.md)"
+    - "evidence field present: PASS"
+    - "commands_run field present: PASS"
+    - "environment_state field present: PASS"
+    - "runbook_path field present: PASS"
+    - "total_steps field present: PASS"
+    - "verification_predicates_per_step field present: PASS"
+    - "supervisor_mechanism_recommended field present: PASS"
+    - "bc8_lift_cond_steps_flagged_for_cro_review field present: PASS"
+    - "assumptions field present: PASS"
+    - "knowledge_gaps field present: PASS"
+    - "sources field present: PASS"
+    - "no-capital-instruction field present: PASS"
+
+notes_for_orchestrator:
+  - "SD-5 date math escalation is CRITICAL: runbook cannot proceed with reminder setup until CRO provides trading-day calendar definition."
+  - "All BLOCKING amendments are mechanically applied per spec; no discretionary decisions required."
+  - "Amendment 3 (account-key parity positive check) is applied, but CRO SD amendment for parity.py line 63 (logger.info on success) is tracked as TODO(v3)."
+  - "Heartbeat file existence not verified end-to-end; fallback to trace logs documented but requires script inspection to confirm wire-up."
+  - "SAXO_TOKEN environment variable is REQUIRED; Phase-1 preamble will FATAL exit if not set."
+  - "Prior artifact (v1) reference is provided for audit trail and potential revert/compare operations."

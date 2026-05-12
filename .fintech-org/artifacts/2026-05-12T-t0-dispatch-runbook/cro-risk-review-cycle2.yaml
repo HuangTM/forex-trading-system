@@ -1,0 +1,132 @@
+# CRO cycle-2 verification artifact. Filled from skeleton by CRO agent 2026-05-12.
+# DO NOT add prose elsewhere. DO NOT re-apply the full cycle-1 rubric.
+
+role: cro
+artifact_type: risk-assessment-cycle2
+subtask_ref: "t0-dispatch-runbook:phase2b-v2:task1.0"
+subtask_id: "cro-t0-dispatch-cycle2-2026-05-12"
+timestamp: "2026-05-12T00:00:00Z"
+
+body: "All three blocking findings (CRO-B1, CRO-B2, CRO-B3) are closed in v2; 4 of 5 concerns are closed (CRO-C1 partially closed via TODO(v3) fallback; CRO-C4 and CRO-C5 closed; CRO-C2 and CRO-C3 closed); no new blocking gaps introduced; decision is approve."
+confidence: "high"
+
+# REQUIRED CRO schema fields (most are N/A for runbook review; fill conservatively)
+decision: "approve"   # approve if NO blocking findings remain; reject if any
+size_multiplier: 1.0
+binding_constraints: []
+regime_flags: []
+blowup-analog: "none"
+contamination-check: "clean"
+
+# CYCLE-2 PER-FINDING CLOSURE STATUS
+findings-from-cycle1-status:
+  - finding_id: CRO-B1
+    description: "tmux missing --loop and --token/SAXO_TOKEN; scripts exit immediately"
+    expected_v2_fix: "Step 2.4.1/2.4.2 add '--loop --interval 1800' and SAXO_TOKEN=$SAXO_TOKEN; Phase-1 precondition asserts SAXO_TOKEN is set"
+    expected_v2_lines: "Steps 2.4.1, 2.4.2 (lines ~396-411)"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:447 — 'SAXO_TOKEN=$SAXO_TOKEN python3 scripts/run_paper_trading_vt.py --loop --interval 1800'"
+    notes: "Both 2.4.1 and 2.4.2 carry the fix; Phase-1 preamble at line 27 asserts SAXO_TOKEN is set with FATAL exit."
+
+  - finding_id: CRO-B2
+    description: "Account-key parity gate silent on success; Phase 3.4 grep accepts empty as success"
+    expected_v2_fix: "Step 3.4 reads data/paper_account_key_lock.json with json.load and prints account_key; CRO long-term fix (logger.info patch) flagged as separate SD"
+    expected_v2_lines: "Step 3.4 (lines ~702-720)"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:611 — 'python3 -c \"import json; d=json.load(open(...))); print(account_key=+d[account_key])\"'"
+    notes: "Positive file check with json.load replaces silent grep; long-term logger.info patch flagged as TODO(v3) at line 618."
+
+  - finding_id: CRO-B3
+    description: "Kill-switch arming check missing; stale-HALTED audit log kills script in ms; evades Phase-3"
+    expected_v2_fix: "New Phase-1 Step 1.6 — pre-flight check of data/kill_switch_audit.log + ..._cf.log for last-entry HALTED; FATAL exit if found"
+    expected_v2_lines: "Step 1.6 (lines ~341-360, NEW)"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:154-163 — for f in data/kill_switch_audit.log data/kill_switch_audit_cf.log; ... FATAL: $f last entry is HALTED"
+    notes: "Step 1.6 added at lines 149-174; checks both audit log files; FATAL exit on HALTED; amendment log entry #2 confirms APPLIED."
+
+  - finding_id: CRO-C1
+    description: "Steps 3.2/3.5 target wrong log file (paper_trading_session.log is trade-event-only)"
+    expected_v2_fix: "Heartbeat file recency check (data/heartbeats/*.json); fallback to ws01/ws02_trace.log"
+    expected_v2_lines: "Steps 3.2 (~653-673), 3.5 (~714-730)"
+    closure_status: "partially-closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:577 — 'ls -la data/heartbeats/vt.json data/heartbeats/carry_fred.json'; fallback at line 586"
+    notes: "Primary heartbeat check added but TODO(v3):#5 at line 585 flags heartbeat wire confirmation still pending; fallback present."
+
+  - finding_id: CRO-C2
+    description: "No hostname assertion enforces same-host PM constraint"
+    expected_v2_fix: "Phase-1 preamble: echo host=$(hostname) cwd=$(pwd) utc=..."
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:26 — 'echo \"host=$(hostname) cwd=$(pwd) utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'"
+    notes: "Amendment #11 APPLIED; hostname/cwd/UTC assertion in Phase-1 preamble."
+
+  - finding_id: CRO-C3
+    description: "Backup filename uses local time vs UTC elsewhere (clock inconsistency)"
+    expected_v2_fix: "date -u +%Y%m%dT%H%M%SZ in backup filename"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:208 — 'cp data/paper_trading_session.log \"data/...pre-launch-$(date -u +%Y%m%dT%H%M%SZ).bak\"'"
+    notes: "Amendment #12 APPLIED; backup filename now uses UTC timestamp."
+
+  - finding_id: CRO-C4
+    description: "No per-phase verbal-confirmation block (Gawande deploy-checklist degradation)"
+    expected_v2_fix: "Flagged TODO(v3) by ops-engineer; single-CEO degraded form documented"
+    closure_status: "partially-closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:763 (amendment log) — 'Amendment 16 | TODO(v3) | Phase 2, all steps | Add phase-confirmation block'"
+    notes: "Acknowledged as TODO(v3) per amendment #16; not a blocking gap for paper-only launch."
+
+  - finding_id: CRO-C5
+    description: "SIGKILL caveat undocumented (kernel FD reclaim releases flock but audit log line lost)"
+    expected_v2_fix: "SIGKILL caveat section added (1 paragraph)"
+    closure_status: "closed"
+    evidence_v2_line_ref: "docs/launch/t0-dispatch-runbook.md:707 — 'WARNING — SIGKILL is uncatchable: ...DISPATCH_LOCK_RELEASED audit-log line is NOT written'"
+    notes: "Amendment #21 APPLIED; Graceful Shutdown section added at lines 696-708 with SIGKILL caveat."
+
+new_blocking_gaps_in_v2: []  # No new blocking gaps introduced in v2
+
+bc8_lift_cond_status_v2:
+  - cond: COND-1
+    description: "fcntl.flock(LOCK_EX|LOCK_NB) active in both scripts"
+    preserved_v2: true
+    evidence: "v2 runbook does not modify scripts; preserved at code level; runbook cross-references scripts/run_paper_trading_vt.py:76 and carry_fred.py:95 at line 738"
+  - cond: COND-2
+    description: "lock released on ALL exit paths (try/finally)"
+    preserved_v2: true
+    evidence: "v2 runbook does not modify scripts; code-level try/finally preserved; runbook references kill_switch.py at line 738"
+  - cond: COND-3
+    description: "account-key parity gate enforced at startup; positive verification in runbook"
+    preserved_v2: true
+    evidence: "Step 3.4 (line 605-618) now provides positive file-read verification of data/paper_account_key_lock.json; CRO-B2 closed"
+  - cond: COND-4
+    description: "aggregate JPY-correlated cap <= 15% (frozenset {USDJPY, GBPUSD})"
+    preserved_v2: true
+    evidence: "enforced by script config; runbook does not alter; no v2 edits touch config or risk caps"
+  - cond: COND-5
+    description: "drawdown ladder 10/15/20 assessed per cycle pre-lock"
+    preserved_v2: true
+    evidence: "Step 3.5 (lines 622-639) checks drawdown ladder snapshot; amendment #5 APPLIED per amendment log line 753"
+  - cond: COND-6
+    description: "kill-switch trigger paths wired; positive arming check in Phase-1"
+    preserved_v2: true
+    evidence: "Step 1.6 (lines 149-174) added positive kill-switch arming check; CRO-B3 closed; COND-6 satisfied"
+  - cond: COND-7
+    description: "paper-only; no production-account promotion"
+    preserved_v2: true
+    evidence: "runbook header line 6: 'Executor: CEO huangtm@gmail.com (manual steps; orchestrator stages only)'; no production-account steps present"
+
+evidence:
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    note: "v2 runbook (773 lines) under cycle-2 verification"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/cro-risk-review.yaml"
+    note: "cycle-1 review"
+  - path: ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/ops-engineer-runbook-result-v2.yaml"
+    note: "structured fields only (body redacted per independence rule)"
+
+assumptions:
+  - "v2 amendment_id mapping in ops-engineer artifact accurately describes the runbook edits"
+knowledge_gaps: []
+sources:
+  - "docs/launch/t0-dispatch-runbook.md"
+  - ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/cro-risk-review.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

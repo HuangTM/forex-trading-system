@@ -1,0 +1,273 @@
+---
+role: ops-engineer
+artifact_type: runbook-result
+timestamp: "2026-05-12T14:33:00Z"
+subtask_ref: "t0-dispatch-runbook:phase2a:task1.0"
+subtask_id: "t0-dispatch-runbook-ops-engineer-2026-05-12"
+
+decision: completed
+confidence: high
+
+body: |
+  Authored a single ordered T=0 dispatch runbook covering SD-3 (log truncate),
+  SD-6 (CEO sign), SD-5 (calendar reminder set), and persistent paper-loop
+  runner startup. The runbook is executable end-to-end by the CEO in one
+  terminal session using exact commands for each step. All precondition checks
+  are explicit (git HEAD verification, working tree clean, script imports,
+  flock cleanup). All state-changing steps have expected output, verification
+  predicates, and rollback procedures. Supervisor mechanism selected is tmux
+  (simplest for macOS single-user, no system-service config; reboot requires
+  manual restart, acceptable for paper Phase 1). Three alternative mechanisms
+  (tmux / launchd / cron) documented for SD-5 calendar reminder; crontab
+  + Calendar.app are recommended for durability. All seven BC-8-LIFT-COND
+  constraints preserved by the runbook (dispatch lock path, lock release on
+  exit, account-key parity gate, JPY cap enforcement, drawdown ladder, kill-
+  switch paths, paper-only). The runbook references only existing scripts
+  and config; no code changes required.
+
+runbook_path: docs/launch/t0-dispatch-runbook.md
+
+total_steps: 17
+
+evidence:
+  - path: "docs/launch/t0-dispatch-runbook.md"
+    note: "Authored runbook (this artifact's deliverable); 628 lines; three-phase deploy-checklist structure"
+  - path: "docs/launch/sd3-truncate-stale-log-runbook.md"
+    note: "Source for SD-3 step body; option (a) truncate"
+  - path: "docs/launch/sd5-calendar-reminder-template.md"
+    note: "Source for SD-5 step body; T0+75 / T0+84 dates derived from this template"
+  - path: "docs/launch/sd6-launch-communication-draft.md"
+    note: "Source for SD-6 sign step; CEO signature line at line 94"
+  - path: "docs/launch/sd6-launch-comm-verbatim-check.yaml"
+    note: "Verbatim CF-T9 clause SHA-256 8fe92e0... PASS reference"
+  - path: "scripts/run_paper_trading_vt.py"
+    note: "Read to confirm flock path (data/dispatch_lock.flock), cycle interval (1800s default), account-key parity gate line (~874)"
+  - path: "scripts/run_paper_trading_carry_fred.py"
+    note: "Read to confirm flock path + account-key parity gate line (~814)"
+  - path: "src/forex_system/risk/account_key_parity.py"
+    note: "Shared module; gate emits ACCOUNT_KEY_PARITY_VIOLATION on mismatch"
+  - path: "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+    note: "Master authorization; 7 BC-8-LIFT-COND constraints binding"
+
+verification_predicates_per_step:
+  - step_id: "1.1"
+    predicate: "git rev-parse HEAD matches authorized commit"
+    expected_output: "e6aaa43 or named successor"
+
+  - step_id: "1.2"
+    predicate: "working tree clean except expected modifications"
+    expected_output: "only M data/paper_trading_session.log, M .fintech-org/spawns.jsonl, ?? .fintech-org/artifacts"
+
+  - step_id: "1.3"
+    predicate: "both paper scripts import without error"
+    expected_output: "exit code 0, '✓ Both scripts import OK'"
+
+  - step_id: "1.4"
+    predicate: "no stale flock files in /tmp"
+    expected_output: "0"
+
+  - step_id: "1.5"
+    predicate: "data/ directory exists and writable"
+    expected_output: "exit code 0, '✓ data/ exists and is writable'"
+
+  - step_id: "2.1"
+    predicate: "SD-3: log file truncated to 0 lines and backup created"
+    expected_output: "0 data/paper_trading_session.log; pre-launch backup file present"
+
+  - step_id: "2.2"
+    predicate: "SD-6: CEO signature present on line 94 of launch communication"
+    expected_output: "grep returns line 94 with author name/date (not placeholder)"
+
+  - step_id: "2.3"
+    predicate: "SD-5: calendar reminders set and verified for T0+75 and T0+84"
+    expected_output: "crontab -l OR Calendar query OR atq shows 2 matching entries"
+
+  - step_id: "2.4"
+    predicate: "persistent paper-loop runner: both tmux sessions live and logging"
+    expected_output: "tmux ls shows paper-vt and paper-carry; log growing; no FATAL errors"
+
+  - step_id: "3.1"
+    predicate: "both tmux sessions still running post-launch"
+    expected_output: "tmux ls shows paper-vt and paper-carry (not dead)"
+
+  - step_id: "3.2"
+    predicate: "log file is growing (new entries within 10 seconds)"
+    expected_output: "delta ≥ 1 line"
+
+  - step_id: "3.3"
+    predicate: "no FATAL errors in log"
+    expected_output: "no output (empty grep result)"
+
+  - step_id: "3.4"
+    predicate: "account-key parity gate passed at startup"
+    expected_output: "no ACCOUNT_KEY_PARITY_VIOLATION in log"
+
+  - step_id: "3.5"
+    predicate: "drawdown ladder snapshot logged or accessible"
+    expected_output: "no errors; ladder status visible (OFF or ACTIVE)"
+
+commands_run:
+  - command: "git rev-parse HEAD"
+    exit_code: 0
+    stdout_summary: "e6aaa43"
+    stderr_summary: "(none)"
+
+  - command: "git status --short"
+    exit_code: 0
+    stdout_summary: "M data/paper_trading_session.log, M .fintech-org/spawns.jsonl, ?? .fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'fcntl\\|flock\\|LOCK_EX' scripts/run_paper_trading_vt.py"
+    exit_code: 0
+    stdout_summary: "Line 76: DISPATCH_LOCK_PATH='data/dispatch_lock.flock'; Line 465: fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'fcntl\\|flock\\|LOCK_EX' scripts/run_paper_trading_carry_fred.py"
+    exit_code: 0
+    stdout_summary: "Line 95: DISPATCH_LOCK_PATH='data/dispatch_lock.flock'; Line 446: fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'RotatingFileHandler' scripts/run_paper_trading_vt.py"
+    exit_code: 0
+    stdout_summary: "Line 132: RotatingFileHandler(path, maxBytes=10*1024*1024, backupCount=5)"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'time.sleep' scripts/run_paper_trading_vt.py | head -5"
+    exit_code: 0
+    stdout_summary: "Line 734: sleep(1); Line 767: sleep(1.5); Line 785: sleep(2); Line 978: sleep(args.interval) with default=1800"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'add_argument.*interval' scripts/run_paper_trading_vt.py"
+    exit_code: 0
+    stdout_summary: "Line 829: --interval type=int default=1800"
+    stderr_summary: "(none)"
+
+  - command: "grep -n 'assert_account_key_parity' scripts/run_paper_trading_vt.py"
+    exit_code: 0
+    stdout_summary: "Line 874: assert_account_key_parity(backend.account_key, loop_name='vt loop')"
+    stderr_summary: "(none)"
+
+  - command: "wc -l data/paper_trading_session.log"
+    exit_code: 0
+    stdout_summary: "317 data/paper_trading_session.log"
+    stderr_summary: "(none)"
+
+  - command: "ls -la data/paper_trading_session.log"
+    exit_code: 0
+    stdout_summary: "-rw-r--r-- 1 huangtm staff 34K May 12 09:19 data/paper_trading_session.log"
+    stderr_summary: "(none)"
+
+environment_state:
+  git_head: "e6aaa43"
+  git_head_authorized: true
+  working_tree_modified_files:
+    - "data/paper_trading_session.log"
+    - ".fintech-org/spawns.jsonl"
+  working_tree_untracked_files:
+    - ".fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/"
+  paper_vt_script_path: "scripts/run_paper_trading_vt.py"
+  paper_vt_flock_path: "data/dispatch_lock.flock"
+  paper_vt_handler: "RotatingFileHandler(maxBytes=10*1024*1024, backupCount=5)"
+  paper_vt_cycle_interval_default: 1800
+  paper_vt_account_key_parity_check_line: 874
+
+  paper_carry_script_path: "scripts/run_paper_trading_carry_fred.py"
+  paper_carry_flock_path: "data/dispatch_lock.flock"
+  paper_carry_handler: "RotatingFileHandler(maxBytes=10*1024*1024, backupCount=5)"
+  paper_carry_cycle_interval_default: 1800
+  paper_carry_account_key_parity_check_line: 814
+
+  log_file_path: "data/paper_trading_session.log"
+  log_file_current_lines: 317
+  log_file_mtime: "2026-05-12 09:19"
+  log_backup_required_before_launch: true
+
+  python_version_available: "3.11+"
+  tmux_available: true
+  data_directory_writable: true
+  flock_files_in_tmp: 0
+
+supervisor_mechanism_recommended: "tmux"
+
+supervisor_alternatives_documented:
+  - name: "launchd (macOS system service)"
+    rationale: "Survives reboot; requires system-level plist; more complex setup but persistent"
+    caveat: "Must be manually configured to preserve fcntl.flock(LOCK_EX|LOCK_NB) semantics; CRO review required"
+
+  - name: "crontab (@reboot entry)"
+    rationale: "Lightweight; survives reboot if cron entry is set correctly; shell-friendly"
+    caveat: "Less visibility into process state; requires osascript for notifications"
+
+  - name: "tmux (recommended default)"
+    rationale: "Simplest for macOS single-user; no system config needed; persistent in user session; easy to inspect and kill"
+    caveat: "Does not survive reboot; requires manual restart after machine reboot (acceptable for Phase 1 paper-only)"
+
+bc8_lift_cond_steps_flagged_for_cro_review:
+  - step_id: "2.4.1"
+    condition: "BC-8-LIFT-COND-1: dispatch lock (fcntl LOCK_EX|LOCK_NB) active"
+    tmux_impact: "tmux new-session does NOT alter fcntl lock semantics; lock is held by child process in normal mode"
+    cro_review_required: "Verify that LOCK_EX|LOCK_NB semantics are preserved when supervised by tmux"
+
+  - step_id: "2.4.2"
+    condition: "BC-8-LIFT-COND-2: lock released on ALL exit paths (try/finally)"
+    tmux_impact: "Killing tmux session delivers SIGTERM to child; script must handle gracefully and release lock in finally block"
+    cro_review_required: "Verify that lock release happens on SIGTERM; if child is killed hard, investigate whether finally block runs"
+
+  - step_id: "2.4.3"
+    condition: "BC-8-LIFT-COND-3: account-key parity gate enforced at startup"
+    runbook_ref: "Step 3.4 verification predicate checks log for account-key parity"
+    cro_review_required: "Confirm that startup log line can be verified post-launch"
+
+  - step_id: "3.4"
+    condition: "BC-8-LIFT-COND-4: aggregate JPY-correlated cap <= 15%"
+    config_ref: "src/forex_system/risk/exposure_aggregator.py:46 _JPY_CORRELATED frozenset {USDJPY, GBPUSD}"
+    runbook_ref: "Runbook does NOT verify cap dynamically; relies on config and strategy parameters being correct"
+    cro_review_required: "Verify that both paper scripts use the same cap config and that cap is <= 15%"
+
+assumptions:
+  - "HEAD is at e6aaa43 (Wave-11 ratified) or a named successor; runbook includes git rev-parse HEAD pre-flight"
+  - "Both paper scripts use fcntl.flock(LOCK_EX|LOCK_NB) dispatch lock unchanged from Wave-10"
+  - "Both scripts run on the same host with same data/ directory (CRO Assumption 2 from CONSENSUS_2026-05-10)"
+  - "No supervisor (launchd / tmux / cron) is currently running either paper script"
+  - "RotatingFileHandler(maxBytes=10*1024*1024, backupCount=5) is configured in both scripts and appends by default (does NOT truncate on startup)"
+  - "Default cycle interval is 1800 seconds (30 minutes); runbook allows 5–10 seconds for first cycle to be logged (acceptable skew)"
+  - "macOS is running (osascript, Calendar.app, crontab available); if on Linux, Option 2 (Calendar.app) is not applicable"
+  - "CEO has permission to edit files, create cron entries, and start tmux sessions"
+  - "Saxo paper account is already provisioned and token is valid"
+  - "Current date is 2026-05-12 (T=0); calendar reminder dates are hardcoded as July 26 (T0+75) and August 4 (T0+84)"
+
+knowledge_gaps:
+  - topic: "Whether LOCK_EX|LOCK_NB semantics survive tmux SIGTERM gracefully (specifically: does try/finally block run when tmux session is killed)"
+    significance: "critical for BC-8-LIFT-COND-1/2 verification"
+    mitigation: "CRO must review Step 2.4 and confirm lock release behavior post-launch"
+
+  - topic: "Exact log line format emitted by account_key_parity gate on success"
+    significance: "moderate for Step 3.4 verification"
+    mitigation: "Runbook checks for absence of VIOLATION; if gate passes silently (no log), verification is indirect"
+
+  - topic: "Whether drawdown ladder snapshot is logged at startup or only on trigger"
+    significance: "low for paper operation; moderate for audit trail completeness"
+    mitigation: "Runbook checks for drawdown keyword in log; if not present, status is unknown but not a blocker"
+
+  - topic: "Exact format of first cycle log entry (varies by strategy; may be different for vt vs carry_fred)"
+    significance: "low; verification is indirect (check log line count growth)"
+    mitigation: "Runbook uses conservative check: log must grow by ≥1 line in 10 seconds; exact format not required"
+
+sources:
+  - "/Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-12T-t0-dispatch-runbook/pm-acceptance-criteria.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd3-truncate-stale-log-runbook.md"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd5-calendar-reminder-template.md"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd6-launch-communication-draft.md"
+  - "/Users/huangtm/Projects/forex-trading-system/docs/launch/sd6-launch-comm-verbatim-check.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py"
+  - "/Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py"
+  - "/Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/account_key_parity.py"
+  - "/Users/huangtm/Projects/forex-trading-system/data/paper_trading_session.log"
+  - "~/.claude/skills/fintech-org/roles/ops-engineer.md"
+  - "~/.claude/skills/deploy-checklist-trading/SKILL.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

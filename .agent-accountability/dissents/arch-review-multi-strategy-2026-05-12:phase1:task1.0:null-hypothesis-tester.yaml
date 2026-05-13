@@ -1,0 +1,84 @@
+schema_version: 1.0
+artifact_type: dissent
+track_id: arch-review-multi-strategy-2026-05-12
+addressed_unit: "arch-review-multi-strategy-2026-05-12:phase1:task1.0"
+timestamp: "2026-05-12T23:55:00Z"
+dissenter:
+  name: null-hypothesis-tester
+  role: null-hypothesis-tester
+  authority_basis: 'Designated structural skeptic per fintech-org/SKILL.md rule 6: "Null-Hypothesis Tester dissent is append-only. Cannot be erased by the others agreeing."'
+severity: material_concern
+does_block: true   # deterministic from severity per protocols/full-auto.md table
+dissent_text: |
+  Null-Hypothesis Tester DISSENTS from the atomic claim that "the
+  existing forex-trading-system Phase-0 baseline is robust, flexible,
+  and scalable enough to absorb the 2 -> 4 strategy expansion via
+  Strangler-Fig without rework of existing foundations."
+
+  Three blocking findings, with file:line evidence:
+
+  1. Strategy ABC is Liskov-violated in production. The abstract
+     contract at src/forex_system/core/interfaces.py:35 declares
+     __init__(self, params), but 6 of 10 registered strategies
+     override __init__ with a second positional argument (rate_data).
+     The registry factory at src/forex_system/strategies/registry.py:31
+     passes ONLY params, never rate_data. Production caller code at
+     scripts/run_falsification_trial.py:439-474 maintains a hardcoded
+     _SELF_LOADING_RATE_STRATEGIES allowlist and uses
+     inspect.signature on __init__ to choose between two construction
+     paths — structural proof the ABC contract is already leaky. Adding
+     strategies #3 and #4 with new construction-time dependencies
+     (intraday tick-data source, ML model artifact path/version) will
+     compound the leak. The atomic claim's "no rework of foundations"
+     cannot hold.
+
+  2. The two paper-loop scripts (1005 LoC + 938 LoC = 1943 LoC) are
+     ~71% duplicated (557 changed lines out of ~1000 each). BC-8-LIFT-
+     COND-1..7 risk-envelope code (kill switch, drawdown contract,
+     account-key parity gate, heartbeat watchdog, fcntl dispatch lock,
+     JPY-correlated cap, swap accrual) is inline-replicated, not
+     shared-library-extracted. At N=4 strategies, projected ~4000 LoC
+     with 4 copies of the same risk envelope. Knight-Capital-class
+     drift risk. The PM-quoted "Strangler-Fig step 1: template paper
+     scripts (1-2d)" estimate is unsafe — that step is actually 1-2
+     weeks of foundation rework (shared risk envelope extraction +
+     paper-loop regression fixture + integration test for BC-8-LIFT-
+     COND-1..7), contradicting the atomic claim.
+
+  3. ML infrastructure is empirically absent. ls src/forex_system/
+     shows no ml/ subdirectory and no portfolio/ subdirectory. Grep
+     across src/ returns zero matches for model_card, drift_monitor,
+     calibration_tracker, safetensors, .onnx, model_version,
+     model_registry, model_serving, inference_server. Zero imports of
+     sklearn, torch, tensorflow, xgboost, lightgbm anywhere under
+     src/. Absorbing an ML strategy "without rework of foundations" is
+     literally false — the foundations do not exist. Building them
+     (model artifact contract, versioning, training-vs-serving parity
+     test, feature-pipeline reproducibility, drift monitor, calibration
+     tracker, rollback, ML-kill-switch) is multi-month work, not a 2-3
+     week Strangler-Fig step.
+
+  Asymmetric-cost analysis (NHT-ARCH-8): false-positive (approve and
+  be wrong) carries governance and design-debt cost with a long tail;
+  false-negative (reject and be wrong) costs ~1-2 weeks of delay.
+  Standard NHT doctrine: err toward false-negative.
+
+  Acceptable narrowed claim: the baseline can absorb ONE additional
+  intraday-classical strategy via Strangler-Fig CONDITIONAL on prior
+  remediation of (a) the Strategy ABC Liskov violation, (b) shared
+  risk-envelope extraction from the paper scripts, (c) a parameterized
+  per-strategy no-lookahead probe, and (d) a paper-loop regression
+  fixture + integration test for BC-8-LIFT-COND-1..7. The ML strategy
+  is DEFERRED pending a greenfield src/forex_system/ml/ design review.
+
+  Forward-looking only. Does NOT gate current T=0 paper trading per PM
+  hard-constraint line 25 ("does_not_gate_current_t0_paper_trading:
+  true"). No live-capital recommendations. Per fintech-org rule 6,
+  this dissent is append-only and must be preserved verbatim in any
+  consensus artifact.
+surfaces_to:
+  consensus_artifact: "docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md"
+  ratification_artifact: ".agent-accountability/ratifications/arch-review-multi-strategy-2026-05-12:phase1:task1.0.yaml"
+sources:
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/nht-null-test-report.yaml"
+no-capital-instruction: true

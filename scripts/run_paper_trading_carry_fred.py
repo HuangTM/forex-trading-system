@@ -66,7 +66,11 @@ from forex_system.risk.account_key_parity import (
     reset_account_key_lock,
 )
 from forex_system.risk.bet1_sizing import bet1_size_multiplier, regime_active_status
-from forex_system.risk.drawdown_contract import DrawdownContract, DrawdownLevel
+from forex_system.risk.drawdown_contract import (
+    AggregateDrawdownContract,
+    DrawdownContract,
+    DrawdownLevel,
+)
 from forex_system.risk.exposure_aggregator import (
     AggregationGateBlocked,
     check_dispatch_allowed,
@@ -321,6 +325,7 @@ def run_cycle(
     kill_switch: KillSwitch,
     dd_contract: DrawdownContract,
     rebal_threshold: float,
+    aggregate_dd_contract: AggregateDrawdownContract | None = None,
     auto_mode: bool = False,
     ntfy_topic: str | None = None,
     horizon: str = "daily",
@@ -432,6 +437,50 @@ def run_cycle(
         return {"_action": SKIP_DD_HALT_NEW}
     # REDUCE_SIZING: honor _dd.sizing_multiplier downstream by multiplying
     # target_units before execution.
+
+    # --- REM-7 / LTCM defense: AggregateDrawdownContract per-bar update ---
+    # Called with the same equity value fetched above so both contracts share
+    # a single broker-receive-time snapshot (clock-and-ordering discipline).
+    # TODO(REM-2-full-extraction): move to PaperRunnerBase
+    _agg_dd_extra_multiplier = 1.0
+    if aggregate_dd_contract is not None:
+        _snapshot_ts = datetime.now(timezone.utc)
+        _agg_assess = aggregate_dd_contract.update_equity(
+            equity,
+            snapshot_timestamp=_snapshot_ts,
+            contributing_strategies=["carry_fred"],
+        )
+        if _agg_assess.force_flat:
+            logger.critical(
+                "aggregate_drawdown_lockout_carry_fred",
+                extra={
+                    "event": "AGGREGATE_DD_LOCKOUT",
+                    "aggregate_drawdown_pct": _agg_assess.aggregate_drawdown_pct,
+                    "equity": equity,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                },
+            )
+            _emit_ws02(cycle_id, pair, "SKIP_AGGREGATE_DD_LOCKOUT", equity=equity,
+                       regime_active=regime_active, size_multiplier=size_multiplier)
+            halt_paper_loop(reason=f"aggregate_dd_lockout_{_agg_assess.aggregate_drawdown_pct:.4f}")
+            return {"_action": "SKIP_AGGREGATE_DD_LOCKOUT"}
+        elif not _agg_assess.allows_new_dispatch:
+            logger.critical(
+                "aggregate_drawdown_halt_carry_fred",
+                extra={
+                    "event": "AGGREGATE_DD_HALT",
+                    "aggregate_drawdown_pct": _agg_assess.aggregate_drawdown_pct,
+                    "equity": equity,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                },
+            )
+            _emit_ws02(cycle_id, pair, "SKIP_AGGREGATE_DD_HALT", equity=equity,
+                       regime_active=regime_active, size_multiplier=size_multiplier)
+            return {"_action": "SKIP_AGGREGATE_DD_HALT"}
+        # Apply aggregate sizing multiplier (HALVE level) multiplicatively
+        _agg_dd_extra_multiplier = _agg_assess.sizing_multiplier
 
     # BC-8 option-B: acquire advisory cross-process file-lock BEFORE get_positions.
     # Held through execute_signal + reconciliation; released in finally on any exit.
@@ -577,7 +626,9 @@ def run_cycle(
         # Also honor REDUCE_SIZING if the drawdown contract requires it.
         raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
         effective_dd_multiplier = _dd.sizing_multiplier   # 1.0/0.5/0.0 per DD level
-        target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier)
+        # REM-7: also apply aggregate DD multiplier (1.0 if HALVE not fired, 0.5 if HALVE)
+        target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier
+                           * _agg_dd_extra_multiplier)
 
         cur_pos = current_positions.get(pair)
         cur_units = cur_pos.size if cur_pos else 0.0
@@ -839,6 +890,21 @@ def main():
         full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,  # 0.20 — CRO DD-3
     )
 
+    # --- REM-7: AggregateDrawdownContract (LTCM-class defense) ---
+    # Instantiated alongside per-strategy DrawdownContract per F-001 PR ruling.
+    # Both paper scripts must instantiate directly until REM-2 full BaseRunner extraction.
+    # TODO(REM-2-full-extraction): move to PaperRunnerBase
+    aggregate_dd_contract = AggregateDrawdownContract(
+        warn_threshold=0.04,      # 4% — CRO R-7.1
+        halve_threshold=0.08,     # 8% — CRO R-7.1
+        halt_threshold=0.12,      # 12% — CRO R-7.1
+        lockout_threshold=0.15,   # 15% — CRO R-7.1
+        per_strategy_halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,
+        per_strategy_full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,
+        n_strategies_max=CRO_MAX_ACTIVE_STRATEGIES,
+        kill_switch=kill_switch,
+    )
+
     print("=" * 60)
     print("  PAPER TRADING — Bet #1 Carry-Fred (USDJPY)")
     print(f"  Config: {args.config}")
@@ -892,6 +958,7 @@ def main():
                     client, backend, sizer, strategy, pair,
                     pred_log, trade_log, kill_switch, dd_contract,
                     rebal_threshold=rebal_threshold,
+                    aggregate_dd_contract=aggregate_dd_contract,
                     auto_mode=args.auto, ntfy_topic=args.ntfy,
                     horizon=args.timeframe,
                     cycle_id=cycle_id,
@@ -921,6 +988,7 @@ def main():
                 client, backend, sizer, strategy, pair,
                 pred_log, trade_log, kill_switch, dd_contract,
                 rebal_threshold=rebal_threshold,
+                aggregate_dd_contract=aggregate_dd_contract,
                 auto_mode=args.auto, ntfy_topic=args.ntfy,
                 horizon=args.timeframe,
                 cycle_id=1,

@@ -29,16 +29,17 @@ class CarryStrategy(Strategy):
         swap_short_pips_per_day: float — for static fallback mode
     """
 
-    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):
+    def __init__(self, params: dict[str, Any], *, rate_data: pd.DataFrame | None = None):
         """
         Args:
             params: Strategy parameters (see class docstring).
             rate_data: DataFrame indexed by date with a column per pair
                        containing rate differentials as decimals (e.g., 0.0289
                        for 2.89%). If None, falls back to static swap direction.
+                       Keyword-only per REM-1 / D-1.1 ABC contract.
         """
-        super().__init__(params)
-        self.rate_data = rate_data
+        super().__init__(params, rate_data=rate_data)
+        # self.rate_data is set by ABC __init__
         self._warned_static = False
 
     @property

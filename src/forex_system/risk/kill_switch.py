@@ -47,6 +47,12 @@ class TriggerReason(Enum):
     INFRASTRUCTURE = "infrastructure_failure"
     MANUAL = "manual_trigger"
     ERROR = "internal_error"
+    # REM-7 / CRO R-7.1 / BC-REM7-LADDER-5: aggregate drawdown ladder triggers.
+    # DRAWDOWN_AGGREGATE_HALT: aggregate DD >= 12% threshold; halts new dispatch for ALL strategies.
+    # DRAWDOWN_AGGREGATE_LOCKOUT: aggregate DD >= 15% threshold; forces ALL strategies to flat;
+    #   paper loop enters frozen state pending CRO review.
+    DRAWDOWN_AGGREGATE_HALT = "drawdown_aggregate_halt"
+    DRAWDOWN_AGGREGATE_LOCKOUT = "drawdown_aggregate_lockout"
 
 
 @dataclass

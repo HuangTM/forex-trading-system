@@ -6,13 +6,29 @@ needed for data download.
 
 For live trading, a proper OAuth2 flow with token rotation is required
 (see architecture doc, Phase 3).
+
+REM-6 hardening (CTO D-6.1, D-6.2 / CRO BC-9-N4-COND-2):
+  (a) 429 retry wrapper: inspects Retry-After header; exponential backoff
+      when absent (max_retries=3, base_delay=2.0s, jitter_factor=0.5).
+  (b) Startup jitter: random 0-30s delay in __init__ to distribute N=4
+      process session openings across bar-close window.
+  (c) Per-process token bucket: threading.Lock-protected, 30 req/min
+      (120 total / 4 processes after D-4.1 stagger distributes the burst).
+  (d) All request methods deduct from the bucket before issuing.
 """
 
 from __future__ import annotations
 
+import email.utils
+import logging
+import random
+import threading
 import time
+from typing import Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 # Saxo environments
 SIM_BASE = "https://gateway.saxobank.com/sim/openapi"
@@ -55,6 +71,77 @@ HORIZONS = {
     "weekly": 10080,
 }
 
+# REM-6 / D-6.1: Per-process token bucket parameters.
+# Per-process budget: 30 req/min (120 total / 4 processes; stagger D-4.1 distributes burst).
+# CTO KG-D6-1: measure actual req count per bar-close cycle before adjusting.
+_DEFAULT_BUCKET_RATE_PER_MIN: int = 30
+_DEFAULT_MAX_RETRIES: int = 3
+_DEFAULT_BASE_DELAY_SECONDS: float = 2.0
+_DEFAULT_JITTER_FACTOR: float = 0.5  # uniform random in [0, base_delay * factor]
+_STARTUP_JITTER_MAX_SECONDS: float = 30.0
+
+
+class _TokenBucket:
+    """Thread-safe per-process token bucket for rate limiting.
+
+    Refills at `rate_per_min` tokens per minute (continuous refill model).
+    Capacity = rate_per_min (1 minute burst cap).
+
+    All requests must call deduct() before issuing. If tokens are exhausted,
+    deduct() sleeps until enough tokens are available.
+
+    Observability: every deduction logs token state at DEBUG level per REM-6
+    log-as-decision-trace requirement.
+    """
+
+    def __init__(self, rate_per_min: int = _DEFAULT_BUCKET_RATE_PER_MIN) -> None:
+        self._rate_per_min = rate_per_min
+        self._capacity = float(rate_per_min)
+        self._tokens = float(rate_per_min)
+        self._last_refill = time.monotonic()
+        self._lock = threading.Lock()
+
+    @property
+    def rate_per_min(self) -> int:
+        return self._rate_per_min
+
+    def _refill(self) -> None:
+        """Refill tokens based on elapsed time since last refill. Call under lock."""
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        refill = elapsed * (self._rate_per_min / 60.0)
+        self._tokens = min(self._capacity, self._tokens + refill)
+        self._last_refill = now
+
+    def deduct(self, tokens: float = 1.0) -> None:
+        """Deduct tokens from the bucket. Sleeps if insufficient tokens available.
+
+        Logs token state at DEBUG level per REM-6 observability boundary.
+        """
+        while True:
+            with self._lock:
+                self._refill()
+                if self._tokens >= tokens:
+                    self._tokens -= tokens
+                    current_tokens = self._tokens
+                    refill_rate = self._rate_per_min
+                    last_refill = self._last_refill
+                    break
+                # Not enough tokens — calculate wait time before releasing lock
+                deficit = tokens - self._tokens
+                wait_seconds = deficit / (self._rate_per_min / 60.0)
+
+            # Sleep outside the lock to avoid blocking other threads
+            time.sleep(wait_seconds)
+
+        logger.debug(
+            "token_bucket_deducted current_tokens=%.2f refill_rate_per_min=%d "
+            "last_refill_monotonic=%.3f",
+            current_tokens,
+            refill_rate,
+            last_refill,
+        )
+
 
 class SaxoClient:
     """REST client for Saxo Bank OpenAPI.
@@ -62,11 +149,40 @@ class SaxoClient:
     Two ways to create:
         1. SaxoClient(token="...") — static token (24h dev tokens)
         2. SaxoClient.from_auth(auth) — managed OAuth with auto-refresh
+
+    REM-6 hardening: startup jitter, per-process token bucket, 429 retry.
+    Pass startup_jitter=False in tests to disable the random delay.
     """
 
-    def __init__(self, token: str, live: bool = False):
+    def __init__(
+        self,
+        token: str,
+        live: bool = False,
+        startup_jitter: bool = True,
+        rate_per_min: int = _DEFAULT_BUCKET_RATE_PER_MIN,
+        max_retries: int = _DEFAULT_MAX_RETRIES,
+        base_delay_seconds: float = _DEFAULT_BASE_DELAY_SECONDS,
+        jitter_factor: float = _DEFAULT_JITTER_FACTOR,
+        strategy_id: Optional[str] = None,
+    ):
+        # REM-6 D-6.1 startup jitter: random 0–30s delay so N=4 strategies
+        # launched simultaneously do not all open sessions at the same instant.
+        if startup_jitter:
+            jitter = random.uniform(0, _STARTUP_JITTER_MAX_SECONDS)
+            logger.info(
+                "saxo_client_startup_jitter strategy_id=%s jitter_seconds=%.2f",
+                strategy_id or "unset",
+                jitter,
+            )
+            time.sleep(jitter)
+
         self.base_url = LIVE_BASE if live else SIM_BASE
         self._auth = None  # Set by from_auth()
+        self._strategy_id = strategy_id or "unset"
+        self._max_retries = max_retries
+        self._base_delay = base_delay_seconds
+        self._jitter_factor = jitter_factor
+        self._bucket = _TokenBucket(rate_per_min=rate_per_min)
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {token}",
@@ -91,23 +207,95 @@ class SaxoClient:
             token = self._auth.ensure_valid()
             self.session.headers["Authorization"] = f"Bearer {token}"
 
-    def _get(self, path: str, **kwargs) -> requests.Response:
-        """GET with auto token refresh."""
-        self._ensure_token_fresh()
+    def _retry_request(
+        self,
+        method: str,
+        url: str,
+        **kwargs,
+    ) -> requests.Response:
+        """Issue an HTTP request with 429 retry logic and token-bucket deduction.
+
+        REM-6 / D-6.1: deducts one token before each attempt.
+        REM-6 / D-6.2: on HTTP 429, respects Retry-After header or applies
+        exponential backoff with jitter (base=2.0s, jitter_factor=0.5).
+
+        Observability: every 429 response logs at WARN with full context per
+        REM-6 observability boundary.
+
+        Raises requests.exceptions.HTTPError for non-200 non-429 responses
+        after the caller calls resp.raise_for_status(), or after max_retries
+        are exhausted on 429.
+        """
+        fn = getattr(self.session, method)
         kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
-        return self.session.get(f"{self.base_url}{path}", **kwargs)
+
+        for attempt in range(1, self._max_retries + 2):  # attempt 1..max_retries+1
+            # Deduct from token bucket before each attempt
+            self._bucket.deduct()
+
+            resp = fn(url, **kwargs)
+
+            if resp.status_code != 429:
+                return resp
+
+            # 429 handling
+            retry_after_str = resp.headers.get("Retry-After")
+            if retry_after_str is not None:
+                try:
+                    # Numeric seconds (most common Saxo form)
+                    delay = float(retry_after_str)
+                except ValueError:
+                    # F-007: RFC 7231 §7.1.3 HTTP-date form (e.g. "Wed, 21 Oct 2015 07:28:00 GMT")
+                    try:
+                        retry_dt = email.utils.parsedate_to_datetime(retry_after_str)
+                        delay = max(0.0, (retry_dt - retry_dt.utcnow()).total_seconds())
+                    except Exception:
+                        # Malformed Retry-After: use exponential backoff WITH jitter.
+                        # F-007: jitter is REQUIRED here to prevent N-process storm
+                        # (without jitter all processes wake at the same computed delay).
+                        base = self._base_delay * (2 ** (attempt - 1))
+                        jitter = random.uniform(0, base * self._jitter_factor)
+                        delay = base + jitter
+            else:
+                # Exponential backoff with jitter: delay = base * 2^(attempt-1) ± jitter
+                base = self._base_delay * (2 ** (attempt - 1))
+                jitter = random.uniform(0, base * self._jitter_factor)
+                delay = base + jitter
+
+            logger.warning(
+                "saxo_429_rate_limit request_url=%s retry_after_header=%s "
+                "retry_attempt=%d/%d delay_seconds=%.2f strategy_id=%s",
+                url,
+                retry_after_str,
+                attempt,
+                self._max_retries,
+                delay,
+                self._strategy_id,
+            )
+
+            if attempt > self._max_retries:
+                # Exhausted retries — return the 429 response for caller to raise_for_status
+                return resp
+
+            time.sleep(delay)
+
+        # Should not be reachable, but satisfies type checker
+        return resp  # type: ignore[return-value]
+
+    def _get(self, path: str, **kwargs) -> requests.Response:
+        """GET with auto token refresh and 429 retry. REM-6: token bucket deducted."""
+        self._ensure_token_fresh()
+        return self._retry_request("get", f"{self.base_url}{path}", **kwargs)
 
     def _post(self, path: str, **kwargs) -> requests.Response:
-        """POST with auto token refresh."""
+        """POST with auto token refresh and 429 retry. REM-6: token bucket deducted."""
         self._ensure_token_fresh()
-        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
-        return self.session.post(f"{self.base_url}{path}", **kwargs)
+        return self._retry_request("post", f"{self.base_url}{path}", **kwargs)
 
     def _delete(self, path: str, **kwargs) -> requests.Response:
-        """DELETE with auto token refresh."""
+        """DELETE with auto token refresh and 429 retry. REM-6: token bucket deducted."""
         self._ensure_token_fresh()
-        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
-        return self.session.delete(f"{self.base_url}{path}", **kwargs)
+        return self._retry_request("delete", f"{self.base_url}{path}", **kwargs)
 
     def get_chart_data(
         self,

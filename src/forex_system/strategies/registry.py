@@ -28,10 +28,23 @@ STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
 }
 
 
-def create_strategy(name: str, params: dict) -> Strategy:
-    """Instantiate a strategy by name with given parameters."""
+def create_strategy(
+    name: str,
+    params: dict,
+    *,
+    rate_data=None,  # Optional[pd.DataFrame] — keyword-only per D-1.1 ABC contract
+) -> Strategy:
+    """Instantiate a strategy by name with given parameters.
+
+    REM-1 / D-1.1: rate_data is a keyword-only argument that is forwarded to
+    the strategy __init__.  All strategies accept rate_data=None (the ABC
+    contract guarantees this).  Callers that need rate data pass it explicitly;
+    callers that do not (backtest, walk-forward) omit it.
+
+    No reflection, no allowlist — the unified ABC contract handles all strategies.
+    """
     cls = STRATEGY_REGISTRY.get(name)
     if cls is None:
         available = ", ".join(STRATEGY_REGISTRY.keys())
         raise ValueError(f"Unknown strategy: {name}. Available: {available}")
-    return cls(params)
+    return cls(params, rate_data=rate_data)

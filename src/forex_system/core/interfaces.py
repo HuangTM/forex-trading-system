@@ -5,13 +5,16 @@ Every module depends on these interfaces, never on concrete implementations.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
 from forex_system.core.types import Direction
+
+logger = logging.getLogger(__name__)
 
 
 class DataSource(ABC):
@@ -30,10 +33,31 @@ class DataSource(ABC):
 
 
 class Strategy(ABC):
-    """Contract for all trading strategies."""
+    """Contract for all trading strategies.
 
-    def __init__(self, params: dict[str, Any]):
+    ABC contract (REM-1 / D-1.1): __init__ accepts params plus an optional
+    keyword-only argument rate_data. The keyword-only sentinel (*) ensures
+    no positional caller accidentally passes rate_data where only params is
+    expected.  This is backward-compatible: all existing cls(params) callers
+    continue to work unchanged.
+
+    rate_data is TRULY optional — any concrete subclass that requires
+    rate_data must raise at signal-generation time (generate_signals) if it
+    is missing, NOT at __init__ time.  A subclass that raises TypeError when
+    rate_data=None is passed has re-introduced the Liskov violation in
+    disguise.  The test REM-1-T1 enforces this invariant.
+    """
+
+    def __init__(self, params: dict[str, Any], *, rate_data: Optional[pd.DataFrame] = None):
         self.params = params
+        self.rate_data = rate_data
+        # REM-1 observability boundary: log construction path at INFO level so
+        # post-hoc reconstruction can confirm which path fired for each strategy.
+        logger.info(
+            "strategy_constructed strategy_name=%s construction_path=%s",
+            type(self).__name__,
+            "params_and_rate_data" if rate_data is not None else "params_only",
+        )
 
     @abstractmethod
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:

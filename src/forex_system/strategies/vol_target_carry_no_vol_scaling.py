@@ -54,9 +54,10 @@ class VolTargetCarryNoVolScalingStrategy(Strategy):
         Mirrors the vol_target_carry min_carry param for ablation parity.
     """
 
-    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):
-        super().__init__(params)
-        self.rate_data = rate_data
+    def __init__(self, params: dict[str, Any], *, rate_data: pd.DataFrame | None = None):
+        # REM-1 / D-1.1: keyword-only rate_data per ABC contract
+        super().__init__(params, rate_data=rate_data)
+        # self.rate_data is set by ABC __init__
 
     @property
     def name(self) -> str:

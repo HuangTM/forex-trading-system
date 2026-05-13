@@ -1,0 +1,118 @@
+schema_version: 1.0
+artifact_type: dissent
+track_id: arch-review-multi-strategy-2026-05-12
+addressed_unit: "arch-review-multi-strategy-2026-05-12:phase1:task1.0"
+timestamp: "2026-05-12T23:55:00Z"
+dissenter:
+  name: cro
+  role: cro
+  authority_basis: >
+    CRO owns risk-architecture decisions. BC-8-LIFT-COND-1..7 were authored by CRO
+    for a 2-strategy configuration. CRO's binding-constraint authority covers any
+    expansion that touches the shared Saxo account, OAuth token, rate-limit bucket,
+    dispatch lock, drawdown ladder, kill switch, or JPY-correlated cap.
+severity: material_concern
+does_block: true   # deterministic from severity per protocols/full-auto.md table
+dissent_text: |
+  CRO BLOCKING FINDINGS — 2→4 strategy expansion is structurally indefensible as-is.
+  Findings are BLOCKING for N≥3 (Q1, Q3, Q4, Q5) and BLOCKING for ML strategy class
+  (Q5, Q6). No live-capital recommendations.
+
+  Q1 — Aggregate JPY-correlated cap (BC-8-LIFT-COND-4) under N strategies — per-strategy
+  allocation rule:
+  NO per-strategy allocation rule exists. exposure_aggregator.compute_exposure (line 121-130)
+  explicitly notes Position has no strategy field and uses pair as proxy. check_dispatch_allowed
+  (line 148-216) enforces an aggregate cap only. At N=4 with two strategies trading USDJPY
+  and one trading GBPUSD, the first strategy to dispatch consumes the entire 15% budget under
+  last-write-wins; subsequent strategies are blocked at the gate without a fairness rule. This
+  is a denial-of-dispatch failure mode (not a capital-loss failure mode), but it makes the
+  4-strategy paper experiment scientifically void — one strategy's signals get systematically
+  prioritized by lock-acquisition order. CONSEQUENCE for risk-architecture: a 4-strategy book
+  CANNOT enforce per-strategy sub-limits as the code stands. Recommended allocation rule =
+  equal-weight (3.75% each) as the default with an explicit override carried in the consensus
+  artifact; vol-weighted or Sharpe-weighted requires forward-looking volatility estimates that
+  the risk layer should not own (firewall violation: that's a portfolio-allocator concern, not
+  a risk-aggregator concern, and there is no portfolio/ subsystem).
+  [severity: blocking; file_line_ref: src/forex_system/risk/exposure_aggregator.py:46,121-130,148-216]
+
+  Q3 — Single Saxo OAuth + single account-key + single rate-limit bucket — API call multiplier
+  at N=4:
+  Saxo documents 120 req/min per session per service group; 1 order/sec per session; 10M/day
+  per app. At N=4 paper loops sharing one bearer (current architecture per saxo/client.py:67-74),
+  bursts at cycle-start (when all 4 loops wake on similar polling intervals and a coarsely-aligned
+  wall-clock) could synchronize to ~24 calls in <10s, which is 144 req/min instantaneous —
+  above the bucket. Saxo emits 429 on exceedance per docs. The current SaxoClient
+  (saxo/client.py:94-110) has NO 429 handling or backoff — resp.raise_for_status() at lines 155,
+  211, 220, 230 etc. would raise an HTTPError that propagates to the paper loop's exception
+  handler, NOT to a retry-with-backoff. CONSEQUENCE: at N=4 the failure mode is intermittent
+  cycle failure under burst alignment. Adding the intraday-classical strategy (faster polling
+  implied by 'intraday') compresses the budget further. Adding the ML strategy (often
+  training/inference on cycle-start, plus feature-fetch API calls) is the dominant risk.
+  [severity: blocking; file_line_ref: src/forex_system/saxo/client.py:67-74,94-110,394]
+
+  Q4 — Drawdown ladder (BC-8-LIFT-COND-5) — per-strategy or aggregate; correlated DD bypass
+  risk:
+  DrawdownContract is a dataclass holding _peak_equity per instance (drawdown_contract.py:117).
+  Semantics are determined by the caller's instantiation pattern; the module is silent on the
+  intended cardinality. PM acceptance-criteria does not pin which. Both current paper loops
+  instantiate it per-loop, meaning each strategy has its own peak and its own ladder — making
+  the ladder PER-STRATEGY by default. CONSEQUENCES at N=4: correlated drawdown across 4
+  strategies (e.g., a JPY shock affecting both vol_target_carry and carry_fred simultaneously)
+  does NOT cumulate — each strategy sees its own DD and might be at 8% individually while
+  aggregate book is at 18% (well past the 15% reduce-sizing trigger). The ladder is bypassed
+  for systemic-shock scenarios — LTCM-class failure. Without attribution infrastructure
+  (which does not exist — Position has no strategy field per Q1 evidence), only aggregate
+  is feasible today. CONSEQUENCE: this is a blocking architectural gap for N≥3.
+  [severity: blocking; file_line_ref: src/forex_system/risk/drawdown_contract.py:42-46,116-127,129-216]
+
+  Q5 — Kill-switch trigger paths (BC-8-LIFT-COND-6) — ML-specific failure modes:
+  Current kill_switch.py TriggerReason enum (line 43-49) lists: DAILY_LOSS, RECONCILIATION,
+  AUTH_DEATH, INFRASTRUCTURE, MANUAL, ERROR. NEW ML-failure-modes NOT covered: MODEL_DRIFT,
+  CALIBRATION_DECAY, FEATURE_STALENESS, INFERENCE_LATENCY, PREDICTION_OUT_OF_RANGE,
+  GRADIENT_OF_OUTPUT. Property-1 (out-of-band): current kill_switch is IN-PROCESS — same
+  Python interpreter as the strategy. PASSING for classical strategies that fail with explicit
+  exceptions; FAILING for ML where a runaway-but-non-crashing inference (e.g., predicting +1
+  unbounded for 1000 cycles due to feature corruption) does not raise an exception and the
+  in-process kill switch sees normal P&L until the cumulative loss crosses 2%. Property-4
+  (tested in prod): not yet executed for 2-strategy case, per BC-9-N4-COND-5. CONSEQUENCE:
+  kill-switch is INADEQUATE for an ML strategy class. Decision per rubric: REJECT for ML
+  addition; APPROVE-WITH-CONDITIONS for classical addition (conditions: BC-9-N4-COND-1..3,5).
+  [severity: blocking-for-ML-strategy-class;
+   file_line_ref: src/forex_system/risk/kill_switch.py:43-49,131-207,270-325;
+   src/forex_system/risk/heartbeat_watchdog.py:48-200]
+
+  Q6 — Strategy-execution firewall (rule 3 generalization) — strategy-type-agnostic vs
+  strategy-type-aware risk plumbing:
+  Current risk plumbing is STRATEGY-TYPE-AGNOSTIC. exposure_aggregator.compute_exposure (line
+  94-140) consumes only Position objects with fields {pair, size, entry_price}; no strategy_type
+  / model_id / signal_provenance field. Strategy class info is lost at the boundary between the
+  per-loop script (which knows the strategy) and the shared risk modules (which do not). This
+  BREAKS for ML strategies because: Q5 ML-failure-modes need strategy_type=ML to be routed
+  correctly; fintech-org rule 3 (Execution-Researcher Firewall) requires ML deployment to route
+  to ml-engineer not quant-developer per the rule's published role-routing table, but the risk
+  layer cannot enforce this firewall because it cannot tell ML from classical at the type
+  boundary. CONSEQUENCE: adding any strategy_type=ML to the paper loop without first lifting
+  strategy_type into Position silently merges ML risk into classical risk — the kill-switch does
+  not know what to trigger on. Recommended fix: extend core/types.Position with strategy_type:str
+  field; gate ml strategy_type behind a new ML_RISK_TRIGGERS subsystem in
+  src/forex_system/risk/ml/ (which does not exist).
+  [severity: blocking-for-ML-strategy-class;
+   file_line_ref: src/forex_system/risk/exposure_aggregator.py:94-140;
+   src/forex_system/risk/drawdown_contract.py:129-216;
+   src/forex_system/risk/kill_switch.py:209-236]
+
+  Summary of binding constraints added by this review:
+  BC-9-N4-COND-1: Per-strategy cap allocation rule in exposure_aggregator before N≥3.
+  BC-9-N4-COND-2: Saxo session cardinality confirmed with broker before N≥3.
+  BC-9-N4-COND-3: Drawdown ladder semantics (per-strategy vs aggregate) pinned before N≥3.
+  BC-9-N4-COND-4: ML model-risk envelope (SR 11-7-style gate) before ANY ML strategy to paper.
+  BC-9-N4-COND-5: Per-strategy kill switch tested in live N=2 paper session before N≥3.
+  BC-9-N4-COND-6: strategy_type lifted into Position before any ML strategy added to paper loop.
+
+  No live-capital recommendation. T=0 paper trading for existing 2 strategies unchanged.
+surfaces_to:
+  consensus_artifact: "docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md"
+  ratification_artifact: ".agent-accountability/ratifications/arch-review-multi-strategy-2026-05-12:phase1:task1.0.yaml"
+sources:
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml"
+no-capital-instruction: true

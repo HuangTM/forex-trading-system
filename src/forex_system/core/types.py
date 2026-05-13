@@ -65,7 +65,13 @@ class BacktestResult:
 
 @dataclass(frozen=True)
 class Position:
-    """A currently open position."""
+    """A currently open position.
+
+    REM-1 / D-1.2: strategy_id field added (str, consistent with Trade.strategy).
+    This field is the prerequisite for REM-5 per-strategy allocation keying.
+    Callers that do not track per-strategy positions should pass strategy_id=""
+    rather than leaving it absent (frozen dataclass requires explicit value).
+    """
 
     pair: str
     direction: Direction
@@ -73,6 +79,7 @@ class Position:
     entry_price: float
     entry_time: pd.Timestamp
     unrealized_pnl: float
+    strategy_id: str = ""  # REM-1 D-1.2: str matches Trade.strategy type
 
 
 @dataclass(frozen=True)

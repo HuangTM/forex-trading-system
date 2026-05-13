@@ -89,8 +89,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import inspect
-
 import numpy as np
 import pandas as pd
 
@@ -429,49 +427,38 @@ def _run_single_pair(
         date_end=str(data.index[-1].date()),
     )
 
-    # Instantiate strategy — look up strategy name in registry, not config.
-    # For carry-type strategies that accept rate_data, load it from the
-    # standard path so they run in dynamic mode (not zero-signal static fallback).
-    # FredCarryStrippedStrategy self-loads rate data internally (via _get_rate_data);
-    # do NOT inject rate_data for it — it would receive already-renamed columns
-    # and fail its internal column lookup for "{PAIR}_diff".
-    # Strategies that need explicit injection: CarryStrategy, CarryMomentumStrategy.
-    _SELF_LOADING_RATE_STRATEGIES = {
-        "fred_carry_stripped", "carry_fred", "vol_target_carry",
-        "vol_target_carry_no_vol_scaling",
-    }
-    from forex_system.strategies.registry import STRATEGY_REGISTRY
-    strategy_cls = STRATEGY_REGISTRY.get(strategy_name)
-    if strategy_cls is None:
-        raise ConfigError(f"Unknown strategy: {strategy_name}")
+    # Instantiate strategy via the unified ABC contract (REM-1 / D-1.3).
+    # The per-strategy allowlist and reflection-based dual-path construction
+    # have been DELETED per CTO D-1.3 — they were an execution-firewall violation
+    # (hardcoded per-strategy branching requiring manual update on each new strategy).
+    # All strategies now accept rate_data as a keyword-only arg (ABC contract D-1.1).
+    # Strategies that self-load (carry_fred, vol_target_carry, fred_carry_stripped)
+    # use the injected rate_data when present and fall back to self-loading when None.
     base_params = {"pair": pair.upper()}
-    sig = inspect.signature(strategy_cls.__init__)
-    if "rate_data" in sig.parameters and strategy_name not in _SELF_LOADING_RATE_STRATEGIES:
-        _rate_data_path = "data/rates/rate_differentials.parquet"
-        try:
-            _rate_df = pd.read_parquet(_rate_data_path)
-            # rename columns: strip "_diff" suffix if present (matches run_phase1_revalidate.py)
-            _rate_df = _rate_df.rename(
-                columns={c: c.replace("_diff", "") for c in _rate_df.columns}
-            )
-            strategy = strategy_cls(base_params, rate_data=_rate_df)
-            _log(
-                "backtest.rate_data.loaded",
-                pair=pair,
-                strategy=strategy_name,
-                rate_path=_rate_data_path,
-                n_rows=len(_rate_df),
-            )
-        except FileNotFoundError:
-            strategy = strategy_cls(base_params)
-            _log(
-                "backtest.rate_data.missing",
-                pair=pair,
-                strategy=strategy_name,
-                note="rate_differentials.parquet not found; strategy uses static fallback",
-            )
-    else:
-        strategy = create_strategy(strategy_name, base_params)
+    _rate_data_path = "data/rates/rate_differentials.parquet"
+    _rate_df: pd.DataFrame | None = None
+    try:
+        _rate_df = pd.read_parquet(_rate_data_path)
+        # Rename columns: strip "_diff" suffix for consistent column naming across scripts.
+        _rate_df = _rate_df.rename(
+            columns={c: c.replace("_diff", "") for c in _rate_df.columns}
+        )
+        _log(
+            "backtest.rate_data.loaded",
+            pair=pair,
+            strategy=strategy_name,
+            rate_path=_rate_data_path,
+            n_rows=len(_rate_df),
+        )
+    except FileNotFoundError:
+        _rate_df = None
+        _log(
+            "backtest.rate_data.missing",
+            pair=pair,
+            strategy=strategy_name,
+            note="rate_differentials.parquet not found; strategy uses static fallback",
+        )
+    strategy = create_strategy(strategy_name, base_params, rate_data=_rate_df)
 
     # Compute indicators on full history (avoid NaN at window boundary).
     enriched = compute_indicators(data, strategy.required_indicators())

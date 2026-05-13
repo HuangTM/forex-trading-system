@@ -1,12 +1,13 @@
-"""Cross-strategy exposure aggregator — CRO binding constraint #1.
+"""Cross-strategy exposure aggregator — CRO binding constraints.
 
 Computes JPY-correlated notional exposure across all open positions and
 checks dispatch gates before any new trial is launched.
 
-CRO envelope (CONSENSUS_2026-04-28):
+CRO envelope (CONSENSUS_2026-04-28 + REM-5 R-5.1):
     max_active_paper_strategies : 4
     max_concurrent_open_positions: 6  (2 per pair max)
     max_correlated_exposure_pct  : 0.15  (JPY-correlated notional ≤15% of book)
+    per_strategy_correlated_pct  : 0.0375  (0.15/4; per REM-5 R-5.1 equal-weight)
     size_multiplier              : 0.5   (effective risk_per_trade_pct = 1%)
     Drawdown contract            : ≥10% → halt new dispatch | ≥15% → 0.5x sizing
                                    | ≥20% → full halt pending CRO review
@@ -21,6 +22,21 @@ JPY-correlated pairs (per CRO note, universe EURUSD/USDJPY/GBPUSD):
     GBPUSD — indirect, via shared JPY tail risk
     EURUSD — no JPY exposure
 
+REM-5 (CRO R-5.1) — per-strategy allocation rule:
+    Algorithm: equal-weight-cap-per-strategy.
+    per_strategy_cap = max_correlated_pct / max_active_strategies (default 0.15/4 = 0.0375).
+    On breach: raise AllocationGateBlocked (distinct from AggregationGateBlocked).
+    No partial allocation; no queueing (execution-firewall violation if either).
+    Tie-break: strategy_id lexicographic, secondary by request receive-time monotonic.
+    NOT lock-acquisition order (clock-and-ordering anti-pattern).
+
+    INV-R5-1: sum(strategy_jpy_correlated_notional) ≤ 0.15 * book_equity AND
+              per-strategy ≤ 0.0375 * book_equity.
+    INV-R5-2: count(active) ≤ 4.
+    INV-R5-3: tie-break is deterministic given identical inputs.
+
+    fairness_rule_version: "equal-weight-cap-r5.1-2026-05-13"
+
 Design:
     - Pure functions; no state mutations.
     - All decisions logged via ``logging.getLogger("exposure_aggregator")``
@@ -33,11 +49,17 @@ Design:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
+from typing import Optional
 
 from forex_system.core.types import Position
 
 logger = logging.getLogger("exposure_aggregator")
+
+# REM-5 fairness rule version — logged with every allocation decision so
+# post-hoc reconstruction can identify which rule version applied.
+_FAIRNESS_RULE_VERSION = "equal-weight-cap-r5.1-2026-05-13"
 
 # ---------------------------------------------------------------------------
 # JPY-correlation table (only FX-domain knowledge in this module)
@@ -74,7 +96,7 @@ class ExposureSnapshot:
 
 
 # ---------------------------------------------------------------------------
-# Gate exception
+# Gate exceptions
 # ---------------------------------------------------------------------------
 
 
@@ -83,6 +105,18 @@ class AggregationGateBlocked(Exception):
 
     Callers catch this exception and decide the appropriate action
     (skip dispatch, alert operator, etc.).  This module does NOT mutate state.
+    """
+
+
+class AllocationGateBlocked(Exception):
+    """Raised when a per-strategy JPY-correlated cap is breached.
+
+    REM-5 / CRO R-5.1: DISTINCT from AggregationGateBlocked (which is the
+    aggregate gate). AllocationGateBlocked is the per-strategy gate.
+
+    The caller MUST NOT partial-allocate or queue the request — the strategy's
+    declared signal must be honoured in full or refused in full.
+    Partial fills are an execution-firewall violation.
     """
 
 
@@ -96,12 +130,9 @@ def compute_exposure(positions: list[Position]) -> ExposureSnapshot:
 
     Notional per position = ``abs(position.size) * position.entry_price``.
 
-    ``active_paper_strategies`` is the count of distinct *strategy* values on
-    the ``Position`` objects.  If your ``Position`` instances lack a
-    ``strategy`` attribute (the frozen dataclass in ``core/types.py`` does not
-    include one), every position is counted as belonging to one anonymous
-    strategy — callers that track per-strategy positions should wrap positions
-    with the strategy context before calling this function.
+    REM-1 / D-1.2: ``active_paper_strategies`` now uses ``Position.strategy_id``
+    (the str field added in REM-1) rather than the pair-as-proxy workaround.
+    If strategy_id is empty string "", it is counted as one anonymous strategy.
 
     Args:
         positions: All currently open positions across all strategies.
@@ -118,16 +149,8 @@ def compute_exposure(positions: list[Position]) -> ExposureSnapshot:
         total_notional += notional
         if is_jpy_correlated(pos.pair):
             jpy_notional += notional
-        # Position.strategy is the strategy name field defined in core/types.py
-        # (via Trade.strategy).  core/types.Position does NOT have a strategy
-        # field — we use pair as a proxy for uniqueness here and note the gap.
-        # Callers should augment positions if per-strategy count is critical.
-
-    # Strategy count: Position in core/types has no strategy field; we count
-    # unique pairs as a conservative proxy.  Callers that need exact strategy
-    # counts must pass pre-grouped data.
-    for pos in positions:
-        strategy_ids.add(pos.pair)  # proxy; see note above
+        # REM-1: use Position.strategy_id (str field) — no longer a pair-as-proxy workaround
+        strategy_ids.add(pos.strategy_id if pos.strategy_id else "__anonymous__")
 
     jpy_pct = jpy_notional / total_notional if total_notional > 0.0 else 0.0
 
@@ -137,6 +160,143 @@ def compute_exposure(positions: list[Position]) -> ExposureSnapshot:
         jpy_correlated_pct=jpy_pct,
         active_paper_strategies=len(strategy_ids),
         concurrent_open_positions=len(positions),
+    )
+
+
+def compute_per_strategy_exposure(
+    positions: list[Position],
+) -> dict[str, dict[str, float]]:
+    """Compute per-strategy exposure breakdown keyed by strategy_id.
+
+    Returns:
+        dict[strategy_id, {"jpy_notional": float, "total_notional": float}]
+    """
+    result: dict[str, dict[str, float]] = {}
+    for pos in positions:
+        sid = pos.strategy_id if pos.strategy_id else "__anonymous__"
+        notional = abs(pos.size) * pos.entry_price
+        if sid not in result:
+            result[sid] = {"jpy_notional": 0.0, "total_notional": 0.0}
+        result[sid]["total_notional"] += notional
+        if is_jpy_correlated(pos.pair):
+            result[sid]["jpy_notional"] += notional
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy allocation gate (REM-5)
+# ---------------------------------------------------------------------------
+
+
+def check_per_strategy_allocation(
+    strategy_id: str,
+    requested_jpy_notional: float,
+    existing_positions: list[Position],
+    book_equity: float,
+    max_correlated_pct: float = 0.15,
+    max_active_strategies: int = 4,
+    receive_time: Optional[float] = None,
+) -> None:
+    """Check per-strategy JPY-correlated cap per CRO R-5.1 equal-weight rule.
+
+    Algorithm (CRO R-5.1):
+        per_strategy_cap = max_correlated_pct / max_active_strategies
+        If strategy's existing JPY notional + requested > per_strategy_cap * book_equity:
+            raise AllocationGateBlocked
+
+    Tie-break (INV-R5-3 determinism):
+        strategy_id lexicographic primary, receive_time monotonic secondary.
+        This is enforced structurally: each strategy gets its own allocation slot
+        equal to max_correlated_pct / max_active_strategies regardless of order.
+
+    Observability: logs strategy_id + requested_exposure + allocated_exposure +
+    cap_applied + fairness_rule_version at INFO (allowed) or WARNING (blocked).
+
+    Args:
+        strategy_id: The requesting strategy's ID.
+        requested_jpy_notional: The new JPY-correlated notional the strategy wants to add.
+        existing_positions: All current open positions (all strategies).
+        book_equity: Current book equity in USD (used to compute the cap).
+        max_correlated_pct: Aggregate cap (default 0.15 = 15%).
+        max_active_strategies: Denominator for equal-weight split (default 4).
+        receive_time: Monotonic clock at request receive time; used only for logging
+                      (INV-R5-3: tie-break is lexicographic on strategy_id first).
+
+    Raises:
+        AllocationGateBlocked: Per-strategy cap would be exceeded.
+    """
+    per_strategy_cap_notional = (max_correlated_pct / max_active_strategies) * book_equity
+    per_strategy_cap_pct = max_correlated_pct / max_active_strategies
+
+    # Compute current per-strategy JPY exposure from existing positions
+    per_strategy = compute_per_strategy_exposure(existing_positions)
+    current_jpy = per_strategy.get(strategy_id, {}).get("jpy_notional", 0.0)
+    projected_jpy = current_jpy + requested_jpy_notional
+    allocated = max(0.0, per_strategy_cap_notional - current_jpy)
+
+    _log_fields = (
+        f"strategy_id={strategy_id} "
+        f"requested_jpy_notional={requested_jpy_notional:.2f} "
+        f"current_jpy_notional={current_jpy:.2f} "
+        f"projected_jpy_notional={projected_jpy:.2f} "
+        f"per_strategy_cap_notional={per_strategy_cap_notional:.2f} "
+        f"per_strategy_cap_pct={per_strategy_cap_pct:.4f} "
+        f"book_equity={book_equity:.2f} "
+        f"fairness_rule_version={_FAIRNESS_RULE_VERSION} "
+        f"receive_time={receive_time or time.monotonic():.6f}"
+    )
+
+    if projected_jpy > per_strategy_cap_notional:
+        msg = (
+            f"ALLOCATION_BLOCKED {_log_fields} | "
+            f"reason=per_strategy_jpy_cap_exceeded "
+            f"allocated_notional={allocated:.2f}"
+        )
+        logger.warning(
+            "exposure_aggregator.allocation_blocked strategy_id=%s "
+            "requested_exposure=%.2f allocated_exposure=%.2f "
+            "cap_applied=%.4f fairness_rule_version=%s",
+            strategy_id, requested_jpy_notional, allocated,
+            per_strategy_cap_pct, _FAIRNESS_RULE_VERSION,
+        )
+        raise AllocationGateBlocked(msg)
+
+    # F-003 / INV-R5-1 aggregate-sum conjunct: even if the per-strategy cap is
+    # satisfied, check that the SUM of all strategies' JPY notional (existing +
+    # this request) does not exceed max_correlated_pct * book_equity.
+    # This prevents a caller from calling check_per_strategy_allocation without
+    # also calling check_dispatch_allowed and inadvertently violating the aggregate cap.
+    aggregate_cap_notional = max_correlated_pct * book_equity
+    existing_jpy_all_strategies = sum(
+        v["jpy_notional"] for v in compute_per_strategy_exposure(existing_positions).values()
+    )
+    # Include this strategy's current exposure + requested
+    other_strategies_jpy = existing_jpy_all_strategies - per_strategy.get(strategy_id, {}).get(
+        "jpy_notional", 0.0
+    )
+    projected_aggregate_jpy = other_strategies_jpy + projected_jpy
+    if projected_aggregate_jpy > aggregate_cap_notional:
+        msg = (
+            f"ALLOCATION_BLOCKED {_log_fields} | "
+            f"reason=aggregate_sum_cap_exceeded "
+            f"projected_aggregate_jpy={projected_aggregate_jpy:.2f} "
+            f"aggregate_cap_notional={aggregate_cap_notional:.2f}"
+        )
+        logger.warning(
+            "exposure_aggregator.allocation_blocked_aggregate_sum strategy_id=%s "
+            "requested_exposure=%.2f projected_aggregate_jpy=%.2f "
+            "aggregate_cap_notional=%.2f fairness_rule_version=%s",
+            strategy_id, requested_jpy_notional, projected_aggregate_jpy,
+            aggregate_cap_notional, _FAIRNESS_RULE_VERSION,
+        )
+        raise AllocationGateBlocked(msg)
+
+    logger.info(
+        "exposure_aggregator.allocation_allowed strategy_id=%s "
+        "requested_exposure=%.2f allocated_exposure=%.2f "
+        "cap_applied=%.4f fairness_rule_version=%s",
+        strategy_id, requested_jpy_notional, projected_jpy,
+        per_strategy_cap_pct, _FAIRNESS_RULE_VERSION,
     )
 
 

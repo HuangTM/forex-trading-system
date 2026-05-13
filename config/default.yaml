@@ -78,3 +78,17 @@ backtest:
 # Analysis settings
 analysis:
   benchmark: "buy_and_hold"
+
+# Paper trading configuration (REM-4 / CTO D-4.1)
+paper:
+  # Per-strategy dispatch stagger offsets in seconds.
+  # Strategies are indexed by position in the active strategy list:
+  #   index 0: vol_target_carry → offset 0s (immediate after bar-close)
+  #   index 1: carry_fred       → offset 30s
+  #   index 2: strategy_3       → offset 60s  (reserved for intraday-classical)
+  #   index 3: strategy_4       → offset 90s  (reserved for ML strategy, deferred)
+  # Base interval: 1800s (30 min, matching --interval default in paper scripts).
+  # Effective dispatch time: bar_close_time + base_interval + stagger_offset_seconds[i]
+  # Startup validation: len(dispatch_stagger_offsets_seconds) >= len(active_strategies)
+  # is enforced at BaseRunner startup — CRITICAL log + halt if violated (D-4.1 FM-4).
+  dispatch_stagger_offsets_seconds: [0, 30, 60, 90]

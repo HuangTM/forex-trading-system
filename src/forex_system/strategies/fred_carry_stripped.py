@@ -89,8 +89,10 @@ class FredCarryStrippedStrategy(Strategy):
             (default 0.05)
     """
 
-    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):
-        super().__init__(params)
+    def __init__(self, params: dict[str, Any], *, rate_data: pd.DataFrame | None = None):
+        # REM-1 / D-1.1: keyword-only rate_data per ABC contract
+        super().__init__(params, rate_data=rate_data)
+        # self.rate_data is set by ABC __init__; mirror to _rate_data for internal use
         self._rate_data = rate_data
         self._rate_data_loaded = rate_data is not None
 
@@ -129,11 +131,21 @@ class FredCarryStrippedStrategy(Strategy):
 
         rate_data = self._get_rate_data()
 
+        # REM-1 column-name tolerance: injected rate_data may have been renamed
+        # (e.g., "USDJPY" instead of "USDJPY_diff") by the calling script.
+        # Accept both naming conventions: prefer _diff suffix; fall back to bare pair name.
         if col not in rate_data.columns:
-            raise ValueError(
-                f"FredCarryStrippedStrategy: column '{col}' not found in rate_data. "
-                f"Available: {list(rate_data.columns)}"
-            )
+            bare_col = pair  # without _diff suffix
+            if bare_col in rate_data.columns:
+                # Re-normalise in-place for this call: rename bare columns to _diff convention
+                # so all downstream logic (ranked_signals, _PAIR_TO_COL.values()) is consistent.
+                rename_map = {p: f"{p}_diff" for p in _PAIR_TO_COL if p in rate_data.columns}
+                rate_data = rate_data.rename(columns=rename_map)
+            else:
+                raise ValueError(
+                    f"FredCarryStrippedStrategy: column '{col}' (or '{bare_col}') "
+                    f"not found in rate_data. Available: {list(rate_data.columns)}"
+                )
 
         rank_normalize = bool(self.params.get("rank_normalize", True))
         min_diff = float(self.params.get("min_differential", 0.001))

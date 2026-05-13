@@ -42,7 +42,11 @@ from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
 from forex_system.core.config import load_config
 from forex_system.core.types import Direction
-from forex_system.risk.drawdown_contract import DrawdownContract, DrawdownLevel
+from forex_system.risk.drawdown_contract import (
+    AggregateDrawdownContract,
+    DrawdownContract,
+    DrawdownLevel,
+)
 from forex_system.risk.exposure_aggregator import (
     AggregationGateBlocked,
     check_dispatch_allowed,
@@ -359,6 +363,7 @@ def run_cycle(
     kill_switch: KillSwitch,
     rebal_threshold: float,
     dd_contract: DrawdownContract | None = None,
+    aggregate_dd_contract: AggregateDrawdownContract | None = None,
     auto_mode: bool = False,
     ntfy_topic: str | None = None,
     horizon: str = "daily",
@@ -451,6 +456,47 @@ def run_cycle(
         _dd_sizing_multiplier = _dd.sizing_multiplier
     else:
         _dd_sizing_multiplier = 1.0
+
+    # --- REM-7 / LTCM defense: AggregateDrawdownContract per-bar update ---
+    # Called with the same equity value fetched above so both contracts share
+    # a single broker-receive-time snapshot (clock-and-ordering discipline).
+    # TODO(REM-2-full-extraction): move to PaperRunnerBase
+    if aggregate_dd_contract is not None:
+        _snapshot_ts = datetime.now(timezone.utc)
+        _agg_assess = aggregate_dd_contract.update_equity(
+            equity,
+            snapshot_timestamp=_snapshot_ts,
+            contributing_strategies=["vol_target_carry"],
+        )
+        if _agg_assess.force_flat:
+            logger.critical(
+                "aggregate_drawdown_lockout_vt",
+                extra={
+                    "event": "AGGREGATE_DD_LOCKOUT",
+                    "aggregate_drawdown_pct": _agg_assess.aggregate_drawdown_pct,
+                    "equity": equity,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                },
+            )
+            _emit_ws01(cycle_id, pair, "SKIP_AGGREGATE_DD_LOCKOUT", equity=equity)
+            halt_paper_loop(reason=f"aggregate_dd_lockout_{_agg_assess.aggregate_drawdown_pct:.4f}")
+            return {"_action": "SKIP_AGGREGATE_DD_LOCKOUT"}
+        elif not _agg_assess.allows_new_dispatch:
+            logger.critical(
+                "aggregate_drawdown_halt_vt",
+                extra={
+                    "event": "AGGREGATE_DD_HALT",
+                    "aggregate_drawdown_pct": _agg_assess.aggregate_drawdown_pct,
+                    "equity": equity,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                },
+            )
+            _emit_ws01(cycle_id, pair, "SKIP_AGGREGATE_DD_HALT", equity=equity)
+            return {"_action": "SKIP_AGGREGATE_DD_HALT"}
+        # Apply aggregate sizing multiplier (HALVE level) multiplicatively with per-strategy
+        _dd_sizing_multiplier = _dd_sizing_multiplier * _agg_assess.sizing_multiplier
 
     # BC-8 option-B: acquire advisory cross-process file-lock BEFORE get_positions.
     # Held through execute_signal + reconciliation; released in finally on any exit.
@@ -899,6 +945,21 @@ def main():
         full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,  # 0.20 — CRO DD-3
     )
 
+    # --- REM-7: AggregateDrawdownContract (LTCM-class defense) ---
+    # Instantiated alongside per-strategy DrawdownContract per F-001 PR ruling.
+    # Both paper scripts must instantiate directly until REM-2 full BaseRunner extraction.
+    # TODO(REM-2-full-extraction): move to PaperRunnerBase
+    aggregate_dd_contract = AggregateDrawdownContract(
+        warn_threshold=0.04,      # 4% — CRO R-7.1
+        halve_threshold=0.08,     # 8% — CRO R-7.1
+        halt_threshold=0.12,      # 12% — CRO R-7.1
+        lockout_threshold=0.15,   # 15% — CRO R-7.1
+        per_strategy_halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,
+        per_strategy_full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,
+        n_strategies_max=CRO_MAX_ACTIVE_STRATEGIES,
+        kill_switch=kill_switch,
+    )
+
     print("=" * 60)
     print("  PAPER TRADING — Vol-Target Carry (USDJPY)")
     print(f"  Config: {args.config}")
@@ -959,6 +1020,7 @@ def main():
                                    pred_log, trade_log, kill_switch,
                                    rebal_threshold=rebal_threshold,
                                    dd_contract=dd_contract,
+                                   aggregate_dd_contract=aggregate_dd_contract,
                                    auto_mode=args.auto, ntfy_topic=args.ntfy,
                                    horizon=args.timeframe,
                                    monitor_pairs=args.monitor_pairs,
@@ -989,6 +1051,7 @@ def main():
                       pred_log, trade_log, kill_switch,
                       rebal_threshold=rebal_threshold,
                       dd_contract=dd_contract,
+                      aggregate_dd_contract=aggregate_dd_contract,
                       auto_mode=args.auto, ntfy_topic=args.ntfy,
                       horizon=args.timeframe,
                       cycle_id=1)

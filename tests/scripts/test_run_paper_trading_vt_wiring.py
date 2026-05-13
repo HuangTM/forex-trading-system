@@ -45,7 +45,7 @@ from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
 # ---------------------------------------------------------------------------
 
 
-def _make_position(pair: str, size: float, entry_price: float) -> Position:
+def _make_position(pair: str, size: float, entry_price: float, strategy_id: str = "") -> Position:
     import pandas as pd
     return Position(
         pair=pair,
@@ -54,6 +54,7 @@ def _make_position(pair: str, size: float, entry_price: float) -> Position:
         entry_price=entry_price,
         entry_time=pd.Timestamp.now(tz="UTC"),
         unrealized_pnl=0.0,
+        strategy_id=strategy_id,  # REM-1: strategy_id added to Position
     )
 
 
@@ -110,10 +111,14 @@ class TestAggregationGateWiring:
             )
 
     def test_gate_blocks_max_active_strategies_exceeded(self):
-        """When distinct pair-proxied strategy count > max, gate must raise."""
-        # 5 distinct pairs → proxy strategy count = 5 > 4
+        """When distinct strategy_id count > max, gate must raise.
+        REM-1: strategy_id field is now the source of truth (not pair proxy).
+        """
+        # 5 distinct strategy_ids → active_strategies count = 5 > 4
         pairs = [f"PAIR{i}FX" for i in range(5)]
-        positions = [_make_position(p, 1000, 1.0) for p in pairs]
+        strategy_ids = [f"strategy_{i}" for i in range(5)]
+        positions = [_make_position(p, 1000, 1.0, strategy_id=sid)
+                     for p, sid in zip(pairs, strategy_ids)]
         snapshot = compute_exposure(positions)
         with pytest.raises(AggregationGateBlocked, match="active_strategies"):
             check_dispatch_allowed(

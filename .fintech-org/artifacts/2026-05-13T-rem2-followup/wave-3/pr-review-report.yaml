@@ -1,0 +1,269 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-05-14T06:45:00Z"
+subtask_ref: rem2-pr-review-cycle1-respawn
+subtask_id: pr-rem2-followup-2026-05-13:phase3:task3.1
+
+artifact-under-review:
+  - id: qd-rem2-followup-2026-05-13
+    files:
+      - src/forex_system/paper/base_runner.py
+      - scripts/run_paper_trading_vt.py
+      - scripts/run_paper_trading_carry_fred.py
+      - src/forex_system/saxo/client.py
+      - tests/integration/test_paper_runner_bc8_conds.py
+
+rubrics-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - python
+  - probability-statistics: skipped — no statistical methods in changeset
+  - numerical-stability-review: skipped — no FP-accumulation paths in changeset
+
+findings:
+  - id: F-001
+    severity: major
+    location: "src/forex_system/paper/base_runner.py:154-159"
+    category: security
+    observation: |
+      COND-3 startup log emits account_key value in plaintext:
+        logger.info("bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-3 outcome=CHECKING
+        account_key=%s loop_name=%s", strategy_id, account_key, loop_name)
+      The account_key is a Saxo API credential (broker account identifier).
+      The Wave-10 PII sanitization effort explicitly scrubbed account_key from
+      4 files (per memory: PII sanitized across 9 files, Wave-10 state). This
+      log line re-introduces the same class of leak.
+    inference: |
+      If log files are shipped to a log aggregator (Splunk, Datadog, etc.),
+      the account_key appears in every PaperRunnerBase construction event.
+      Given prior SAXO_TOKEN revocation incidents, this is not hypothetical risk.
+      The log-as-decision-trace rubric item 7 prohibits credentials in log fields.
+    evidence: "src/forex_system/paper/base_runner.py:154-159 — account_key=%s logged directly"
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+  - id: F-002
+    severity: major
+    location: "tests/integration/test_paper_runner_bc8_conds.py (AST guard test, lines 836-960)"
+    category: test-coverage-gap
+    observation: |
+      The NHT AST cardinality guard (test_nht_ast_aggregate_dd_contract_cardinality_guard)
+      enforces an UPPER bound only: it fires when AggregateDrawdownContract appears
+      MORE than once in main(), or outside main()/PaperRunnerBase.__init__().
+      It does NOT enforce a LOWER bound: a paper script with zero
+      AggregateDrawdownContract calls in main() passes the guard silently.
+
+      Additionally, the guard is blind to aliased imports: if a future script uses
+        from forex_system.risk.drawdown_contract import AggregateDrawdownContract as ADC
+        ...
+        agg = ADC(...)   # ast.Name.id == "ADC", not "AggregateDrawdownContract"
+      the guard does not fire. No such alias exists at HEAD but the guard's docstring
+      claims repo-wide coverage without stating this limitation.
+    inference: |
+      Scenario 1 (zero): A refactoring removes AggregateDrawdownContract from a paper
+      script's main() (e.g., bug where it's constructed in a helper function outside main()).
+      The AST guard passes. The LTCM cardinality-1 invariant is broken without detection.
+
+      Scenario 2 (alias): A third paper script for a new strategy is copy-pasted from
+      a notebook that imports as an alias. The guard does not catch the second alias
+      instantiation even if it's in run_cycle() (a prohibited location).
+    evidence: |
+      test_paper_runner_bc8_conds.py:906-921 — main_call_count counter starts at 0;
+      violation only appended when main_call_count > 1 or call is outside main().
+      No assertion that main_call_count >= 1 for each paper script.
+    recommended-action-class: tighten-invariant
+    owning-role: null-hypothesis-tester
+
+  - id: F-003
+    severity: minor
+    location: "src/forex_system/paper/base_runner.py (all COND logs, multiple lines)"
+    category: observability-gap
+    observation: |
+      All COND-1..7 guard logs use %-style positional format strings, not structured
+      key-value pairs. Examples:
+        COND-1: logger.info("bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-1 outcome=%s", ...)
+        COND-2: logger.info("bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-2 outcome=%s ...", ...)
+        COND-5: logger.info("bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=ACQUIRED
+                lock_path=%s cycle_id=%s pair=%s acquire_ts=%s", ...)
+      The log-as-decision-trace rubric item 8 requires structured key-value (JSON, logfmt),
+      not formatted prose strings. The CTO PV-1 in the wave-2 stripped artifact explicitly
+      identified COND-1 log as failing item 8 and mandated COND-A3 to fix it.
+      COND-A3 was listed as a wave-2 condition. The wave-3 implementation has
+      extended the %-style pattern to ALL 7 CONDs rather than fixing the pattern.
+    inference: |
+      These logs are queryable only by regex on the formatted string. A query for
+      "all COND-6 blocks in the last hour for strategy vol_target_carry" requires
+      parsing "bc8_cond_check strategy_id=vol_target_carry condition_id=BC-8-LIFT-COND-6 outcome=BLOCKED ..."
+      as a string. With structured key-value, this is a single field equality filter.
+      The decision reconstruction purpose is degraded but not eliminated.
+    evidence: |
+      src/forex_system/paper/base_runner.py:202-206 (COND-1),
+      263-270 (COND-2 OK path),
+      346-354 (COND-5 ACQUIRED),
+      460-469 (COND-6 BLOCKED),
+      475-481 (COND-6 OK),
+      537-541 (COND-7)
+      — all use %-style positional args rather than structured dict/logfmt.
+    recommended-action-class: add-log
+    owning-role: cto
+
+  - id: F-004
+    severity: minor
+    location: "scripts/run_paper_trading_vt.py:556-573 (and carry_fred equivalent)"
+    category: observability-gap
+    observation: |
+      After the COND-5 dispatch lock is delegated to base_runner._acquire_dispatch_lock,
+      the script-level "dispatch_lock.fs_error" log on the FS_ERROR path (lines 562-569)
+      is sparse: it emits only cycle_id and pair, not lock_path, errno, or strerror.
+      The base_runner._acquire_dispatch_lock already logged these fields at warning level,
+      but the script-level duplicate log lacks them, creating an asymmetric log record
+      for the same event.
+    inference: |
+      An incident responder reading only the script-level log stream (not base_runner)
+      sees a "dispatch_lock.fs_error" event without errno/strerror. The base_runner log
+      has the detail, but if log levels or sinks differ between the two, the detail
+      may not be co-located for reconstruction.
+    evidence: |
+      scripts/run_paper_trading_vt.py:562-569 — dispatch_lock.fs_error log has
+      only cycle_id + pair, no errno/strerror/lock_path.
+      Contrast: base_runner.py:372-382 logs errno + strerror + lock_path on same path.
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+  - id: F-005
+    severity: observation
+    location: "scripts/run_paper_trading_vt.py:557 (and carry_fred equivalent)"
+    category: correctness
+    observation: |
+      The dispatch lock caller checks `if _dl_acquired is not True:` then separately
+      checks `if _dl_acquired is _DISPATCH_LOCK_FS_ERROR:`. The import of
+      _DISPATCH_LOCK_FS_ERROR is done INSIDE the with-block after the sentinel check,
+      meaning the import is performed only when the sentinel is needed. This is
+      unconventional but harmless at HEAD. However the sentinel `_DISPATCH_LOCK_FS_ERROR`
+      is a module-level object — its identity is stable. The pattern works correctly.
+
+      Note: the `_runner_is_shim` branch in run_cycle for COND-6 creates a parallel
+      implementation path (module-level check_dispatch_allowed + compute_exposure)
+      that is not exercised by the COND-6 tests in test_paper_runner_bc8_conds.py.
+      The shim path tests exist in older wave-8/wave-11 tests which patch the
+      module-level check_dispatch_allowed. This dual-path complexity persists.
+    inference: |
+      The shim COND-6 path (when _runner_is_shim=True) does not log strategy_id
+      or condition_id per the bc8_cond_check schema. It silently calls
+      check_dispatch_allowed without the structured observability that the
+      base_runner path provides. This means pre-REM-2 callers (those not passing runner=)
+      get degraded observability on COND-6 blocks.
+    evidence: |
+      scripts/run_paper_trading_vt.py:581-594 — shim path calls check_dispatch_allowed
+      without any bc8_cond_check logging.
+    recommended-action-class: other
+    owning-role: cto
+
+coverage-statement: "I reviewed 5 of 5 artifacts in scope; the remaining 0 were skipped."
+
+contamination-check: "clean — no approve/reject/recommend stance signal found in any stripped artifact. The four stripped artifacts (qd, cro, nht, cto) contain only observations, conditions, evidence, and knowledge_gaps. No decision verdicts or directional stances were found."
+
+time-spent-reasoning: "28 minutes"
+
+claimed_domains:
+  - independent-code-review
+  - independent-design-review
+  - hidden-bug-and-edge-case-surfacing
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review
+  - logging-decision-trace-adequacy-review
+
+evidence:
+  - "src/forex_system/paper/base_runner.py:48-55 (imports)"
+  - "src/forex_system/paper/base_runner.py:65-87 (_DISPATCH_LOCK_FS_ERROR sentinel + _ACTIVE_GUARDS)"
+  - "src/forex_system/paper/base_runner.py:127-186 (__init__ with COND-2..5 wiring)"
+  - "src/forex_system/paper/base_runner.py:154-159 (account_key plaintext log — F-001)"
+  - "src/forex_system/paper/base_runner.py:200-207 (COND-1 %-format log)"
+  - "src/forex_system/paper/base_runner.py:209-271 (COND-2 _check_aggregate_drawdown)"
+  - "src/forex_system/paper/base_runner.py:311-405 (COND-5 _acquire_dispatch_lock with fd management)"
+  - "src/forex_system/paper/base_runner.py:408-481 (COND-6 _check_jpy_correlated_cap)"
+  - "src/forex_system/paper/base_runner.py:484-543 (COND-7 _accrue_swap)"
+  - "src/forex_system/saxo/client.py:244-259 (F-007 fix: datetime.now(timezone.utc), except preserved)"
+  - "scripts/run_paper_trading_vt.py:28 (fcntl import # noqa: F401 as patch surface)"
+  - "scripts/run_paper_trading_vt.py:388-405 (run_cycle signature: runner optional, aggregate_dd_contract removed)"
+  - "scripts/run_paper_trading_vt.py:556-573 (COND-5 with-block caller; sparse FS_ERROR log)"
+  - "scripts/run_paper_trading_vt.py:581-594 (shim COND-6 path — no bc8_cond_check log)"
+  - "scripts/run_paper_trading_vt.py:1003-1016 (PaperRunnerBase construction in main())"
+  - "tests/integration/test_paper_runner_bc8_conds.py:836-960 (AST cardinality guard — upper-bound only)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:355-422 (COND-5 tests: ACQUIRED + BUSY + released)"
+  - "tests/scripts/test_wave11_f101_oserror_dispatch_lock.py:104-181 (patch target: scripts.vt.fcntl.flock — valid because fcntl is a singleton module)"
+  - ".fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/cto-architecture-review.yaml (PV-1: COND-1 %-style; COND-A3 condition)"
+  - ".fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/qd-implementation-report.yaml"
+  - ".fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/nht-null-test-report.yaml"
+  - ".fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/cro-risk-assessment.yaml"
+
+assumptions:
+  - "The fcntl module is a CPython singleton in sys.modules; patching vt_mod.fcntl.flock patches fcntl.flock globally, so wave11 F-101 tests remain valid after extraction to base_runner."
+  - "The @contextmanager yield-in-except pattern in _acquire_dispatch_lock is safe in Python 3.7+ per contextlib docs; the generator is properly closed when the with-block exits via return."
+  - "No existing tests pass aggregate_dd_contract as a keyword argument to run_cycle (verified: grep across tests/ returned no matches)."
+  - "The duplication metric (pre: 466 lines, post: 464 lines, delta: -2) reflects that both scripts still carry symmetric shim code; the CTO D-2.3 5-10 day full extraction has NOT occurred in this wave — the 71% reduction claim from the arch-review is NOT achieved in this wave."
+
+confidence: high
+
+body: |
+  REM-2 extraction is structurally sound. All 7 COND guards are implemented in
+  PaperRunnerBase with correct logic. The F-007 fix (client.py:252) is correct:
+  datetime.now(timezone.utc) replaces the naive-vs-aware subtraction bug; the
+  except fallthrough at line 253 is preserved. The dispatch lock (COND-5) fd
+  management is correct: BlockingIOError and OSError handlers close the fd and
+  set _dl_fd=-1 before yielding, so the finally block skips double-close.
+
+  Two major findings require conditions before merge:
+
+  F-001 (security/major): COND-3 startup log emits account_key in plaintext at
+  base_runner.py:158. This contradicts the Wave-10 PII sanitization that scrubbed
+  account_key from 4 files. Remediation: truncate or hash (e.g. f"...{account_key[-4:]}").
+
+  F-002 (test-coverage/major): The AST cardinality guard enforces only an upper bound.
+  Zero AggregateDrawdownContract in a paper script's main() passes silently. A minimum
+  lower-bound assertion per paper script is missing. Alias-import bypass is a secondary
+  gap (no current instances).
+
+  F-003 (observability/minor): All COND-1..7 logs use %-style positional strings, not
+  structured key-value. CTO COND-A3 from wave-2 required upgrading to structured;
+  this wave propagated the non-compliant pattern to 6 new CONDs. The logs ARE
+  grep-able via string match, so this is decision-reconstructable but not queryable.
+
+  F-004 (observability/minor): The script-level dispatch_lock.fs_error log on the FS_ERROR
+  path is sparse (no errno/strerror/lock_path) relative to the base_runner log.
+
+  F-005 (observation): The _runner_is_shim COND-6 path has no bc8_cond_check logging.
+  Backward-compat trade-off acknowledged; pre-REM-2 callers silently degrade on COND-6.
+
+  The sacred test passes. 848/849 suite. The pre-existing governance JSONL canary
+  failure is not introduced by this wave.
+
+knowledge_gaps:
+  - "Duplication metric delta of -2 lines (466→464) does not approach the 71% reduction claimed in the arch-review. Whether the CTO's post-extraction measurement methodology (wave-2 COND-A6) was applied is not verifiable from the artifact — the QD report states the methodology but the result is implausibly small for a 500-LoC extraction."
+
+policy_violations_detected:
+  - id: PV-NEW-1
+    description: "COND-3 startup log emits account_key in plaintext (base_runner.py:158). Violates Wave-10 PII sanitization discipline. See F-001."
+    remediation: "Truncate or hash account_key in the log line before merge."
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/scripts/test_wave11_f101_oserror_dispatch_lock.py
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/qd-implementation-report.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/cro-risk-assessment.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/nht-null-test-report.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-3/_pr-context-stripped/cto-architecture-review.yaml
+  - /Users/huangtm/.claude/skills/review-plan/SKILL.md
+  - /Users/huangtm/.claude/skills/execution-firewall-review/SKILL.md
+  - /Users/huangtm/.claude/skills/log-as-decision-trace/SKILL.md
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,488 @@
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: 2026-05-13T02:10:00Z
+subtask_ref: rem2-cto-arch-review
+subtask_id: cto-rem2-followup-2026-05-13:phase2:task2.1
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - trading-platform-architectures/axes/research-to-prod.md (paper-loop tier)
+conditions:
+  - COND-A1: _PHASE_A_ACTIVE_GUARDS must be renamed to _ACTIVE_GUARDS and updated to list all
+      7 COND IDs (COND-1 through COND-7) before the wave-2 implementation merges. The current
+      constant at base_runner.py:64 is a Phase-A artifact; retaining the name post-full-extraction
+      is a misleading invariant.
+  - COND-A2: PaperRunnerBase.__init__ startup log must be updated to remove the
+      'phase=A note="COND-2..7 pending full REM-2 extraction"' annotation and instead emit
+      all 7 COND IDs as the active list. The log line at base_runner.py:104-109 is currently
+      hard-coded to reflect Phase-A state; after full extraction it becomes a lie.
+  - COND-A3: Each COND-2..7 method must emit a structured guard log with schema specified
+      in this review (see logging_schema below) — structured key-value, NOT f-string prose.
+      The COND-1 pattern at base_runner.py:125-129 is the reference; COND-2..7 must match it.
+  - COND-A4: Cardinality-1 xfail in test_n2_paper_runner_single_source_of_truth_n3 must
+      be resolved post-extraction (either converts to pass, or an explicit additional
+      cardinality-1 test for each newly-moved guard is added by QD). Unresolved xfail at
+      merge is a test-coverage gap per PM hard-constraint aggregate_drawdown_contract_cardinality.
+  - COND-A5: AggregateDrawdownContract wiring in PaperRunnerBase.__init__ must receive
+      a snapshot_timestamp keyword-arg on each update_equity call (per F-004 closure and
+      StaleEquitySnapshotError contract at drawdown_contract.py:58). Wiring without
+      snapshot_timestamp silently degrades to wall-clock fallback (drawdown_contract.py:426-430),
+      violating the CRO R-7.1 equity-snapshot protocol.
+  - COND-A6: Post-extraction diff/wc measurement must be recorded in QD's implementation
+      report before wave-3 principal-reviewer review. Method specified in
+      duplication_measurement_methodology below.
+routed-to: null
+claimed_domains:
+  - architecture-decisions
+  - tech-debt-tracking
+  - logging-and-observability-standards
+  - firewall-enforcement-between-research-and-execution
+evidence:
+  - src/forex_system/paper/base_runner.py:64
+    # _PHASE_A_ACTIVE_GUARDS constant — Phase-A name; must be updated post-full-extraction
+  - src/forex_system/paper/base_runner.py:104-109
+    # startup log line — hard-coded Phase-A annotation must be updated
+  - src/forex_system/paper/base_runner.py:115-130
+    # _check_kill_switch — reference pattern for COND-2..7 guard log shape
+  - tests/integration/test_paper_runner_bc8_conds.py:102-135
+    # 6 @pytest.mark.skip placeholders for COND-2..7
+  - tests/integration/test_paper_runner_bc8_conds.py:177-281
+    # N-2 cardinality-1 test — currently xfails on inline is_triggered cardinality gap
+  - src/forex_system/risk/drawdown_contract.py:58-62
+    # StaleEquitySnapshotError — snapshot_timestamp enforcement
+  - src/forex_system/risk/drawdown_contract.py:385-430
+    # update_equity snapshot_timestamp kwarg + monotonicity + staleness guard
+  - src/forex_system/saxo/client.py:250-252
+    # F-007: retry_dt.utcnow() tz-naive bug, confirmed deterministic TypeError in CPython 3.11+
+  - scripts/run_paper_trading_vt.py:23
+    # fcntl import (COND-5 blast radius — fcntl is OS-level; moved to base_runner means base_runner imports fcntl)
+  - scripts/run_paper_trading_vt.py:45-60
+    # Full risk/* import list in vt script: drawdown_contract, exposure_aggregator, account_key_parity, heartbeat_watchdog, kill_switch
+  - scripts/run_paper_trading_carry_fred.py:64-80
+    # Full risk/* import list in carry_fred script: matches vt almost exactly (blast radius symmetric)
+  - scripts/run_paper_trading_vt.py:948-952
+    # AggregateDrawdownContract instantiated at line 952 (vt script direct wire — COND-2 moves this)
+  - scripts/run_paper_trading_carry_fred.py:893-897
+    # AggregateDrawdownContract instantiated at line 897 (carry_fred script direct wire — COND-2 moves this)
+  - docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md:57
+    # Original duplication measurement: 312 vt-unique + 245 carry_fred-unique = 557 unique LoC; 71.3% = (1943-557)/1943
+  - docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md:36
+    # REM-2 PHASE-A-CLOSED status confirmed
+  - docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md:42
+    # REM-2 inertness note: attractor dynamic; N=3 before full-extraction re-introduces F-001
+assumptions:
+  - Commit 32cf771 is authoritative HEAD; 798 tests pass as reported
+  - PaperRunnerBase is confirmed as SUPERCLASS (inheritance, not composition) per KG-NHT-2 closure and CTO D-2.2 — this review ratifies that choice for full-extraction (see composition_vs_inheritance below)
+  - No shared mutable class-level state is introduced by COND-2..7 methods — each method takes its dependencies as arguments, not stored as instance state that cross-contaminates strategies
+  - fcntl is available on the deployment platform (Linux/macOS); COND-5 extraction assumes the OS surface is already relied upon by both scripts
+  - AggregateDrawdownContract is already a separate class (not subclass of DrawdownContract) per KG-D27-1 closure; COND-2 extraction moves instantiation only
+confidence: high
+body: |
+  ## Composition vs. Inheritance (D-2.2 ratification for full extraction)
+
+  D-2.2 confirmed inheritance (PaperRunnerBase as superclass) for Phase-A. This review
+  ratifies that pattern for full COND-2..7 extraction.
+
+  The primary concern with inheritance in a risk-envelope context is shared mutable state
+  that could allow one strategy's guard state to corrupt another's. That concern is
+  NEUTRALIZED here because:
+  (a) Each paper script spawns its own process (fcntl dispatch lock, COND-5, is
+      process-scoped). There is no in-process multi-runner concurrency.
+  (b) PaperRunnerBase instance state (strategy_id, _kill_switch) is set per-instance,
+      not at class level.
+  (c) AggregateDrawdownContract, once moved to __init__, is instantiated per-runner-instance
+      — not as a class variable.
+
+  The latency-tier note is required by trading-platform-architectures/axes/research-to-prod.md
+  when citing cross-firm precedent: this is a LOW-FREQUENCY paper loop (bar-close cadence,
+  not hot-path). Inheritance overhead is negligible. Any reference to "composition scales
+  better" from high-frequency systems literature does NOT apply here.
+
+  The rejected alternative is pure composition (PaperRunnerBase as a helper object
+  passed into scripts). The steelmanned case for composition is: scripts can selectively
+  call guards and avoid Python MRO confusion. Rejected because: (a) Phase-A already
+  established the inheritance contract and tests depend on it; (b) the N-2 cardinality-1
+  test depends on isinstance/AST checks that assume the BaseRunner IS the runner;
+  (c) composition would require scripts to own the guard orchestration, recreating the
+  duplication attractor the extraction exists to eliminate.
+
+  Anti-patterns explicitly rejected for COND-2..7 methods:
+  - Shared mutable class-level state (class-level dict/list for guard tracking) — forbidden;
+    each instance carries its own state
+  - Hook-based override pattern (subclasses override guard methods) — forbidden per
+    no_monkey_patching_of_base_runner_methods hard-constraint; COND methods must be final
+  - Guard methods that implicitly depend on call order without documentation — COND-2..7
+    must have documented call-order requirements in docstrings where order matters
+
+  ## _PHASE_A_ACTIVE_GUARDS Successor (D-naming decision)
+
+  Rename to: _ACTIVE_GUARDS
+
+  Rationale: the Phase-A qualifier is a temporal artifact, not a semantic one. The
+  constant's purpose is "the set of guard IDs active in this runner" — that meaning is
+  constant across Phase-A and full-extraction. _PHASE_A_ACTIVE_GUARDS embedded a
+  state-machine stage into an architectural constant, which is a documentation debt that
+  decays immediately on merge of this wave.
+
+  Post-extraction value: ["BC-8-LIFT-COND-1", "BC-8-LIFT-COND-2", "BC-8-LIFT-COND-3",
+  "BC-8-LIFT-COND-4", "BC-8-LIFT-COND-5", "BC-8-LIFT-COND-6", "BC-8-LIFT-COND-7"]
+
+  The active_guards property at base_runner.py:232-234 must also be updated to reference
+  _ACTIVE_GUARDS (not _PHASE_A_ACTIVE_GUARDS).
+
+  ## Duplication Measurement Methodology
+
+  The canonical pre-extraction baseline was computed as:
+    312 vt-unique + 245 carry_fred-unique = 557 unique LoC out of 1943 total = 71.3%
+  (Source: CONSENSUS_2026-05-12_arch_review_multi_strategy.md:57, reproduced exactly)
+
+  Post-extraction measurement command (to be run by QD and recorded in the implementation report):
+
+    diff <(grep -v '^\s*#' scripts/run_paper_trading_vt.py | grep -v '^\s*$') \
+         <(grep -v '^\s*#' scripts/run_paper_trading_carry_fred.py | grep -v '^\s*$') \
+    | grep -c '^[<>]'
+
+  This counts lines unique to either script (ignoring comment-only lines and blank lines),
+  matching the spirit of the original 557-line measurement. The result divided by the
+  sum of the two scripts' non-comment non-blank line counts gives the post-extraction
+  uniqueness fraction. Record as: post_extraction_unique_lines / post_extraction_total_lines.
+
+  Supplementary (optional, higher signal): cloc --diff for code-only diff excluding blanks
+  and comments:
+    cloc --diff scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py
+
+  PM criterion: "reduction must be demonstrable via diff/wc." The diff|grep -c command
+  above directly satisfies this. QD must record the command output verbatim in the
+  implementation report. No specific target percentage is mandated, but the number must
+  be lower than 557 unique lines (the pre-extraction baseline).
+
+  ## Blast Radius
+
+  Modules outside src/forex_system/paper/ and the 2 scripts that could be affected:
+
+  1. src/forex_system/risk/drawdown_contract.py — COND-2 moves AggregateDrawdownContract
+     instantiation from scripts to PaperRunnerBase.__init__. The class itself is not
+     changed; the wiring point changes. Impact: update_equity call sites are already
+     in the scripts' run_cycle; those call sites also move or delegate to base_runner.
+     Blast radius: medium. The snapshot_timestamp monotonicity invariant (F-004/
+     StaleEquitySnapshotError at drawdown_contract.py:447-462) must be preserved exactly
+     — the timestamp source (broker receive-time) must not change to wall-clock-now.
+
+  2. src/forex_system/risk/account_key_parity.py — COND-3 calls assert_account_key_parity.
+     The function itself is not changed; the call site moves from script startup to
+     PaperRunnerBase.__init__. Blast radius: low. No interface change.
+
+  3. src/forex_system/risk/heartbeat_watchdog.py — COND-4 moves HeartbeatWatchdog
+     registration to PaperRunnerBase.__init__. The watchdog's on_timeout callback
+     references the halt mechanism — this callback must still reference the correct
+     halt flag for the specific strategy. Blast radius: medium-high. The callback
+     must be passed as a parameter to __init__, not hardcoded, to avoid coupling
+     base_runner.py to script-specific halt logic.
+
+  4. src/forex_system/risk/exposure_aggregator.py — COND-6 (JPY cap) calls into
+     exposure_aggregator. The aggregator itself is not changed; the call site moves.
+     Blast radius: low. Per-strategy cap logic (REM-5/R-5.1) is already in the aggregator.
+
+  5. src/forex_system/saxo/client.py — COND-5 (fcntl lock) and COND-3 (account_key parity)
+     both use the client/backend. Moving these to base_runner means base_runner grows a
+     saxo dependency. Blast radius: low structurally but import-cycle risk must be verified
+     (base_runner.py currently has no saxo import; QD must confirm no circular import
+     is introduced when base_runner imports from saxo/).
+
+  6. tests/integration/test_paper_runner_bc8_conds.py — all 6 @pytest.mark.skip tests
+     must be un-skipped and implemented. The N-2 xfail must be resolved. These are
+     additions, not changes to existing passing tests.
+
+  7. tests/backtest/test_engine.py::test_no_lookahead — NOT affected. This wave does
+     not touch backtest/ or features/. Sacred test is a regression guard only.
+
+  Cross-module surface summary: risk/* (5 modules touched as call-site recipients),
+  saxo/* (2 modules potentially imported by base_runner), tests/integration (6 tests
+  un-skipped). No core/, data/, strategies/, analysis/ modules are affected.
+
+  ## Logging Schema (cond_guard_observability hard-constraint)
+
+  Each COND-N guard method must emit exactly ONE structured log entry per invocation,
+  per the log-as-decision-trace rubric (items 1, 2, 5, 6, 8, 9 are the minimum required
+  at this latency tier; items 3, 4, 7, 10 apply as noted).
+
+  Required field schema for all COND guard log entries:
+
+    event: "bc8_cond_check"                    # item 9: dotted enumerable event name
+    strategy_id: <str>                         # item 5: correlation field; propagated from self.strategy_id
+    condition_id: "BC-8-LIFT-COND-N"           # item 2: the specific condition being checked
+    outcome: "OK" | "HALTED" | "WARN" | "REDUCED"  # item 1: enumerable outcome, not prose
+    # condition-specific context fields (item 2: all inputs that drove the outcome):
+    # COND-2: equity=<float>, drawdown_pct=<float>, contract_action=<str>
+    # COND-3: live_account_key_hash=<str>, expected_account_key_hash=<str>  # NOT raw keys (item 7)
+    # COND-4: watchdog_timeout_seconds=<float>, watchdog_registered=<bool>
+    # COND-5: lock_path=<str>, lock_acquired=<bool>
+    # COND-6: jpy_correlated_pct=<float>, jpy_cap_pct=<float>, capped=<bool>
+    # COND-7: swap_accrual_amount=<float>, swap_accrual_called=<bool>
+
+  The SKIPPED path must also be logged (log-as-decision-trace item 6): if a guard is
+  bypassed due to a pre-condition not being met (e.g., no open positions for swap
+  accrual), the log must emit outcome="SKIP" with the reason field populated.
+
+  Structural requirement: log entries must use structured key-value pairs (logfmt or
+  kwargs), NOT f-string prose. The COND-1 pattern at base_runner.py:125-129 currently
+  uses %-style string formatting which is NOT fully structured (values are baked into
+  the message string). QD must upgrade COND-1 and all COND-2..7 entries to emit via
+  logger.info() with keyword-only structured fields, or use a structured logging
+  adapter. This is a COND-A3 condition.
+
+  Startup log field schema (existing base_runner.py:104-109 pattern must be upgraded):
+    event: "paper_runner_startup"
+    strategy_id: <str>
+    active_bc8_lift_cond_guards: <list[str]>   # must list all 7 after full extraction
+    # Remove: phase=A note='COND-2..7 pending...' (COND-A2)
+
+  ## Deploy-Checklist Applicability
+
+  deploy-checklist-trading DOES NOT gate this dispatch. Explicit rationale:
+
+  This is a paper-only refactor. PM acceptance-criteria hard-constraint paper_only=true
+  and no_live_capital=true confirm no live execution path is affected. The sterile-deploy-window
+  concept transfers: do NOT bundle any changes to backtest/, features/, strategies/, or
+  data/ modules in this wave. Only src/forex_system/paper/base_runner.py, the 2 scripts,
+  src/forex_system/saxo/client.py (F-007 only), and the integration test file are
+  authorized targets.
+
+  F-007 is explicitly authorized bundling per prior CONSENSUS_2026-05-13
+  (PR cycle-2 observation, F-007 residual non-blocking). No other opportunistic refactors
+  are permitted in this wave.
+
+  The sterile-window violation that would trigger CTO veto: any diff touching
+  tests/backtest/test_engine.py, src/forex_system/backtest/, or any strategy signal
+  calculation path.
+
+  ## Tech-Debt Surface Check
+
+  This extraction REDUCES tech debt on the following structural surfaces:
+
+  1. PR description (forthcoming QD wave-2): must cite the 6 conditions closed
+     (BC-8-LIFT-COND-2..7) and reference this CTO approval artifact as the
+     architecture rationale. A PR description without these citations is a
+     hidden-technical-debt-in-shippable-artifact veto trigger.
+
+  2. Architecture artifact (this document): the CTO architectural decisions are
+     now recorded at wave-2/cto-architecture-review.yaml. The prior tech-debt
+     was the absence of a wave-2 CTO artifact for the follow-up extraction.
+
+  3. Firewall self-review: QD must include execution-firewall-review self-attestation
+     in the implementation report (PM hard-constraint firewall_execution_researcher).
+     Sections A and C are most relevant (no new numeric thresholds should appear in
+     base_runner.py; all COND parameters must be passed from calling scripts, not
+     hardcoded in the base).
+
+  Tech-debt added by this wave: the fcntl import in base_runner.py (COND-5) introduces
+  a platform assumption (POSIX-only) into a module that currently has no OS-specific
+  imports. This is a known tradeoff. QD must document it in the PR description. The
+  alternative (keeping fcntl in scripts only) was evaluated and rejected: it defeats
+  the cardinality-1 invariant for COND-5.
+
+  ROUTE_TO: principal-reviewer for code-level inspection of the COND-4 HeartbeatWatchdog
+  callback wiring. The concern is that the watchdog's on_timeout halt callback, if
+  hardcoded inside PaperRunnerBase.__init__, couples the base class to script-specific
+  halt state. QD must pass the callback as a parameter; PR must verify this pattern
+  is not violated.
+
+  ## F-007 Review
+
+  (a) Structural soundness: the proposed fix `datetime.now(timezone.utc)` is structurally
+  correct. The bug at client.py:251 is `retry_dt.utcnow()` — calling the instance method
+  utcnow() on a tz-aware datetime returns a NEW tz-naive datetime, making the subtraction
+  `retry_dt - retry_dt.utcnow()` a tz-aware minus tz-naive operation, which raises TypeError
+  deterministically in CPython 3.11+ (confirmed: CONSENSUS_2026-05-13 PR cycle-2 residual
+  observation). The fix `datetime.now(timezone.utc)` produces a tz-aware UTC datetime,
+  making the subtraction type-safe.
+
+  (b) Observable behavior: the fix does NOT change observable behavior in the common case.
+  In the current code, the TypeError at line 251 is caught by the `except Exception` at
+  line 252, which falls through to jittered backoff. After the fix, a valid past HTTP-date
+  Retry-After header will produce delay ≈ 0 (max(0.0, negative) → 0.0), which is the
+  semantically correct behavior (the server's suggested delay has already passed). This
+  is a behavioral improvement, not a behavioral change in the safety-critical sense:
+  the storm-prevention property (jitter on the fallback path) is preserved and the
+  happy path now works correctly.
+
+  (c) Test coverage: tests/saxo/test_rem6_429_hardening.py already contains
+  test_429_with_http_date_retry_after_respects_delay (verified at line 111-146) which
+  exercises the HTTP-date branch. The test uses a past date ("Wed, 01 Jan 2020 00:00:00 GMT")
+  which produces delay ≈ 0 — this test will PASS both before and after the fix (the
+  except-fallthrough also produces a small delay in the before-state, just via jitter
+  rather than the arithmetic path). No new test is required; the existing test provides
+  adequate regression coverage for the fix.
+
+  F-007 verdict: APPROVE. No conditions.
+
+failure-modes-considered:
+  - name: COND-4 heartbeat callback coupling
+    description: |
+      HeartbeatWatchdog on_timeout callback in the vt script references a script-specific
+      halt flag (_HALT_REQUESTED or equivalent). If PaperRunnerBase hardcodes a generic
+      halt mechanism instead of accepting the callback as a parameter, the watchdog fires
+      the wrong halt path (or no-ops) when extracted. This is a silent safety regression:
+      tests would pass (watchdog registration asserted), but the watchdog's triggered
+      behavior would be untested.
+    mitigation: |
+      QD must accept the halt callback as a constructor parameter and pass it through.
+      COND-A3 log schema must include watchdog_registered=True to give observability.
+      PR must be reviewed by principal-reviewer (ROUTE_TO above).
+
+  - name: AggregateDrawdownContract double-instantiation during migration
+    description: |
+      If the scripts are partially refactored (inheritance added but COND-2 wiring not
+      yet removed from script startup), AggregateDrawdownContract will be instantiated
+      twice: once in PaperRunnerBase.__init__ and once in the script's main() block.
+      This violates cardinality-1 and will triple-count drawdown (3× if both scripts
+      have the old instantiation plus the base instantiation). The PM test
+      test_bc8_cond2_drawdown_contract_active may pass (base has one instance) while
+      the scripts still have their own instance — cardinality-2 bug undetected.
+    mitigation: |
+      QD must remove the AggregateDrawdownContract instantiation from both scripts
+      atomically with the COND-2 extraction (not in a separate commit). The cardinality-1
+      xfail test (test_n2_paper_runner_single_source_of_truth_n3) must be resolved
+      as part of this wave, not deferred. COND-A4 enforces this.
+
+  - name: snapshot_timestamp monotonicity broken by wiring move
+    description: |
+      Both scripts currently call update_equity() with a broker-receive-time timestamp
+      (F-004 closure). If PaperRunnerBase.__init__ wires update_equity without the
+      snapshot_timestamp parameter (defaulting to wall-clock-now per drawdown_contract.py:426-430),
+      the monotonicity guarantee silently degrades. The StaleEquitySnapshotError will
+      not fire (wall-clock-now is always monotonic) but the CRO R-7.1 equity-snapshot
+      protocol (broker receive-time canonical) is violated.
+    mitigation: |
+      COND-A5 requires explicit snapshot_timestamp passing. QD must verify the
+      broker-receive-time timestamp is propagated through the PaperRunnerBase API
+      to update_equity. This is a CRO-domain concern; CRO wave-3 artifact must
+      confirm this invariant is preserved.
+
+  - name: circular import from base_runner importing saxo/
+    description: |
+      After COND-5 extraction, base_runner.py may need to import from saxo.client
+      (for account_key) or risk/ modules that themselves import from other paths.
+      Python circular imports in this codebase have been a source of prior failures.
+    mitigation: |
+      QD must verify import graph before merging. Acceptable resolution: pass saxo
+      objects (SaxoClient, SaxoExecutionBackend) as constructor parameters, not
+      as module-level imports in base_runner. This avoids the circular import entirely.
+
+what-you-refused-to-do:
+  - "Read Python code at the function-body level to assess implementation quality of
+    COND-2..7 guard logic — ROUTE_TO principal-reviewer (wave-3). CTO reviews
+    architecture and structural surfaces only."
+  - "Evaluate whether the COND-2..7 guard logic is mathematically correct (e.g., whether
+    the JPY cap threshold is calibrated correctly) — ROUTE_TO cro. Risk math is
+    CRO domain."
+  - "Specify the exact Python implementation of COND-2..7 methods — ROUTE_TO quant-developer.
+    CTO specifies interfaces and constraints; QD writes code."
+  - Load the python skill — explicitly forbidden per task instructions.
+
+verdict-detail:
+  composition_vs_inheritance: |
+    INHERITANCE RATIFIED for full extraction. Reasoning: (1) per-process architecture
+    means no shared mutable state across strategy instances; (2) Phase-A already established
+    the pattern and tests depend on it; (3) composition would recreate the duplication
+    attractor by requiring scripts to own guard orchestration. Steelmanned composition
+    case evaluated and rejected. Anti-patterns forbidden: shared class-level state,
+    overrideable guard methods (monkey-patch vector), implicit call-order coupling.
+    Latency-tier note: low-frequency paper loop; inheritance overhead is immaterial.
+
+  active_guards_constant_name: |
+    RENAME to _ACTIVE_GUARDS. Remove _PHASE_A_ prefix — it is a temporal artifact not
+    a semantic one. Post-extraction value must be all 7 COND IDs. The active_guards
+    property (base_runner.py:232-234) must also reference _ACTIVE_GUARDS. Both are
+    covered by COND-A1.
+
+  duplication_measurement_methodology: |
+    SPECIFIED. Primary command:
+      diff <(grep -v '^\s*#' scripts/run_paper_trading_vt.py | grep -v '^\s*$') \
+           <(grep -v '^\s*#' scripts/run_paper_trading_carry_fred.py | grep -v '^\s*$') \
+      | grep -c '^[<>]'
+    Record as: <result> unique lines / <sum of non-comment non-blank lines in both scripts>.
+    Baseline to beat: 557 unique lines out of 1943 total (71.3%) per CONSENSUS_2026-05-12.
+    Supplementary: cloc --diff for code-only diff.
+    QD must record command + verbatim output in the implementation report before wave-3.
+
+  blast_radius: |
+    Affected modules outside paper/ and 2 scripts:
+    1. src/forex_system/risk/drawdown_contract.py — COND-2 wiring move; snapshot_timestamp
+       propagation must be preserved (medium risk; COND-A5)
+    2. src/forex_system/risk/account_key_parity.py — COND-3 call site move (low risk)
+    3. src/forex_system/risk/heartbeat_watchdog.py — COND-4 registration move; callback
+       coupling risk (medium-high; ROUTE_TO principal-reviewer)
+    4. src/forex_system/risk/exposure_aggregator.py — COND-6 call site move (low risk)
+    5. src/forex_system/saxo/ — potential import by base_runner (circular import risk;
+       resolve by passing saxo objects as constructor parameters)
+    6. tests/integration/test_paper_runner_bc8_conds.py — 6 tests un-skipped, xfail resolved
+    Sacred test (tests/backtest/test_engine.py::test_no_lookahead): NOT affected.
+
+  logging_schema: |
+    Required field schema for every COND-N guard log (structured key-value, not f-string):
+      event: "bc8_cond_check"
+      strategy_id: <str>                            # correlation field
+      condition_id: "BC-8-LIFT-COND-N"              # enumerable, exact string
+      outcome: "OK" | "HALTED" | "WARN" | "REDUCED" | "SKIP"  # enumerable
+    Condition-specific context (all inputs that drove the outcome):
+      COND-2: equity=<float>, drawdown_pct=<float>, contract_action=<str>
+      COND-3: live_account_key_hash=<str>, expected_account_key_hash=<str>  # hash only, not raw
+      COND-4: watchdog_timeout_seconds=<float>, watchdog_registered=<bool>
+      COND-5: lock_path=<str>, lock_acquired=<bool>
+      COND-6: jpy_correlated_pct=<float>, jpy_cap_pct=<float>, capped=<bool>
+      COND-7: swap_accrual_amount=<float>, swap_accrual_called=<bool>
+    Startup log (PaperRunnerBase.__init__):
+      event: "paper_runner_startup"
+      strategy_id: <str>
+      active_bc8_lift_cond_guards: <list[str]>  # all 7 after full extraction
+    COND-1 existing log at base_runner.py:125-129 must be upgraded to structured kwargs
+    (currently uses %-format string baking values into message — not item-8-compliant).
+    This is part of COND-A3.
+
+  f007_review: |
+    APPROVE. (a) Fix datetime.now(timezone.utc) is structurally sound — eliminates
+    tz-aware minus tz-naive TypeError (deterministic CPython 3.11+ failure). (b) Does
+    not change observable behavior: the storm-prevention property is preserved (jitter
+    fallback path remains intact; happy path now arithmetically correct for past HTTP-dates).
+    (c) No new test required — test_429_with_http_date_retry_after_respects_delay in
+    tests/saxo/test_rem6_429_hardening.py (line 111-146) covers the HTTP-date branch;
+    existing REM-6 429-hardening tests must continue to pass (they do). Authorize bundling
+    per CONSENSUS_2026-05-13 explicit authorization.
+
+knowledge_gaps: []
+
+policy_violations_detected:
+  - id: PV-1
+    severity: non-blocking (condition)
+    description: |
+      COND-1 guard log at base_runner.py:125-129 uses %-style string formatting that
+      bakes values into the message string rather than emitting structured key-value fields.
+      This fails log-as-decision-trace item 8 (structured, not string-formatted).
+      The COND-1 pattern is the reference that COND-2..7 must match — if the reference
+      is non-compliant, all 7 guards will inherit the pattern.
+    remediation: |
+      QD must upgrade COND-1 log to use structured kwargs (or logfmt adapter) before
+      COND-2..7 are added. This is captured in COND-A3.
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-1/pm-acceptance-criteria.yaml
+  - ~/.claude/skills/review-plan/SKILL.md
+  - ~/.claude/skills/deploy-checklist-trading/SKILL.md
+  - ~/.claude/skills/execution-firewall-review/SKILL.md
+  - ~/.claude/skills/log-as-decision-trace/SKILL.md
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

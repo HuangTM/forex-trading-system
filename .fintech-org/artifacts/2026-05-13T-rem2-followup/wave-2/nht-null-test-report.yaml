@@ -1,0 +1,338 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: dissent
+timestamp: 2026-05-14T01:55:00Z
+subtask_ref: rem2-nht-skeptical-pass
+subtask_id: nht-rem2-followup-2026-05-13:phase2:task2.4
+
+claim-tested:
+  - "cardinality-1 invariant: AggregateDrawdownContract instantiated exactly ONCE per paper loop run after extraction"
+  - "71% duplication reduction is measurably achieved post-extraction"
+  - "attractor surface for copy-paste F-001 re-introduction is mechanically closed"
+
+# ---------------------------------------------------------------------------
+# Tests requested (none EXECUTED yet — extraction itself has not landed)
+# ---------------------------------------------------------------------------
+tests-requested:
+  - to: quant-developer
+    test: |
+      hostile-developer-injection test (cardinality-1 mechanical guard).
+      Add a test in tests/integration/test_paper_runner_bc8_conds.py:
+        def test_cardinality_1_aggregate_drawdown_contract_repo_wide():
+            Walk every *.py file under scripts/ and src/forex_system/paper/.
+            AST-parse each; count ast.Call nodes whose .func resolves to a
+            Name or Attribute with id/attr == "AggregateDrawdownContract".
+            Skip the canonical instantiation site (PaperRunnerBase.__init__
+            file path + line range), and skip test_*.py.
+            Assert remaining count == 0.
+      This test must fail TODAY (current HEAD has 2 instantiations in scripts).
+      Post-extraction it must pass. A snapshot test that asserts "len(...) == 1"
+      at runtime is INSUFFICIENT — it doesn't catch a future copy-paste in a
+      new script that the runtime path doesn't import.
+    null_hypothesis: >
+      H0: any AST-discovered AggregateDrawdownContract() call outside
+      PaperRunnerBase.__init__ indicates cardinality-1 violation.
+      Reject H0 only when count == 0 across full repo scan.
+    significance_threshold: not-applicable (deterministic AST count)
+
+  - to: quant-developer
+    test: |
+      attractor closure test (hostile-developer N=3 injection).
+      Add a test in tests/integration/test_paper_runner_bc8_conds.py:
+        def test_attractor_closure_third_paper_script_cannot_instantiate():
+            Write a transient file scripts/_test_third_paper_script.py
+            containing the verbatim 5-line block from
+            scripts/run_paper_trading_vt.py:948-955 (the
+            `aggregate_dd_contract = AggregateDrawdownContract(...)` block).
+            Then re-invoke the cardinality-1 test above as a subprocess.
+            Assert the cardinality-1 test FAILS on this transient state.
+            Then unlink the transient file.
+            Assert the cardinality-1 test PASSES again.
+      This proves the guard catches the attractor scenario, not just the
+      current snapshot.
+    null_hypothesis: >
+      H0: the cardinality-1 guard is a snapshot test.
+      Reject H0 when introducing a hostile copy-paste causes the guard to fail
+      AND removing it causes the guard to pass.
+    significance_threshold: not-applicable (deterministic)
+
+  - to: quant-developer
+    test: |
+      duplication metric reproducibility (71% baseline + post-extraction).
+      Specify the EXACT measurement command in a script
+      tools/measure_paper_script_duplication.sh that emits a single number.
+      Acceptable methodologies (CTO must pick ONE and document):
+        (a) `cloc --diff scripts/run_paper_trading_vt.py
+                       scripts/run_paper_trading_carry_fred.py`
+            and report identical / modified / added / removed lines;
+            duplication = identical / max(file_a, file_b).
+        (b) token-level normalized longest-common-subsequence on Python AST
+            dumps (after stripping docstrings, comments, and identifier
+            renames) — semantic duplication, not LoC duplication.
+      Run the SAME methodology on:
+         (i)   commit 32cf771 (baseline) — must reproduce ~71%.
+         (ii)  post-extraction HEAD — report new value.
+         (iii) matched-random control: take 32cf771 and randomly delete
+               (uniformly, seeded) the same TOTAL LoC count that the real
+               extraction removed from each script; report duplication.
+      Pass criterion (NHT): post-extraction value < matched-random control
+      value by a margin > 5 percentage points. If (i) doesn't reproduce 71%
+      within ±3pp, the 71% baseline number itself was unreproducible and
+      the entire claim is null.
+    null_hypothesis: >
+      H0: post-extraction duplication reduction is indistinguishable from
+      what would be achieved by deleting the same number of random lines.
+      Reject H0 when post-extraction value beats matched-random by >5pp
+      AND the baseline reproduces within ±3pp.
+    significance_threshold: 5 percentage point margin over matched-random control
+
+  - to: quant-developer
+    test: |
+      inverse-cardinality test (coverage of "zero is also wrong").
+      Add a test that monkey-patches PaperRunnerBase.__init__ to NOT
+      instantiate AggregateDrawdownContract (or instantiates it as
+      MagicMock()), then runs a 2-bar paper loop fixture, and asserts
+      that some downstream test (e.g., test_rem7_aggregate_drawdown
+      LOCKOUT trajectory) FAILS clearly.
+      This proves cardinality-1 is enforced from BOTH sides:
+      cardinality > 1 fails the AST guard; cardinality == 0 fails the
+      LTCM defense behavioral test.
+    null_hypothesis: >
+      H0: removing the contract instantiation has no observable effect.
+      Reject H0 when removing it causes a deterministic LTCM-defense
+      test failure.
+    significance_threshold: not-applicable (deterministic)
+
+# ---------------------------------------------------------------------------
+# Test results — NONE RUN. Extraction has not landed.
+# ---------------------------------------------------------------------------
+tests-results:
+  - test_name: cardinality-1 AST repo-wide guard
+    result: not-run
+    interpretation: >
+      Cannot run. Wave-2 directory at
+      .fintech-org/artifacts/2026-05-13T-rem2-followup/wave-2/ contains no
+      QD implementation report. Git HEAD is 32cf771 (PHASE-A scaffold only).
+      Both scripts still instantiate AggregateDrawdownContract directly
+      (run_paper_trading_carry_fred.py:897, run_paper_trading_vt.py:952).
+      base_runner.py is 234 LoC; line 205 explicitly states "Must also
+      instantiate AggregateDrawdownContract (REM-7 / CTO D-7.1)" as a TODO.
+      The N-2 cardinality test currently xfails (test_paper_runner_bc8_conds.py:268-281).
+      The claim "after extraction, AggregateDrawdownContract is instantiated
+      exactly ONCE" cannot be tested because the extraction has not happened.
+
+  - test_name: attractor closure hostile-injection
+    result: not-run
+    interpretation: >
+      Cannot run. The mechanical guard does not exist. A grep for
+      "AggregateDrawdownContract" in tests/ returns only test_rem7_*
+      (behavioral LTCM tests) — no AST-cardinality enforcement test exists
+      anywhere in the repo. There is currently NOTHING that would fail if
+      a 3rd paper script instantiated the contract directly.
+
+  - test_name: duplication metric reproducibility
+    result: not-run
+    interpretation: >
+      Cannot run. The 71% baseline number originated from prior NHT
+      consensus artifacts but the methodology used to compute it is not
+      documented as a reproducible script in the repo. CTO has not yet
+      picked the methodology (PM AC line 60: "no specific target percentage
+      mandated by PM"). Post-extraction number does not exist.
+
+  - test_name: inverse-cardinality (zero-instance behavioral failure)
+    result: not-run
+    interpretation: >
+      Cannot run. PaperRunnerBase.__init__ does not currently wire
+      AggregateDrawdownContract; both scripts wire their own. A monkey-patch
+      removal test against PaperRunnerBase would have nothing to remove.
+
+matched-benchmark-sharpe: not-applicable  # this is a refactor, not a strategy
+permutation-results: not-applicable  # no measurement was produced to permute
+dsr-assessment: not-applicable  # no Sharpe to deflate
+
+# ---------------------------------------------------------------------------
+# Severity
+# ---------------------------------------------------------------------------
+severity: concern
+does_block: false
+
+dissent-statement: |
+  NHT dissent (REM-2 follow-up wave-2): all three structurally-testable claims
+  are UNDER-TESTED. The dispatch asks the skeptic to evaluate post-extraction
+  invariants, but the extraction has not landed at HEAD (commit 32cf771;
+  PaperRunnerBase is the 234-LoC Phase-A scaffold; both paper scripts still
+  instantiate AggregateDrawdownContract directly at carry_fred.py:897 and
+  vt.py:952). The wave-2 artifacts directory is empty: no QD implementation
+  report, no measurement, no test results.
+
+  Specific gaps that must be closed before any subsequent ratification cycle
+  can credibly call the cardinality-1 invariant "met":
+
+  (1) CARDINALITY-1 IS NOT MECHANICALLY GUARDED. The existing N-2 test at
+      tests/integration/test_paper_runner_bc8_conds.py:177-281 only checks
+      that PaperRunnerBase._check_kill_switch is *usable* by a synthetic N=3
+      script — it does NOT count AggregateDrawdownContract instantiations
+      across the repo. A post-extraction snapshot test that asserts
+      "exactly one instance at runtime" is insufficient: the orchestrator
+      runs ONE script per process, so runtime cardinality is trivially 1
+      regardless of how many scripts contain the instantiation. The required
+      guard is a static AST scan over scripts/ + src/forex_system/paper/
+      that fails when any AggregateDrawdownContract() call appears outside
+      PaperRunnerBase.__init__.
+
+  (2) ATTRACTOR CLOSURE IS UNSUBSTANTIATED. There is currently no test
+      anywhere in the repo that would fail if a hostile developer added
+      scripts/run_paper_trading_strategy3.py with a copy-pasted contract
+      instantiation. The xfail at line 268-281 acknowledges this: "paper
+      scripts still use inline kill_switch.is_triggered." The attractor
+      surface is OPEN, not closed. NHT-ARCH-3 is therefore not addressed
+      by the current wave even in principle.
+
+  (3) DUPLICATION REDUCTION CLAIM IS UNFALSIFIABLE WITHOUT METHODOLOGY.
+      The 71% baseline is folkloric — its computation is not committed as
+      a reproducible script. A "duplication reduced from 71%" claim that
+      doesn't document HOW 71% was computed cannot be falsified, and any
+      post-extraction number is meaningless without (a) reproducing the
+      baseline using the same methodology and (b) a matched-random control
+      (deleting the same total LoC at random and measuring how much
+      duplication drops mechanically). PM AC line 60 explicitly defers
+      this: "no specific target percentage mandated by PM."
+
+  Severity rationale: this is `concern` (does_block: false), not
+  `material_concern`, because:
+  - The dispatch is procedurally consistent with the consensus pattern
+    (PM scopes wave-2; QD implements; NHT reviews) and the gaps above
+    can be closed within the wave by adding the four tests requested
+    above (cardinality-1 AST guard, hostile-injection, duplication
+    methodology script, inverse-cardinality).
+  - The current state at HEAD is the documented Phase-A inert scaffold;
+    nothing is in production claiming the invariant holds, so the cost
+    of waiting one cycle for the tests is bounded.
+  - No deceptive measurement methodology has been proposed yet — there
+    is simply no measurement at all. Material_concern is reserved for
+    cases where a snapshot test is being PASSED OFF as an invariant test;
+    here the QD has not yet attempted to do so.
+
+  This dissent is structural and append-only. It survives any subsequent
+  ratification absent the four tests above being added, run, and showing
+  the per-claim disposition flips to `survives`.
+
+contamination-check: clean
+
+# ---------------------------------------------------------------------------
+# Per-claim disposition
+# ---------------------------------------------------------------------------
+per_claim_disposition:
+  cardinality_1: under-tested
+  duplication_reduction_71pct: under-tested
+  attractor_surface_closed: under-tested
+
+claimed_domains:
+  - null-hypothesis-construction
+  - permutation-and-shuffle-test-design
+  - matched-random-benchmark-construction
+  - structural-skepticism-on-any-claim
+
+# ---------------------------------------------------------------------------
+# Evidence (file + line refs verified by Read/Grep this session)
+# ---------------------------------------------------------------------------
+evidence:
+  - "src/forex_system/paper/base_runner.py:1-44 (header: PHASE-A SCAFFOLD; full extraction is 5-10 days; scripts have not migrated)"
+  - "src/forex_system/paper/base_runner.py:25-28 (REM-7 note: AggregateDrawdownContract belongs in PaperRunnerBase post-full-extraction; in interim both scripts instantiate directly)"
+  - "src/forex_system/paper/base_runner.py:64 (_PHASE_A_ACTIVE_GUARDS = ['BC-8-LIFT-COND-1'] — only one COND extracted)"
+  - "src/forex_system/paper/base_runner.py:199-224 (TODO list COND-2..7 — the work being requested but not yet executed)"
+  - "scripts/run_paper_trading_carry_fred.py:897 (aggregate_dd_contract = AggregateDrawdownContract(...) — direct instantiation at HEAD)"
+  - "scripts/run_paper_trading_vt.py:952 (aggregate_dd_contract = AggregateDrawdownContract(...) — direct instantiation at HEAD)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:102-135 (six @pytest.mark.skip placeholders for COND-2..7 — guards not yet wired)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:177-281 (N-2 cardinality-1 test currently xfails for COND-1; no AggregateDrawdownContract counter exists in this test or anywhere in tests/)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:142-174 (test_n2_no_feature_flag_kill_switch_bypass — only checks for env-var bypass patterns, NOT contract cardinality)"
+  - ".fintech-org/artifacts/2026-05-13T-rem2-followup/wave-2/ — empty directory; no QD implementation report exists"
+  - "git log HEAD = 32cf771 (rem-arch-review-execute Phase-A scaffold; no follow-up extraction commit)"
+  - "PM acceptance criteria wave-1/pm-acceptance-criteria.yaml:60 (CTO must quantify post-extraction duplication metric; PM does not mandate target %; methodology is undefined)"
+
+assumptions:
+  - "I am being asked to skeptically test claims about post-extraction state, even though the extraction has not yet been implemented. Interpreting this as a pre-implementation skeptical pass that specifies the tests required before claims can be ratified."
+  - "If the dispatch intent was instead to evaluate a future QD implementation report, that report does not exist in wave-2/ yet, so the only honest disposition is `under-tested` for all three claims."
+  - "The four requested tests are deterministic AST/grep operations and reproducible measurement scripts, not statistical tests; significance thresholds are mechanical (count == 0, margin > 5pp)."
+  - "The 71% baseline is taken as the proposer's stated baseline (NHT prior-measurement provenance). Reproducibility of that 71% number is itself one of the requested tests."
+
+confidence: high
+
+# ---------------------------------------------------------------------------
+# Body — null hypothesis per claim, restated
+# ---------------------------------------------------------------------------
+body: |
+  CLAIM 1 — Cardinality-1 invariant on AggregateDrawdownContract.
+  Null hypothesis (H0_1): the post-extraction codebase contains zero or more
+  than one AggregateDrawdownContract() call sites outside
+  PaperRunnerBase.__init__. Reject H0_1 only with a static AST scan over
+  scripts/ and src/forex_system/paper/ asserting the count == 0.
+  Current state: H0_1 cannot be rejected because (a) no extraction has
+  shipped (HEAD = 32cf771), (b) two call sites currently exist
+  (carry_fred:897, vt:952), and (c) no AST scan test exists.
+  A runtime "len(active_contracts) == 1" snapshot test is INSUFFICIENT —
+  each paper script runs in its own process; runtime cardinality is always
+  the number of contracts the running script instantiated, regardless of
+  how many other scripts contain copy-pasted instantiations. The invariant
+  must be enforced statically across the repo, not at runtime per-process.
+
+  CLAIM 2 — 71% duplication reduction is measurably achieved.
+  Null hypothesis (H0_2): the post-extraction duplication metric is
+  indistinguishable from what would be obtained by deleting the same number
+  of random lines from each script (matched-random control). Reject H0_2
+  only when (a) the methodology is committed as a reproducible script,
+  (b) the methodology applied to commit 32cf771 reproduces ~71% within
+  ±3pp, and (c) the post-extraction value beats the matched-random control
+  by > 5 percentage points.
+  Current state: H0_2 cannot be tested because no methodology has been
+  picked, no measurement script exists, and the post-extraction number
+  does not yet exist. A naive `wc -l` comparison would conflate raw LoC
+  reduction with semantic duplication reduction; moving identical 50-line
+  blocks to base_runner.py reduces script LoC by 50 each but the semantic
+  duplication content is the SAME — it has merely been factored. The
+  measurement must distinguish "code now lives in shared module" from
+  "duplication actually eliminated" (e.g., via cloc --diff identical-line
+  count or AST-normalized LCS).
+
+  CLAIM 3 — Attractor surface for copy-paste F-001 re-introduction is
+  mechanically closed.
+  Null hypothesis (H0_3): a hostile/careless developer adding
+  scripts/run_paper_trading_strategy3.py with a copy-pasted
+  AggregateDrawdownContract instantiation produces NO test failure.
+  Reject H0_3 only with a hostile-injection test that demonstrates the
+  cardinality-1 AST guard fails on the transient injection and passes
+  after removal.
+  Current state: H0_3 cannot be rejected. There is no mechanical guard.
+  The closest existing test is the N-2 env-var-bypass grep
+  (test_n2_no_feature_flag_kill_switch_bypass), which only catches
+  `os.environ.*SKIP` patterns — not contract instantiation cardinality.
+  The dispatch's claim of "attractor surface closed" is currently social
+  closure ("don't do that"), not mechanical closure. Social closure is
+  not closure.
+
+  Disposition summary:
+  - All three claims: under-tested.
+  - Overall artifact decision: dissent.
+  - Severity: concern (does_block: false). The four requested tests are
+    well-scoped and can be added by QD within the wave. If wave-2 ships
+    without them, severity escalates to material_concern in any next pass.
+
+knowledge_gaps:
+  - "KG-NHT-REM2-1: which duplication-measurement methodology will CTO pick? cloc --diff identical-line count, or AST-normalized LCS. Answer required before claim 2 is testable."
+  - "KG-NHT-REM2-2: where will the cardinality-1 AST guard live? Suggest tests/integration/test_paper_runner_cardinality.py to keep it visible from the integration test suite."
+
+policy_violations_detected: []
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-1/pm-acceptance-criteria.yaml
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/risk/test_rem7_aggregate_drawdown.py
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

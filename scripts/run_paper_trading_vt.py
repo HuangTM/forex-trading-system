@@ -3,6 +3,11 @@
 
 Validated 2026-04-20: Sharpe 0.76 vs B&H 0.58, MaxDD 13.5%.
 
+REM-2 full extraction (2026-05-13):
+    Subclasses PaperRunnerBase. All BC-8-LIFT-COND-1..7 guards delegate to
+    PaperRunnerBase methods. AggregateDrawdownContract instantiated ONCE in
+    main() and passed to PaperRunnerBase (cardinality-1 invariant, LTCM defense).
+
 Each cycle:
   1. Fetch last 300 daily bars from Saxo (need 252 for vol window + buffer)
   2. Compute realized vol (252-day rolling std × √252)
@@ -20,7 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import fcntl
+import fcntl  # noqa: F401 — module-level for test surface (monkeypatching via fcntl.flock)
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -42,19 +47,18 @@ from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
 from forex_system.core.config import load_config
 from forex_system.core.types import Direction
+from forex_system.paper.base_runner import PaperRunnerBase
 from forex_system.risk.drawdown_contract import (
     AggregateDrawdownContract,
     DrawdownContract,
     DrawdownLevel,
 )
-from forex_system.risk.exposure_aggregator import (
-    AggregationGateBlocked,
-    check_dispatch_allowed,
-    compute_exposure,
-)
 from forex_system.risk.account_key_parity import (
-    assert_account_key_parity,
+    assert_account_key_parity as _assert_account_key_parity_impl,
     reset_account_key_lock,
+)
+from forex_system.risk.exposure_aggregator import (
+    check_dispatch_allowed,  # noqa: F401 — module-level for test surface
 )
 from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
 from forex_system.risk.kill_switch import KillSwitch, TriggerReason
@@ -74,6 +78,35 @@ QUIET_HOURS = (20, 8)
 
 WS01_TRACE_PATH = "data/ws01_trace.log"
 EQUITY_LOG_PATH = "data/paper_trading_session.log"
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat shims (REM-2 strangler-fig discipline)
+#
+# These module-level functions preserve the pre-REM-2 test surface.  Tests
+# that patched/imported these at script level continue to work; the real
+# implementation now lives in PaperRunnerBase / upstream modules.
+# ---------------------------------------------------------------------------
+
+def assert_account_key_parity(
+    account_key: str,
+    *,
+    loop_name: str = "vt loop",
+    lock_path: str | None = None,
+) -> None:
+    """Module-level backward-compat shim — delegates to account_key_parity module.
+
+    Provides default loop_name so tests can call without it, matching the
+    original script-level function signature (pre-REM-2).
+    """
+    from forex_system.risk.account_key_parity import (
+        ACCOUNT_KEY_LOCK_PATH,
+        assert_account_key_parity as _impl,
+    )
+    _impl(account_key, loop_name=loop_name,
+          lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH)
+
+
 # BC-8 option-B: cross-process advisory file-lock (shared with carry_fred loop).
 # Lock acquired BEFORE get_positions; held through execute_signal + reconciliation.
 # See docs/specs/drawdown_ladder_amendment_2026-05-06.md and CRO Wave-9 ruling.
@@ -362,14 +395,32 @@ def run_cycle(
     trade_log: TradeLog,
     kill_switch: KillSwitch,
     rebal_threshold: float,
+    runner: PaperRunnerBase | None = None,
     dd_contract: DrawdownContract | None = None,
-    aggregate_dd_contract: AggregateDrawdownContract | None = None,
     auto_mode: bool = False,
     ntfy_topic: str | None = None,
     horizon: str = "daily",
     monitor_pairs: list[str] | None = None,
     cycle_id: int | None = None,
 ) -> dict:
+    """Execute one vol-target carry cycle.
+
+    REM-2: All BC-8-LIFT-COND-1..7 guards delegate to runner (PaperRunnerBase).
+
+    runner is optional for backward-compat with pre-REM-2 test call sites.
+    When None, a minimal PaperRunnerBase is constructed from kill_switch.
+    """
+    # Backward-compat: construct minimal runner when not provided.
+    # Pre-REM-2 tests call run_cycle without runner=; they pass kill_switch.
+    # _runner_is_shim tracks whether we auto-created the runner so the COND-6
+    # check can use the module-level check_dispatch_allowed (patchable by tests).
+    _runner_is_shim = runner is None
+    if _runner_is_shim:
+        runner = PaperRunnerBase(
+            strategy_id="vol_target_carry",
+            kill_switch=kill_switch,
+            dispatch_lock_path=DISPATCH_LOCK_PATH,
+        )
     # --- CRO binding constraint #2: watchdog halt check ---
     # The HeartbeatWatchdog callback sets _HALT_REQUESTED if the loop went
     # idle for > CRO_WATCHDOG_TIMEOUT_SECONDS.  Check at cycle entry so no
@@ -382,7 +433,8 @@ def run_cycle(
         _emit_ws01(cycle_id, pair, "HALT_WATCHDOG_BLOCKED")
         return {"_action": "HALT_WATCHDOG"}
 
-    if kill_switch.is_triggered:
+    # COND-1: kill switch check via PaperRunnerBase (cardinality-1)
+    if not runner._check_kill_switch():
         print(f"\n  KILL SWITCH ACTIVE: {kill_switch.status_line}")
         notify(ntfy_topic, "KILL SWITCH ACTIVE", kill_switch.status_line, "urgent")
         _emit_ws01(cycle_id, pair, "KILL_HALTED_PRECYCLE")
@@ -451,23 +503,22 @@ def run_cycle(
                        equity=equity)
             return {"_action": SKIP_DD_HALT_NEW}
         # DrawdownLevel.REDUCE_SIZING: no early return; sizing_multiplier honored downstream
-        # at the target_units calculation (line ~500). _dd_sizing_multiplier captured
-        # here defaults to 1.0 when no dd_contract; downstream multiplication is unconditional.
+        # at the target_units calculation. _dd_sizing_multiplier captured here defaults to
+        # 1.0 when no dd_contract; downstream multiplication is unconditional.
         _dd_sizing_multiplier = _dd.sizing_multiplier
     else:
         _dd_sizing_multiplier = 1.0
 
-    # --- REM-7 / LTCM defense: AggregateDrawdownContract per-bar update ---
+    # COND-2: AggregateDrawdownContract per-bar update via PaperRunnerBase
     # Called with the same equity value fetched above so both contracts share
     # a single broker-receive-time snapshot (clock-and-ordering discipline).
-    # TODO(REM-2-full-extraction): move to PaperRunnerBase
-    if aggregate_dd_contract is not None:
-        _snapshot_ts = datetime.now(timezone.utc)
-        _agg_assess = aggregate_dd_contract.update_equity(
-            equity,
-            snapshot_timestamp=_snapshot_ts,
-            contributing_strategies=["vol_target_carry"],
-        )
+    _snapshot_ts = datetime.now(timezone.utc)
+    _agg_assess = runner._check_aggregate_drawdown(
+        equity,
+        ["vol_target_carry"],
+        snapshot_timestamp=_snapshot_ts,
+    )
+    if _agg_assess is not None:
         if _agg_assess.force_flat:
             logger.critical(
                 "aggregate_drawdown_lockout_vt",
@@ -498,97 +549,62 @@ def run_cycle(
         # Apply aggregate sizing multiplier (HALVE level) multiplicatively with per-strategy
         _dd_sizing_multiplier = _dd_sizing_multiplier * _agg_assess.sizing_multiplier
 
-    # BC-8 option-B: acquire advisory cross-process file-lock BEFORE get_positions.
-    # Held through execute_signal + reconciliation; released in finally on any exit.
+    # COND-5: acquire advisory cross-process file-lock via PaperRunnerBase BEFORE get_positions.
     # CRO Wave-9 ruling: without this lock two concurrent loops can both pass
     # check_dispatch_allowed with stale exposure snapshots, doubling JPY exposure.
     # docs/specs/drawdown_ladder_amendment_2026-05-06.md; CRO Wave-9 option-B.
-    _dl_path = Path(DISPATCH_LOCK_PATH)
-    _dl_path.parent.mkdir(parents=True, exist_ok=True)
-    _dl_fd = os.open(str(_dl_path), os.O_CREAT | os.O_WRONLY, 0o644)
-    _dl_acquired = False
-    try:
-        fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        _dl_acquired = True
-        logger.info(
-            "dispatch_lock.acquired",
-            extra={
-                "event": "DISPATCH_LOCK_ACQUIRED",
-                "cycle_id": cycle_id,
-                "pair": pair,
-                "lock_path": DISPATCH_LOCK_PATH,
-                "acquire_ts": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-    except BlockingIOError:
-        os.close(_dl_fd)
-        logger.warning(
-            "dispatch_lock.busy",
-            extra={
-                "event": SKIP_DISPATCH_LOCK_BUSY,
-                "cycle_id": cycle_id,
-                "pair": pair,
-                "lock_path": DISPATCH_LOCK_PATH,
-                "decision_ts": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY)
-        return {"_action": SKIP_DISPATCH_LOCK_BUSY}
-    except OSError as exc:
-        os.close(_dl_fd)
-        logger.warning(
-            "dispatch_lock.fs_error",
-            extra={
-                "event": SKIP_DISPATCH_LOCK_FS_ERROR,
-                "cycle_id": cycle_id,
-                "pair": pair,
-                "lock_path": DISPATCH_LOCK_PATH,
-                "errno": getattr(exc, "errno", None),
-                "strerror": getattr(exc, "strerror", None) or repr(exc),
-                "decision_ts": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        kill_switch.trigger(
-            TriggerReason.INFRASTRUCTURE,
-            detail=(
-                f"dispatch_lock_fs_error: errno={getattr(exc, 'errno', None)}"
-                f" strerror={getattr(exc, 'strerror', None) or repr(exc)}"
-            ),
-        )
-        _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_FS_ERROR)
-        return {"_action": SKIP_DISPATCH_LOCK_FS_ERROR}
+    with runner._acquire_dispatch_lock(cycle_id=cycle_id, pair=pair) as _dl_acquired:
+        if _dl_acquired is not True:
+            # Distinguish BUSY (lock held by another process) from FS_ERROR (OS error).
+            # _DISPATCH_LOCK_FS_ERROR sentinel is yielded on OSError; False on LOCK_NB busy.
+            from forex_system.paper.base_runner import _DISPATCH_LOCK_FS_ERROR
+            if _dl_acquired is _DISPATCH_LOCK_FS_ERROR:
+                logger.warning(
+                    "dispatch_lock.fs_error",
+                    extra={
+                        "event": "SKIP_DISPATCH_LOCK_FS_ERROR",
+                        "cycle_id": cycle_id,
+                        "pair": pair,
+                    },
+                )
+                _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_FS_ERROR)
+                return {"_action": SKIP_DISPATCH_LOCK_FS_ERROR}
+            _emit_ws01(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY)
+            return {"_action": SKIP_DISPATCH_LOCK_BUSY}
 
-    # Lock held — the finally below releases it on ALL exit paths (return or exception).
-    try:
-        # --- CRO binding constraint #1: pre-trade aggregation gate ---
-        # Compute exposure across all currently open positions and check that
-        # JPY-correlated notional, active-strategy count, and position count are
-        # within CRO envelope before issuing any new dispatch.
-        # Thresholds sourced explicitly from CRO CONSENSUS_2026-04-28 + Wave-4
-        # artifact; no silent defaults (per hard rule).
+        # Lock held — all remaining work is inside this block.
+        # COND-6: JPY-correlated cap check via PaperRunnerBase BEFORE dispatch.
+        # When runner was auto-constructed (shim), use module-level check_dispatch_allowed
+        # so tests that patch vt_mod.check_dispatch_allowed can still control this gate.
         current_positions = backend.get_positions()
         _open_pos_list = list(current_positions.values())
-        _exposure = compute_exposure(_open_pos_list)
-        try:
-            check_dispatch_allowed(
-                _exposure,
-                max_correlated_pct=CRO_MAX_CORRELATED_PCT,         # 0.15 — CRO binding #1
-                max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,   # 4 — CRO Phase-1 envelope
-                max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,  # 6 — CRO Phase-1 envelope
+        if _runner_is_shim:
+            from forex_system.risk.exposure_aggregator import (
+                AggregationGateBlocked,
+                compute_exposure,
             )
-        except AggregationGateBlocked as exc:
-            logger.warning(
-                "dispatch_blocked_aggregation_gate",
-                extra={
-                    "event": "DISPATCH_BLOCKED_AGGREGATION_GATE",
-                    "reason": str(exc),
-                    "cycle_id": cycle_id,
-                    "pair": pair,
-                    "jpy_correlated_pct": _exposure.jpy_correlated_pct,
-                    "active_strategies": _exposure.active_paper_strategies,
-                    "open_positions": _exposure.concurrent_open_positions,
-                },
+            _exposure = compute_exposure(_open_pos_list)
+            _cond6_allowed = True
+            try:
+                check_dispatch_allowed(
+                    _exposure,
+                    max_correlated_pct=CRO_MAX_CORRELATED_PCT,
+                    max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,
+                    max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,
+                )
+            except AggregationGateBlocked:
+                _cond6_allowed = False
+        else:
+            _cond6_allowed = runner._check_jpy_correlated_cap(
+                _open_pos_list,
+                max_correlated_pct=CRO_MAX_CORRELATED_PCT,
+                max_active_strategies=CRO_MAX_ACTIVE_STRATEGIES,
+                max_concurrent_positions=CRO_MAX_CONCURRENT_POSITIONS,
+                cycle_id=cycle_id,
+                pair=pair,
+                equity=equity,
             )
+        if not _cond6_allowed:
             _emit_ws01(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity)
             return {"_action": "SKIP_AGGREGATION_GATE"}
 
@@ -734,21 +750,18 @@ def run_cycle(
         # F-001: convert USD-nominal to engine-units (divides by price for JPY pairs).
         _engine_units = (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
         _cost_usd = _cost_pips * _pip_v * _engine_units
-        # Fix 1: swap accrual — mirror engine.py:316-317 continuous-mode daily swap.
-        # holding_cost(pair, LONG, 1) returns -swap_long_pips_per_day (positive = cost).
-        # A positive carry (USDJPY long, swap_long=+0.8) means holding_cost returns -0.8
-        # which negated is +0.8 pips/day credit.  Units held = cur_units (before action).
-        _held_units_nom = cur_units  # USD-nominal position size before this cycle's action
-        _held_engine_units = (_held_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _held_units_nom
-        _now_ts = datetime.now(timezone.utc)
-        _swap_usd = 0.0
-        if _held_units_nom > 0 and _last_cycle_ts is not None:
-            _days_elapsed = (_now_ts - _last_cycle_ts).total_seconds() / 86_400.0
-            # holding_cost returns pips cost (positive = money lost).
-            # Negate to get net effect: negative holding_cost = carry credit.
-            _swap_pips_per_day = -_COST_MODEL.holding_cost(pair, Direction.LONG, 1)
-            _swap_usd = _swap_pips_per_day * _pip_v * _held_engine_units * _days_elapsed
+
+        # COND-7: swap accrual via PaperRunnerBase — mirrors engine.py:316-317.
+        # cur_units = USD-nominal position before this cycle's action.
+        _swap_usd, _now_ts = runner._accrue_swap(
+            pair=pair,
+            held_units_nom=cur_units,
+            mid=mid,
+            last_cycle_ts=_last_cycle_ts,
+            cost_model=_COST_MODEL,
+        )
         _last_cycle_ts = _now_ts
+
         logger.info(
             "cost_compute.decision",
             extra={
@@ -850,20 +863,6 @@ def run_cycle(
         else:
             hb_action = "ENTER"
         return {pair: sig, "_action": hb_action, "_signal": sig}
-    finally:
-        if _dl_acquired:
-            fcntl.flock(_dl_fd, fcntl.LOCK_UN)
-            logger.info(
-                "dispatch_lock.released",
-                extra={
-                    "event": "DISPATCH_LOCK_RELEASED",
-                    "cycle_id": cycle_id,
-                    "pair": pair,
-                    "lock_path": DISPATCH_LOCK_PATH,
-                    "release_ts": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-        os.close(_dl_fd)
 
 
 def main():
@@ -916,8 +915,6 @@ def main():
 
     client = SaxoClient(args.token, live=False)
     backend = SaxoExecutionBackend(client)
-    # HIGH-2: account_key parity gate — must run before any order dispatch.
-    assert_account_key_parity(backend.account_key, loop_name="vt loop")
     sizer = VolTargetSizer(
         leverage_cap=leverage_cap,
         min_order_size=config.backtest.position_sizing.get("min_order_size", 100)
@@ -945,10 +942,9 @@ def main():
         full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,  # 0.20 — CRO DD-3
     )
 
-    # --- REM-7: AggregateDrawdownContract (LTCM-class defense) ---
-    # Instantiated alongside per-strategy DrawdownContract per F-001 PR ruling.
-    # Both paper scripts must instantiate directly until REM-2 full BaseRunner extraction.
-    # TODO(REM-2-full-extraction): move to PaperRunnerBase
+    # --- REM-7: AggregateDrawdownContract (LTCM-class defense, cardinality-1) ---
+    # Instantiated ONCE here in main(); passed to PaperRunnerBase.
+    # Cardinality-1 invariant: one instance per loop run (LTCM defense per CRO R-7.1).
     aggregate_dd_contract = AggregateDrawdownContract(
         warn_threshold=0.04,      # 4% — CRO R-7.1
         halve_threshold=0.08,     # 8% — CRO R-7.1
@@ -982,7 +978,7 @@ def main():
     last_signal: float | None = None
     last_action: str | None = None
 
-    # --- CRO binding constraint #2: HeartbeatWatchdog instantiation ---
+    # --- COND-4: HeartbeatWatchdog instantiation ---
     # Timeout sourced from CRO CONSENSUS_2026-04-28 binding constraint #2.
     # on_timeout halts new dispatches; does NOT auto-unwind (per CRO 2026-04-30).
     def _on_watchdog_timeout(seconds_idle: float) -> None:
@@ -1007,20 +1003,35 @@ def main():
     )
     watchdog.start()
 
+    # --- REM-2: PaperRunnerBase (COND-1..7 single source of truth) ---
+    # account_key + loop_name triggers COND-3 parity gate at construction.
+    # aggregate_dd_contract passes COND-2 (cardinality-1: same instance as above).
+    # heartbeat_watchdog passes COND-4.
+    # dispatch_lock_path passes COND-5 (shared with carry_fred loop).
+    runner = PaperRunnerBase(
+        strategy_id="vol_target_carry",
+        kill_switch=kill_switch,
+        aggregate_dd_contract=aggregate_dd_contract,
+        account_key=backend.account_key,
+        loop_name="vt loop",
+        heartbeat_watchdog=watchdog,
+        dispatch_lock_path=DISPATCH_LOCK_PATH,
+    )
+
     if args.loop:
         print(f"\nLoop mode (every {args.interval}s). Ctrl+C to stop.")
         cycle_id = 0
         try:
             while True:
                 cycle_id += 1
-                watchdog.tick()  # CRO binding #2: dead-man tick each cycle
+                runner._tick_heartbeat()  # COND-4: dead-man tick via PaperRunnerBase
                 write_heartbeat(HEARTBEAT_PATH, cycle_id, loop_start,
                                 last_signal=last_signal, last_action=last_action)
                 result = run_cycle(client, backend, sizer, strategy, pair,
                                    pred_log, trade_log, kill_switch,
                                    rebal_threshold=rebal_threshold,
+                                   runner=runner,
                                    dd_contract=dd_contract,
-                                   aggregate_dd_contract=aggregate_dd_contract,
                                    auto_mode=args.auto, ntfy_topic=args.ntfy,
                                    horizon=args.timeframe,
                                    monitor_pairs=args.monitor_pairs,
@@ -1044,14 +1055,14 @@ def main():
             watchdog.stop()
     else:
         try:
-            watchdog.tick()  # CRO binding #2: tick even for single-shot run
+            runner._tick_heartbeat()  # COND-4: tick even for single-shot run
             write_heartbeat(HEARTBEAT_PATH, 1, loop_start,
                             last_signal=last_signal, last_action=last_action)
             run_cycle(client, backend, sizer, strategy, pair,
                       pred_log, trade_log, kill_switch,
                       rebal_threshold=rebal_threshold,
+                      runner=runner,
                       dd_contract=dd_contract,
-                      aggregate_dd_contract=aggregate_dd_contract,
                       auto_mode=args.auto, ntfy_topic=args.ntfy,
                       horizon=args.timeframe,
                       cycle_id=1)

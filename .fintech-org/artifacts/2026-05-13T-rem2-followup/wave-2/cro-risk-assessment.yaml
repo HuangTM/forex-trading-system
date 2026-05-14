@@ -1,0 +1,152 @@
+role: cro
+artifact_type: risk-assessment
+decision: approve
+timestamp: 2026-05-13T18:30:00Z
+subtask_ref: rem2-cro-risk-review
+subtask_id: cro-rem2-followup-2026-05-13:phase2:task2.2
+size_multiplier: 1.0
+binding_constraints:
+  - CRO-BC-1 (exposure_aggregator): JPY-correlated notional ≤ 15% of book; per-strategy ≤ 0.0375 (REM-5 R-5.1 equal-weight)
+  - CRO-BC-2 (heartbeat_watchdog): ≤ 5 min timeout on paper-trading loop (CONSENSUS_2026-04-28)
+  - CRO-BC-8: dispatch lock (fcntl) cycle-scope acquire/release (CRO Wave-9 option-B; carry-through CONFIRMED in Wave-10)
+  - CRO DD-1/DD-2/DD-3 ladder: halt_new=10%, reduce=15%, full_halt=20% (broker TotalValue, drawdown_ladder_amendment_2026-05-06)
+  - CRO R-7.1 aggregate ladder: warn=4%, halve=8%, halt=12%, lockout=15%
+  - aggregate_drawdown_contract_cardinality: exactly 1 per loop (LTCM dual-layer = per-strategy DD + aggregate DD; aggregate must be cardinality-1)
+  - snapshot_timestamp_monotonicity: enforced (F-004; broker receive-time, not wall-clock)
+  - SEC Rule 15c3-5(c)(1) discipline-alignment: pre-trade financial risk controls (account_key parity = pre-trade segregation gate)
+regime_flags: []
+claimed_domains:
+  - kill-switch-design-and-testing
+  - drawdown-contracts
+  - risk-budget-allocation
+  - tail-risk-measurement
+  - regulatory-risk-compliance
+  - correlation-and-concentration-limits
+evidence:
+  - file: src/forex_system/paper/base_runner.py
+    lines: 64, 87-110, 115-130, 199-224
+    finding: COND-1 extracted; COND-2..7 documented as TODO at lines 199-224; cardinality-1 invariant explicitly stated as architectural intent at line 30-37; observability boundary (startup log emits active guards) wired at line 104-109.
+  - file: src/forex_system/risk/drawdown_contract.py
+    lines: 58, 293, 358-359, 385-470
+    finding: AggregateDrawdownContract is a separate class (not subclass of DrawdownContract — KG-D27-1 closure confirmed); StaleEquitySnapshotError (line 58) preserved; F-004 monotonic-timestamp guard (lines 358-359, 445-449) raises on snapshot_timestamp < last_ts; staleness check (line 455-458) preserved.
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 70 (import), 328 (function-arg), 441-450 (per-bar update), 893-907 (instantiation)
+    finding: AggregateDrawdownContract instantiated ONCE per script with CRO R-7.1 thresholds (4/8/12/15); snapshot_timestamp passed via datetime.now(timezone.utc) at line 445; both paper scripts currently instantiate directly (cardinality = 2 across runs IF both loops run; cardinality = 1 per loop), and TODO(REM-2-full-extraction) markers are present.
+  - file: scripts/run_paper_trading_vt.py
+    lines: 23 (fcntl import), 46 (Aggregate import), 366 (function-arg), 460-470 (per-bar update), 511 (lock acquire), 855 (lock release in finally)
+    finding: "Same wiring pattern as carry_fred; fcntl lock acquired at run_cycle entry (per-cycle), released in finally — cycle-scope, NOT init-scope (correct — lock must be released between cycles to allow other loops to dispatch in their stagger window)."
+  - file: src/forex_system/risk/exposure_aggregator.py
+    lines: 9-10, 196 (default), 200-249 (per_strategy check), 269-278 (aggregate check)
+    finding: max_correlated_pct default 0.15 (matches CRO_MAX_CORRELATED_PCT in scripts); per_strategy_cap = 0.15/4 = 0.0375 per REM-5 R-5.1 equal-weight rule; per_strategy_jpy_cap_exceeded raised when projected > cap; aggregate gate at 0.15 * book_equity.
+  - file: scripts/run_paper_trading_vt.py
+    lines: 97-110
+    finding: CRO_MAX_CORRELATED_PCT=0.15, CRO_MAX_ACTIVE_STRATEGIES=4, CRO_MAX_CONCURRENT_POSITIONS=6, CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 — all match consensus binding constraints exactly; named constants (no silent defaults).
+  - file: scripts/run_paper_trading_carry_fred.py
+    lines: 705-714
+    finding: swap accrual computed via _COST_MODEL.holding_cost(pair, Direction.LONG, 1) and integrated into _swap_usd; this is portfolio-state arithmetic only; no broker order, no live capital touch (paper-loop, equity log only).
+  - file: src/forex_system/saxo/client.py
+    lines: 245-274
+    finding: F-007 confirmed at line 251 — `(retry_dt - retry_dt.utcnow()).total_seconds()`. retry_dt is a tz-aware datetime from email.utils.parsedate_to_datetime; calling .utcnow() on it returns a naive datetime; the subtraction raises TypeError. The bare `except Exception:` at line 252 catches it and falls through to exponential-backoff with jitter (lines 257-260). Fix to datetime.now(timezone.utc) is benign (eliminates latent TypeError) and preserves observable behavior.
+  - file: tests/integration/test_paper_runner_bc8_conds.py
+    lines: 102-135 (skip placeholders), 177-281 (N-2 cardinality-1 stub with xfail)
+    finding: COND-2..7 placeholder tests exist (skipped); test_n2_paper_runner_single_source_of_truth_n3 currently xfails on the inline-is_triggered cardinality gap; PM AC requires xfail to convert to pass post-extraction OR additional explicit cardinality-1 test added.
+  - file: docs/decisions/CONSENSUS_2026-04-28*.md
+    lines: 35, 52
+    finding: ≤5min watchdog timeout established CRO-BC-2; matches CRO_WATCHDOG_TIMEOUT_SECONDS=300.0.
+  - file: docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+    lines: 87-89, 202
+    finding: BC-9-N4-COND-5 (kill-switch Property-4 live test at N=2) explicitly out-of-scope and operator-executed; this dispatch must NOT be obstructed by it but also does NOT close it.
+assumptions:
+  - "Code at HEAD (commit 32cf771) is the implementation baseline; PM AC scopes against this baseline and the QD wave-2b artifact (798 tests pass) is taken at face value."
+  - "REM-2 phase-A inheritance pattern (PaperRunnerBase as superclass, scripts subclass) is the agreed pattern per CTO D-2.2; CTO may refine architecturally in wave-2 review (composition vs inheritance) — CRO is neutral on the pattern choice as long as the cardinality-1 invariant and observability boundary are preserved."
+  - "AggregateDrawdownContract per-bar update_equity call must remain inside the per-cycle dispatch path (not __init__-only); placement in PaperRunnerBase as `_update_aggregate_drawdown(equity, snapshot_timestamp)` method invoked per cycle preserves both cardinality (one instance per loop) and snapshot freshness."
+  - "F-007 fix is benign at HEAD because the except-fallthrough at saxo/client.py:252 catches TypeError and applies jittered backoff; removing the latent TypeError eliminates a noisy log path but does not change observable behavior."
+  - "Account-key parity gate (account_key_parity.assert_account_key_parity) currently fires at script main() (line 919 vt.py / 864 carry_fred.py) BEFORE first dispatch; relocating to PaperRunnerBase.__init__ preserves fail-closed semantics IFF __init__ is invoked before any order-dispatching method (which is the standard subclass contract — invariant is preservable but must be tested)."
+  - "fcntl dispatch lock placement: PM AC says 'before each dispatch cycle'; current code holds cycle-scope (acquire→try→release-in-finally). Moving the acquisition into PaperRunnerBase as a context-managed method (`_acquire_dispatch_lock()`) preserves cycle-scope. Holding it across __init__ lifetime would be WRONG (would prevent staggered cross-loop dispatch and break F-005 D-4.1 stagger discipline)."
+  - "JPY-correlated cap is wired via exposure_aggregator.check_dispatch_allowed which is called per-cycle; this dispatch moves the call site into PaperRunnerBase but does NOT change the threshold (15% aggregate / 3.75% per-strategy)."
+  - "Swap accrual touches portfolio state only (equity log, _swap_usd arithmetic); no broker order is generated; this is paper-only by definition of the paper-loop architecture."
+confidence: high
+body: |
+  CONTAMINATION-CHECK: clean. The redacted PM artifact contains structured criteria, hard-constraints, out-of-scope, evidence pointers, and assumptions only. No proposer narrative, no "why this is a good idea" prose, no rationale for the 71% duplication number. The orchestrator redaction (task-statement + body + roles-staffed[].rationale dropped) is honored. CRO disjoint-evidence contract held.
+
+  This is a CODE REFACTOR review — no instrument, no position, no sizing. size_multiplier=1.0 is a placeholder; the binding-constraint set is the lift-and-place of existing risk plumbing from per-script main bodies into PaperRunnerBase methods. The risk frame is "do the existing constraints survive the move" not "are the new constraints adequate."
+
+  CARDINALITY-1 INVARIANT (CRITICAL — verdict_detail field 1).
+  Verified in code (drawdown_contract.py + both paper scripts): AggregateDrawdownContract is currently instantiated ONCE per script main() (carry_fred.py:897, vt.py — symmetric). After COND-2 extraction the instantiation moves to PaperRunnerBase.__init__. Cardinality remains 1 PER LOOP RUN, which is the LTCM dual-layer requirement (per-strategy DrawdownContract + ONE aggregate). It is critical that the extraction does NOT create a second AggregateDrawdownContract per loop (e.g., via mixin double-init). The N-2 cardinality-1 test (test_n2_paper_runner_single_source_of_truth_n3) currently xfails on the inline-is_triggered gap; PM AC requires xfail-to-pass conversion OR additional explicit cardinality-1 assertion. CRO requires the explicit assertion approach (more durable than xfail-conversion which can silently regress). approve-with-condition: explicit cardinality-1 test must assert `len(weakref-set-of-AggregateDrawdownContract-instances) == 1` per loop, and the test must fail loudly if a second instance is constructed during PaperRunnerBase.__init__.
+
+  StaleEquitySnapshotError preservation (drawdown_contract.py:58) and F-004 monotonic-timestamp guard (drawdown_contract.py:358-359, 445-449) are class-level invariants of AggregateDrawdownContract — they cannot be lost in the move because the class itself is unchanged. Confirmed.
+
+  KILL-SWITCH REACHABILITY (verdict_detail field 2).
+  COND-1 (kill_switch hook) is already in PaperRunnerBase (line 115-130). The remaining COND-2..7 do not touch kill-switch reachability — they extend pre-trade plumbing. Out-of-band kill-switch trigger remains via direct KillSwitch.trigger() invocation on the instance (which is exposed via the kill_switch property at line 226-229). BC-9-N4-COND-5 (kill-switch Property-4 LIVE-PAPER exercise) is explicitly out-of-scope per PM AC and per CONSENSUS_2026-05-13. This dispatch does NOT obstruct that operator-executed test. Approve.
+
+  SEC RULE 15c3-5 / ACCOUNT_KEY_PARITY GATE (verdict_detail field 3).
+  Rule 15c3-5(c)(1) requires automated, pre-trade financial risk controls that prevent erroneous orders and credit/capital breaches. assert_account_key_parity is the project-equivalent pre-trade segregation gate (ensures the loop is dispatching against the intended Saxo account, not a misconfigured one). Currently called at script main() BEFORE any cycle (vt.py:919, carry_fred.py:864). Moving to PaperRunnerBase.__init__ preserves fail-closed semantics IFF __init__ is called before any order-dispatching method — this is the standard subclass contract but it MUST be enforced by test (the placeholder test_bc8_cond3_account_key_parity_enforced is the right vehicle). The gate function itself is unchanged; only the call site moves. Approve, with the condition that the test asserts: a subclass that bypasses super().__init__() must fail loudly (not silently dispatch with no parity check). NB: this is firm-risk discipline alignment, not regulatory filing — we are not a US broker-dealer.
+
+  HEARTBEAT WATCHDOG (verdict_detail field 4).
+  CRO-BC-2 from CONSENSUS_2026-04-28 sets ≤5min timeout. Already wired as CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 (vt.py:103). Moving HeartbeatWatchdog registration from per-script to PaperRunnerBase.__init__ preserves the 5min ceiling. Approve.
+
+  FCNTL DISPATCH LOCK (verdict_detail field 5).
+  PM AC says "acquired before each dispatch cycle" — confirms cycle-scope, NOT init-scope. Current code (carry_fred.py:495 + vt.py:511) acquires LOCK_EX|LOCK_NB at run_cycle entry, releases in finally at end of cycle. This is the correct scope: holding the lock across __init__ lifetime would prevent stagger-based cross-loop dispatch (would break F-005 D-4.1 stagger discipline that this project explicitly relies on). The extraction must be a context-managed method (e.g., `with self._acquire_dispatch_lock(): ...`) not a constructor-acquire. Approve, condition: lock SCOPE is per-cycle. Reject any implementation that holds the lock across multiple cycles or across __init__ lifetime.
+
+  JPY-CORRELATED CAP (verdict_detail field 6).
+  exposure_aggregator.py confirms 0.15 aggregate cap, 0.0375 per-strategy cap (REM-5 R-5.1 equal-weight rule). Cap fires at-or-below CRO-BC-1. Both raise on breach. Approve. (NOTE: the current per-strategy notional cap is implicitly correct only at N_STRATEGIES_MAX=4; if N grows past 4, the per_strategy_cap formula 0.15/N must be re-derived — out-of-scope for this dispatch but flagged as a downstream concern when N=3 or N=4 paper scripts come online.)
+
+  SWAP ACCRUAL (verdict_detail field 7).
+  swap_usd computed from _COST_MODEL.holding_cost() and held in cost_compute log entry. Pure portfolio-state arithmetic; no broker order generated. Paper-only by construction. Approve.
+
+  F-007 CLEANUP (verdict_detail field 8).
+  saxo/client.py:251 confirmed. The expression `retry_dt - retry_dt.utcnow()` is a TypeError on every HTTP-date Retry-After header (parsedate_to_datetime returns tz-aware; .utcnow() returns naive; subtraction raises). The bare except at line 252 catches it and applies exponential backoff with jitter — observable behavior is correct backoff, but the path is reached via exception not via parsing success. Fix `datetime.now(timezone.utc)` resolves the latent TypeError. Clock-and-ordering: receive-time stamp parity is preserved (no clock source change; just the comparison ref-point is now wall-clock UTC, which is what the original intent was). HTTP 429 retry-after parsing is preserved. No live-capital impact (paper-only at this dispatch; F-007 is also benign in any future live setup because backoff is applied either way). Approve.
+
+  MODE COMPOSITION (--full-auto --no-ceo) (verdict_detail field 9).
+  CONFIRMED: this dispatch is COND extraction + F-007 cleanup. NO change to kill-switch design (only placement of COND-1 hook is unchanged; no new switches, no new properties, no SLA changes). NO vendor onboarding. NO charter touch. NO capital movement (paper-only). NO new risk-contract clauses. The CRO quality-gate-review signature here applies only to the LIFT-AND-PLACE of existing constraints, not to the design of any constraint. This is in-bounds for full-auto signature. Approve.
+
+  BLOWUP ANALOG: LTCM 1998 — the dual-layer drawdown defense (per-strategy DrawdownContract + AggregateDrawdownContract with cardinality-1) is the LTCM-class lesson: a single strategy's drawdown is necessary but not sufficient; you must also have a portfolio-aggregate cap that fires before any single strategy's lockout. Cardinality-1 of the aggregate is the entire point (two aggregates = no aggregate; the higher one always loses). REM-7 is named explicitly for this. Secondary analog: Knight Capital — kill-switch Property 1 (out-of-band) is preserved by COND-1 already being in BaseRunner; but Property 4 (tested in prod against live session) remains UNFULFILLED and is explicitly deferred to operator (BC-9-N4-COND-5 / REM-8). This dispatch does NOT close that gap; that gap is acknowledged and out-of-scope.
+
+  OVERALL DECISION: approve with explicit conditions:
+  1. Cardinality-1 explicit assertion test must be added (not just xfail-to-pass conversion).
+  2. fcntl lock must remain cycle-scope (NOT init-scope); reject any implementation that holds across cycles.
+  3. account_key_parity test must assert a subclass that skips super().__init__() fails loudly.
+  4. JPY per-strategy cap formula assumes N=4; flag as downstream concern when N grows.
+  5. F-007 fix is bundled and benign; approve.
+  6. Kill-switch Property-4 (live-paper exercise) remains operator-action and is NOT closed by this dispatch (acknowledged out-of-scope per PM AC).
+
+blowup-analog: "LTCM 1998 — dual-layer drawdown defense (per-strategy + AggregateDrawdownContract cardinality-1); secondary Knight Capital — kill-switch Property 1 preserved (already in BaseRunner via COND-1), Property 4 still unfulfilled and explicitly deferred to operator action"
+contamination-check: clean
+verdict-detail:
+  cardinality_1_invariant: "approve-with-condition — explicit cardinality-1 test required (not xfail-to-pass conversion); LTCM-class invariant; AggregateDrawdownContract is a separate class (drawdown_contract.py:293), instantiation must move to PaperRunnerBase.__init__ exactly once; class-level StaleEquitySnapshotError + F-004 monotonic guard are preserved by class invariance"
+  kill_switch_reachability_preserved: true
+  kill_switch_reachability_rationale: "COND-1 already in PaperRunnerBase (base_runner.py:115-130); kill_switch property exposed at line 226-229 for out-of-band trigger; COND-2..7 do not touch kill-switch reachability"
+  rule_15c3_5_compliance: "approve — discipline alignment (we are not a US broker-dealer); SEC Rule 15c3-5(c)(1) pre-trade financial risk controls anchor; account_key_parity gate must remain pre-dispatch and fail-closed; placeholder test must assert subclass-bypass-init fails loudly"
+  heartbeat_watchdog_interval: "CONSENSUS_2026-04-28 CRO-BC-2 ≤5min; wired as CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 (scripts/run_paper_trading_vt.py:103); preserved by extraction"
+  fcntl_lock_scope: "approve — cycle-scope (acquire at run_cycle entry, release in finally); reject init-scope (would break F-005 D-4.1 stagger discipline)"
+  jpy_cap_threshold: "approve — 0.15 aggregate, 0.0375 per-strategy at N=4 (CRO-BC-1, REM-5 R-5.1 equal-weight); flag downstream concern: per-strategy formula 0.15/N must be re-derived if N grows past 4 (out-of-scope this dispatch)"
+  swap_accrual_no_live_capital_touch: true
+  swap_accrual_rationale: "swap_usd computed via _COST_MODEL.holding_cost() and integrated into equity log only (carry_fred.py:705-714); pure portfolio-state arithmetic, no broker order"
+  f007_review: "approve — fix datetime.now(timezone.utc) eliminates latent TypeError at saxo/client.py:251; benign because except-fallthrough at line 252 currently catches it and applies jittered backoff; clock-and-ordering preserved; receive-time semantics unchanged"
+  no_forbidden_interim_domain_match: true
+  no_forbidden_interim_domain_rationale: "no vendor onboarding, no kill-switch design CHANGE (only placement), no charter touch, no capital movement; in-bounds for --full-auto --no-ceo CRO quality-gate signature"
+knowledge_gaps:
+  - "KG-CRO-3 (per CONSENSUS_2026-05-12): whether kill_switch.py has been triggered against a live N=2 paper session even once — UNCHANGED by this dispatch; remains operator-action via BC-9-N4-COND-5/REM-8."
+  - "KG-CRO-NEW: the per-strategy JPY cap formula 0.15/N=4 is correct only at N=4. When N=3 paper script work begins (post-this-dispatch), the formula must be re-validated against the equal-weight derivation — flagged for that future dispatch."
+policy_violations_detected: []
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-1/pm-acceptance-criteria.cro-redacted.yaml
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/account_key_parity.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/heartbeat_watchdog.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-04-28_phase2_falsification_kickoff.md
+  - /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+  - /Users/huangtm/.claude/skills/kill-switch-design/SKILL.md
+  - /Users/huangtm/.claude/skills/quantitative-risk-management/SKILL.md
+  - /Users/huangtm/.claude/skills/trading-firm-regulatory-frameworks/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

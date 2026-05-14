@@ -1,0 +1,86 @@
+role: cto
+artifact_type: architecture-review
+timestamp: 2026-05-13 02:10:00+00:00
+subtask_ref: rem2-cto-arch-review
+subtask_id: cto-rem2-followup-2026-05-13:phase2:task2.1
+rubric-applied:
+- review-plan
+- execution-firewall-review
+- log-as-decision-trace
+- trading-platform-architectures/axes/research-to-prod.md (paper-loop tier)
+conditions:
+- COND-A1: _PHASE_A_ACTIVE_GUARDS must be renamed to _ACTIVE_GUARDS and updated to
+    list all 7 COND IDs (COND-1 through COND-7) before the wave-2 implementation merges.
+    The current constant at base_runner.py:64 i <TRUNCATED>
+- COND-A2: PaperRunnerBase.__init__ startup log must be updated to remove the 'phase=A
+    note="COND-2..7 pending full REM-2 extraction"' annotation and instead emit all
+    7 COND IDs as the active list. The log line  <TRUNCATED>
+- COND-A3: "Each COND-2..7 method must emit a structured guard log with schema specified\
+    \ in this review (see logging_schema below) \u2014 structured key-value, NOT f-string\
+    \ prose. The COND-1 pattern at base_runner.py: <TRUNCATED>"
+- COND-A4: Cardinality-1 xfail in test_n2_paper_runner_single_source_of_truth_n3 must
+    be resolved post-extraction (either converts to pass, or an explicit additional
+    cardinality-1 test for each newly-moved guard <TRUNCATED>
+- COND-A5: AggregateDrawdownContract wiring in PaperRunnerBase.__init__ must receive
+    a snapshot_timestamp keyword-arg on each update_equity call (per F-004 closure
+    and StaleEquitySnapshotError contract at drawdo <TRUNCATED>
+- COND-A6: Post-extraction diff/wc measurement must be recorded in QD's implementation
+    report before wave-3 principal-reviewer review. Method specified in duplication_measurement_methodology
+    below.
+routed-to: null
+claimed_domains:
+- architecture-decisions
+- tech-debt-tracking
+- logging-and-observability-standards
+- firewall-enforcement-between-research-and-execution
+evidence:
+- src/forex_system/paper/base_runner.py:64
+- src/forex_system/paper/base_runner.py:104-109
+- src/forex_system/paper/base_runner.py:115-130
+- tests/integration/test_paper_runner_bc8_conds.py:102-135
+- tests/integration/test_paper_runner_bc8_conds.py:177-281
+- src/forex_system/risk/drawdown_contract.py:58-62
+- src/forex_system/risk/drawdown_contract.py:385-430
+- src/forex_system/saxo/client.py:250-252
+- scripts/run_paper_trading_vt.py:23
+- scripts/run_paper_trading_vt.py:45-60
+- scripts/run_paper_trading_carry_fred.py:64-80
+- scripts/run_paper_trading_vt.py:948-952
+- scripts/run_paper_trading_carry_fred.py:893-897
+- docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md:57
+- docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md:36
+- docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md:42
+knowledge_gaps: []
+policy_violations_detected:
+- id: PV-1
+  description: 'COND-1 guard log at base_runner.py:125-129 uses %-style string formatting
+    that
+
+    bakes values into the message string rather than emitting structured key-value
+    fields.
+
+    This fails log-as-decision-trace i <TRUNCATED>'
+  remediation: 'QD must upgrade COND-1 log to use structured kwargs (or logfmt adapter)
+    before
+
+    COND-2..7 are added. This is captured in COND-A3.
+
+    '
+sources:
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+- /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+- /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-1/pm-acceptance-criteria.yaml
+- ~/.claude/skills/review-plan/SKILL.md
+- ~/.claude/skills/deploy-checklist-trading/SKILL.md
+- ~/.claude/skills/execution-firewall-review/SKILL.md
+- ~/.claude/skills/log-as-decision-trace/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

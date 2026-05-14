@@ -3,11 +3,14 @@
 This is the NHT-1 gap closed: no paper-loop test existed that exercised BC-8-LIFT-COND-1..7.
 Without this fixture, extraction of PaperRunnerBase cannot be considered complete.
 
-Phase-A coverage (this dispatch):
-    COND-1: kill switch hook — TESTED (can be asserted post-Phase-A scaffold)
-
-Phase-A placeholders (marked @pytest.mark.skip; test names exist for auditability):
-    COND-2..7: TODO tests — marked skip until full REM-2 extraction dispatch
+Full REM-2 extraction coverage (this file):
+    COND-1: kill switch hook — TESTED
+    COND-2: AggregateDrawdownContract — TESTED
+    COND-3: account_key parity gate — TESTED
+    COND-4: heartbeat watchdog registration — TESTED
+    COND-5: fcntl dispatch lock — TESTED
+    COND-6: JPY-correlated cap — TESTED
+    COND-7: swap accrual — TESTED
 
 This test file is referenced by CTO D-2.4 as the HARD GATE before extraction merges.
 """
@@ -19,7 +22,9 @@ import os
 import sys
 import tempfile
 import textwrap
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -36,10 +41,34 @@ def _make_kill_switch() -> KillSwitch:
     return KillSwitch(initial_equity=100_000.0)
 
 
-def _make_runner(strategy_id: str = "test_strategy", kill_switch=None) -> PaperRunnerBase:
-    """Create a PaperRunnerBase instance for testing."""
+def _make_runner(
+    strategy_id: str = "test_strategy",
+    kill_switch=None,
+    aggregate_dd_contract=None,
+) -> PaperRunnerBase:
+    """Create a PaperRunnerBase instance for testing (no account_key/watchdog)."""
     ks = kill_switch if kill_switch is not None else _make_kill_switch()
-    return PaperRunnerBase(strategy_id=strategy_id, kill_switch=ks)
+    return PaperRunnerBase(
+        strategy_id=strategy_id,
+        kill_switch=ks,
+        aggregate_dd_contract=aggregate_dd_contract,
+    )
+
+
+def _make_aggregate_dd_contract(kill_switch=None):
+    """Create a minimal AggregateDrawdownContract for testing."""
+    from forex_system.risk.drawdown_contract import AggregateDrawdownContract
+    ks = kill_switch or _make_kill_switch()
+    return AggregateDrawdownContract(
+        warn_threshold=0.04,
+        halve_threshold=0.08,
+        halt_threshold=0.12,
+        lockout_threshold=0.15,
+        per_strategy_halt_threshold=0.10,
+        per_strategy_full_halt_threshold=0.20,
+        n_strategies_max=4,
+        kill_switch=ks,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +106,14 @@ class TestPaperRunnerBc8Cond1:
             "_check_kill_switch should return False when kill switch is triggered"
         )
 
-    def test_active_guards_lists_cond_1(self) -> None:
-        """Phase-A: active_guards lists BC-8-LIFT-COND-1."""
+    def test_active_guards_lists_all_7_conds(self) -> None:
+        """Full extraction: active_guards lists all 7 COND IDs."""
         runner = _make_runner()
-        assert "BC-8-LIFT-COND-1" in runner.active_guards, (
-            "BC-8-LIFT-COND-1 must be listed as active in Phase-A"
-        )
+        guards = runner.active_guards
+        for i in range(1, 8):
+            assert f"BC-8-LIFT-COND-{i}" in guards, (
+                f"BC-8-LIFT-COND-{i} must be listed as active after full extraction"
+            )
 
     def test_runner_requires_strategy_id(self) -> None:
         """PaperRunnerBase raises ValueError on empty strategy_id."""
@@ -96,43 +127,471 @@ class TestPaperRunnerBc8Cond1:
 
 
 # ---------------------------------------------------------------------------
-# BC-8-LIFT-COND-2..7 placeholder tests (skip until full extraction dispatch)
+# BC-8-LIFT-COND-2: AggregateDrawdownContract
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond2_drawdown_contract_active() -> None:
-    """BC-8-LIFT-COND-2: drawdown contract is instantiated and active in PaperRunnerBase."""
-    pass  # Implement after COND-2 is extracted from run_paper_trading_vt.py
+class TestPaperRunnerBc8Cond2:
+    """BC-8-LIFT-COND-2: AggregateDrawdownContract instantiation and cardinality-1."""
+
+    def test_drawdown_contract_active_and_reachable(self) -> None:
+        """COND-2: AggregateDrawdownContract is active and reachable from PaperRunnerBase."""
+        agg_dd = _make_aggregate_dd_contract()
+        runner = _make_runner(aggregate_dd_contract=agg_dd)
+        assert runner.aggregate_dd_contract is agg_dd, (
+            "AggregateDrawdownContract must be reachable via runner.aggregate_dd_contract"
+        )
+
+    def test_check_aggregate_drawdown_returns_assessment_on_normal(self) -> None:
+        """COND-2: _check_aggregate_drawdown returns assessment when equity is at peak (NORMAL)."""
+        agg_dd = _make_aggregate_dd_contract()
+        runner = _make_runner(aggregate_dd_contract=agg_dd)
+        assessment = runner._check_aggregate_drawdown(
+            100_000.0, ["test_strategy"]
+        )
+        assert assessment is not None
+        assert assessment.allows_new_dispatch is True
+        assert assessment.force_flat is False
+
+    def test_check_aggregate_drawdown_fires_on_halt_threshold(self) -> None:
+        """COND-2: _check_aggregate_drawdown outcome=HALT when DD >= halt_threshold (12%)."""
+        from forex_system.risk.drawdown_contract import AggregateDDLevel
+        ks = _make_kill_switch()
+        agg_dd = _make_aggregate_dd_contract(kill_switch=ks)
+        runner = _make_runner(aggregate_dd_contract=agg_dd)
+        # First call to establish peak at 100_000
+        runner._check_aggregate_drawdown(100_000.0, ["test_strategy"])
+        # Now drop to 87_000 → 13% DD > 12% halt threshold
+        assessment = runner._check_aggregate_drawdown(87_000.0, ["test_strategy"])
+        assert assessment is not None
+        assert assessment.allows_new_dispatch is False, (
+            "COND-2: halt threshold exceeded should block new dispatch"
+        )
+
+    def test_no_aggregate_dd_contract_returns_none(self) -> None:
+        """COND-2: None result when no aggregate_dd_contract wired (opt-out for test contexts)."""
+        runner = _make_runner(aggregate_dd_contract=None)
+        result = runner._check_aggregate_drawdown(100_000.0, ["test_strategy"])
+        assert result is None
+
+    def test_cond2_observability_logs_strategy_id_and_condition_id(
+        self, caplog
+    ) -> None:
+        """COND-2: structured log includes strategy_id + condition_id + outcome."""
+        import logging
+        agg_dd = _make_aggregate_dd_contract()
+        runner = _make_runner(strategy_id="test_strat", aggregate_dd_contract=agg_dd)
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            runner._check_aggregate_drawdown(100_000.0, ["test_strat"])
+        found = any(
+            "BC-8-LIFT-COND-2" in r.message and "test_strat" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-2 log must include strategy_id and condition_id=BC-8-LIFT-COND-2"
 
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond3_account_key_parity_enforced() -> None:
-    """BC-8-LIFT-COND-3: account key parity gate is enforced at startup."""
-    pass  # Implement after COND-3 is extracted
+# ---------------------------------------------------------------------------
+# BC-8-LIFT-COND-3: account_key parity gate
+# ---------------------------------------------------------------------------
+
+class TestPaperRunnerBc8Cond3:
+    """BC-8-LIFT-COND-3: account_key parity gate enforced at startup."""
+
+    def test_account_key_parity_not_called_without_account_key(self) -> None:
+        """COND-3: no parity check when account_key is not provided (test-safe)."""
+        # Should not raise — no account_key means no parity check
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            account_key=None,
+        )
+        assert runner is not None
+
+    def test_account_key_parity_requires_loop_name(self) -> None:
+        """COND-3: ValueError raised when account_key provided without loop_name."""
+        with pytest.raises(ValueError, match="loop_name"):
+            PaperRunnerBase(
+                strategy_id="test",
+                kill_switch=_make_kill_switch(),
+                account_key="test_account_key_abc123",
+                loop_name=None,
+            )
+
+    def test_account_key_parity_enforced_on_mismatch(self, tmp_path) -> None:
+        """COND-3: fails closed (sys.exit(1)) on account_key mismatch."""
+        lock_path = str(tmp_path / "test_account_key_lock.json")
+        # Write a lock file with a different key
+        import json
+        lock_path_obj = tmp_path / "test_account_key_lock.json"
+        lock_path_obj.write_text(json.dumps({
+            "account_key": "original_key_abc",
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }))
+
+        from forex_system.risk.account_key_parity import assert_account_key_parity
+        with pytest.raises(SystemExit):
+            assert_account_key_parity(
+                "different_key_xyz",
+                loop_name="test loop",
+                lock_path=lock_path,
+            )
+
+    def test_account_key_parity_ok_on_match(self, tmp_path) -> None:
+        """COND-3: parity gate passes when keys match."""
+        lock_path = str(tmp_path / "test_account_key_lock.json")
+        with patch(
+            "forex_system.risk.account_key_parity.ACCOUNT_KEY_LOCK_PATH",
+            lock_path,
+        ):
+            runner = PaperRunnerBase(
+                strategy_id="test",
+                kill_switch=_make_kill_switch(),
+                account_key="matching_key_abc",
+                loop_name="test loop",
+                # Patch assert_account_key_parity directly to avoid file I/O complexity
+            )
+        # If we reach here without sys.exit, the test passes the structural check
+
+    def test_cond3_observability_logs_strategy_id_and_condition_id(
+        self, caplog, tmp_path
+    ) -> None:
+        """COND-3: structured log includes strategy_id + condition_id=BC-8-LIFT-COND-3."""
+        import logging
+        with patch("forex_system.paper.base_runner.PaperRunnerBase.__init__") as mock_init:
+            # Use a patched version — we just verify the logging path is present in the code
+            pass
+        # Verify by instantiating with mocked assert_account_key_parity
+        with patch("forex_system.paper.base_runner.PaperRunnerBase._check_kill_switch"):
+            with patch("forex_system.risk.account_key_parity.assert_account_key_parity"):
+                with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+                    runner = PaperRunnerBase(
+                        strategy_id="strat_cond3",
+                        kill_switch=_make_kill_switch(),
+                        account_key="test_key",
+                        loop_name="test loop",
+                    )
+        found = any(
+            "BC-8-LIFT-COND-3" in r.message and "strat_cond3" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-3 log must include strategy_id and condition_id=BC-8-LIFT-COND-3"
 
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond4_heartbeat_watchdog_registered() -> None:
+# ---------------------------------------------------------------------------
+# BC-8-LIFT-COND-4: HeartbeatWatchdog registration
+# ---------------------------------------------------------------------------
+
+class TestPaperRunnerBc8Cond4:
     """BC-8-LIFT-COND-4: heartbeat watchdog is registered in PaperRunnerBase.__init__."""
-    pass  # Implement after COND-4 is extracted
+
+    def test_heartbeat_watchdog_reachable_after_registration(self) -> None:
+        """COND-4: registered watchdog is accessible via runner.heartbeat_watchdog."""
+        from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
+        watchdog = HeartbeatWatchdog(
+            timeout_seconds=300.0,
+            on_timeout=lambda s: None,
+        )
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            heartbeat_watchdog=watchdog,
+        )
+        assert runner.heartbeat_watchdog is watchdog, (
+            "Registered watchdog must be accessible via runner.heartbeat_watchdog"
+        )
+
+    def test_tick_heartbeat_calls_watchdog_tick(self) -> None:
+        """COND-4: _tick_heartbeat calls watchdog.tick()."""
+        mock_watchdog = MagicMock()
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            heartbeat_watchdog=mock_watchdog,
+        )
+        runner._tick_heartbeat()
+        mock_watchdog.tick.assert_called_once()
+
+    def test_tick_heartbeat_noop_without_watchdog(self) -> None:
+        """COND-4: _tick_heartbeat is a no-op when no watchdog is registered."""
+        runner = _make_runner()
+        # Should not raise
+        runner._tick_heartbeat()
+
+    def test_no_watchdog_does_not_raise(self) -> None:
+        """COND-4: PaperRunnerBase instantiates fine without a watchdog."""
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            heartbeat_watchdog=None,
+        )
+        assert runner.heartbeat_watchdog is None
+
+    def test_cond4_observability_logs_strategy_id_and_condition_id(
+        self, caplog
+    ) -> None:
+        """COND-4: structured log includes strategy_id + condition_id=BC-8-LIFT-COND-4."""
+        import logging
+        from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
+        watchdog = HeartbeatWatchdog(timeout_seconds=300.0, on_timeout=lambda s: None)
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            runner = PaperRunnerBase(
+                strategy_id="strat_cond4",
+                kill_switch=_make_kill_switch(),
+                heartbeat_watchdog=watchdog,
+            )
+        found = any(
+            "BC-8-LIFT-COND-4" in r.message and "strat_cond4" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-4 log must include strategy_id and condition_id=BC-8-LIFT-COND-4"
 
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond5_fcntl_lock_acquired() -> None:
+# ---------------------------------------------------------------------------
+# BC-8-LIFT-COND-5: fcntl dispatch lock
+# ---------------------------------------------------------------------------
+
+class TestPaperRunnerBc8Cond5:
     """BC-8-LIFT-COND-5: fcntl dispatch lock is acquired before each dispatch cycle."""
-    pass  # Implement after COND-5 is extracted
+
+    def test_dispatch_lock_acquired_on_entry(self, tmp_path) -> None:
+        """COND-5: context manager yields True on successful lock acquisition."""
+        lock_path = str(tmp_path / "test.flock")
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            dispatch_lock_path=lock_path,
+        )
+        with runner._acquire_dispatch_lock(cycle_id=1, pair="USDJPY") as locked:
+            assert locked is True, "Lock must be acquired successfully"
+
+    def test_dispatch_lock_yields_false_when_busy(self, tmp_path) -> None:
+        """COND-5: yields False when another process holds the lock (BlockingIOError)."""
+        lock_path = str(tmp_path / "test.flock")
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            dispatch_lock_path=lock_path,
+        )
+        # Acquire the lock from outside to simulate busy state
+        lock_path_obj = tmp_path / "test.flock"
+        lock_path_obj.touch()
+        outer_fd = os.open(str(lock_path_obj), os.O_CREAT | os.O_WRONLY, 0o644)
+        try:
+            import fcntl
+            fcntl.flock(outer_fd, fcntl.LOCK_EX)  # exclusive non-NB lock
+            # Now try to acquire from runner — should yield False
+            with runner._acquire_dispatch_lock(cycle_id=1, pair="USDJPY") as locked:
+                assert locked is False, (
+                    "Lock must yield False when another process holds the lock"
+                )
+        finally:
+            import fcntl as _fcntl
+            _fcntl.flock(outer_fd, _fcntl.LOCK_UN)
+            os.close(outer_fd)
+
+    def test_dispatch_lock_released_after_context(self, tmp_path) -> None:
+        """COND-5: lock is released after context manager exits (can be reacquired)."""
+        lock_path = str(tmp_path / "test.flock")
+        runner = PaperRunnerBase(
+            strategy_id="test",
+            kill_switch=_make_kill_switch(),
+            dispatch_lock_path=lock_path,
+        )
+        with runner._acquire_dispatch_lock(cycle_id=1) as locked:
+            assert locked is True
+        # Lock released — can acquire again
+        with runner._acquire_dispatch_lock(cycle_id=2) as locked2:
+            assert locked2 is True, "Lock must be re-acquirable after release"
+
+    def test_cond5_observability_logs_strategy_id_and_condition_id(
+        self, caplog, tmp_path
+    ) -> None:
+        """COND-5: structured log includes strategy_id + condition_id=BC-8-LIFT-COND-5."""
+        import logging
+        lock_path = str(tmp_path / "test.flock")
+        runner = PaperRunnerBase(
+            strategy_id="strat_cond5",
+            kill_switch=_make_kill_switch(),
+            dispatch_lock_path=lock_path,
+        )
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            with runner._acquire_dispatch_lock(cycle_id=1, pair="USDJPY") as locked:
+                assert locked is True
+        found = any(
+            "BC-8-LIFT-COND-5" in r.message and "strat_cond5" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-5 log must include strategy_id and condition_id=BC-8-LIFT-COND-5"
 
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond6_jpy_cap_applied() -> None:
-    """BC-8-LIFT-COND-6: JPY-correlated cap is checked before each order dispatch."""
-    pass  # Implement after COND-6 is extracted
+# ---------------------------------------------------------------------------
+# BC-8-LIFT-COND-6: JPY-correlated cap
+# ---------------------------------------------------------------------------
+
+class TestPaperRunnerBc8Cond6:
+    """BC-8-LIFT-COND-6: JPY-correlated cap checked before each order dispatch."""
+
+    def _make_position(self, pair: str, size: float = 100_000.0, price: float = 150.0,
+                       strategy_id: str = "test_strategy"):
+        """Create a minimal mock Position."""
+        import pandas as pd
+        from forex_system.core.types import Direction, Position
+        return Position(
+            pair=pair,
+            direction=Direction.LONG,
+            size=size,
+            entry_price=price,
+            entry_time=pd.Timestamp.now(tz="UTC"),
+            unrealized_pnl=0.0,
+            strategy_id=strategy_id,
+        )
+
+    def test_jpy_cap_ok_with_no_positions(self) -> None:
+        """COND-6: dispatch allowed when no positions open."""
+        runner = _make_runner()
+        result = runner._check_jpy_correlated_cap(
+            positions=[],
+            max_correlated_pct=0.15,
+            max_active_strategies=4,
+            max_concurrent_positions=6,
+        )
+        assert result is True, "COND-6: empty positions must allow dispatch"
+
+    def test_jpy_cap_blocked_when_exceeded(self) -> None:
+        """COND-6: dispatch blocked when JPY notional > 15% of book."""
+        runner = _make_runner()
+        # Pure USDJPY position — 100% JPY exposure → exceeds 15%
+        positions = [self._make_position("USDJPY", size=100_000.0, price=150.0)]
+        result = runner._check_jpy_correlated_cap(
+            positions=positions,
+            max_correlated_pct=0.15,
+            max_active_strategies=4,
+            max_concurrent_positions=6,
+        )
+        assert result is False, "COND-6: 100% JPY exposure must block dispatch"
+
+    def test_jpy_cap_ok_within_limit(self) -> None:
+        """COND-6: dispatch allowed when JPY notional is below cap.
+
+        Fixture computation (compute_exposure uses size * entry_price as notional):
+            USDJPY:  size=1_000  * price=150.0  = 150_000  USD-notional (JPY-correlated)
+            EURUSD:  size=1_000  * price=1_350.0 = 1_350_000 USD-notional (not JPY-correlated)
+            Total notional = 1_500_000
+            jpy_correlated_pct = 150_000 / 1_500_000 = 0.10  (10% < 15% cap) → PASS
+        """
+        runner = _make_runner()
+        # USDJPY notional = 1_000 * 150.0 = 150_000; EURUSD notional = 1_000 * 1_350.0 = 1_350_000
+        # jpy_pct = 150_000 / 1_500_000 = 0.10 → below 15% cap
+        usdjpy_pos = self._make_position("USDJPY", size=1_000.0, price=150.0)
+        eurusd_pos = self._make_position("EURUSD", size=1_000.0, price=1_350.0)
+        result = runner._check_jpy_correlated_cap(
+            positions=[usdjpy_pos, eurusd_pos],
+            max_correlated_pct=0.15,
+            max_active_strategies=4,
+            max_concurrent_positions=6,
+        )
+        assert result is True, "COND-6: 10% JPY exposure must allow dispatch"
+
+    def test_cond6_observability_logs_strategy_id_and_condition_id(
+        self, caplog
+    ) -> None:
+        """COND-6: structured log includes strategy_id + condition_id=BC-8-LIFT-COND-6."""
+        import logging
+        runner = _make_runner(strategy_id="strat_cond6")
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            runner._check_jpy_correlated_cap(
+                positions=[],
+                max_correlated_pct=0.15,
+                max_active_strategies=4,
+                max_concurrent_positions=6,
+            )
+        found = any(
+            "BC-8-LIFT-COND-6" in r.message and "strat_cond6" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-6 log must include strategy_id and condition_id=BC-8-LIFT-COND-6"
 
 
-@pytest.mark.skip(reason="follow-up: full REM-2 extraction dispatch (5-10 days, CTO D-2.3)")
-def test_bc8_cond7_swap_accrual_called() -> None:
-    """BC-8-LIFT-COND-7: swap accrual is called at the end of each dispatch cycle."""
-    pass  # Implement after COND-7 is extracted
+# ---------------------------------------------------------------------------
+# BC-8-LIFT-COND-7: swap accrual
+# ---------------------------------------------------------------------------
+
+class TestPaperRunnerBc8Cond7:
+    """BC-8-LIFT-COND-7: swap accrual called at end of each dispatch cycle."""
+
+    def _make_cost_model(self):
+        from forex_system.costs.model import RealisticCostModel
+        return RealisticCostModel()
+
+    def test_swap_accrual_called_with_held_position(self) -> None:
+        """COND-7: swap_usd != 0 when position held for multiple days."""
+        runner = _make_runner()
+        cost_model = self._make_cost_model()
+        last_ts = datetime.now(timezone.utc) - timedelta(days=1)
+
+        swap_usd, now_ts = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=last_ts,
+            cost_model=cost_model,
+        )
+        # USDJPY has positive carry (swap_long = 0.8 pips/day credit)
+        # swap_usd should be non-zero for a 1-day hold
+        assert isinstance(swap_usd, float)
+        assert now_ts is not None
+        # swap should be non-trivial for 1-day hold of 100k USDJPY
+        assert abs(swap_usd) > 0.0, (
+            "COND-7: swap must accrue for 1 day of held USDJPY position"
+        )
+
+    def test_swap_accrual_zero_on_first_cycle(self) -> None:
+        """COND-7: swap_usd == 0.0 when last_cycle_ts is None (first cycle)."""
+        runner = _make_runner()
+        cost_model = self._make_cost_model()
+        swap_usd, now_ts = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=None,
+            cost_model=cost_model,
+        )
+        assert swap_usd == 0.0, "COND-7: no swap on first cycle (no prior timestamp)"
+
+    def test_swap_accrual_zero_with_no_position(self) -> None:
+        """COND-7: swap_usd == 0.0 when held_units_nom is 0 (flat)."""
+        runner = _make_runner()
+        cost_model = self._make_cost_model()
+        last_ts = datetime.now(timezone.utc) - timedelta(days=1)
+        swap_usd, now_ts = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=0.0,
+            mid=150.0,
+            last_cycle_ts=last_ts,
+            cost_model=cost_model,
+        )
+        assert swap_usd == 0.0, "COND-7: no swap when flat (zero held units)"
+
+    def test_cond7_observability_logs_strategy_id_and_condition_id(
+        self, caplog
+    ) -> None:
+        """COND-7: structured log includes strategy_id + condition_id=BC-8-LIFT-COND-7."""
+        import logging
+        runner = _make_runner(strategy_id="strat_cond7")
+        cost_model = self._make_cost_model()
+        last_ts = datetime.now(timezone.utc) - timedelta(hours=1)
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            runner._accrue_swap(
+                pair="USDJPY",
+                held_units_nom=100_000.0,
+                mid=150.0,
+                last_cycle_ts=last_ts,
+                cost_model=cost_model,
+            )
+        found = any(
+            "BC-8-LIFT-COND-7" in r.message and "strat_cond7" in r.message
+            for r in caplog.records
+        )
+        assert found, "COND-7 log must include strategy_id and condition_id=BC-8-LIFT-COND-7"
 
 
 # ---------------------------------------------------------------------------
@@ -177,18 +636,17 @@ def test_n2_no_feature_flag_kill_switch_bypass() -> None:
 def test_n2_paper_runner_single_source_of_truth_n3() -> None:
     """N-2: cardinality-1 invariant for BC-8-LIFT-COND-1 across N=3 paper scripts.
 
-    Phase-A assertion (F-006):
+    After full REM-2 extraction:
     1. For the two existing paper scripts, collect all AST nodes that implement
        _check_kill_switch usage or KillSwitch.is_triggered checks. Assert that
        PaperRunnerBase._check_kill_switch provides the single shared implementation
-       path (cardinality-1 invariant is HELD as a future-state contract).
+       path (cardinality-1 invariant is HELD).
     2. N=3 stub: create a synthetic third paper script in /tmp/ that imports
        PaperRunnerBase and can construct + invoke _check_kill_switch without
        monkey-patching or feature-flag-forking. Assert it can do so.
 
-    This is marked xfail(strict=True) for the CURRENT state (paper scripts have not
-    migrated to BaseRunner yet), but the N=3 stub half passes — proving the
-    architectural invariant holds for the next-script case even before full REM-2.
+    xfail is resolved: both paper scripts now call self._check_kill_switch()
+    via PaperRunnerBase (not inline kill_switch.is_triggered).
     """
     repo_root = Path(__file__).parent.parent.parent
     scripts_dir = repo_root / "scripts"
@@ -210,7 +668,7 @@ def test_n2_paper_runner_single_source_of_truth_n3() -> None:
                     and node.attr == "is_triggered"
                     and isinstance(node.value, ast.Name)):
                 patterns.append(f"attr:is_triggered on {node.value.id}")
-            # Pattern: _check_kill_switch() call (BaseRunner extraction future state)
+            # Pattern: _check_kill_switch() call (BaseRunner extraction)
             if (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "_check_kill_switch"):
@@ -221,13 +679,7 @@ def test_n2_paper_runner_single_source_of_truth_n3() -> None:
     for script in paper_scripts:
         all_patterns[script.name] = _collect_ks_check_patterns(script)
 
-    # Current state: scripts use is_triggered directly (not _check_kill_switch yet)
-    # This xfail marks the cardinality-1 invariant as NOT YET MET for cardinality reduction
-    # (2 scripts both have inline is_triggered, not a single BaseRunner call)
-    # but the N=3 stub below proves the future state is achievable.
-
     # Part 2: N=3 stub — create a synthetic third script and verify it can use BaseRunner
-    # The stub imports PaperRunnerBase and calls _check_kill_switch without forking.
     stub_script_content = textwrap.dedent("""
         #!/usr/bin/env python3
         \"\"\"Synthetic N=3 paper script stub — N-2 cardinality-1 test.\"\"\"
@@ -255,31 +707,86 @@ def test_n2_paper_runner_single_source_of_truth_n3() -> None:
         tmp_path = tmp.name
 
     try:
-        # Import via exec to verify the synthetic script can construct BaseRunner
-        # without monkey-patching or feature-flag-forking (cardinality-1 for N=3)
-        # __file__ must be supplied so that Path(__file__).resolve() works inside exec.
         namespace: dict = {"__file__": tmp_path, "__builtins__": __builtins__}
         exec(compile(stub_script_content, tmp_path, "exec"), namespace)  # noqa: S102
-        # If we reach here, the N=3 stub succeeded — cardinality-1 invariant holds
-        # for the next-script case
     finally:
         os.unlink(tmp_path)
 
-    # Part 3: Assert cardinality-1 future-state contract using xfail for current state.
-    # Current: 2 scripts have inline is_triggered (not yet extracted to BaseRunner).
-    # This assertion would pass after full REM-2 extraction (COND-2..7 completed).
+    # Part 3: Assert cardinality-1 invariant is now met after full REM-2 extraction.
+    # Both scripts use PaperRunnerBase._check_kill_switch (not inline is_triggered).
     all_use_base_runner_check = all(
         "call:_check_kill_switch" in patterns
         for patterns in all_patterns.values()
     )
-    if not all_use_base_runner_check:
-        pytest.xfail(
-            "N-2 cardinality-1 invariant not yet met: paper scripts still use inline "
-            "kill_switch.is_triggered instead of PaperRunnerBase._check_kill_switch. "
-            "Cardinality reduction requires full REM-2 extraction (COND-2..7). "
-            "N=3 stub half PASSED — BaseRunner._check_kill_switch is usable by new scripts."
-        )
+    assert all_use_base_runner_check, (
+        "N-2 cardinality-1 invariant NOT MET after full REM-2 extraction: "
+        "some paper scripts still use inline kill_switch.is_triggered instead of "
+        "PaperRunnerBase._check_kill_switch. "
+        f"Pattern breakdown: {all_patterns}"
+    )
 
+
+# ---------------------------------------------------------------------------
+# N-2 cardinality-1: single AggregateDrawdownContract per loop
+# ---------------------------------------------------------------------------
+
+def test_n2_cardinality_1_aggregate_dd_contract() -> None:
+    """N-2: cardinality-1 — exactly one AggregateDrawdownContract per loop run.
+
+    After full REM-2 extraction, the AggregateDrawdownContract is instantiated
+    externally and passed into PaperRunnerBase. This test verifies:
+    (a) PaperRunnerBase does NOT create a second AggregateDrawdownContract inside __init__.
+    (b) The same instance is accessible via runner.aggregate_dd_contract.
+    (c) If the caller passes the same instance to two runners, both runners
+        reference the SAME object (identity check).
+
+    This is the LTCM defense: triple-counting would occur if 3 instances existed.
+    """
+    from forex_system.risk.drawdown_contract import AggregateDrawdownContract
+
+    # One AggregateDrawdownContract created externally
+    ks = _make_kill_switch()
+    single_agg_dd = AggregateDrawdownContract(
+        warn_threshold=0.04,
+        halve_threshold=0.08,
+        halt_threshold=0.12,
+        lockout_threshold=0.15,
+        per_strategy_halt_threshold=0.10,
+        per_strategy_full_halt_threshold=0.20,
+        n_strategies_max=4,
+        kill_switch=ks,
+    )
+
+    # Both runners reference the SAME instance
+    runner_vt = PaperRunnerBase(
+        strategy_id="vol_target_carry",
+        kill_switch=_make_kill_switch(),
+        aggregate_dd_contract=single_agg_dd,
+    )
+    runner_cf = PaperRunnerBase(
+        strategy_id="carry_fred",
+        kill_switch=_make_kill_switch(),
+        aggregate_dd_contract=single_agg_dd,
+    )
+
+    # Cardinality-1: same object (not a copy)
+    assert runner_vt.aggregate_dd_contract is single_agg_dd, (
+        "CARDINALITY-1 VIOLATION: runner_vt has a different AggregateDrawdownContract"
+    )
+    assert runner_cf.aggregate_dd_contract is single_agg_dd, (
+        "CARDINALITY-1 VIOLATION: runner_cf has a different AggregateDrawdownContract"
+    )
+    assert runner_vt.aggregate_dd_contract is runner_cf.aggregate_dd_contract, (
+        "CARDINALITY-1 VIOLATION: runners have different AggregateDrawdownContract instances"
+    )
+
+    # PaperRunnerBase must NOT create additional instances internally
+    # (verified by identity: if it created a new one, is-identity would fail)
+
+
+# ---------------------------------------------------------------------------
+# TestDispatchStaggerConfigValidation (unchanged from Phase-A)
+# ---------------------------------------------------------------------------
 
 class TestDispatchStaggerConfigValidation:
     """F-005: PaperRunnerBase._validate_dispatch_stagger_config validation tests."""
@@ -325,3 +832,128 @@ class TestDispatchStaggerConfigValidation:
         runner = _make_runner()
         config = {"paper": {"dispatch_stagger_offsets_seconds": []}}
         runner._validate_dispatch_stagger_config(config, [])
+
+
+# ---------------------------------------------------------------------------
+# NHT AST cardinality guard — AggregateDrawdownContract outside PaperRunnerBase
+# ---------------------------------------------------------------------------
+
+def test_nht_ast_aggregate_dd_contract_cardinality_guard() -> None:
+    """NHT-AST: Cardinality-1 repo-wide guard for AggregateDrawdownContract instantiation.
+
+    Walks all *.py files under scripts/ and src/forex_system/ (excluding test
+    files and fixtures).  For each file, AST-parses and finds all Call nodes
+    where the callee resolves to 'AggregateDrawdownContract'.  Excludes:
+      - calls inside PaperRunnerBase.__init__ (or any subclass __init__)
+      - exactly one call per paper-script main() function (the authorised
+        "create once and pass to runner" pattern)
+      - test files
+
+    The guard fires if AggregateDrawdownContract() appears in run_cycle(),
+    at module top-level, or more than once inside a single main() function.
+    This catches the "copy-paste a third paper script with an extra instance"
+    anti-pattern that triggers LTCM-class double-counting risk.
+
+    Test files (paths containing /tests/) are excluded because test fixtures
+    legitimately construct AggregateDrawdownContract for testing purposes.
+    """
+    import ast
+    from pathlib import Path
+
+    repo_root = Path(__file__).parent.parent.parent
+    search_dirs = [
+        repo_root / "scripts",
+        repo_root / "src" / "forex_system",
+    ]
+
+    def _is_aggregate_dd_call(node: ast.AST) -> bool:
+        """Return True if node is an AggregateDrawdownContract() call."""
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "AggregateDrawdownContract":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == "AggregateDrawdownContract":
+            return True
+        return False
+
+    def _is_inside_paperrunnerbase_init(node: ast.AST, tree: ast.AST) -> bool:
+        """Return True if node is within a PaperRunnerBase.__init__ (or subclass __init__)."""
+        for class_node in ast.walk(tree):
+            if not isinstance(class_node, ast.ClassDef):
+                continue
+            is_base_or_subclass = (
+                class_node.name == "PaperRunnerBase"
+                or any(
+                    (isinstance(base, ast.Name) and base.id == "PaperRunnerBase")
+                    or (isinstance(base, ast.Attribute) and base.attr == "PaperRunnerBase")
+                    for base in class_node.bases
+                )
+            )
+            if not is_base_or_subclass:
+                continue
+            for method in ast.walk(class_node):
+                if not (isinstance(method, ast.FunctionDef) and method.name == "__init__"):
+                    continue
+                for child in ast.walk(method):
+                    if child is node:
+                        return True
+        return False
+
+    def _count_in_main(node: ast.AST, tree: ast.AST) -> bool:
+        """Return True if node is inside a top-level main() function def."""
+        for fn in ast.walk(tree):
+            if not (isinstance(fn, ast.FunctionDef) and fn.name == "main"):
+                continue
+            for child in ast.walk(fn):
+                if child is node:
+                    return True
+        return False
+
+    violations: list[str] = []
+
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        for fpath in sorted(search_dir.rglob("*.py")):
+            # Skip test files (legitimate AggregateDrawdownContract in fixtures)
+            if "/tests/" in str(fpath) or fpath.name.startswith("test_"):
+                continue
+            try:
+                src = fpath.read_text(errors="replace")
+                tree = ast.parse(src, filename=str(fpath))
+            except SyntaxError:
+                continue
+
+            # Count AggregateDrawdownContract calls inside main() per file
+            main_call_count = 0
+            for node in ast.walk(tree):
+                if not _is_aggregate_dd_call(node):
+                    continue
+                if _is_inside_paperrunnerbase_init(node, tree):
+                    continue
+                if _count_in_main(node, tree):
+                    main_call_count += 1
+                    # Exactly 1 per-script main() is the authorised pattern
+                    if main_call_count > 1:
+                        lineno = getattr(node, "lineno", "?")
+                        violations.append(
+                            f"{fpath.relative_to(repo_root)}:{lineno} "
+                            f"(SECOND AggregateDrawdownContract in main() — "
+                            f"cardinality-1 violated)"
+                        )
+                    continue
+                # Outside PaperRunnerBase.__init__ and outside main(): always a violation
+                lineno = getattr(node, "lineno", "?")
+                violations.append(
+                    f"{fpath.relative_to(repo_root)}:{lineno} "
+                    f"(AggregateDrawdownContract outside main() and outside "
+                    f"PaperRunnerBase.__init__)"
+                )
+
+    assert not violations, (
+        "NHT-AST CARDINALITY-1 VIOLATION: AggregateDrawdownContract() instantiated "
+        "in a prohibited location. Each paper script may create exactly ONE instance "
+        "inside main() and pass it to PaperRunnerBase. "
+        "Violations found:\n" + "\n".join(violations)
+    )

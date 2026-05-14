@@ -24,6 +24,7 @@ import logging
 import random
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests
@@ -248,7 +249,7 @@ class SaxoClient:
                     # F-007: RFC 7231 §7.1.3 HTTP-date form (e.g. "Wed, 21 Oct 2015 07:28:00 GMT")
                     try:
                         retry_dt = email.utils.parsedate_to_datetime(retry_after_str)
-                        delay = max(0.0, (retry_dt - retry_dt.utcnow()).total_seconds())
+                        delay = max(0.0, (retry_dt - datetime.now(timezone.utc)).total_seconds())
                     except Exception:
                         # Malformed Retry-After: use exponential backoff WITH jitter.
                         # F-007: jitter is REQUIRED here to prevent N-process storm

@@ -1,0 +1,138 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: 2026-05-14 01:24:00+00:00
+subtask_ref: rem2-followup-acceptance-criteria
+subtask_id: pm-rem2-followup-2026-05-13:phase1:task1.0
+deliverable-type: spec-completion
+deadline: 2026-05-21 23:59:59+00:00
+instrument-universe: []
+hard-constraints:
+- sacred_test_no_lookahead: must_pass
+- existing_798_tests: must_not_regress
+- aggregate_drawdown_contract_cardinality: exactly_one_per_loop
+- paper_only: true
+- no_live_capital: true
+- firewall_execution_researcher: enforced
+- no_monkey_patching_of_base_runner_methods: true
+- no_env_var_kill_switch_bypass: true
+- snapshot_timestamp_monotonicity: enforced
+- cond_guard_observability: each_guard_logs_strategy_id_and_condition_id_and_outcome
+- startup_log_lists_active_guards: true
+criteria:
+- "BC-8-LIFT-COND-2 extracted into PaperRunnerBase (drawdown_contract instantiated\
+  \ and active); test_bc8_cond2_drawdown_contract_active in tests/integration/test_paper_runner_bc8_conds.py\
+  \ un-skipped and passing; AggregateDrawdownContract wiring moved from both paper\
+  \ scripts to PaperRunnerBase.__init__ (cardinality-1 \u2014 exactly one instance\
+  \ per paper loop run)"
+- BC-8-LIFT-COND-3 extracted (account_key_parity gate enforced at startup); test_bc8_cond3_account_key_parity_enforced
+  un-skipped and passing
+- BC-8-LIFT-COND-4 extracted (heartbeat_watchdog registered in PaperRunnerBase.__init__);
+  test_bc8_cond4_heartbeat_watchdog_registered un-skipped and passing
+- BC-8-LIFT-COND-5 extracted (fcntl dispatch lock acquired before each dispatch cycle);
+  test_bc8_cond5_fcntl_lock_acquired un-skipped and passing
+- BC-8-LIFT-COND-6 extracted (JPY-correlated cap checked before each order dispatch);
+  test_bc8_cond6_jpy_cap_applied un-skipped and passing
+- BC-8-LIFT-COND-7 extracted (swap accrual called at end of each dispatch cycle);
+  test_bc8_cond7_swap_accrual_called un-skipped and passing
+- scripts/run_paper_trading_carry_fred.py and scripts/run_paper_trading_vt.py refactored
+  to use PaperRunnerBase (composition or inheritance per wave-2 CTO architectural
+  decision); duplication measurably reduced from NHT-measured 71% baseline; CTO to
+  quantify post-extraction duplication metric at wave-2 review (no specific target
+  percentage mandated by PM, but reduction must be demonstrable via diff/wc)
+- F-007 cleanup applied at src/forex_system/saxo/client.py:251; retry_dt.utcnow()
+  replaced with datetime.now(timezone.utc); existing REM-6 429-hardening tests (tests/saxo/test_rem6_429_hardening.py)
+  must continue to pass
+- sacred test test_no_lookahead (tests/backtest/test_engine.py::test_no_lookahead)
+  PASS verified post-implementation (backtest/ and features/ are not touched; this
+  is a regression guard)
+- all 798 pre-existing passing tests PASS post-implementation; zero regression from
+  this wave
+- "cardinality-1 invariant \u2014 single AggregateDrawdownContract per loop across\
+  \ both runners must be explicitly tested; the existing N-2 test (tests/integration/test_paper_runner_bc8_conds.py::test_n2_paper_runner_single_source_of_truth_n3)\
+  \ currently xfails on the inline-is_triggered cardinality gap \u2014 post-extraction\
+  \ this xfail must be resolved (either the xfail converts to a pass, or an additional\
+  \ explicit cardinality-1 test is added by QD and approved by CTO/CRO)"
+- after full extraction PaperRunnerBase._PHASE_A_ACTIVE_GUARDS (or successor constant)
+  lists all 7 COND IDs (COND-1 through COND-7); startup log emits the full list; test_active_guards_lists_cond_1
+  updated or superseded to assert all 7
+- QD artifact includes execution-firewall-review self-attestation (no spec-drift findings)
+  per fintech-org firm rule 3
+out-of-scope:
+- "BC-9-N4-COND-4 (ML model-risk envelope, SR 11-7) \u2014 deferred indefinitely;\
+  \ ML infrastructure does not exist; re-opens only when Strategy #4 (ML) work is\
+  \ dispatched"
+- "BC-9-N4-COND-5 (per-strategy kill-switch live-paper exercise at N=2 before N=3)\
+  \ \u2014 operator-executed; requires running paper session; not orchestrator-doable"
+- "BC-9-N4-COND-6 (strategy_type field for ML risk-routing) \u2014 coupled to COND-4\
+  \ ML deferral; Position.strategy_type must wait for ML dispatch"
+- "Strategy #3 algorithm selection or any 3rd paper strategy (Path P3) \u2014 this\
+  \ dispatch UNBLOCKS P3 by closing the attractor surface but does NOT select P3"
+- "REM-8 (kill-switch Property-4 live test at N=2) \u2014 operator runbook item; not\
+  \ in scope"
+- "REM-9 (per-strategy no-lookahead probe) \u2014 separate dispatch gating strategy\
+  \ #3 deploy"
+- "REM-3, REM-10 (ML lifecycle interface, ML kill-switch + risk plumbing) \u2014 deferred\
+  \ with ML"
+- "Push to origin/main \u2014 CEO-only action; deferred per Wave-10/Wave-11 precedent"
+- "Paper-loop start \u2014 operator-only; T=0 preconditions not affected by this dispatch"
+- "History rewrite of 4 historic commits with account-key literals \u2014 CEO decides\
+  \ timing"
+- "KG-D6-1 (steady-state Saxo request rate measurement) \u2014 open knowledge gap;\
+  \ should be closed before N=3 paper deployment but is not in scope for this wave"
+- "Any 3rd or 4th paper script addition \u2014 this dispatch must complete BEFORE\
+  \ any N=3 script work begins (attractor-prevention sequencing; see CONSENSUS_2026-05-13\
+  \ REM-2 inertness note)"
+roles-staffed:
+- role: cto
+- role: cro
+- role: quant-developer
+- role: null-hypothesis-tester
+- role: principal-reviewer
+wraps_invocation_of: []
+evidence:
+- docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+- docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+- src/forex_system/paper/base_runner.py
+- tests/integration/test_paper_runner_bc8_conds.py
+- scripts/run_paper_trading_carry_fred.py
+- scripts/run_paper_trading_vt.py
+- src/forex_system/saxo/client.py:251
+assumptions:
+- Commit 32cf771 is the authoritative HEAD; 798 tests pass as reported by QD wave-2b
+  artifact
+- The 8 pre-existing failing tests (test_wave8_high_remediation.py TestAccountKeyParity
+  + governance canary) remain pre-existing and are NOT caused by this wave's changes
+- REM-2 phase-A inheritance pattern (PaperRunnerBase as superclass) is the chosen
+  pattern per KG-NHT-2 closure (CTO D-2.2); CTO may refine in wave-2 but PM scopes
+  criteria against the current pattern as baseline
+- AggregateDrawdownContract is already a separate class (not subclass of DrawdownContract)
+  per KG-D27-1 closure; COND-2 extraction moves instantiation only, not class structure
+- KG-D6-1 (steady-state Saxo request rate at N=2) remains open; 30 req/min token bucket
+  is sufficient assumption for this dispatch (N=2 unchanged); measurement deferred
+  to N=3 gate
+- F-007 fix (datetime.now(timezone.utc)) is safe to bundle; it is benign at current
+  HEAD because the except-fallthrough at line 252 catches TypeError and applies jittered
+  backoff; the fix eliminates a latent TypeError without changing observable behavior
+confidence: high
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+- /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+_orchestrator_redaction:
+  redacted_for: cro
+  fields_dropped:
+  - task-statement
+  - body
+  - roles-staffed[].rationale
+  rule: spawn-agent.md step 5; CRO disjoint-evidence contract

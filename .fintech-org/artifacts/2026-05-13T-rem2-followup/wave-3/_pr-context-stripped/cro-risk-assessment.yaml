@@ -1,0 +1,112 @@
+role: cro
+artifact_type: risk-assessment
+timestamp: 2026-05-13 18:30:00+00:00
+subtask_ref: rem2-cro-risk-review
+subtask_id: cro-rem2-followup-2026-05-13:phase2:task2.2
+size_multiplier: 1.0
+binding_constraints:
+- CRO-BC-1 (exposure_aggregator): "JPY-correlated notional \u2264 15% of book; per-strategy\
+    \ \u2264 0.0375 (REM-5 R-5.1 equal-weight)"
+- CRO-BC-2 (heartbeat_watchdog): "\u2264 5 min timeout on paper-trading loop (CONSENSUS_2026-04-28)"
+- CRO-BC-8: dispatch lock (fcntl) cycle-scope acquire/release (CRO Wave-9 option-B;
+    carry-through CONFIRMED in Wave-10)
+- CRO DD-1/DD-2/DD-3 ladder: halt_new=10%, reduce=15%, full_halt=20% (broker TotalValue,
+    drawdown_ladder_amendment_2026-05-06)
+- CRO R-7.1 aggregate ladder: warn=4%, halve=8%, halt=12%, lockout=15%
+- aggregate_drawdown_contract_cardinality: exactly 1 per loop (LTCM dual-layer = per-strategy
+    DD + aggregate DD; aggregate must be cardinality-1)
+- snapshot_timestamp_monotonicity: enforced (F-004; broker receive-time, not wall-clock)
+- SEC Rule 15c3-5(c)(1) discipline-alignment: pre-trade financial risk controls (account_key
+    parity = pre-trade segregation gate)
+regime_flags: []
+claimed_domains:
+- kill-switch-design-and-testing
+- drawdown-contracts
+- risk-budget-allocation
+- tail-risk-measurement
+- regulatory-risk-compliance
+- correlation-and-concentration-limits
+evidence:
+- file: src/forex_system/paper/base_runner.py
+  lines: 64, 87-110, 115-130, 199-224
+  finding: COND-1 extracted; COND-2..7 documented as TODO at lines 199-224; cardinality-1
+    invariant explicitly stated as architectural intent at line 30-37; observability
+    boundary (startup log emits active guard <TRUNCATED>
+- file: src/forex_system/risk/drawdown_contract.py
+  lines: 58, 293, 358-359, 385-470
+  finding: "AggregateDrawdownContract is a separate class (not subclass of DrawdownContract\
+    \ \u2014 KG-D27-1 closure confirmed); StaleEquitySnapshotError (line 58) preserved;\
+    \ F-004 monotonic-timestamp guard (lines 358- <TRUNCATED>"
+- file: scripts/run_paper_trading_carry_fred.py
+  lines: 70 (import), 328 (function-arg), 441-450 (per-bar update), 893-907 (instantiation)
+  finding: AggregateDrawdownContract instantiated ONCE per script with CRO R-7.1 thresholds
+    (4/8/12/15); snapshot_timestamp passed via datetime.now(timezone.utc) at line
+    445; both paper scripts currently instant <TRUNCATED>
+- file: scripts/run_paper_trading_vt.py
+  lines: 23 (fcntl import), 46 (Aggregate import), 366 (function-arg), 460-470 (per-bar
+    update), 511 (lock acquire), 855 (lock release in finally)
+  finding: "Same wiring pattern as carry_fred; fcntl lock acquired at run_cycle entry\
+    \ (per-cycle), released in finally \u2014 cycle-scope, NOT init-scope (correct\
+    \ \u2014 lock must be released between cycles to allow other  <TRUNCATED>"
+- file: src/forex_system/risk/exposure_aggregator.py
+  lines: 9-10, 196 (default), 200-249 (per_strategy check), 269-278 (aggregate check)
+  finding: max_correlated_pct default 0.15 (matches CRO_MAX_CORRELATED_PCT in scripts);
+    per_strategy_cap = 0.15/4 = 0.0375 per REM-5 R-5.1 equal-weight rule; per_strategy_jpy_cap_exceeded
+    raised when projected > <TRUNCATED>
+- file: scripts/run_paper_trading_vt.py
+  lines: 97-110
+  finding: "CRO_MAX_CORRELATED_PCT=0.15, CRO_MAX_ACTIVE_STRATEGIES=4, CRO_MAX_CONCURRENT_POSITIONS=6,\
+    \ CRO_WATCHDOG_TIMEOUT_SECONDS=300.0 \u2014 all match consensus binding constraints\
+    \ exactly; named constants (no sile <TRUNCATED>"
+- file: scripts/run_paper_trading_carry_fred.py
+  lines: 705-714
+  finding: swap accrual computed via _COST_MODEL.holding_cost(pair, Direction.LONG,
+    1) and integrated into _swap_usd; this is portfolio-state arithmetic only; no
+    broker order, no live capital touch (paper-loop,  <TRUNCATED>
+- file: src/forex_system/saxo/client.py
+  lines: 245-274
+  finding: "F-007 confirmed at line 251 \u2014 `(retry_dt - retry_dt.utcnow()).total_seconds()`.\
+    \ retry_dt is a tz-aware datetime from email.utils.parsedate_to_datetime; calling\
+    \ .utcnow() on it returns a naive datetime <TRUNCATED>"
+- file: tests/integration/test_paper_runner_bc8_conds.py
+  lines: 102-135 (skip placeholders), 177-281 (N-2 cardinality-1 stub with xfail)
+  finding: COND-2..7 placeholder tests exist (skipped); test_n2_paper_runner_single_source_of_truth_n3
+    currently xfails on the inline-is_triggered cardinality gap; PM AC requires xfail
+    to convert to pass post-ex <TRUNCATED>
+- file: docs/decisions/CONSENSUS_2026-04-28*.md
+  lines: 35, 52
+  finding: "\u22645min watchdog timeout established CRO-BC-2; matches CRO_WATCHDOG_TIMEOUT_SECONDS=300.0."
+- file: docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+  lines: 87-89, 202
+  finding: BC-9-N4-COND-5 (kill-switch Property-4 live test at N=2) explicitly out-of-scope
+    and operator-executed; this dispatch must NOT be obstructed by it but also does
+    NOT close it.
+knowledge_gaps:
+- "KG-CRO-3 (per CONSENSUS_2026-05-12): whether kill_switch.py has been triggered\
+  \ against a live N=2 paper session even once \u2014 UNCHANGED by this dispatch;\
+  \ remains operator-action via BC-9-N4-COND-5/REM-8."
+- "KG-CRO-NEW: the per-strategy JPY cap formula 0.15/N=4 is correct only at N=4. When\
+  \ N=3 paper script work begins (post-this-dispatch), the formula must be re-validated\
+  \ against the equal-weight derivation \u2014 flagged for that future dispatch."
+policy_violations_detected: []
+sources:
+- /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-1/pm-acceptance-criteria.cro-redacted.yaml
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/drawdown_contract.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/exposure_aggregator.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/account_key_parity.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/kill_switch.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/risk/heartbeat_watchdog.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/saxo/client.py
+- /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-04-28_phase2_falsification_kickoff.md
+- /Users/huangtm/Projects/forex-trading-system/docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+- /Users/huangtm/.claude/skills/kill-switch-design/SKILL.md
+- /Users/huangtm/.claude/skills/quantitative-risk-management/SKILL.md
+- /Users/huangtm/.claude/skills/trading-firm-regulatory-frameworks/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

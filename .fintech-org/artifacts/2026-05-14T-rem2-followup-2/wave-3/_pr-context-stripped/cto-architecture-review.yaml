@@ -1,0 +1,94 @@
+role: cto
+artifact_type: architecture-review
+timestamp: '2026-05-14T00:00:00Z'
+subtask_ref: rem2-followup-2-cto-arch-review
+subtask_id: cto-rem2-followup-2-2026-05-14:phase2:task2.1
+rubric-applied:
+- review-plan
+- execution-firewall-review
+- log-as-decision-trace
+- trading-platform-architectures/axes/research-to-prod.md (paper-tier)
+conditions:
+- 'COND-CTO-1: F-003 structured logging must use extra={} dict with field names strategy_id,
+  condition_id, outcome, cycle_id (optional), lock_path (COND-5 only), equity (COND-2
+  and COND-6 only), pair (COND-5/6/7 only). bc8_cond_check prefix preserved in the
+  msg string; values in extra={}. Both msg and extra= must be present so existing
+  grep-based tests pass AND new key-value queries are possible.'
+- 'COND-CTO-2: F-002 AST guard must add lower-bound assertion: if main_call_count
+  == 0 for a paper script (file in scripts/ matching run_paper_trading_*.py), that
+  is a violation. The current guard (tests/integration/test_paper_runner_bc8_conds.py:841-959)
+  only catches > 1; zero silently passes. QD adds the zero-case branch before the
+  per-file loop closes.'
+- 'COND-CTO-3: F-002 AST guard must add alias-import detection: walk ast.ImportFrom
+  nodes in each file, collect {local_alias: canonical_name} for any import of AggregateDrawdownContract.
+  Extend _is_aggregate_dd_call() to match both the canonical name and any collected
+  aliases. Without this, ''from ... import AggregateDrawdownContract as ADC'' followed
+  by ADC() is invisible to the guard.'
+- 'COND-CTO-4: F-002 AST guard must include a hostile self-test fixture: write a transient
+  bad paper script (zero AggregateDrawdownContract in main()), run the guard function
+  against it, assert it raises/detects a violation, then delete the fixture file in
+  teardown. No fixture file may remain on disk after the test run (QD attests in implementation
+  report).'
+- 'COND-CTO-5: script_compat_shims.py module placement ratified as src/forex_system/paper/script_compat_shims.py.
+  Both scripts must re-export all consolidated names at module level (e.g., assert_account_key_parity
+  = _shims.assert_account_key_parity) so test patches targeting vt_mod.assert_account_key_parity
+  remain valid.'
+- 'COND-CTO-6: shims module must carry a module-level deprecation notice (as a module
+  docstring comment, not a runtime DeprecationWarning) stating these shims exist for
+  backward test-compat only and will be removed when test patches are updated. This
+  makes the technical debt visible without triggering warnings in production runs.'
+claimed_domains:
+- architecture-decisions
+- tech-debt-tracking
+- logging-and-observability-standards
+- firewall-enforcement-between-research-and-execution
+evidence:
+- "src/forex_system/paper/base_runner.py:160-170: COND-3 log uses %-style positional\
+  \ format strings \u2014 confirms F-003 is still open (all COND-1..7 logs use this\
+  \ pattern)"
+- "src/forex_system/paper/base_runner.py:209-213: COND-1 log pattern \u2014 strategy_id\
+  \ and outcome are in the format string but NOT in extra={} dict (no structured key-value)"
+- 'src/forex_system/paper/base_runner.py:45-56: base_runner.py top-level imports are
+  stdlib only (contextlib, fcntl, logging, os, pathlib, typing, datetime). All forex_system
+  imports are deferred inside methods (L153, L342, L451, L529). Zero risk of circular
+  import from base_runner.py itself.'
+- "src/forex_system/risk/account_key_parity.py: zero imports from forex_system.paper\
+  \ \u2014 confirmed by grep (no output)"
+- "src/forex_system/risk/exposure_aggregator.py: imports only from forex_system.core.types\
+  \ \u2014 confirmed by grep"
+- "tests/integration/test_paper_runner_bc8_conds.py:869-878: _is_aggregate_dd_call()\
+  \ checks ast.Name.id == 'AggregateDrawdownContract' and ast.Attribute.attr == 'AggregateDrawdownContract'\
+  \ only \u2014 no alias tracking"
+- "tests/integration/test_paper_runner_bc8_conds.py:928-959: main_call_count starts\
+  \ at 0 per file; the only violation branch is main_call_count > 1 (line 938). A\
+  \ file with zero calls in main() exits the loop with violations=[] \u2014 lower-bound\
+  \ gap confirmed."
+- 'tests/integration/test_paper_runner_bc8_conds.py:841: test_nht_ast_aggregate_dd_contract_cardinality_guard
+  exists but has no hostile self-test fixture and no lower-bound check'
+- "scripts/run_paper_trading_vt.py:91-107: assert_account_key_parity shim is script-local\
+  \ (not shared). Identical logic at scripts/run_paper_trading_carry_fred.py:111-127\
+  \ \u2014 duplication confirmed."
+- "scripts/run_paper_trading_vt.py:28: import fcntl at module level for test surface\
+  \ \u2014 same pattern at carry_fred.py:47. Both are shim targets."
+- "scripts/run_paper_trading_vt.py:61: check_dispatch_allowed imported at module level\
+  \ for test patching \u2014 same pattern at carry_fred.py:77"
+- 'src/forex_system/paper/__init__.py: paper/ is a proper package (file exists). script_compat_shims.py
+  addition requires no new package creation.'
+knowledge_gaps: []
+policy_violations_detected:
+- 'PV-1 (carried from prior wave): COND-1..7 logs in base_runner.py (commit 5522d7b)
+  use %-style positional format strings without extra={} dict. Violates log-as-decision-trace
+  Item 8. F-003 in this wave closes PV-1.'
+sources:
+- src/forex_system/paper/base_runner.py
+- tests/integration/test_paper_runner_bc8_conds.py
+- scripts/run_paper_trading_vt.py
+- scripts/run_paper_trading_carry_fred.py
+- src/forex_system/paper/__init__.py
+- 'src/forex_system/risk/account_key_parity.py (grep: zero paper imports)'
+- 'src/forex_system/risk/exposure_aggregator.py (grep: zero paper imports)'
+- .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

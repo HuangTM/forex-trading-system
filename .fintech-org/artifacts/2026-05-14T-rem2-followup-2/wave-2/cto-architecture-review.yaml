@@ -1,0 +1,232 @@
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: "2026-05-14T00:00:00Z"
+subtask_ref: rem2-followup-2-cto-arch-review
+subtask_id: "cto-rem2-followup-2-2026-05-14:phase2:task2.1"
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - "trading-platform-architectures/axes/research-to-prod.md (paper-tier)"
+conditions:
+  - "COND-CTO-1: F-003 structured logging must use extra={} dict with field names strategy_id, condition_id, outcome, cycle_id (optional), lock_path (COND-5 only), equity (COND-2 and COND-6 only), pair (COND-5/6/7 only). bc8_cond_check prefix preserved in the msg string; values in extra={}. Both msg and extra= must be present so existing grep-based tests pass AND new key-value queries are possible."
+  - "COND-CTO-2: F-002 AST guard must add lower-bound assertion: if main_call_count == 0 for a paper script (file in scripts/ matching run_paper_trading_*.py), that is a violation. The current guard (tests/integration/test_paper_runner_bc8_conds.py:841-959) only catches > 1; zero silently passes. QD adds the zero-case branch before the per-file loop closes."
+  - "COND-CTO-3: F-002 AST guard must add alias-import detection: walk ast.ImportFrom nodes in each file, collect {local_alias: canonical_name} for any import of AggregateDrawdownContract. Extend _is_aggregate_dd_call() to match both the canonical name and any collected aliases. Without this, 'from ... import AggregateDrawdownContract as ADC' followed by ADC() is invisible to the guard."
+  - "COND-CTO-4: F-002 AST guard must include a hostile self-test fixture: write a transient bad paper script (zero AggregateDrawdownContract in main()), run the guard function against it, assert it raises/detects a violation, then delete the fixture file in teardown. No fixture file may remain on disk after the test run (QD attests in implementation report)."
+  - "COND-CTO-5: script_compat_shims.py module placement ratified as src/forex_system/paper/script_compat_shims.py. Both scripts must re-export all consolidated names at module level (e.g., assert_account_key_parity = _shims.assert_account_key_parity) so test patches targeting vt_mod.assert_account_key_parity remain valid."
+  - "COND-CTO-6: shims module must carry a module-level deprecation notice (as a module docstring comment, not a runtime DeprecationWarning) stating these shims exist for backward test-compat only and will be removed when test patches are updated. This makes the technical debt visible without triggering warnings in production runs."
+claimed_domains:
+  - architecture-decisions
+  - tech-debt-tracking
+  - logging-and-observability-standards
+  - firewall-enforcement-between-research-and-execution
+evidence:
+  - "src/forex_system/paper/base_runner.py:160-170: COND-3 log uses %-style positional format strings — confirms F-003 is still open (all COND-1..7 logs use this pattern)"
+  - "src/forex_system/paper/base_runner.py:209-213: COND-1 log pattern — strategy_id and outcome are in the format string but NOT in extra={} dict (no structured key-value)"
+  - "src/forex_system/paper/base_runner.py:45-56: base_runner.py top-level imports are stdlib only (contextlib, fcntl, logging, os, pathlib, typing, datetime). All forex_system imports are deferred inside methods (L153, L342, L451, L529). Zero risk of circular import from base_runner.py itself."
+  - "src/forex_system/risk/account_key_parity.py: zero imports from forex_system.paper — confirmed by grep (no output)"
+  - "src/forex_system/risk/exposure_aggregator.py: imports only from forex_system.core.types — confirmed by grep"
+  - "tests/integration/test_paper_runner_bc8_conds.py:869-878: _is_aggregate_dd_call() checks ast.Name.id == 'AggregateDrawdownContract' and ast.Attribute.attr == 'AggregateDrawdownContract' only — no alias tracking"
+  - "tests/integration/test_paper_runner_bc8_conds.py:928-959: main_call_count starts at 0 per file; the only violation branch is main_call_count > 1 (line 938). A file with zero calls in main() exits the loop with violations=[] — lower-bound gap confirmed."
+  - "tests/integration/test_paper_runner_bc8_conds.py:841: test_nht_ast_aggregate_dd_contract_cardinality_guard exists but has no hostile self-test fixture and no lower-bound check"
+  - "scripts/run_paper_trading_vt.py:91-107: assert_account_key_parity shim is script-local (not shared). Identical logic at scripts/run_paper_trading_carry_fred.py:111-127 — duplication confirmed."
+  - "scripts/run_paper_trading_vt.py:28: import fcntl at module level for test surface — same pattern at carry_fred.py:47. Both are shim targets."
+  - "scripts/run_paper_trading_vt.py:61: check_dispatch_allowed imported at module level for test patching — same pattern at carry_fred.py:77"
+  - "src/forex_system/paper/__init__.py: paper/ is a proper package (file exists). script_compat_shims.py addition requires no new package creation."
+assumptions:
+  - "scripts/ are not in the import path of any src/forex_system/ module. Confirmed: no src module imports from scripts/. Shim module in paper/ cannot create a circular import through scripts/."
+  - "The trading-platform-architectures/axes/research-to-prod.md skill was not present on disk (find returned empty); classification applied from first principles — paper loop is paper-tier (low frequency, simulation, no capital at risk). Architecture decisions appropriate to paper-tier apply."
+  - "The 'loop_name' default-value difference between the two assert_account_key_parity shims (vt loop vs carry_fred loop) must be preserved in the consolidated shim via a loop_name parameter with no default (callers pass it explicitly) or two thin wrappers. QD chooses; CTO accepts either."
+confidence: high
+body: |
+  DECISION: approve-with-conditions (6 conditions).
+
+  This review covers three architectural decisions: shim module placement,
+  structured logging schema, and F-002 AST guard soundness. All three are
+  approvable in principle; conditions address specific mechanical gaps.
+
+  1. SHIM MODULE PLACEMENT
+
+  Ratified as src/forex_system/paper/script_compat_shims.py (PM proposal
+  accepted). Rationale: the paper/ package is the correct tier for code
+  whose sole purpose is backward compatibility for paper-script test
+  patches. Placing it in utils/ would imply general reusability; these
+  shims are paper-loop-specific. Placing it at scripts/ level would make
+  it a script rather than a module and break import hygiene.
+
+  Circular import risk: NONE. base_runner.py defers all forex_system
+  imports inside method bodies (L153, L342, L451, L529 — confirmed by
+  AST analysis). risk/ modules have zero imports from paper/ (grep
+  confirmed). A new script_compat_shims.py that itself defers forex_system
+  imports in the same pattern as base_runner.py carries zero circular
+  import risk. The one constraint: shims must NOT import from
+  forex_system.paper.base_runner at module level (only inside functions),
+  because base_runner.py itself is already loaded when scripts import
+  PaperRunnerBase. This is already the natural pattern given the shims
+  delegate to risk/ modules.
+
+  Module naming: script_compat_shims is accurate and self-describing. A
+  "deprecated" namespace prefix (e.g., deprecated_shims.py) is not
+  adopted: it would break import stability and cause IDE false positives.
+  Instead, COND-CTO-6 requires a module-level docstring deprecation
+  notice. The technical debt is visible to developers without runtime
+  noise.
+
+  2. STRUCTURED LOGGING SCHEMA (F-003)
+
+  The current %-style format (base_runner.py:160, 209, 245, 270, etc.)
+  violates the log-as-decision-trace rubric Item 8 (structured, not
+  string-formatted) and Item 2 (all inputs queryable by field name).
+  PV-1 from the prior wave (COND-1 %-style log) is NOT yet closed: all
+  COND-1..7 logs remain %-style at HEAD (commit 5522d7b).
+
+  Specified schema (COND-CTO-1):
+
+    logger.info(
+        "bc8_cond_check ...",  # prefix preserved in msg string for grep
+        extra={
+            "strategy_id": self.strategy_id,
+            "condition_id": "BC-8-LIFT-COND-N",
+            "outcome": outcome,         # always present
+            # conditional fields:
+            "cycle_id": cycle_id,       # COND-5, COND-6, COND-7 only
+            "lock_path": ...,           # COND-5 only
+            "equity": equity,           # COND-2, COND-6 only
+            "pair": pair,               # COND-5, COND-6, COND-7 only
+        },
+    )
+
+  Logfmt vs JSON: Python's logging.extra={} is format-agnostic at emit
+  time. The formatter chooses at sink configuration. QD uses extra={} with
+  the field names above; the default formatter will include them in the
+  LogRecord but not the message string. This is correct: the bc8_cond_check
+  prefix in the msg string satisfies existing grep-based assertions; the
+  extra={} dict satisfies future structured queries. Both coexist.
+
+  Backward-compat for grep tests: the msg string bc8_cond_check prefix
+  is preserved verbatim (COND-CTO-1). Tests that assert "BC-8-LIFT-COND-2"
+  in r.message and "strat_cond3" in r.message continue to pass because
+  the message string format is unchanged; extra={} is additive.
+
+  F-001 account_key redaction: base_runner.py:157-159 (account_key_redacted
+  = "***" + account_key[-4:]) must survive migration. The extra={} dict
+  should use the redacted value: extra={"account_key": account_key_redacted}.
+  Never the raw key. This is consistent with Phase 1 item 4 of the
+  deploy-checklist-trading rubric and log-as-decision-trace Item 7.
+
+  3. F-002 AST GUARD ARCHITECTURAL SOUNDNESS
+
+  The AST walk mechanism (ast.ImportFrom + ast.Call node detection) is
+  architecturally sound. The existing test at line 869-878 correctly
+  identifies AggregateDrawdownContract() calls by canonical name and
+  attribute-access form. Three gaps require mechanical fixes (COND-CTO-2,
+  COND-CTO-3, COND-CTO-4):
+
+  Lower-bound gap (COND-CTO-2): current guard only catches > 1 in main().
+  A paper script that imports AggregateDrawdownContract but constructs it
+  zero times in main() (wires it via environment variable or constructs it
+  in a helper function) passes silently. This is the more dangerous case:
+  the LTCM cardinality-1 invariant is violated by ABSENCE, not presence.
+  Fix: after the per-file node walk completes, if the file is a paper
+  script (name matches run_paper_trading_*.py) and main_call_count == 0
+  AND AggregateDrawdownContract is imported in the file, that is a
+  lower-bound violation.
+
+  Alias detection gap (COND-CTO-3): "from ... import AggregateDrawdownContract
+  as ADC" followed by ADC() produces an ast.Name node with id="ADC", not
+  "AggregateDrawdownContract". The current _is_aggregate_dd_call() returns
+  False for ADC(). Fix: pre-pass each file's ast.ImportFrom nodes to build
+  a local_alias -> canonical_name dict; extend _is_aggregate_dd_call() to
+  also match any local alias that maps to AggregateDrawdownContract.
+
+  Canonical placement: lower-bound assertion is in main_only semantics.
+  The PM acceptance criteria says "each paper script's main() OR its
+  PaperRunnerBase subclass must have >=1 instantiation." CTO ratifies
+  main_only as canonical: PaperRunnerBase.__init__ must NOT instantiate
+  AggregateDrawdownContract (the cardinality-1 invariant requires it be
+  created externally). The subclass path in the acceptance criteria
+  covers scripts where the subclass __init__ explicitly creates the
+  instance before passing it to super().__init__ — this is acceptable
+  but currently neither paper script uses this pattern. QD may implement
+  the subclass branch as an OR condition, but main_only is sufficient
+  for the two existing scripts.
+
+  Self-test fixture (COND-CTO-4): NHT dissent KG-NHT-REM2-2 is partially
+  in-scope here (the fixture), while relocation of the guard to a
+  dedicated test file remains deferred per PM out-of-scope list. The
+  hostile-injection fixture must: (a) write a transient bad script to
+  a temp location, (b) invoke the guard logic against it, (c) assert
+  violation is detected, (d) delete the file in teardown. This is the
+  only mechanically verifiable way to prove the guard would catch a
+  real violation rather than passing everything silently.
+
+  FIREWALL ASSESSMENT
+
+  This wave is a pure QD-implementation wave. The shim consolidation,
+  AST guard fix, and logging migration contain zero research-class
+  decisions (Section A of execution-firewall-review: no new thresholds,
+  no signal transformations, no regime branching). The bc8_cond_check
+  log fields carry operational context only. Firewall: CLEAR.
+
+  LOG-AS-DECISION-TRACE ASSESSMENT
+
+  Current %-style logs fail Items 2 and 8. The extra={} migration
+  (COND-CTO-1) closes both. Items 1 (outcome named), 5 (strategy_id as
+  correlation), 6 (skipped path logged — COND-2 SKIP path at L245
+  already exists), and 7 (PII redaction at L157) are already satisfied.
+  Item 4 (time explicit): COND-5 already logs acquire_ts/release_ts as
+  datetime.now(timezone.utc).isoformat() — this is wall-clock time,
+  not exchange time. Acceptable for paper-tier; no exchange time concept
+  at this layer.
+
+failure-modes-considered:
+  - "Circular import via shim: script_compat_shims.py imports from risk/* at module level, and risk/* later imports from paper/* — currently IMPOSSIBLE (no risk module imports paper). But this invariant must not be silently broken when script_compat_shims.py is added. Mitigation: shims use deferred imports (same pattern as base_runner.py:153, 342, 451, 529) or top-level imports that only touch risk/ modules that are confirmed paper-free."
+  - "Test patch surface broken by shim consolidation: tests that patch vt_mod.fcntl or vt_mod.assert_account_key_parity rely on each script re-exporting the consolidated name at module level. If QD only imports the shim module without re-exporting, patches break. Mitigation: COND-CTO-5 requires explicit module-level re-exports in both scripts."
+  - "Lower-bound false negative in AST guard: a paper script that wires AggregateDrawdownContract via a class attribute or helper function (not main() directly) passes the lower-bound check. The acceptance criteria covers main() OR subclass __init__; QD must handle both branches. Residual risk: a script that wires it via neither pattern passes. This residual is acceptable at paper-tier; the cardinality-1 invariant is enforced at the PaperRunnerBase.__init__ level regardless."
+  - "F-001 redaction regression during F-003 migration: the account_key_redacted variable at base_runner.py:157-159 could be accidentally dropped when converting the format string to extra={} dict construction. Mitigation: COND-CTO-1 explicitly names account_key: account_key_redacted in the extra dict; QD implementation report must attest this line is preserved (PM acceptance criteria line 42 already requires this attestation)."
+  - "bc8_cond_check prefix breaks if msg arg changes: existing grep tests rely on the literal string 'bc8_cond_check' appearing in log messages. If any migration helper reformats the msg string, tests break silently (caplog checks r.message, not r.args). Mitigation: COND-CTO-1 specifies the prefix is preserved in the msg string, not moved to extra={}."
+
+what-you-refused-to-do:
+  - "Specify implementation code (Python). QD is the sole Python-permitted role."
+  - "Audit strategy math, signal logic, or backtest parameters — those are research-role domains."
+  - "Approve without conditions — three mechanical gaps (lower-bound, alias detection, self-test) are present in the AST guard at HEAD commit 5522d7b. Approving unconditionally would leave the LTCM cardinality-1 invariant unguarded against the zero-case."
+  - "Require F-004 or F-005 fixes — those are explicitly out-of-scope per PM acceptance criteria."
+  - "Relocate the AST guard test to a dedicated file — KG-NHT-REM2-2 relocation is explicitly deferred per PM out-of-scope list."
+
+verdict-detail:
+  shim_module_placement: "RATIFIED: src/forex_system/paper/script_compat_shims.py. paper/ package is correct tier for paper-loop backward-compat shims. utils/ rejected (implies general reuse; these are paper-specific). scripts/ rejected (breaks import hygiene). No new package needed — paper/__init__.py already exists."
+  shim_module_naming: "RATIFIED: script_compat_shims (not deprecated_shims, not legacy_shims). Accurate, self-describing, import-stable. Deprecation signal conveyed via module docstring (COND-CTO-6), not in the module name."
+  circular_import_risk: "NONE. base_runner.py defers all forex_system imports inside method bodies (confirmed at L153, L342, L451, L529). risk/ modules have zero imports from paper/ (grep confirmed). script_compat_shims.py must follow same deferred-import or top-level-risk-only pattern. No import cycle is possible given current dependency graph."
+  structured_logging_schema:
+    field_names:
+      - strategy_id
+      - condition_id
+      - outcome
+      - "cycle_id (COND-5/6/7 only, optional)"
+      - "lock_path (COND-5 only)"
+      - "equity (COND-2/6 only)"
+      - "pair (COND-5/6/7 only)"
+      - "account_key (COND-3 only, must be account_key_redacted value — last 4 chars only)"
+    format: "extra-dict (Python logging extra={} key-value; format-agnostic at emit, formatter-determined at sink)"
+    bc8_cond_check_prefix_preserved: "true — prefix stays in the msg string positional argument to logger.info(); extra={} is additive. Grep-based assertions on r.message continue to pass without modification."
+  ast_guard_design:
+    lower_bound_semantics: "main_only (with subclass __init__ as acceptable OR branch per acceptance criteria; neither existing script uses subclass path so main_only is the primary enforcement path)"
+    alias_detection_mechanism: "Pre-pass per file: walk ast.ImportFrom nodes, build alias_map = {alias.asname or alias.name: alias.name} for imports of AggregateDrawdownContract. Extend _is_aggregate_dd_call() to match ast.Name nodes where func.id in alias_map and alias_map[func.id] == 'AggregateDrawdownContract'."
+    self_test_fixture: required
+knowledge_gaps: []
+policy_violations_detected:
+  - "PV-1 (carried from prior wave): COND-1..7 logs in base_runner.py (commit 5522d7b) use %-style positional format strings without extra={} dict. Violates log-as-decision-trace Item 8. F-003 in this wave closes PV-1."
+sources:
+  - "src/forex_system/paper/base_runner.py"
+  - "tests/integration/test_paper_runner_bc8_conds.py"
+  - "scripts/run_paper_trading_vt.py"
+  - "scripts/run_paper_trading_carry_fred.py"
+  - "src/forex_system/paper/__init__.py"
+  - "src/forex_system/risk/account_key_parity.py (grep: zero paper imports)"
+  - "src/forex_system/risk/exposure_aggregator.py (grep: zero paper imports)"
+  - ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,66 @@
+schema_version: 1.0
+artifact_type: ratification
+track_id: rem2-followup-2-2026-05-14
+addressed_unit: rem2-followup-2-2026-05-14:phase4:task4.1
+approver:
+  role_or_human: role
+  name: "cro, cto, principal-reviewer"
+  authority_basis: "Distributed quorum under --no-ceo per protocols/distributed-ratification.md"
+decision:
+  outcome: ratified_with_dissent
+  rationale: "≥2 owning-role signatures (3 total: CRO + CTO + PR); CRO required-role coverage for risk domains satisfied; CTO required-role coverage for architecture domains satisfied; PR approve-with-conditions (no blocking findings; F-001 dead imports fixed inline by orchestrator via ruff --fix; F-002 COND-5 logger.warning migration fixed inline by orchestrator; F-003 metric inversion clarified as methodology documentation in CONSENSUS.md Section 4); NHT severity=concern dissent preserved verbatim & append-only (does_block=false; escalation triggers not fired; QD wave-3 self-tests partially address claims 2+3; claim 1 methodology limitation surfaced explicitly for follow-up dispatch); duplication-metric methodology limitation surfaced explicitly: line-diff scores 72.8% identical on symmetric scripts regardless of architectural improvement; CEO ≤60% target unreachable by this methodology; Path P2-followup-3 deferred; charter drift NO; cumulative-override breaker NOT fired; cross-session check found=false; policy violations since session start 0."
+quorum_signers:
+  - role: cro
+    quality_gate_review_path: ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml"
+    decision: approve
+  - role: cto
+    quality_gate_review_path: ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cto-architecture-review.yaml"
+    decision: approve-with-conditions
+  - role: principal-reviewer
+    quality_gate_review_path: ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-3/pr-review-report.yaml"
+    decision: approve-with-conditions
+quorum_basis:
+  detected_domains:
+    - architecture-decisions
+    - kill-switch-design-and-testing
+    - drawdown-contracts
+    - tail-risk-measurement
+    - logging-and-observability-standards
+    - test-coverage-and-test-quality-review
+    - production-code-implementation-from-TradeIntent-specs
+    - independent-code-review
+    - firewall-enforcement-between-research-and-execution
+  required_roles: [cro, cto]
+  required_roles_present: [cro, cto]
+cross_session_lookup:
+  searched_paths:
+    - .fintech-org/deferred-decisions.jsonl
+    - .agent-accountability/ratifications/
+  found: false
+  scanned_at: "2026-05-15T01:37:19Z"
+linked_dissents:
+  - .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/nht-null-test-report.yaml
+accountable_party:
+  name: "fintech-org orchestrator (under --no-ceo)"
+  role_or_human: agent
+consensus_document: "docs/decisions/CONSENSUS_2026-05-14_rem2_followup_2_shim_consolidation.md"
+consensus_summary: "docs/decisions/CONSENSUS-SUMMARY_2026-05-14_rem2_followup_2_shim_consolidation.md"
+deferred_to_v_next:
+  - true-duplication-reduction-via-shim-removal-and-test-interface-migration
+  - F-004-script-level-fs_error-log-fields
+  - F-005-shim-COND-6-construct_default_runner-docstring
+  - NHT-anti-canary-bc8_cond_check-prefix-preservation
+  - tools-measure_paper_script_duplication-sh-reproducible-measurement-script
+orchestrator_inline_fixes:
+  - finding: F-001 (PR-major)
+    action: "ruff --fix on scripts/run_paper_trading_vt.py and scripts/run_paper_trading_carry_fred.py; removed dead _assert_account_key_parity_impl alias imports"
+    verified: "test suite 851/852 green post-fix; sacred test PASS"
+  - finding: F-002 (PR-minor)
+    action: "Migrated base_runner.py:388-411 BUSY and FS_ERROR logger.warning branches to extra={} structured schema per COND-CTO-1"
+    verified: "47/47 COND tests PASS; structured logging schema confirmed"
+test_state:
+  sacred_test: pass
+  cond_tests: "47/47"
+  full_suite_passed: 851
+  full_suite_failed: 1
+  failed_test_note: "test_policy_violations_canary — pre-existing governance JSONL canary (missing 'action' field in .fintech-org artifact from 2026-05-10); verified pre-existing by orchestrator"

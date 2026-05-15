@@ -44,14 +44,13 @@ Observability boundaries per PM acceptance-criteria REM-2:
 
 from __future__ import annotations
 
-import contextlib
 import fcntl
 import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Generator, Optional
+from typing import Generator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -158,16 +157,25 @@ class PaperRunnerBase:
                 "***" + account_key[-4:] if account_key and len(account_key) >= 4 else "***"
             )
             logger.info(
-                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-3 outcome=CHECKING "
-                "account_key=%s loop_name=%s",
+                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-3 outcome=CHECKING",
                 strategy_id,
-                account_key_redacted,
-                loop_name,
+                extra={
+                    "strategy_id": strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-3",
+                    "outcome": "CHECKING",
+                    "account_key": account_key_redacted,
+                    "loop_name": loop_name,
+                },
             )
             assert_account_key_parity(account_key, loop_name=loop_name)
             logger.info(
                 "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-3 outcome=OK",
                 strategy_id,
+                extra={
+                    "strategy_id": strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-3",
+                    "outcome": "OK",
+                },
             )
 
         # COND-4: heartbeat watchdog registration
@@ -209,6 +217,11 @@ class PaperRunnerBase:
             "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-1 outcome=%s",
             self.strategy_id,
             outcome,
+            extra={
+                "strategy_id": self.strategy_id,
+                "condition_id": "BC-8-LIFT-COND-1",
+                "outcome": outcome,
+            },
         )
         return not triggered
 
@@ -267,12 +280,16 @@ class PaperRunnerBase:
             outcome = "OK"
 
         logger.info(
-            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-2 outcome=%s "
-            "aggregate_drawdown_pct=%.4f sizing_multiplier=%.2f",
+            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-2 outcome=%s",
             self.strategy_id,
             outcome,
-            assessment.aggregate_drawdown_pct,
-            assessment.sizing_multiplier,
+            extra={
+                "strategy_id": self.strategy_id,
+                "condition_id": "BC-8-LIFT-COND-2",
+                "outcome": outcome,
+                "aggregate_drawdown_pct": assessment.aggregate_drawdown_pct,
+                "sizing_multiplier": assessment.sizing_multiplier,
+            },
         )
         return assessment
 
@@ -349,42 +366,53 @@ class PaperRunnerBase:
         try:
             fcntl.flock(_dl_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             _acquired = True
+            _acquire_ts = datetime.now(timezone.utc).isoformat()
             logger.info(
-                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=ACQUIRED "
-                "lock_path=%s cycle_id=%s pair=%s acquire_ts=%s",
+                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=ACQUIRED",
                 self.strategy_id,
-                self._dispatch_lock_path,
-                cycle_id,
-                pair,
-                datetime.now(timezone.utc).isoformat(),
+                extra={
+                    "strategy_id": self.strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-5",
+                    "outcome": "ACQUIRED",
+                    "lock_path": self._dispatch_lock_path,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "acquire_ts": _acquire_ts,
+                },
             )
             yield True
         except BlockingIOError:
             os.close(_dl_fd)
             _dl_fd = -1
             logger.warning(
-                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=BUSY "
-                "lock_path=%s cycle_id=%s pair=%s decision_ts=%s",
-                self.strategy_id,
-                self._dispatch_lock_path,
-                cycle_id,
-                pair,
-                datetime.now(timezone.utc).isoformat(),
+                "bc8_cond_check condition_id=BC-8-LIFT-COND-5 outcome=BUSY",
+                extra={
+                    "strategy_id": self.strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-5",
+                    "outcome": "BUSY",
+                    "lock_path": self._dispatch_lock_path,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "decision_ts": datetime.now(timezone.utc).isoformat(),
+                },
             )
             yield False
         except OSError as exc:
             os.close(_dl_fd)
             _dl_fd = -1
             logger.warning(
-                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=FS_ERROR "
-                "lock_path=%s cycle_id=%s pair=%s errno=%s strerror=%s decision_ts=%s",
-                self.strategy_id,
-                self._dispatch_lock_path,
-                cycle_id,
-                pair,
-                getattr(exc, "errno", None),
-                getattr(exc, "strerror", None) or repr(exc),
-                datetime.now(timezone.utc).isoformat(),
+                "bc8_cond_check condition_id=BC-8-LIFT-COND-5 outcome=FS_ERROR",
+                extra={
+                    "strategy_id": self.strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-5",
+                    "outcome": "FS_ERROR",
+                    "lock_path": self._dispatch_lock_path,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "errno": getattr(exc, "errno", None),
+                    "strerror": getattr(exc, "strerror", None) or repr(exc),
+                    "decision_ts": datetime.now(timezone.utc).isoformat(),
+                },
             )
             self._kill_switch.trigger(
                 TriggerReason.INFRASTRUCTURE,
@@ -401,12 +429,16 @@ class PaperRunnerBase:
                 if _acquired:
                     fcntl.flock(_dl_fd, fcntl.LOCK_UN)
                     logger.info(
-                        "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=RELEASED "
-                        "lock_path=%s cycle_id=%s release_ts=%s",
+                        "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-5 outcome=RELEASED",
                         self.strategy_id,
-                        self._dispatch_lock_path,
-                        cycle_id,
-                        datetime.now(timezone.utc).isoformat(),
+                        extra={
+                            "strategy_id": self.strategy_id,
+                            "condition_id": "BC-8-LIFT-COND-5",
+                            "outcome": "RELEASED",
+                            "lock_path": self._dispatch_lock_path,
+                            "cycle_id": cycle_id,
+                            "release_ts": datetime.now(timezone.utc).isoformat(),
+                        },
                     )
                 os.close(_dl_fd)
 
@@ -464,28 +496,36 @@ class PaperRunnerBase:
             )
         except AggregationGateBlocked as exc:
             logger.warning(
-                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-6 outcome=BLOCKED "
-                "reason=%s jpy_correlated_pct=%.4f active_strategies=%d open_positions=%d "
-                "cycle_id=%s pair=%s equity=%s",
+                "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-6 outcome=BLOCKED",
                 self.strategy_id,
-                str(exc),
-                exposure.jpy_correlated_pct,
-                exposure.active_paper_strategies,
-                exposure.concurrent_open_positions,
-                cycle_id,
-                pair,
-                equity,
+                extra={
+                    "strategy_id": self.strategy_id,
+                    "condition_id": "BC-8-LIFT-COND-6",
+                    "outcome": "BLOCKED",
+                    "reason": str(exc),
+                    "jpy_correlated_pct": exposure.jpy_correlated_pct,
+                    "active_strategies": exposure.active_paper_strategies,
+                    "open_positions": exposure.concurrent_open_positions,
+                    "cycle_id": cycle_id,
+                    "pair": pair,
+                    "equity": equity,
+                },
             )
             return False
 
         logger.info(
-            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-6 outcome=OK "
-            "jpy_correlated_pct=%.4f active_strategies=%d open_positions=%d cycle_id=%s",
+            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-6 outcome=OK",
             self.strategy_id,
-            exposure.jpy_correlated_pct,
-            exposure.active_paper_strategies,
-            exposure.concurrent_open_positions,
-            cycle_id,
+            extra={
+                "strategy_id": self.strategy_id,
+                "condition_id": "BC-8-LIFT-COND-6",
+                "outcome": "OK",
+                "jpy_correlated_pct": exposure.jpy_correlated_pct,
+                "active_strategies": exposure.active_paper_strategies,
+                "open_positions": exposure.concurrent_open_positions,
+                "cycle_id": cycle_id,
+                "pair": pair,
+            },
         )
         return True
 
@@ -541,16 +581,21 @@ class PaperRunnerBase:
             swap_usd = swap_pips_per_day * pip_v * held_engine_units * days_elapsed
 
         logger.info(
-            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-7 outcome=ACCRUED "
-            "pair=%s held_units_nom=%.4f held_engine_units=%.4f swap_usd=%.4f "
-            "days_elapsed=%s",
+            "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-7 outcome=ACCRUED",
             self.strategy_id,
-            pair,
-            held_units_nom,
-            held_engine_units,
-            swap_usd,
-            f"{(now_ts - last_cycle_ts).total_seconds() / 86_400.0:.6f}"
-            if last_cycle_ts is not None else "N/A",
+            extra={
+                "strategy_id": self.strategy_id,
+                "condition_id": "BC-8-LIFT-COND-7",
+                "outcome": "ACCRUED",
+                "pair": pair,
+                "held_units_nom": held_units_nom,
+                "held_engine_units": held_engine_units,
+                "swap_usd": swap_usd,
+                "days_elapsed": (
+                    f"{(now_ts - last_cycle_ts).total_seconds() / 86_400.0:.6f}"
+                    if last_cycle_ts is not None else "N/A"
+                ),
+            },
         )
         return swap_usd, now_ts
 

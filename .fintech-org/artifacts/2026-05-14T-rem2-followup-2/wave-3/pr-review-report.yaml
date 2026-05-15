@@ -1,0 +1,242 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-05-14T03:45:00Z"
+subtask_ref: rem2-followup-2-pr-review-cycle1
+subtask_id: pr-rem2-followup-2-2026-05-14:phase3:task3.1
+artifact-under-review:
+  - id: qd-rem2-followup-2-2026-05-14
+    files:
+      - src/forex_system/paper/script_compat_shims.py
+      - scripts/run_paper_trading_vt.py
+      - scripts/run_paper_trading_carry_fred.py
+      - src/forex_system/paper/base_runner.py
+      - tests/integration/test_paper_runner_bc8_conds.py
+rubrics-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - python
+  - probability-statistics: skipped — no statistical methods in changeset
+
+findings:
+  - id: F-001
+    severity: major
+    location: "scripts/run_paper_trading_vt.py:57, scripts/run_paper_trading_carry_fred.py:72"
+    category: correctness
+    observation: >
+      Both scripts import `assert_account_key_parity as _assert_account_key_parity_impl`
+      at module scope (vt.py:57, carry_fred.py:72) but neither module references this
+      alias anywhere in its body. The function body of `assert_account_key_parity` in
+      each script now does a local import from `script_compat_shims` instead. `ruff check`
+      reports these as F401 fixable errors in both files.
+    inference: >
+      Dead imports are low runtime risk but indicate the shim migration was not lint-clean.
+      If CI enforces ruff (per CLAUDE.md: "ruff check src/"), these would fail CI on any
+      future run against scripts/. Leaving dead imports also confuses readers about whether
+      the module-level import is intended as a patch surface (like `check_dispatch_allowed`
+      with its noqa annotation) or a mistake.
+    evidence: >
+      `ruff check scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py`
+      emits 2 F401 errors (both fixable with --fix). Grep confirms `_assert_account_key_parity_impl`
+      appears only on the import line in each file.
+    recommended-action-class: other
+    owning-role: quant-developer
+
+  - id: F-002
+    severity: minor
+    location: "src/forex_system/paper/base_runner.py:388-411"
+    category: observability-gap
+    observation: >
+      The COND-5 BUSY branch (logger.warning, line 388) and FS_ERROR branch (logger.warning,
+      line 402) were NOT migrated to the extra={} structured schema introduced by F-003.
+      They remain as %-interpolated format strings that embed all fields in the log message
+      text (not as queryable key-value pairs). Nine extra={} blocks were added in the diff;
+      BUSY and FS_ERROR are absent from them.
+    inference: >
+      These two branches represent the most operationally significant outcomes of COND-5:
+      a busy lock means concurrent dispatch is happening (worth querying frequency), and an
+      FS_ERROR triggers the kill switch (high-severity incident path). Both are exactly the
+      decision boundaries where structured, queryable fields matter most. An operator trying
+      to query "how many BUSY events in the last hour" cannot do so from these prose-style
+      warnings without regex-parsing. The F-003 spec (per QD's observability-hooks) claims
+      COND-5 is covered via the ACQUIRED and RELEASED entries, but the BUSY and FS_ERROR
+      branches are the error paths, not the happy path.
+    evidence: >
+      base_runner.py lines 388-396 (BUSY branch): `logger.warning("bc8_cond_check strategy_id=%s
+      condition_id=BC-8-LIFT-COND-5 outcome=BUSY lock_path=%s cycle_id=%s pair=%s decision_ts=%s", ...)`
+      — no extra={}. Lines 401-411 (FS_ERROR branch): same format, no extra={}.
+      The diff shows these are pre-existing (not introduced in this PR) but F-003 scope
+      was stated as "all COND-1..7 logger.info calls"; these are logger.warning so may
+      be intentionally excluded. If intentional, the QD report's F-003 scope description
+      should say "all logger.info bc8_cond_check calls" not "all COND-1..7 logs."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+
+  - id: F-003
+    severity: minor
+    location: "data/cf_t9_state.json (QD report field: duplication_metric.duplication_pct)"
+    category: other
+    observation: >
+      The QD report's `duplication_metric` section uses the field name `duplication_pct`
+      with the value 27.2 (post) and 27.3 (baseline). However, 27.2% represents the
+      DIFFERING-lines percentage (i.e., lines that are NOT duplicated). The actual
+      duplication (identical-lines) percentage is 72.8%. The orchestrator's note correctly
+      states "72.7% → 72.8%" as the similarity (duplication) metric. The field name
+      `duplication_pct: 27.2` is semantically inverted — it names as "duplication" the
+      value that measures uniqueness.
+    inference: >
+      An external reader of the QD artifact would conclude duplication was reduced to 27.2%
+      (a significant achievement) when the actual identical-line proportion is 72.8%
+      (approximately unchanged from the pre-Wave-11 state). The QD's own note attempts to
+      clarify this, but the field-name inversion creates a first-read false impression.
+      This does not affect the implementation itself but creates audit-trail confusion.
+      The metric measurement command and the `target_60_met: true` claim are also
+      inconsistent: if `duplication_pct` means differing-lines, then "<=60%" as a target
+      makes no sense (60% differing would mean only 40% identical — far less duplication
+      than today). The target was presumably <=60% identical-lines = >=40% differing, which
+      the current 27.3% differing easily beats.
+    evidence: >
+      Verified: `bash -c "diff <(grep -v ...) | grep -c '^[<>]'"` returns 464.
+      Total non-blank non-comment lines: 1704. 464/1704 = 27.2% differing = 72.8% identical.
+      QD report: `duplication_pct: 27.2`, `target_60_met: true`.
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+
+  - id: F-004
+    severity: nit
+    location: "tests/integration/test_paper_runner_bc8_conds.py:1073-1102"
+    category: test-coverage-gap
+    observation: >
+      The zero-instance self-test (`test_nht_ast_guard_self_test_zero_instance_caught`)
+      re-implements the guard's lower-bound logic inline rather than invoking the actual
+      guard against a mock filesystem. The test constructs a `violations` list using its
+      own `paper_script_names` set and `count < 1` condition — the same condition as in
+      the guard — and asserts it fires. This would remain passing even if someone changed
+      the guard's lower-bound condition (e.g., changed `< 1` to `< 0`), because the
+      self-test reimplements the same condition.
+    inference: >
+      The test validates the counting logic (count==0 for empty script) but does not
+      end-to-end validate that `test_nht_ast_aggregate_dd_contract_cardinality_guard` would
+      fail if a paper script had zero instances. A more robust proof would call the actual
+      guard function directly (if refactored into a callable), or use the `tmp_path` fixture
+      to actually run the guard over the tmp_path directory. As written, it is a partial
+      self-test that confirms counting but not guard-trigger integration.
+    evidence: >
+      Lines 1092-1102: self-test manually constructs `paper_script_names` set and
+      `violations` list using the same if-condition as the guard. The assertion on line
+      1099 (`assert violations`) is guaranteed to pass whenever `count < 1` and the script
+      name matches, independently of what the real guard does.
+    recommended-action-class: add-test
+    owning-role: null-hypothesis-tester
+
+  - id: F-005
+    severity: observation
+    location: "src/forex_system/paper/script_compat_shims.py:51-69"
+    category: maintainability
+    observation: >
+      `construct_default_runner` uses a deferred import (`from forex_system.paper.base_runner
+      import PaperRunnerBase`) inside the function body. The module docstring explicitly
+      notes "no circular import risk (verified by AST: base_runner defers all forex_system
+      imports to method bodies)." However, the shim module itself is under
+      `forex_system.paper`, and `base_runner.py` does not import from `script_compat_shims`,
+      so this is correct. The observation is that the `aggregate_dd_contract=None` default
+      in `construct_default_runner` passes `None` to `PaperRunnerBase`, which silently
+      disables COND-2 (aggregate drawdown check). This is the correct behavior for the
+      `runner=None` shim path (which is for backward compat), but it is undocumented in
+      the function docstring.
+    inference: >
+      A future caller of `construct_default_runner` who omits `aggregate_dd_contract` will
+      silently get a runner with COND-2 disabled. This is not a bug in the current call
+      sites (which pass `aggregate_dd_contract` explicitly), but the docstring says only
+      "Constructs a PaperRunnerBase with per-script identity" with no mention of the COND-2
+      disable consequence of omitting `aggregate_dd_contract`.
+    evidence: >
+      script_compat_shims.py:57: `aggregate_dd_contract=None` default.
+      base_runner.py:257-263: `if self._aggregate_dd_contract is None: return None` (skip).
+    recommended-action-class: other
+    owning-role: quant-developer
+
+coverage-statement: "I reviewed 5 of 5 artifacts in scope; the remaining 0 were skipped."
+
+contamination-check: clean
+
+time-spent-reasoning: 28 minutes
+
+claimed_domains:
+  - independent-code-review
+  - independent-design-review
+  - hidden-bug-and-edge-case-surfacing
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review
+  - logging-decision-trace-adequacy-review
+
+evidence:
+  - "scripts/run_paper_trading_vt.py:57"
+  - "scripts/run_paper_trading_carry_fred.py:72"
+  - "src/forex_system/paper/base_runner.py:388-411"
+  - "src/forex_system/paper/script_compat_shims.py:51-69"
+  - "tests/integration/test_paper_runner_bc8_conds.py:1073-1102"
+  - "ruff check output: 2 F401 fixable errors"
+  - "duplication metric: bash -c 'diff <(...) | grep -c '^[<>]'' = 464 of 1704 lines = 27.2% differing"
+
+assumptions:
+  - "F-003 spec scope is 'all logger.info bc8_cond_check calls' (not logger.warning); if scope
+    includes warning, F-002 severity upgrades to major"
+  - "fcntl module-identity test confirmed: patching scripts.run_paper_trading_vt.fcntl.flock
+    patches the same object used by base_runner.fcntl.flock (same Python module cache entry)"
+  - "COND-4 logger.debug calls are excluded from F-003 scope by intent (debug level)"
+  - "The wave11 OSError dispatch lock tests pass (9/9 verified)"
+
+confidence: high
+
+body: |
+  Implementation is substantially correct. Shim consolidation is architecturally complete
+  (69-LoC single-source module, verified no circular import), structured logging migration
+  covers all 7 COND-1..7 logger.info decision boundaries, and the 3 new AST self-tests
+  expand guard coverage for attribute-style, alias-import, and lower-bound cases.
+
+  The primary condition for approval is F-001: both scripts have ruff F401 unused-import
+  errors (`_assert_account_key_parity_impl` aliased at module scope but not used in body;
+  body uses a local import from shims instead). This is a two-line fix and must be
+  resolved before commit since ruff is in the CI chain per CLAUDE.md.
+
+  F-002 is a scope-clarification question: the COND-5 BUSY and FS_ERROR branches (both
+  logger.warning) were not migrated to extra={} structured format. If F-003 scope is
+  intentionally limited to logger.info, this is correctly excluded and the QD report
+  should say so explicitly. If warning-level logs are in scope, these two branches
+  are the highest-priority decision boundaries in COND-5 (contention and kill-switch
+  trigger) and the omission is a real observability gap.
+
+  F-003 is a metric field-name inversion in the QD artifact: duplication_pct=27.2
+  represents differing lines (72.8% of lines are identical/duplicated). The field name
+  says "duplication" but holds the complement. No implementation impact; audit-trail only.
+
+  F-004 (nit): zero-instance self-test re-implements the guard condition rather than
+  invoking it end-to-end. Passes the counting invariant but not the guard-trigger integration.
+
+  fcntl patch correctness verified: Python module cache means patching
+  scripts.run_paper_trading_vt.fcntl.flock patches the same object as
+  forex_system.paper.base_runner.fcntl.flock. 9/9 wave11 tests pass.
+
+  Execution-firewall: no silent winsorize/fillna/clip detected in new code. Shim
+  functions are pure delegation with no threshold changes. Spec drift: none detected.
+
+knowledge_gaps: []
+policy_violations_detected: []
+
+sources:
+  - src/forex_system/paper/script_compat_shims.py
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+  - src/forex_system/paper/base_runner.py
+  - tests/integration/test_paper_runner_bc8_conds.py
+  - tests/scripts/test_wave11_f101_oserror_dispatch_lock.py
+  - .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-3/_pr-context-stripped/qd-implementation-report.yaml
+  - .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-3/_pr-context-stripped/cro-risk-assessment.yaml
+  - .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-3/_pr-context-stripped/nht-null-test-report.yaml
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

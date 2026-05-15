@@ -1,0 +1,462 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: dissent
+timestamp: '2026-05-14T02:30:00Z'
+subtask_ref: rem2-followup-2-nht-skeptical
+subtask_id: nht-rem2-followup-2-2026-05-14:phase2:task2.4
+
+claim-tested:
+  - "duplication metric drops from 72.7% to <=60% after shim consolidation"
+  - "structured logging migration preserves bc8_cond_check grep-ability"
+  - "F-002 AST guard catches all claimed failure modes (zero-instantiation lower-bound, aliased import, attribute-style)"
+
+# ---------------------------------------------------------------------------
+# Tests requested (route to QD; NHT does not run python)
+# ---------------------------------------------------------------------------
+tests-requested:
+  - to: quant-developer
+    test: |
+      DUPLICATION-METRIC-REPRODUCIBILITY (CLAIM 1).
+      Commit a single-source-of-truth measurement script:
+        tools/measure_paper_script_duplication.sh
+      that takes (script_a, script_b) and emits ONE number using
+      a documented methodology. The same script must be invoked at
+      THREE git states and report:
+        (i)   pre-followup-2 baseline (HEAD = 5522d7b): expected ~72.7%
+              per CONSENSUS_2026-05-14_rem2_full_extraction.md section 3.
+              If the script does NOT reproduce 72.7% within +/- 3pp,
+              the baseline number is itself unreproducible and the
+              entire claim is null.
+        (ii)  post-shim-consolidation HEAD: must be <=60% per PM AC.
+        (iii) MATCHED-RANDOM CONTROL: take HEAD = 5522d7b and randomly
+              delete (uniformly, seeded with seed=42) the SAME total
+              non-blank-non-comment LoC count that the real shim
+              consolidation removed from each script (from 864/836
+              baseline). Re-measure duplication on this scrambled
+              control. If post-consolidation value does NOT beat the
+              matched-random control by > 5 percentage points, the
+              "consolidation reduced duplication" claim is
+              indistinguishable from random LoC deletion (artifact),
+              and the disposition stays UNDER-TESTED.
+      Methodology MUST be one of:
+        (a) cloc --diff identical-line count: duplication = identical /
+            max(loc_a, loc_b)
+        (b) AST-normalized longest-common-subsequence after stripping
+            docstrings, comments, identifier renames
+      CTO picks one and the choice is documented in the script header.
+      QD must report all three numbers verbatim in the implementation
+      report and check the script into the repo.
+    null_hypothesis: >
+      H0_1: post-consolidation duplication is indistinguishable from
+      what would be obtained by deleting the same total LoC at random.
+      Reject H0_1 only when (a) baseline reproduces within +/- 3pp,
+      AND (b) post-consolidation value beats matched-random by > 5pp.
+    significance_threshold: 5 percentage point margin over matched-random control
+
+  - to: quant-developer
+    test: |
+      STRUCTURED-LOGGING-GREP-PRESERVATION (CLAIM 2).
+      Add a test in tests/integration/test_paper_runner_bc8_conds.py:
+        def test_nht_bc8_cond_check_prefix_preserved_post_f003_migration():
+            For each of COND-1..7 (7 strings), trigger the corresponding
+            log call via PaperRunnerBase fixture, capture caplog, and
+            assert that the rendered message begins with literal
+            "bc8_cond_check" (NOT in extra= dict only — must be in the
+            rendered .message string).  Also assert that strategy_id and
+            condition_id appear as substrings in the rendered message
+            (not just in record.__dict__).
+      ANTI-CANARY (must also exist):
+        def test_nht_bc8_cond_check_prefix_canary_fails_when_stripped():
+            Use a transient monkey-patch fixture that deletes the
+            "bc8_cond_check" literal from ONE log call, then run the
+            preservation test above as a subprocess; assert it FAILS.
+            Restore. Re-run; assert it PASSES.
+      This proves the prefix-preservation test is not tautological.
+      Without the anti-canary, a hostile refactor that removes the
+      prefix from message strings AND keeps it in extra= dict only
+      would not be caught by a one-sided assertion.
+      PERMUTATION TEST:
+        def test_nht_bc8_cond_check_grep_robust_to_extra_field_order():
+            Render the COND-3 log under THREE different orderings of
+            extra= dict keys (strategy_id first, condition_id first,
+            outcome first). Assert grep on rendered message returns
+            identical match in all three.
+      The existing test_cond3_observability_logs_strategy_id_and_condition_id
+      at line 254-276 is the canary; verify it still passes post-F-003
+      migration without modification.
+    null_hypothesis: >
+      H0_2: removing "bc8_cond_check" from the rendered message and
+      keeping it only as a structured field has no observable test
+      failure. Reject H0_2 when the anti-canary monkey-patch causes
+      the preservation test to deterministically fail.
+    significance_threshold: not-applicable (deterministic)
+
+  - to: quant-developer
+    test: |
+      F-002 AST GUARD FAILURE-MODE COVERAGE (CLAIM 3).
+      Add a self-test fixture in
+      tests/integration/test_paper_runner_bc8_conds.py adjacent to
+      test_nht_ast_aggregate_dd_contract_cardinality_guard:
+
+        def test_nht_ast_guard_self_test_lower_bound_zero_instances():
+            Write transient scripts/_test_zero_instance_paper_script.py
+            with valid Python that defines main() and calls
+            PaperRunnerBase(...) but DOES NOT instantiate
+            AggregateDrawdownContract anywhere.  Re-invoke the AST guard
+            against the temp file path. Assert it FAILS with a message
+            that names "zero AggregateDrawdownContract" or
+            "missing cardinality-1 lower bound". Unlink the file in
+            teardown; verify with os.path.exists that no fixture file
+            remains on disk.
+
+        def test_nht_ast_guard_self_test_aliased_import():
+            Write transient script with:
+              from forex_system.risk.drawdown_contract import \
+                  AggregateDrawdownContract as ADC
+              def main(): adc = ADC(...)  # one instance via alias
+              # then a SECOND ADC() somewhere else
+            Assert guard fails with message naming the alias "ADC".
+
+        def test_nht_ast_guard_self_test_attribute_style():
+            Write transient script with:
+              import forex_system.risk.drawdown_contract as drisk
+              def main():
+                  contract = drisk.AggregateDrawdownContract(...)
+                  another = drisk.AggregateDrawdownContract(...)
+            Assert guard fails (>1 in main, attribute-style).
+            CRO verdict-detail line 118 explicitly requires this
+            positive-coverage fixture.
+
+        def test_nht_ast_guard_self_test_subclass_init_satisfies_lower_bound():
+            Write transient module exposing
+              class CustomRunner(PaperRunnerBase):
+                  def __init__(self):
+                      self._adc = AggregateDrawdownContract(...)
+            with NO call in main(). Assert guard PASSES (subclass
+            __init__ counts as the lower-bound satisfaction site,
+            matching PM AC #4 semantics).
+
+      ACCEPTED FALSE-NEGATIVE DOCUMENTATION:
+        QD must add a docstring comment to the AST guard explicitly
+        listing what is NOT caught (and why):
+          - getattr-based dynamic instantiation:
+            getattr(module, "AggregateDrawdownContract")()
+          - eval/exec strings: eval("AggregateDrawdownContract()")
+          - importlib.import_module-based dynamic resolution
+        These are out-of-scope (would require runtime introspection,
+        not static AST). Documenting them prevents future contributors
+        from believing the guard is exhaustive.
+    null_hypothesis: >
+      H0_3a: zero-instance script silently passes the guard.
+      H0_3b: alias-imported `as ADC` instantiation is invisible to the guard.
+      H0_3c: attribute-style instantiation is invisible to the guard.
+      Reject all three only when each self-test fixture causes the
+      guard to fail deterministically AND the subclass-__init__
+      legitimacy fixture passes.
+    significance_threshold: not-applicable (deterministic)
+
+# ---------------------------------------------------------------------------
+# Test results — NONE RUN. Wave-2 QD implementation has not landed.
+# ---------------------------------------------------------------------------
+tests-results:
+  - test_name: duplication-metric-reproducibility
+    result: not-run
+    interpretation: >
+      Cannot run. Wave-2 directory contains pm-acceptance-criteria
+      (wave-1) and cro-risk-assessment (wave-2) only. No QD
+      implementation report exists. tools/measure_paper_script_duplication.sh
+      does not exist (verified via find). Both paper script LoC counts
+      reproduce PM baseline exactly (vt=864, carry_fred=836; verified
+      via grep -cv non-blank/non-comment). Post-consolidation state
+      and matched-random control number do not exist. The 72.7%
+      baseline itself comes from prior CONSENSUS_2026-05-14
+      section 3 but the methodology that produced 72.7% (vs the
+      previously-cited 71%) is not committed as a reproducible script
+      in the repo today. KG-NHT-REM2-1 (CTO methodology choice)
+      remains open.
+
+  - test_name: structured-logging-grep-preservation
+    result: not-run
+    interpretation: >
+      Cannot run. F-003 migration has not been implemented. base_runner.py
+      currently uses %-style positional formatting at all 17 logger calls
+      (verified by grep). The bc8_cond_check prefix appears 14 times in
+      base_runner.py log call message strings (lines 161, 169, 177, 187,
+      209, 245, 270, 301, 309, 353, 366, 379, 404, 467, 482, 544 — grep
+      confirmed). The canary test_cond3_observability_logs_strategy_id_and_condition_id
+      at line 254-276 currently passes against %-style. Post-migration
+      behavior unknown; anti-canary and permutation tests do not exist.
+
+  - test_name: f002-ast-guard-failure-mode-coverage
+    result: not-run
+    interpretation: >
+      Cannot run. The existing AST guard at lines 841-959 catches:
+      (i) >1 in same main(), (ii) any call outside main() and outside
+      PaperRunnerBase.__init__. It DOES NOT catch:
+      (a) ZERO instantiations: main_call_count is incremented to detect
+          >1, but a count of 0 produces no violation entry — silently
+          passes today.
+      (b) ALIASED IMPORT (`from ... import AggregateDrawdownContract as ADC`
+          then `ADC()`): the _is_aggregate_dd_call function only matches
+          func.id == "AggregateDrawdownContract" or
+          func.attr == "AggregateDrawdownContract" — an aliased name "ADC"
+          does NOT resolve to either. Confirmed by reading lines 869-878.
+      (c) Attribute-style `forex_system.risk.drawdown_contract.AggregateDrawdownContract()`
+          IS caught today by the func.attr check at line 876 (CRO confirmed
+          this; my reading agrees). However, no self-test fixture proves
+          this still works after refactor — CRO verdict-detail line 118
+          explicitly requested a positive-coverage attribute-style fixture
+          for wave-3. Self-test fixtures for none of the three failure
+          modes exist today.
+
+matched-benchmark-sharpe: not-applicable
+permutation-results: not-applicable (no implementation to permute)
+dsr-assessment: not-applicable (no Sharpe to deflate; engineering refactor)
+
+# ---------------------------------------------------------------------------
+# Severity
+# ---------------------------------------------------------------------------
+severity: concern
+does_block: false
+
+dissent-statement: |
+  NHT dissent (REM-2 follow-up-2 wave-2): all three structurally-testable
+  claims are UNDER-TESTED at this dispatch point. The wave-2 QD
+  implementation has not yet been written; the dispatch asks the skeptic
+  to evaluate post-implementation invariants while only the PM acceptance
+  criteria (wave-1) and the CRO risk approval (wave-2) exist on disk.
+  No script_compat_shims.py, no F-002 lower-bound fix, no F-003 structured
+  logging migration, no measurement methodology script.
+
+  Specific gaps that MUST be closed in QD wave-3 implementation before
+  any subsequent ratification can credibly call the claims "met":
+
+  (1) DUPLICATION REDUCTION (Claim 1) is currently unfalsifiable.
+      The 72.7% baseline lacks a committed measurement script. CTO has
+      not yet picked between cloc --diff identical-line and AST-normalized
+      LCS (KG-NHT-REM2-1 from prior wave still open). A naive `wc -l`
+      reduction from script consolidation is a measurement artifact —
+      moving identical 50-line blocks into script_compat_shims.py reduces
+      script LoC by 50 each but the SEMANTIC duplication is unchanged
+      (the same code now lives in one place instead of two). The
+      methodology must distinguish "factored into shared module"
+      from "duplication eliminated." MATCHED-RANDOM CONTROL is required:
+      take HEAD = 5522d7b, randomly delete the same total LoC count
+      that real consolidation removes, and re-measure. If post-consolidation
+      does not beat random-deletion by > 5pp, the metric is gameable.
+      I have requested QD commit tools/measure_paper_script_duplication.sh
+      with all three measurements (baseline, post, matched-random).
+
+  (2) F-003 STRUCTURED LOGGING migration risks silent grep-test breakage
+      (Claim 2). The current canary
+      (test_cond3_observability_logs_strategy_id_and_condition_id, line 254-276)
+      asserts substring match on caplog records. Migrating to extra= dict
+      while keeping the prefix in the rendered message (the CRO-approved
+      "dual-write" pattern at verdict-detail line 121) preserves the canary.
+      But ONE-SIDED canaries are tautological: they prove the prefix is
+      THERE today but not that they would CATCH a future hostile refactor
+      that strips the prefix from the message string and keeps it only
+      in extra=. I have requested QD add an anti-canary fixture that
+      monkey-patches the prefix out and verifies the grep test fails on
+      the broken state. Without the anti-canary, the F-003 migration
+      could pass review while latently breaking incident-response grep
+      patterns the operator depends on.
+
+  (3) F-002 AST GUARD lower-bound and alias-import gaps are real
+      (Claim 3) and I confirm them by reading the existing guard at
+      tests/integration/test_paper_runner_bc8_conds.py:841-959. The
+      _is_aggregate_dd_call helper at lines 869-878 matches only the
+      literal "AggregateDrawdownContract" name — an aliased import
+      `from ... import AggregateDrawdownContract as ADC; ADC()` resolves
+      to ast.Name(id="ADC") and bypasses both checks. The main_call_count
+      logic at line 936-945 increments to detect >1 but produces no
+      violation when count == 0. PM AC criteria #4 and #5 close both
+      gaps in principle; CRO verdict-detail approves. But the self-test
+      fixtures that prove the post-fix guard catches each failure mode
+      are not yet written. A test that asserts "the guard fires correctly"
+      without a transient bad-fixture demonstrating the guard fires
+      against a known-bad state is tautological — it asserts the
+      implementation does what the implementation does. I have requested
+      QD add four self-test fixtures (zero-instance, aliased-import,
+      attribute-style positive-coverage per CRO line 118, and
+      subclass-__init__ legitimacy) plus an explicit accepted-false-negative
+      documentation list (getattr/eval/importlib are out-of-scope and
+      should be named).
+
+  Severity rationale: this is `concern` (does_block: false), not
+  `material_concern`, because:
+  - The dispatch is procedurally consistent (PM scopes wave-1, CRO
+    approves wave-2 spec, QD implements wave-3, NHT reviews wave-3 in
+    a follow-up cycle). The gaps above can be closed within the wave
+    by adding the tests requested.
+  - No deceptive measurement methodology has been proposed yet — there
+    is simply no measurement at all. material_concern is reserved for
+    cases where a snapshot test is being PASSED OFF as an invariant
+    test; here QD has not yet attempted to do so.
+  - F-001 PII redaction logic at base_runner.py:154-167 is independent
+    of log format (string-built variable before log call) so the F-003
+    migration is unlikely to silently revert it. CRO confirmed this at
+    verdict-detail line 122; QD attestation in wave-3 is sufficient.
+  - The current state at HEAD (5522d7b) is fully tested under the
+    existing 848-test suite; no production claim depends on the new
+    invariants holding before they ship.
+
+  ESCALATION TRIGGERS: severity escalates to `material_concern` (does_block: true)
+  in the NHT post-wave-3 review if ANY of the following:
+  - QD ships post-consolidation duplication number without matched-random
+    control or without the reproducible measurement script.
+  - QD ships F-003 migration with one-sided prefix canary and no
+    anti-canary fixture.
+  - QD ships F-002 lower-bound + alias guard with self-test fixtures
+    that assert the guard catches what it catches without using
+    transient bad-input fixtures (i.e., tautological self-tests).
+
+  This dissent is structural and append-only. It survives any subsequent
+  ratification absent the tests above being added, run, and the per-claim
+  disposition flipping to `survives`.
+
+contamination-check: clean
+
+# ---------------------------------------------------------------------------
+# Per-claim disposition
+# ---------------------------------------------------------------------------
+per_claim_disposition:
+  duplication_reduction: under-tested
+  structured_logging_grep_preservation: under-tested
+  ast_guard_failure_mode_coverage: under-tested
+
+claimed_domains:
+  - null-hypothesis-construction
+  - permutation-and-shuffle-test-design
+  - structural-skepticism-on-any-claim
+  - matched-random-benchmark-construction
+
+# ---------------------------------------------------------------------------
+# Evidence (file + line refs verified by Read/Grep this session)
+# ---------------------------------------------------------------------------
+evidence:
+  - "scripts/run_paper_trading_vt.py: 864 non-blank/non-comment lines (grep -cv pattern, reproduces PM baseline)"
+  - "scripts/run_paper_trading_carry_fred.py: 836 non-blank/non-comment lines (grep -cv pattern, reproduces PM baseline)"
+  - "scripts/run_paper_trading_vt.py:945-952 (AggregateDrawdownContract direct instantiation in main(); REM-2 fully extracted at HEAD = 5522d7b)"
+  - "scripts/run_paper_trading_carry_fred.py:898-901 (AggregateDrawdownContract direct instantiation in main(); REM-2 fully extracted at HEAD = 5522d7b)"
+  - "src/forex_system/paper/base_runner.py:140-192 (PaperRunnerBase.__init__; COND-2 wires aggregate_dd_contract at line 144; F-001 PII redaction at line 157-159; COND-3 fail-closed gate at line 167)"
+  - "src/forex_system/paper/base_runner.py:160-544 (17 logger calls all in %-style; bc8_cond_check prefix appears 14x in message strings; F-003 migration has not landed)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:841-959 (NHT AST cardinality guard; lines 869-878 _is_aggregate_dd_call only matches literal name OR attribute; lines 936-945 main_call_count detects >1 but NOT zero — confirmed lower-bound gap)"
+  - "tests/integration/test_paper_runner_bc8_conds.py:254-276 (test_cond3_observability_logs_strategy_id_and_condition_id; current canary; one-sided substring assertion)"
+  - ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml (PM acceptance criteria; line 32 duplication target <=60%; lines 35-37 F-002 lower-bound + alias + self-test; lines 38-42 F-003 structured logging + grep preservation + F-001 redaction preservation)"
+  - ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml (CRO approve; verdict-detail line 117-122 cardinality lower-bound symmetric weight, alias detection scope, dual-write logging pattern, F-001 redaction independence; line 118 explicitly requires attribute-style positive-coverage fixture)"
+  - ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/ contains only cro-risk-assessment.yaml — no QD implementation report exists yet"
+  - "tools/ contains check_equivalence_gate.py, check_kill_switch_threshold.py, check_no_saxo_imports.py, check_pre_registration.py, git-hooks/ — no measure_paper_script_duplication.sh"
+  - "git log HEAD = 5522d7b (rem2-followup-2026-05-13: REM-2 full extraction COND-2..7 + F-007 + F-001 PII fix); REM-2-followup-2 wave has NOT yet committed"
+  - "src/forex_system/paper/script_compat_shims.py does NOT exist (verified ls)"
+  - ".fintech-org/trials.jsonl line count: 35 trials org-wide"
+
+assumptions:
+  - "I am being asked to skeptically test claims about post-implementation state, even though the QD implementation has not yet been written. Interpreting this as a pre-implementation skeptical pass that specifies the tests required before claims can be ratified in a wave-3 post-implementation review."
+  - "The CRO wave-2 approval at .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml is the proposer's spec, not contamination — the orchestrator is using parallel-wave dispatch where CRO and NHT review the same PM spec independently."
+  - "The four requested tests are deterministic AST/grep operations, reproducible measurement scripts, and one matched-random control — not statistical tests; significance thresholds are mechanical (count == 0, margin > 5pp, deterministic pass/fail)."
+  - "The 72.7% baseline is taken as the proposer's stated baseline (CONSENSUS_2026-05-14_rem2_full_extraction.md section 3). Reproducibility of that 72.7% number is itself one of the requested tests."
+  - "Post-implementation NHT review (wave-4 or follow-up cycle) will flip per-claim disposition to `survives` if and only if all three test families are added and produce the required outcomes."
+
+confidence: high
+
+# ---------------------------------------------------------------------------
+# Body — null hypothesis per claim, restated
+# ---------------------------------------------------------------------------
+body: |
+  CLAIM 1 — Duplication metric drops from 72.7% to <=60% after shim
+  consolidation.
+  Null hypothesis (H0_1): post-consolidation duplication is statistically
+  indistinguishable from what would be obtained by deleting the same total
+  LoC at random from each script. Reject H0_1 only when (a) the methodology
+  is committed as tools/measure_paper_script_duplication.sh, (b) the
+  methodology applied to commit 5522d7b reproduces 72.7% within +/- 3pp,
+  (c) the post-consolidation value is <= 60%, AND (d) the post-consolidation
+  value beats the matched-random control by > 5 percentage points.
+  Current state: H0_1 cannot be tested. No measurement script exists
+  (verified: no measure_paper_script_duplication.sh in tools/). No
+  post-consolidation state exists (verified: no script_compat_shims.py,
+  no QD implementation report). Disposition: UNDER-TESTED.
+
+  Methodology risk: a naive wc -l comparison after shim extraction will
+  trivially show LoC reduction in scripts AND no offsetting duplication
+  in script_compat_shims.py (because shared code lives in one place).
+  This conflates "code factored into shared module" with "semantic
+  duplication eliminated." The matched-random control is the discriminator:
+  if random LoC deletion from the baseline produces a similar duplication
+  drop, the consolidation provided no genuine deduplication value, only
+  cosmetic LoC reshuffling.
+
+  CLAIM 2 — Structured logging migration preserves bc8_cond_check
+  grep-ability.
+  Null hypothesis (H0_2): removing "bc8_cond_check" from the rendered
+  message string and keeping it only as a structured field in extra=
+  dict has no observable test failure. Reject H0_2 only when an
+  anti-canary monkey-patch fixture (which deletes the prefix from
+  ONE log call) causes the prefix-preservation test to deterministically
+  fail. Current state: H0_2 partially testable today — the existing
+  one-sided canary at line 254-276 passes against current %-style
+  state, but post-F-003 migration state and the anti-canary fixture
+  do not exist. Disposition: UNDER-TESTED.
+
+  Permutation discipline: per the skill probability-statistics
+  permutation-test guidance, the order of extra= dict keys must not
+  affect grep behavior. A test that shuffles key order and asserts
+  identical grep output discriminates between (i) a correct
+  string-template-with-extra-dict implementation and (ii) a
+  json-only implementation that happened to render keys in a fixed
+  order during the test run.
+
+  CLAIM 3 — F-002 AST guard catches all claimed failure modes.
+  Null hypothesis (H0_3): the tightened guard self-test passes
+  tautologically (the test asserts what the implementation does,
+  not what is correct). Reject H0_3 only when each transient
+  bad-input fixture (zero-instance, aliased-import, attribute-style)
+  causes the guard to fail deterministically AND the legitimate
+  subclass-__init__ pattern passes. Current state: H0_3 cannot be
+  tested. The existing guard at lines 841-959 has confirmed lower-bound
+  and alias-detection gaps (read-verified: line 874 matches only
+  func.id == "AggregateDrawdownContract", line 876 matches only
+  func.attr == "AggregateDrawdownContract", line 936-945 main_call_count
+  produces no violation entry when count == 0). Self-test fixtures
+  for the new guard semantics do not exist. Disposition: UNDER-TESTED.
+
+  Adversarial false-negative documentation requirement: the guard
+  cannot detect getattr-based dynamic instantiation
+  (getattr(module, "AggregateDrawdownContract")()), eval-based
+  string instantiation, or importlib.import_module-based dynamic
+  resolution. These are accepted out-of-scope; QD must document
+  them in the guard docstring so future contributors do not assume
+  exhaustiveness.
+
+  Disposition summary:
+  - All three claims: under-tested.
+  - Overall artifact decision: dissent.
+  - Severity: concern (does_block: false). The tests requested are
+    well-scoped and can be added by QD within wave-3 implementation.
+    If wave-3 ships without the matched-random control (Claim 1),
+    anti-canary fixture (Claim 2), or self-test fixtures with
+    documented false-negatives (Claim 3), severity escalates to
+    material_concern in the next NHT pass.
+
+knowledge_gaps:
+  - "KG-NHT-REM2-1: which duplication-measurement methodology will CTO pick? cloc --diff identical-line count, or AST-normalized LCS. Answer required before claim 1 is testable."
+  - "KG-NHT-REM2-3: where will the F-003 anti-canary monkey-patch fixture live? Suggest tests/integration/test_paper_runner_bc8_conds.py adjacent to the existing canary at line 254-276 to keep the pair visible."
+  - "KG-NHT-REM2-4: how will accepted false-negatives (getattr/eval/importlib dynamic instantiation) be enforced as accepted scope vs accidentally drifted scope over time? Suggest a SCHEDULED_FALSE_NEGATIVES dict in the guard module that future contributors must explicitly add to with rationale."
+
+policy_violations_detected: []
+
+sources:
+  - /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+  - /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+  - /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml
+  - /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-2/nht-null-test-report.yaml
+  - /Users/huangtm/.claude/skills/probability-statistics/SKILL.md
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

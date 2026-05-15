@@ -54,11 +54,10 @@ from forex_system.risk.drawdown_contract import (
     DrawdownLevel,
 )
 from forex_system.risk.account_key_parity import (
-    assert_account_key_parity as _assert_account_key_parity_impl,
     reset_account_key_lock,
 )
-from forex_system.risk.exposure_aggregator import (
-    check_dispatch_allowed,  # noqa: F401 — module-level for test surface
+from forex_system.paper.script_compat_shims import (
+    check_dispatch_allowed,  # noqa: F401 — patch surface; re-exported from exposure_aggregator
 )
 from forex_system.risk.heartbeat_watchdog import HeartbeatWatchdog
 from forex_system.risk.kill_switch import KillSwitch, TriggerReason
@@ -94,17 +93,18 @@ def assert_account_key_parity(
     loop_name: str = "vt loop",
     lock_path: str | None = None,
 ) -> None:
-    """Module-level backward-compat shim — delegates to account_key_parity module.
+    """Module-level backward-compat shim — delegates to script_compat_shims.
 
     Provides default loop_name so tests can call without it, matching the
     original script-level function signature (pre-REM-2).
     """
-    from forex_system.risk.account_key_parity import (
-        ACCOUNT_KEY_LOCK_PATH,
-        assert_account_key_parity as _impl,
+    from forex_system.paper.script_compat_shims import assert_account_key_parity_impl
+    from forex_system.risk.account_key_parity import ACCOUNT_KEY_LOCK_PATH
+    assert_account_key_parity_impl(
+        account_key,
+        lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH,
+        loop_name=loop_name,
     )
-    _impl(account_key, loop_name=loop_name,
-          lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH)
 
 
 # BC-8 option-B: cross-process advisory file-lock (shared with carry_fred loop).
@@ -416,9 +416,10 @@ def run_cycle(
     # check can use the module-level check_dispatch_allowed (patchable by tests).
     _runner_is_shim = runner is None
     if _runner_is_shim:
-        runner = PaperRunnerBase(
-            strategy_id="vol_target_carry",
+        from forex_system.paper.script_compat_shims import construct_default_runner
+        runner = construct_default_runner(
             kill_switch=kill_switch,
+            strategy_id="vol_target_carry",
             dispatch_lock_path=DISPATCH_LOCK_PATH,
         )
     # --- CRO binding constraint #2: watchdog halt check ---

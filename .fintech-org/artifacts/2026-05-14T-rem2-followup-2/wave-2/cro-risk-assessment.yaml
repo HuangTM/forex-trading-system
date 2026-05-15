@@ -1,0 +1,136 @@
+role: cro
+artifact_type: quality-gate-review
+decision: approve
+timestamp: '2026-05-14T00:00:00Z'
+subtask_ref: rem2-followup-2-cro-risk-review
+subtask_id: cro-rem2-followup-2-2026-05-14:phase2:task2.2
+size_multiplier: 1.0
+binding_constraints:
+  - DD-1 halt_new threshold 0.10 (broker TotalValue) — preserved (CRO_DD_HALT_NEW_THRESHOLD)
+  - DD-2 reduce_sizing 0.15 → 0.5x — preserved (CRO_DD_REDUCE_SIZING_THRESHOLD)
+  - DD-3 full_halt 0.20 — preserved (CRO_DD_FULL_HALT_THRESHOLD)
+  - JPY-correlated cap ≤0.15/N=4 (COND-6) — preserved via PaperRunnerBase._check_jpy_cap delegation
+  - SEC 15c3-5 account_key parity gate at __init__ (COND-3) — preserved fail-closed (sys.exit(1))
+  - Cardinality-1 invariant on AggregateDrawdownContract per loop run (LTCM dual-layer defense, CRO R-7.1)
+  - F-001 PII redaction (account_key last-4 only) — preserved through F-003 migration
+  - fcntl dispatch lock cycle-scope (BC-8 option-B; not init-scope) — preserved
+regime_flags: []
+claimed_domains:
+  - kill-switch-design-and-testing
+  - drawdown-contracts
+  - tail-risk-measurement
+  - correlation-and-concentration-limits
+evidence:
+  - 'tests/integration/test_paper_runner_bc8_conds.py:841-959 — current AST guard CATCHES upper-bound (>1 in main, or any outside __init__/main) but DOES NOT enforce lower-bound (>=1 in main OR subclass __init__). Confirms PM finding: zero-instance script silently passes today.'
+  - 'tests/integration/test_paper_runner_bc8_conds.py:874-878 — alias detection CURRENTLY incomplete: matches func.id == "AggregateDrawdownContract" (Name) and func.attr == "AggregateDrawdownContract" (Attribute). MISSES the alias-binding case where ImportFrom rebinds the name (e.g. `from ... import AggregateDrawdownContract as ADC` then `ADC()` resolves to ast.Name with id="ADC"). PM acceptance criterion #5 (alias-import detection via ast.ImportFrom walk) closes this gap.'
+  - 'tests/integration/test_paper_runner_bc8_conds.py:880-901 — _is_inside_paperrunnerbase_init walks both class.name=="PaperRunnerBase" AND any subclass with PaperRunnerBase as base. Subclass-OR-main lower-bound matches this existing scope.'
+  - 'src/forex_system/paper/base_runner.py:154-167 — F-001 PII redaction at line 157-159 (`account_key_redacted = "***" + account_key[-4:]`) embedded in COND-3 startup log; redaction logic is independent of %-style vs structured logging format.'
+  - 'src/forex_system/paper/base_runner.py:147-171 — COND-3 gate enforced at __init__ time (SEC 15c3-5 startup gate); calls assert_account_key_parity which sys.exit(1) on violation (fail-closed).'
+  - 'src/forex_system/paper/base_runner.py:317-411 — _acquire_dispatch_lock is a contextmanager called per-cycle from run_cycle (vt.py:556, carry_fred.py:539); lock acquisition is cycle-scope, not init-scope.'
+  - 'scripts/run_paper_trading_vt.py:51-55, scripts/run_paper_trading_carry_fred.py:79-83 — both scripts use canonical `from forex_system.risk.drawdown_contract import AggregateDrawdownContract` today (no alias in repo); shim consolidation does not introduce one.'
+  - 'src/forex_system/paper/base_runner.py:75-84 — _ACTIVE_GUARDS list enumerates all 7 BC-8-LIFT-COND guards; bc8_cond_check prefix appears 14× in base_runner.py logs; structured-logging migration must preserve this prefix in formatted message string per PM criterion.'
+  - 'PM artifact line 23-24, 45-48 — lower-bound semantics: subclass-__init__ OR main() with >=1 instantiation; zero must FAIL guard. Both 0-instance and >=2-instance failure modes are risk-material.'
+assumptions:
+  - PM confirmed the redacted artifact is the authoritative spec for CRO review (no proposer reasoning prose retained).
+  - Repo currently has no AggregateDrawdownContract alias-import in production code paths (verified by grep); lower-bound + alias detection are forward-looking guards against the "copy-paste a 3rd paper script" anti-pattern.
+  - Shim consolidation is pure refactor — assert_account_key_parity, check_dispatch_allowed, fcntl import surface, run_cycle lazy-construct — moving these to script_compat_shims.py preserves call semantics; QD must verify in wave-3 implementation.
+  - "Pct-style → structured logging (extra= dict) migration preserves bc8_cond_check token in the rendered log message string (formatter must include the string template; not stripped to JSON-only). PM criterion explicitly requires this."
+confidence: high
+body: |
+  REM2-followup-2 is a refactor + test-tightening + observability-migration dispatch.
+  No live capital, no kill-switch design CHANGE, no charter touch, no vendor onboarding.
+  All four CRO concern lanes (AST guard lower-bound, alias detection, shim consolidation
+  risk surface, structured-logging migration) are scoped correctly by PM and address
+  real gaps verified in source.
+
+  Approve quality-gate review with the following verdict-detail comments
+  (constraints, not vetoes — items QD must satisfy in wave-3):
+
+  1. AST guard lower-bound (PM criterion #4): SOUND. Cardinality-1 means EXACTLY ONE
+     per loop run. Today the guard only catches >1; a script with zero instantiations
+     silently passes — that is a no-LTCM-defense state and is risk-material on par
+     with the >1 (triple-counting) case. Subclass-__init__ OR main() lower-bound
+     is the correct semantics because the existing _is_inside_paperrunnerbase_init
+     already walks subclass __init__ as legitimate.
+
+  2. Alias detection (PM criterion #5): the proposed ast.ImportFrom walk closes
+     the obvious alias gap. CALL OUT one residual edge: pure `import
+     forex_system.risk.drawdown_contract` followed by attribute-style
+     `forex_system.risk.drawdown_contract.AggregateDrawdownContract()` — the
+     existing code path at test line 876 (`func.attr == "AggregateDrawdownContract"`)
+     ALREADY catches this; QD does not need to add new logic for the attribute case,
+     but the wave-3 self-test fixture should include it as a positive-coverage
+     example to prove the guard fires on attribute-style instantiation. Also: alias
+     `import forex_system.risk.drawdown_contract as drisk; drisk.AggregateDrawdownContract()`
+     is also caught by the existing attr== check. The remaining gap closed by
+     PM criterion #5 is specifically the `import-as` rebinding to a NEW name.
+
+  3. Shim consolidation risk surface: no risk surface change.
+     - assert_account_key_parity: shim wrapper at vt.py:91 and carry_fred.py:111
+       already delegates to forex_system.risk.account_key_parity._impl. Moving
+       both shim wrappers to script_compat_shims.py preserves the delegation
+       chain. SEC 15c3-5 gate STILL fires at PaperRunnerBase.__init__ (line 153-167),
+       not via the shim. The shim is only the pre-REM-2 test-surface back-compat
+       wrapper. CONFIRM in wave-3: shared module re-exports must NOT introduce a
+       second call path that bypasses PaperRunnerBase.__init__.
+     - check_dispatch_allowed: today both scripts re-export the symbol at module
+       level for tests that patch vt_mod.check_dispatch_allowed and
+       cf_mod.check_dispatch_allowed independently. Consolidation must preserve
+       BOTH names being patchable — re-export from the shared module into each
+       script namespace (e.g. `from forex_system.paper.script_compat_shims
+       import check_dispatch_allowed`). Same correlation-aggregator threshold
+       (0.15/N=4) applies because both call sites pass through PaperRunnerBase
+       __init__ for runtime path and module-level name only for shim/test surface.
+     - fcntl dispatch lock: only the import re-export moves; the actual
+       _acquire_dispatch_lock is in PaperRunnerBase.__init__ for path storage
+       (line 184) and contextmanager-acquired per-cycle in run_cycle (line 556 vt,
+       539 carry_fred). Cycle-scope-not-init-scope IS preserved.
+
+  4. Structured-logging migration (F-003): bc8_cond_check prefix preserved as a
+     literal string token in the rendered log message is the correct discipline.
+     Incident response grep depends on it (e.g. "give me all COND-6 BLOCKED in
+     last hour for vol_target_carry"). Concrete pattern QD must adopt:
+       logger.info("bc8_cond_check ...", extra={"strategy_id": ..., "condition_id": ...})
+     Where the message string ITSELF starts with the prefix; extra= dict adds
+     structured keys for downstream JSON parsers but does NOT replace the prefix.
+     This satisfies log-as-decision-trace items 1-5 (who/what/why/outcome/time)
+     while preserving operator grep pattern.
+
+  5. F-001 PII redaction (base_runner.py:154-167): redaction logic is in-line
+     before the log call (string-built variable account_key_redacted), independent
+     of log format. Migrating to extra= dict can either (a) keep the redacted
+     string in the message AND in the extra dict (preferred), or (b) only in
+     extra dict (acceptable if formatter renders it). QD MUST attest in wave-3
+     report that account_key never appears in full in any new structured field
+     and the last-4 redaction pattern is preserved.
+
+  6. Mode composition: this dispatch is shim CONSOLIDATION + TEST tightening +
+     LOGGING migration. NONE of the forbidden-interim categories
+     (kill-switch design CHANGE, vendor onboarding, charter touch, capital
+     movement, live capital) match. Authentic --full-auto --no-ceo dispatch.
+
+  Quality-gate review APPROVED. Quorum signature affirmative.
+
+blowup-analog: "LTCM 1998 — dual-layer drawdown defense requires exactly one aggregate-DD instance per loop run. Cardinality wrong in either direction (zero = no defense, two+ = triple-counting → wrong outcome under correlated drawdown). PM criterion #4 closes the lower-bound (zero-instance) gap which is symmetric in risk-material weight to the upper-bound (today's only-caught) gap. Knight Capital 2012 also implicated for property-5 observability of structured logging — incident reconstruction depends on bc8_cond_check grep pattern surviving the F-003 migration."
+contamination-check: clean
+verdict-detail:
+  ast_guard_lower_bound_soundness: "approve — symmetric risk weight to existing upper-bound; subclass-OR-main lower-bound matches existing _is_inside_paperrunnerbase_init scope; zero-instance failure mode is no-LTCM-defense state, risk-material on par with multi-counting"
+  alias_detection_completeness: "approve with note — proposed ast.ImportFrom walk closes the import-as rebind case (e.g. `as ADC`). Pure attribute-style instantiation `forex_system.risk.drawdown_contract.AggregateDrawdownContract()` and module-alias `import ... as drisk; drisk.AggregateDrawdownContract()` are ALREADY caught by existing func.attr== check at test line 876. QD must add a positive-coverage attribute-style fixture in self-test (wave-3) to prove guard fires"
+  shim_consolidation_no_risk_surface_change: true
+  rule_15c3_5_gate_preserved: true
+  structured_logging_migration_grep_preserved: "approve — bc8_cond_check prefix must remain a literal string token in the rendered message AND keys in extra= dict (preferred dual-write pattern); operator grep pattern survives"
+  f001_pii_redaction_preserved: true
+  no_forbidden_interim_domain_match: true
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.cro-redacted.yaml
+  - tests/integration/test_paper_runner_bc8_conds.py
+  - src/forex_system/paper/base_runner.py
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+  - ~/.claude/skills/kill-switch-design/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

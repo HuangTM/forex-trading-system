@@ -1,0 +1,71 @@
+role: cro
+artifact_type: quality-gate-review
+timestamp: '2026-05-14T00:00:00Z'
+subtask_ref: rem2-followup-2-cro-risk-review
+subtask_id: cro-rem2-followup-2-2026-05-14:phase2:task2.2
+size_multiplier: 1.0
+binding_constraints:
+- "DD-1 halt_new threshold 0.10 (broker TotalValue) \u2014 preserved (CRO_DD_HALT_NEW_THRESHOLD)"
+- "DD-2 reduce_sizing 0.15 \u2192 0.5x \u2014 preserved (CRO_DD_REDUCE_SIZING_THRESHOLD)"
+- "DD-3 full_halt 0.20 \u2014 preserved (CRO_DD_FULL_HALT_THRESHOLD)"
+- "JPY-correlated cap \u22640.15/N=4 (COND-6) \u2014 preserved via PaperRunnerBase._check_jpy_cap\
+  \ delegation"
+- "SEC 15c3-5 account_key parity gate at __init__ (COND-3) \u2014 preserved fail-closed\
+  \ (sys.exit(1))"
+- Cardinality-1 invariant on AggregateDrawdownContract per loop run (LTCM dual-layer
+  defense, CRO R-7.1)
+- "F-001 PII redaction (account_key last-4 only) \u2014 preserved through F-003 migration"
+- "fcntl dispatch lock cycle-scope (BC-8 option-B; not init-scope) \u2014 preserved"
+regime_flags: []
+claimed_domains:
+- kill-switch-design-and-testing
+- drawdown-contracts
+- tail-risk-measurement
+- correlation-and-concentration-limits
+evidence:
+- "tests/integration/test_paper_runner_bc8_conds.py:841-959 \u2014 current AST guard\
+  \ CATCHES upper-bound (>1 in main, or any outside __init__/main) but DOES NOT enforce\
+  \ lower-bound (>=1 in main OR subclass __init__). Confirms PM finding: zero-instance\
+  \ script silently passes today."
+- "tests/integration/test_paper_runner_bc8_conds.py:874-878 \u2014 alias detection\
+  \ CURRENTLY incomplete: matches func.id == \"AggregateDrawdownContract\" (Name)\
+  \ and func.attr == \"AggregateDrawdownContract\" (Attribute). MISSES the alias-binding\
+  \ case where ImportFrom rebinds the name (e.g. `from ... import AggregateDrawdownContract\
+  \ as ADC` then `ADC()` resolves to ast.Name with id=\"ADC\"). PM acceptance criterion\
+  \ #5 (alias-import detection via ast.ImportFrom walk) closes this gap."
+- "tests/integration/test_paper_runner_bc8_conds.py:880-901 \u2014 _is_inside_paperrunnerbase_init\
+  \ walks both class.name==\"PaperRunnerBase\" AND any subclass with PaperRunnerBase\
+  \ as base. Subclass-OR-main lower-bound matches this existing scope."
+- "src/forex_system/paper/base_runner.py:154-167 \u2014 F-001 PII redaction at line\
+  \ 157-159 (`account_key_redacted = \"***\" + account_key[-4:]`) embedded in COND-3\
+  \ startup log; redaction logic is independent of %-style vs structured logging format."
+- "src/forex_system/paper/base_runner.py:147-171 \u2014 COND-3 gate enforced at __init__\
+  \ time (SEC 15c3-5 startup gate); calls assert_account_key_parity which sys.exit(1)\
+  \ on violation (fail-closed)."
+- "src/forex_system/paper/base_runner.py:317-411 \u2014 _acquire_dispatch_lock is\
+  \ a contextmanager called per-cycle from run_cycle (vt.py:556, carry_fred.py:539);\
+  \ lock acquisition is cycle-scope, not init-scope."
+- "scripts/run_paper_trading_vt.py:51-55, scripts/run_paper_trading_carry_fred.py:79-83\
+  \ \u2014 both scripts use canonical `from forex_system.risk.drawdown_contract import\
+  \ AggregateDrawdownContract` today (no alias in repo); shim consolidation does not\
+  \ introduce one."
+- "src/forex_system/paper/base_runner.py:75-84 \u2014 _ACTIVE_GUARDS list enumerates\
+  \ all 7 BC-8-LIFT-COND guards; bc8_cond_check prefix appears 14\xD7 in base_runner.py\
+  \ logs; structured-logging migration must preserve this prefix in formatted message\
+  \ string per PM criterion."
+- "PM artifact line 23-24, 45-48 \u2014 lower-bound semantics: subclass-__init__ OR\
+  \ main() with >=1 instantiation; zero must FAIL guard. Both 0-instance and >=2-instance\
+  \ failure modes are risk-material."
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+- .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.cro-redacted.yaml
+- tests/integration/test_paper_runner_bc8_conds.py
+- src/forex_system/paper/base_runner.py
+- scripts/run_paper_trading_vt.py
+- scripts/run_paper_trading_carry_fred.py
+- ~/.claude/skills/kill-switch-design/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,142 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: '2026-05-14T00:00:00Z'
+subtask_ref: rem2-followup-2-acceptance-criteria
+subtask_id: pm-rem2-followup-2-2026-05-14:phase1:task1.0
+deliverable-type: spec-completion
+deadline: '2026-05-21T23:59:59Z'
+instrument-universe: []
+hard-constraints:
+- sacred_test_no_lookahead: must_pass
+- existing_848_tests: must_not_regress
+- aggregate_drawdown_contract_cardinality: exactly_one_per_loop
+- paper_only: true
+- no_live_capital: true
+- firewall_execution_researcher: enforced
+- f001_pii_fix_preserved: true
+- duplication_metric: must_decrease_from_baseline_72.7pct
+- script_compat_shims_module_created: src/forex_system/paper/script_compat_shims.py
+    must exist
+- both_scripts_import_from_shims: neither paper script may retain its own copy of
+    consolidated helpers
+- ast_guard_lower_bound: each paper script main() or its PaperRunnerBase subclass
+    must have >=1 AggregateDrawdownContract instantiation; zero must fail guard
+- ast_guard_alias_detection: guard must track aliased imports (e.g. ADC = AggregateDrawdownContract)
+    and count both names
+- structured_logging_bc8_prefix_preserved: bc8_cond_check prefix must survive migration
+    for grep-based tests
+criteria:
+- src/forex_system/paper/script_compat_shims.py created; consolidates assert_account_key_parity,
+  check_dispatch_allowed, run_cycle shim wrapper logic (lazy-construct-runner-from-globals
+  fallback when runner=None), and fcntl re-export; both paper scripts import from
+  this module instead of maintaining their own copies
+- scripts/run_paper_trading_vt.py LoC measurably reduced from 864 non-blank/non-comment-line
+  baseline; QD reports verbatim wc/grep measurement
+- scripts/run_paper_trading_carry_fred.py LoC measurably reduced from 836 non-blank/non-comment-line
+  baseline; QD reports verbatim wc/grep measurement
+- 'duplication metric (CTO COND-A6 method: python3 -c counting non-blank/non-comment
+  lines then computing shared-line fraction) drops from 72.7% baseline (464 differing
+  lines out of 1700); target <=60% duplication (<=680 differing lines out of revised
+  total); QD reports verbatim metric output'
+- all tests in tests/scripts/ that previously required backward-compat shims (59 tests)
+  continue to pass after consolidation; test patches targeting vt_mod.fcntl, vt_mod.assert_account_key_parity,
+  etc. remain valid because each script re-exports consolidated names at module level
+- 'tests/integration/test_paper_runner_bc8_conds.py::test_nht_ast_aggregate_dd_contract_cardinality_guard
+  adds lower-bound assertion: each paper script''s main() OR its PaperRunnerBase subclass
+  MUST contain >=1 AggregateDrawdownContract instantiation; a script with zero instantiations
+  must cause the guard to fail (not silently pass)'
+- 'AST guard adds alias-import detection: walks ast.ImportFrom nodes, tracks local
+  aliases of AggregateDrawdownContract (e.g. ''from forex_system.risk.drawdown_contract
+  import AggregateDrawdownContract as ADC''), counts instantiations under both the
+  canonical and aliased names'
+- 'AST guard includes a self-test fixture: a transient bad-paper-script (zero instantiations)
+  is written, asserted to fail the guard, then deleted; test teardown confirmed (no
+  fixture file left on disk after test run)'
+- all COND-1..7 guard log calls in src/forex_system/paper/base_runner.py migrated
+  from %-style positional format strings to structured key-value using Python logger
+  extra= dict with keys strategy_id, condition_id, and outcome at minimum
+- structured logging migration preserves the bc8_cond_check prefix in the formatted
+  log message string so existing grep-based assertions (e.g. test_cond3_observability_logs_strategy_id_and_condition_id)
+  continue to pass without modification
+- 'F-001 account_key redaction preserved through migration: account_key field in COND-3
+  log continues to emit only last-4 characters (base_runner.py:158 pattern preserved)'
+- F-001 fix at base_runner.py line ~154-159 not inadvertently reverted during structured-logging
+  migration; QD explicitly attests in implementation report
+- sacred test tests/backtest/test_engine.py::test_no_lookahead PASS verified post-implementation
+- all 848 pre-existing passing tests PASS post-implementation; the 1 pre-existing
+  governance JSONL canary failure (tests/governance/test_policy_violations_canary.py::test_existing_violations_jsonl_is_parseable_with_required_fields)
+  is the sole permitted failure
+- QD artifact includes execution-firewall-review self-attestation confirming no researcher-emitted
+  spec drift in implementation
+out-of-scope:
+- Updating broken tests to use new BaseRunner interface (deferred to future P2-followup-3
+  if needed)
+- F-004 (script-level dispatch_lock.fs_error log lacks errno/strerror/lock_path)
+- F-005 (shim COND-6 path lacks bc8_cond_check log)
+- BC-9-N4-COND-4/5/6 (deferred-queue items; remain deferred)
+- 'Strategy #3 algorithm or any 3rd paper strategy (Path P3)'
+- Push to origin/main (CEO-only)
+- REM-8 (kill-switch live-paper test; operator action)
+- ML/strategy_type field
+- Hostile-injection fixture for new 3rd paper script (NHT dissent claim 2; deferred)
+- KG-NHT-REM2-2 (relocating AST guard to dedicated test file; deferred)
+roles-staffed:
+- role: cto
+- role: cro
+- role: quant-developer
+- role: null-hypothesis-tester
+- role: principal-reviewer
+wraps_invocation_of: []
+evidence:
+- 'docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md section 3: duplication
+  72.9%->72.7%; 464 differing lines; root cause: backward-compat shims'
+- 'docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md section 4 items 1-3:
+  DUPLICATION-REDUCTION-TRUE, F-002-LOWER-BOUND, F-003-STRUCTURED-LOGGING open conditions'
+- 'docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md section 7 F-002: AST
+  guard upper-bound only; main_call_count >= 1 assertion missing; alias-import blind'
+- 'docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md section 7 F-003: all
+  COND-1..7 use %-style; CTO COND-A3 deferred'
+- 'scripts/run_paper_trading_vt.py: 864 non-blank/non-comment lines (python3 wc)'
+- 'scripts/run_paper_trading_carry_fred.py: 836 non-blank/non-comment lines (python3
+  wc)'
+- 'src/forex_system/paper/base_runner.py: 645 total lines (wc -l)'
+- 'docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md section 8: 848 passed
+  / 1 pre-existing failure (governance JSONL canary)'
+assumptions:
+- Shim consolidation approach (script_compat_shims.py as shared module re-exported
+  into each script namespace) is architecturally valid; CTO confirms placement in
+  wave-2
+- 59 shimmed tests in tests/scripts/ are the correct count; QD must report actual
+  count post-implementation
+- Duplication target of <=60% (<=680 differing lines) is achievable by removing ~50-100
+  LoC from each script via shim extraction; if not achievable, QD must report and
+  PM will reassess target for wave-4 CONSENSUS
+- F-001 redaction at base_runner.py:158 is stable through structured-logging migration;
+  no regression expected but QD must attest explicitly
+- The 1 pre-existing canary failure is unchanged and is NOT introduced by this wave;
+  QD must confirm
+- base_runner.py currently at 502 LoC of functional code (645 total with blank/comment
+  lines); structured logging changes are additive (extra= dicts) and do not increase
+  LoC significantly
+confidence: high
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+- docs/decisions/CONSENSUS_2026-05-14_rem2_full_extraction.md
+- docs/decisions/CONSENSUS_2026-05-13_rem_arch_review_execute.md
+- docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+- scripts/run_paper_trading_vt.py
+- scripts/run_paper_trading_carry_fred.py
+- src/forex_system/paper/base_runner.py
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+_orchestrator_redaction:
+  redacted_for: cro
+  fields_dropped:
+  - task-statement
+  - body
+  - roles-staffed[].rationale
+  rule: spawn-agent.md step 5

@@ -69,12 +69,11 @@ from forex_system.core.types import Direction
 from forex_system.costs.model import RealisticCostModel
 from forex_system.paper.base_runner import PaperRunnerBase
 from forex_system.risk.account_key_parity import (
-    assert_account_key_parity as _assert_account_key_parity_impl,
     reset_account_key_lock,
 )
 from forex_system.risk.bet1_sizing import bet1_size_multiplier, regime_active_status
-from forex_system.risk.exposure_aggregator import (
-    check_dispatch_allowed,  # noqa: F401 — module-level for test surface
+from forex_system.paper.script_compat_shims import (
+    check_dispatch_allowed,  # noqa: F401 — patch surface; re-exported from exposure_aggregator
 )
 from forex_system.risk.drawdown_contract import (
     AggregateDrawdownContract,
@@ -114,17 +113,18 @@ def assert_account_key_parity(
     loop_name: str = "carry_fred loop",
     lock_path: str | None = None,
 ) -> None:
-    """Module-level backward-compat shim — delegates to account_key_parity module.
+    """Module-level backward-compat shim — delegates to script_compat_shims.
 
     Provides default loop_name so tests can call without it, matching the
     original script-level function signature (pre-REM-2).
     """
-    from forex_system.risk.account_key_parity import (
-        ACCOUNT_KEY_LOCK_PATH,
-        assert_account_key_parity as _impl,
+    from forex_system.paper.script_compat_shims import assert_account_key_parity_impl
+    from forex_system.risk.account_key_parity import ACCOUNT_KEY_LOCK_PATH
+    assert_account_key_parity_impl(
+        account_key,
+        lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH,
+        loop_name=loop_name,
     )
-    _impl(account_key, loop_name=loop_name,
-          lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH)
 
 
 # BC-8 option-B: cross-process advisory file-lock (shared with vt loop).
@@ -383,9 +383,10 @@ def run_cycle(
     # check can use the module-level check_dispatch_allowed (patchable by tests).
     _runner_is_shim = runner is None
     if _runner_is_shim:
-        runner = PaperRunnerBase(
-            strategy_id="carry_fred",
+        from forex_system.paper.script_compat_shims import construct_default_runner
+        runner = construct_default_runner(
             kill_switch=kill_switch,
+            strategy_id="carry_fred",
             dispatch_lock_path=DISPATCH_LOCK_PATH,
         )
     # --- Watchdog halt check (must be first) ---

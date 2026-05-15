@@ -1,0 +1,74 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+timestamp: '2026-05-14T02:30:00Z'
+subtask_ref: rem2-followup-2-nht-skeptical
+subtask_id: nht-rem2-followup-2-2026-05-14:phase2:task2.4
+claim-tested:
+- duplication metric drops from 72.7% to <=60% after shim consolidation
+- structured logging migration preserves bc8_cond_check grep-ability
+- F-002 AST guard catches all claimed failure modes (zero-instantiation lower-bound,
+  aliased import, attribute-style)
+claimed_domains:
+- null-hypothesis-construction
+- permutation-and-shuffle-test-design
+- structural-skepticism-on-any-claim
+- matched-random-benchmark-construction
+evidence:
+- 'scripts/run_paper_trading_vt.py: 864 non-blank/non-comment lines (grep -cv pattern,
+  reproduces PM baseline)'
+- 'scripts/run_paper_trading_carry_fred.py: 836 non-blank/non-comment lines (grep
+  -cv pattern, reproduces PM baseline)'
+- scripts/run_paper_trading_vt.py:945-952 (AggregateDrawdownContract direct instantiation
+  in main(); REM-2 fully extracted at HEAD = 5522d7b)
+- scripts/run_paper_trading_carry_fred.py:898-901 (AggregateDrawdownContract direct
+  instantiation in main(); REM-2 fully extracted at HEAD = 5522d7b)
+- src/forex_system/paper/base_runner.py:140-192 (PaperRunnerBase.__init__; COND-2
+  wires aggregate_dd_contract at line 144; F-001 PII redaction at line 157-159; COND-3
+  fail-closed gate at line 167)
+- src/forex_system/paper/base_runner.py:160-544 (17 logger calls all in %-style; bc8_cond_check
+  prefix appears 14x in message strings; F-003 migration has not landed)
+- "tests/integration/test_paper_runner_bc8_conds.py:841-959 (NHT AST cardinality guard;\
+  \ lines 869-878 _is_aggregate_dd_call only matches literal name OR attribute; lines\
+  \ 936-945 main_call_count detects >1 but NOT zero \u2014 confirmed lower-bound gap)"
+- tests/integration/test_paper_runner_bc8_conds.py:254-276 (test_cond3_observability_logs_strategy_id_and_condition_id;
+  current canary; one-sided substring assertion)
+- .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml
+  (PM acceptance criteria; line 32 duplication target <=60%; lines 35-37 F-002 lower-bound
+  + alias + self-test; lines 38-42 F-003 structured logging + grep preservation +
+  F-001 redaction preservation)
+- .fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml
+  (CRO approve; verdict-detail line 117-122 cardinality lower-bound symmetric weight,
+  alias detection scope, dual-write logging pattern, F-001 redaction independence;
+  line 118 explicitly requires attribute-style positive-coverage fixture)
+- ".fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/ contains only cro-risk-assessment.yaml\
+  \ \u2014 no QD implementation report exists yet"
+- "tools/ contains check_equivalence_gate.py, check_kill_switch_threshold.py, check_no_saxo_imports.py,\
+  \ check_pre_registration.py, git-hooks/ \u2014 no measure_paper_script_duplication.sh"
+- 'git log HEAD = 5522d7b (rem2-followup-2026-05-13: REM-2 full extraction COND-2..7
+  + F-007 + F-001 PII fix); REM-2-followup-2 wave has NOT yet committed'
+- src/forex_system/paper/script_compat_shims.py does NOT exist (verified ls)
+- '.fintech-org/trials.jsonl line count: 35 trials org-wide'
+knowledge_gaps:
+- 'KG-NHT-REM2-1: which duplication-measurement methodology will CTO pick? cloc --diff
+  identical-line count, or AST-normalized LCS. Answer required before claim 1 is testable.'
+- 'KG-NHT-REM2-3: where will the F-003 anti-canary monkey-patch fixture live? Suggest
+  tests/integration/test_paper_runner_bc8_conds.py adjacent to the existing canary
+  at line 254-276 to keep the pair visible.'
+- 'KG-NHT-REM2-4: how will accepted false-negatives (getattr/eval/importlib dynamic
+  instantiation) be enforced as accepted scope vs accidentally drifted scope over
+  time? Suggest a SCHEDULED_FALSE_NEGATIVES dict in the guard module that future contributors
+  must explicitly add to with rationale.'
+policy_violations_detected: []
+sources:
+- /Users/huangtm/Projects/forex-trading-system/src/forex_system/paper/base_runner.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_carry_fred.py
+- /Users/huangtm/Projects/forex-trading-system/scripts/run_paper_trading_vt.py
+- /Users/huangtm/Projects/forex-trading-system/tests/integration/test_paper_runner_bc8_conds.py
+- /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-1/pm-acceptance-criteria.yaml
+- /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-14T-rem2-followup-2/wave-2/cro-risk-assessment.yaml
+- /Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-05-13T-rem2-followup/wave-2/nht-null-test-report.yaml
+- /Users/huangtm/.claude/skills/probability-statistics/SKILL.md
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

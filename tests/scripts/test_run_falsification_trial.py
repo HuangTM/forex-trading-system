@@ -33,13 +33,22 @@ def tmp_dominance_cache(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def nht_rubric_path(tmp_path: Path) -> Path:
-    """Write a minimal nht-rubric.yaml to a temp file."""
+    """Write a minimal nht-rubric.yaml to a temp file.
+
+    All fields required by NhtRubric.load_from_yaml must be present.
+    Fixture was missing r5_window_percentile_gt and r5_spa_pvalue_gt which were
+    made mandatory by the R5 remediation — this caused ConfigError on every test
+    that loaded the rubric.  R5 fields added here; R5 triggers only fire when the
+    pre-reg declares r5_active=True (not the case for these fixtures).
+    """
     rubric = tmp_path / "nht-rubric.yaml"
     rubric.write_text(
         "r1_oos_sharpe_lt: 0.30\n"
         "r2_dsr_lt: 0.50\n"
         "r3_max_dd_gt: 0.25\n"
         "r5_permutation_pvalue_gt: 0.05\n"
+        "r5_window_percentile_gt: 95.0\n"
+        "r5_spa_pvalue_gt: 0.10\n"
         "r6_n_trades_lt: 30\n"
         "r6_n_oos_bars_lt: 252\n"
     )
@@ -71,6 +80,47 @@ def pre_reg_dir(tmp_path: Path) -> Path:
         "pair: EURUSD\n"
         "oos_overlap: false\n"
         'oos_window_start: "2022-01-01"\n'
+        'oos_window_end: "2023-12-31"\n'
+        "triggers:\n"
+        "  - label: carry_baseline-T1\n"
+        "    metric: oos_sharpe\n"
+        "    operator: '<'\n"
+        "    threshold: 0.50\n"
+        "    raw_text: OOS Sharpe < 0.50\n"
+    )
+
+    return d
+
+
+@pytest.fixture()
+def pre_reg_dir_wide(tmp_path: Path) -> Path:
+    """Pre-reg with a wider OOS window (2020-01-01 to 2023-12-31 → ~1043 OOS bars).
+
+    Used by test_passing_verdict_writes_complete_entry to produce genuinely strong
+    DSR inputs (n_obs ~1043, SR_ann=1.0, N=2 → DSR ≈ 0.93 >> 0.50 threshold).
+    """
+    d = tmp_path / "pre_regs_wide"
+    d.mkdir()
+
+    md = d / "carry_baseline.md"
+    md.write_text(
+        "# Pre-Registration: carry_baseline\n\n"
+        "**Strategy ID:** carry\n"
+        "**Pair:** EURUSD\n\n"
+        "## Hypothesis\n\n"
+        "Carry generates alpha.\n\n"
+        "## Falsification Criteria\n\n"
+        "- **carry_baseline-T1:** OOS Sharpe < 0.50\n\n"
+        "kill_switch_threshold: 0.50\n"
+        "gate_threshold: 0.50\n"
+    )
+
+    sidecar = d / "carry_baseline.triggers.yaml"
+    sidecar.write_text(
+        "strategy: carry\n"
+        "pair: EURUSD\n"
+        "oos_overlap: false\n"
+        'oos_window_start: "2020-01-01"\n'
         'oos_window_end: "2023-12-31"\n'
         "triggers:\n"
         "  - label: carry_baseline-T1\n"
@@ -131,10 +181,11 @@ def _make_backtest_result(
     max_dd: float = 0.10,
     n_trades: int = 50,
     n_bars: int = 504,
+    start_date: str = "2022-01-01",
 ) -> MagicMock:
     """Build a mock BacktestResult with realistic equity curve."""
     rng = np.random.default_rng(42)
-    dates = pd.date_range("2022-01-01", periods=n_bars, freq="B")
+    dates = pd.date_range(start_date, periods=n_bars, freq="B")
     equity = 100_000.0 * (1 + rng.normal(0.0003, 0.01, n_bars)).cumprod()
     equity_series = pd.Series(equity, index=dates)
     signals = pd.Series(np.ones(n_bars), index=dates)
@@ -239,22 +290,67 @@ def _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_cm) -> None:
     mock_cm.return_value = cm_mock
 
 
+def _setup_mocks_wide(mock_load, mock_ind, mock_strat, mock_cfg, mock_cm) -> None:
+    """Configure mock return values with 2500 rows starting 2015-01-01.
+
+    This produces ~1043 OOS bars when filtered to the 2020-01-01/2023-12-31 window,
+    satisfying the NHT-directed n_obs requirement for the passing-verdict test.
+    """
+    idx = pd.date_range("2015-01-01", periods=2500, freq="B")
+    df = pd.DataFrame(
+        {"open": 1.1, "high": 1.15, "low": 1.05, "close": 1.12, "volume": 1000.0,
+         "atr_14": 0.01},
+        index=idx,
+    )
+    mock_load.return_value = df
+    mock_ind.return_value = df
+
+    strategy_mock = MagicMock()
+    strategy_mock.required_indicators.return_value = ["atr_14"]
+    strategy_mock.generate_signals.return_value = pd.Series(1.0, index=idx)
+    mock_strat.return_value = strategy_mock
+
+    config_mock = MagicMock()
+    config_mock.backtest.initial_capital = 100_000.0
+    config_mock.backtest.entry_delay_bars = 1
+    config_mock.backtest.rebalance_mode = "threshold"
+    config_mock.backtest.rebalance_threshold = 0.05
+    config_mock.data_dir = "data/processed_synthetic_phase0"
+    mock_cfg.return_value = config_mock
+
+    cm_mock = MagicMock()
+    mock_cm.return_value = cm_mock
+
+
 # ---------------------------------------------------------------------------
 # Test 2: Mock backtest → metrics computed → verdict computed → completion path
 # ---------------------------------------------------------------------------
 
 
 def test_passing_verdict_writes_complete_entry(
-    pre_reg_dir: Path,
+    pre_reg_dir_wide: Path,
     nht_rubric_path: Path,
     tmp_registry: Path,
     tmp_dominance_cache: Path,
     tmp_path: Path,
 ) -> None:
-    """When verdict passes, _append_trial is called (not record_trial_rejection)."""
-    pre_reg_path = pre_reg_dir / "carry_baseline.md"
-    bt_result = _make_backtest_result(sharpe=0.85, max_dd=0.10, n_trades=60)
-    metrics_mock = _make_metrics(sharpe=0.85, max_dd=0.10, n_trades=60)
+    """When verdict passes with genuinely strong evidence, _append_trial is called.
+
+    Input selection (NHT-directed, 2026-05-31):
+      - SR_ann = 1.0  (modest, realistic)
+      - n_obs  ≈ 1043 (dominant lever: OOS window 2020-01-01 to 2023-12-31 over
+                       2500-row mock, filtered to business days in that range)
+      - N = 2         (_count_prior_trials=1, so n_trials_total=2)
+      → DSR ≈ 0.93 >> 0.50 threshold — genuinely strong, not fudged.
+
+    Other gates: max_dd=0.10 < 0.25 (R3 pass); n_trades=60 >= 30 (R6 pass).
+    """
+    pre_reg_path = pre_reg_dir_wide / "carry_baseline.md"
+    # n_bars=2500 starting 2015-01-01 covers OOS window 2020-2023 (~1043 bars).
+    bt_result = _make_backtest_result(
+        sharpe=1.0, max_dd=0.10, n_trades=60, n_bars=2500, start_date="2015-01-01"
+    )
+    metrics_mock = _make_metrics(sharpe=1.0, max_dd=0.10, n_trades=60)
 
     with (
         patch("scripts.run_falsification_trial._NHT_RUBRIC_PATH", nht_rubric_path),
@@ -267,11 +363,12 @@ def test_passing_verdict_writes_complete_entry(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        # N=2: 1 prior trial + this trial → minimal multiple-comparisons penalty
+        patch("scripts.run_falsification_trial._count_prior_trials", return_value=1),
         patch("scripts.run_falsification_trial._append_trial") as mock_append,
         patch("scripts.run_falsification_trial.record_trial_rejection") as mock_reject,
     ):
-        _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_cm)
+        _setup_mocks_wide(mock_load, mock_ind, mock_strat, mock_cfg, mock_cm)
         from scripts.run_falsification_trial import run_falsification_trial
 
         result = run_falsification_trial(

@@ -101,6 +101,7 @@ from forex_system.core.types import PairInfo
 from forex_system.costs.model import RealisticCostModel
 from forex_system.data.storage import load_parquet
 from forex_system.features.registry import compute_indicators
+from forex_system.core.constants import TRADING_DAYS_PER_YEAR
 from forex_system.harness.dsr import compute_dsr
 from forex_system.harness.falsification_evaluator import NhtRubric, evaluate
 from forex_system.harness.preregistration import parse_pre_registration
@@ -738,6 +739,7 @@ def run_falsification_trial(
         skewness=agg["skewness"],
         excess_kurtosis=agg["excess_kurtosis"],
         n_trials=n_trials_total,
+        periods_per_year=float(TRADING_DAYS_PER_YEAR),
     )
     _log("falsification_trial.dsr.computed", trial_id=trial_id,
          dsr=dsr, n_trials=n_trials_total, n_obs=agg["n_oos_bars"])

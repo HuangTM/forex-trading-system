@@ -53,6 +53,12 @@ class SystemConfig:
     backtest: BacktestConfig
     data_dir: str = "data"
     log_level: str = "INFO"
+    # Gap-1 / BC-COST-RECON: carry the full parsed YAML dict so that sub-section
+    # consumers (e.g. ledger_from_config) can read arbitrary config keys without
+    # requiring every key to be promoted to a typed field.  repr=False keeps the
+    # dataclass __repr__ readable.  Default empty-dict so all existing call sites
+    # that construct SystemConfig directly (tests etc.) do not break.
+    raw: dict = field(default_factory=dict, repr=False)
 
     def get_pair_info(self, symbol: str) -> PairInfo:
         for p in self.pairs:
@@ -121,6 +127,9 @@ def load_config(path: str | Path) -> SystemConfig:
             backtest=backtest,
             data_dir=raw.get("data", {}).get("base_dir", "data"),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
+            # Gap-1 / BC-COST-RECON: persist the full parsed dict so downstream
+            # consumers (ledger_from_config, etc.) can read arbitrary config keys.
+            raw=raw,
         )
 
     except (KeyError, TypeError) as e:

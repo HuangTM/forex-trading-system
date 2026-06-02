@@ -36,6 +36,7 @@ from forex_system.backtest.engine import run_backtest
 from forex_system.backtest.metrics import calculate_metrics
 from forex_system.backtest.walkforward import run_walkforward
 from forex_system.core.config import SystemConfig, load_config
+from forex_system.core.constants import TRADING_DAYS_PER_YEAR
 from forex_system.core.errors import ConfigError, DataError
 from forex_system.core.types import PairInfo
 from forex_system.costs.model import RealisticCostModel
@@ -340,6 +341,7 @@ def run_trial(
             skewness=skewness,
             excess_kurtosis=excess_kurtosis,
             n_trials=n_trials_total,
+            periods_per_year=float(TRADING_DAYS_PER_YEAR),
         )
 
         # -- Walk-forward (if enabled in config) --

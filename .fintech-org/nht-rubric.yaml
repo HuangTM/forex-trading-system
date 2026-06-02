@@ -19,11 +19,23 @@ r2_dsr_lt: 0.50
 # Strategy fails if max_drawdown > r3_max_dd_gt (positive fraction, e.g. 0.25 = 25%).
 r3_max_dd_gt: 0.25
 
-# R5 — Permutation test p-value (aspirational)
+# R5 — Reality-Check falsification tests (ACTIVE — harness emits r5 block)
+# Three sub-tests per NHT R5 spec (2026-05-30). A strategy is R5-active only
+# if its pre-registration declares r5_active: true in the sidecar YAML.
+# Missing r5 fields for an R5-active strategy raises MissingMetricError.
+
+# R5a — Stationary/Circular Block Bootstrap (autocorrelation falsifier)
 # Strategy fails if permutation_pvalue > r5_permutation_pvalue_gt.
-# Status: aspirational — harness does not currently emit permutation fields.
-# Evaluated only when permutation_pvalue is present in the metrics dict.
+# permutation_pvalue = r5a_circular_block_pvalue (flat mirror from r5 block).
 r5_permutation_pvalue_gt: 0.05
+
+# R5b — Randomized OOS-Window Placement (regime/window-selection falsifier)
+# Strategy fails if r5b_window_percentile >= r5_window_percentile_gt.
+r5_window_percentile_gt: 0.90
+
+# R5c — Hansen's SPA (pair-selection / best-of-N falsifier)
+# Strategy fails if r5c_spa_pvalue_consistent > r5_spa_pvalue_gt.
+r5_spa_pvalue_gt: 0.05
 
 # R6 — Sample size gates
 # Strategy fails if n_trades < r6_n_trades_lt OR n_oos_bars < r6_n_oos_bars_lt.

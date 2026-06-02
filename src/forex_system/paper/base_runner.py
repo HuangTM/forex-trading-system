@@ -45,8 +45,10 @@ Observability boundaries per PM acceptance-criteria REM-2:
 from __future__ import annotations
 
 import fcntl
+import json
 import logging
 import os
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -235,6 +237,7 @@ class PaperRunnerBase:
         contributing_strategies: list,
         *,
         snapshot_timestamp: Optional[datetime] = None,
+        is_mock: bool = False,
     ):
         """BC-8-LIFT-COND-2: Evaluate aggregate drawdown ladder.
 
@@ -250,6 +253,11 @@ class PaperRunnerBase:
                 this equity snapshot (for observability).
             snapshot_timestamp: UTC datetime of broker equity fetch (clock-and-ordering).
                 Defaults to datetime.now(timezone.utc) if not provided.
+            is_mock: F1 / MC-6: if True, the aggregate peak is NOT updated and
+                _persist_agg_peak is NOT called — mirrors DrawdownContract.assess(is_mock=True).
+                Callers MUST pass is_mock=_cycle_is_mock (the same flag used for the
+                per-strategy contract) so mock cycles cannot poison the aggregate
+                high-water mark or the persisted dd_agg_peak.json file.
 
         Observability: logs strategy_id + condition_id + outcome.
         """
@@ -268,6 +276,7 @@ class PaperRunnerBase:
             equity,
             snapshot_timestamp=snapshot_timestamp,
             contributing_strategies=contributing_strategies,
+            is_mock=is_mock,
         )
 
         if assessment.force_flat:
@@ -575,10 +584,15 @@ class PaperRunnerBase:
         )
 
         swap_usd = 0.0
+        days_elapsed_float: Optional[float] = None
+        # Determine why last_cycle_ts may be None for the decision trace.
+        # Callers load the ts from disk at startup; None means either first-ever
+        # cycle or clock-backwards guard triggered (both logged by load_last_cycle_ts).
+        last_cycle_ts_source = "disk_loaded" if last_cycle_ts is not None else "none_first_cycle"
         if held_units_nom > 0 and last_cycle_ts is not None:
-            days_elapsed = (now_ts - last_cycle_ts).total_seconds() / 86_400.0
+            days_elapsed_float = (now_ts - last_cycle_ts).total_seconds() / 86_400.0
             swap_pips_per_day = -cost_model.holding_cost(pair, Direction.LONG, 1)
-            swap_usd = swap_pips_per_day * pip_v * held_engine_units * days_elapsed
+            swap_usd = swap_pips_per_day * pip_v * held_engine_units * days_elapsed_float
 
         logger.info(
             "bc8_cond_check strategy_id=%s condition_id=BC-8-LIFT-COND-7 outcome=ACCRUED",
@@ -590,14 +604,203 @@ class PaperRunnerBase:
                 "pair": pair,
                 "held_units_nom": held_units_nom,
                 "held_engine_units": held_engine_units,
+                "last_cycle_ts": last_cycle_ts.isoformat() if last_cycle_ts is not None else None,
+                "last_cycle_ts_source": last_cycle_ts_source,
+                "now_ts": now_ts.isoformat(),
+                "clock_source": "wall_utc",
                 "swap_usd": swap_usd,
                 "days_elapsed": (
-                    f"{(now_ts - last_cycle_ts).total_seconds() / 86_400.0:.6f}"
-                    if last_cycle_ts is not None else "N/A"
+                    f"{days_elapsed_float:.6f}"
+                    if days_elapsed_float is not None else "N/A"
                 ),
             },
         )
         return swap_usd, now_ts
+
+    # ---------------------------------------------------------------------------
+    # COND-7 support: last-cycle timestamp persistence (cross-process restart fix)
+    #
+    # Defect: _last_cycle_ts is module-global, initialised to None on every process
+    # start.  When the paper loop runs as one-or-few cycles per invocation the
+    # first cycle ALWAYS sees None → swap_usd=0.0 on every logged cycle.
+    #
+    # Fix: persist the timestamp to disk after each cycle; load it at startup.
+    # Matches the cf_t9_state.json convention: flat JSON file under data/.
+    # Atomic write (write-then-rename) so a crash mid-write leaves the prior
+    # value intact.
+    #
+    # Clock source: UTC wall clock via datetime.now(timezone.utc).  ISO 8601
+    # string stored in the file so the value survives process restart and is
+    # human-readable.  Monotonic clock is NOT used because it resets on restart
+    # and would be meaningless cross-process.
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _last_cycle_ts_path(strategy_id: str) -> Path:
+        """Return the canonical path for the strategy's last-cycle-ts state file.
+
+        Convention: data/paper_last_cycle_ts_{strategy_id}.json
+        Matches the cf_t9_state.json naming pattern under data/.
+        """
+        safe_id = strategy_id.replace("/", "_").replace(" ", "_")
+        return Path(f"data/paper_last_cycle_ts_{safe_id}.json")
+
+    @staticmethod
+    def load_last_cycle_ts(strategy_id: str) -> Optional[datetime]:
+        """Load the persisted last-cycle UTC timestamp for strategy_id.
+
+        Returns the stored datetime (UTC-aware) if the file exists and is valid,
+        None otherwise (first-ever run, or corrupt file).
+
+        Clock-and-ordering guards:
+        - Stored value must be timezone-aware UTC.
+        - If the stored timestamp is in the future relative to now (clock skew /
+          corrupted file), log a WARNING and return None so the next cycle treats
+          itself as the first cycle (no accrual) rather than computing a negative
+          elapsed time.
+
+        Args:
+            strategy_id: Strategy identifier (e.g. "vol_target_carry").
+
+        Returns:
+            UTC-aware datetime or None.
+        """
+        path = PaperRunnerBase._last_cycle_ts_path(strategy_id)
+        if not path.exists():
+            logger.debug(
+                "swap_ts.load strategy_id=%s outcome=NO_FILE path=%s",
+                strategy_id,
+                str(path),
+            )
+            return None
+        try:
+            payload = json.loads(path.read_text())
+            raw_ts = payload.get("last_cycle_ts_utc")
+            if not raw_ts:
+                logger.warning(
+                    "swap_ts.load strategy_id=%s outcome=MISSING_KEY path=%s",
+                    strategy_id,
+                    str(path),
+                    extra={
+                        "event": "SWAP_TS_LOAD_MISSING_KEY",
+                        "strategy_id": strategy_id,
+                        "path": str(path),
+                    },
+                )
+                return None
+            loaded_ts = datetime.fromisoformat(raw_ts)
+            # Ensure timezone-aware UTC
+            if loaded_ts.tzinfo is None:
+                loaded_ts = loaded_ts.replace(tzinfo=timezone.utc)
+            # Clock-backwards guard: if loaded ts is in the future, reject it.
+            now_utc = datetime.now(timezone.utc)
+            if loaded_ts > now_utc:
+                logger.warning(
+                    "swap_ts.load strategy_id=%s outcome=CLOCK_BACKWARDS "
+                    "loaded_ts=%s now_utc=%s — treating as no-accrual",
+                    strategy_id,
+                    loaded_ts.isoformat(),
+                    now_utc.isoformat(),
+                    extra={
+                        "event": "SWAP_TS_LOAD_CLOCK_BACKWARDS",
+                        "strategy_id": strategy_id,
+                        "loaded_ts": loaded_ts.isoformat(),
+                        "now_utc": now_utc.isoformat(),
+                        "path": str(path),
+                        "decision": "treat_as_first_cycle",
+                    },
+                )
+                return None
+            logger.info(
+                "swap_ts.load strategy_id=%s outcome=OK loaded_ts=%s",
+                strategy_id,
+                loaded_ts.isoformat(),
+                extra={
+                    "event": "SWAP_TS_LOAD_OK",
+                    "strategy_id": strategy_id,
+                    "loaded_ts": loaded_ts.isoformat(),
+                    "path": str(path),
+                    "clock_source": "wall_utc",
+                },
+            )
+            return loaded_ts
+        except (json.JSONDecodeError, ValueError, OSError) as exc:
+            logger.warning(
+                "swap_ts.load strategy_id=%s outcome=PARSE_ERROR exc=%s path=%s "
+                "— treating as no-accrual",
+                strategy_id,
+                repr(exc),
+                str(path),
+                extra={
+                    "event": "SWAP_TS_LOAD_PARSE_ERROR",
+                    "strategy_id": strategy_id,
+                    "path": str(path),
+                    "exc": repr(exc),
+                },
+            )
+            return None
+
+    @staticmethod
+    def persist_last_cycle_ts(strategy_id: str, ts: datetime) -> None:
+        """Persist the last-cycle UTC timestamp to disk atomically.
+
+        Writes data/paper_last_cycle_ts_{strategy_id}.json with the UTC ISO 8601
+        timestamp.  Atomic write (write-then-rename) so a crash mid-write leaves
+        the prior file intact.
+
+        Clock source: the caller provides ts = datetime.now(timezone.utc) captured
+        during _accrue_swap.  We do NOT call now() here — the caller owns the
+        clock call so the same timestamp is used both in the swap calculation and
+        in the persisted file (no drift between the two).
+
+        Args:
+            strategy_id: Strategy identifier.
+            ts: UTC-aware datetime to persist.
+        """
+        path = PaperRunnerBase._last_cycle_ts_path(strategy_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "last_cycle_ts_utc": ts.isoformat(),
+            "strategy_id": strategy_id,
+            "clock_source": "wall_utc",
+        }
+        # Atomic write-then-rename (matches write_heartbeat pattern in paper scripts).
+        try:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=path.parent, prefix=f".paper_last_cycle_ts_{strategy_id}_tmp_"
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(payload, f)
+                os.replace(tmp_path, path)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+            logger.debug(
+                "swap_ts.persist strategy_id=%s ts=%s path=%s",
+                strategy_id,
+                ts.isoformat(),
+                str(path),
+            )
+        except OSError as exc:
+            # Non-fatal: log warning, continue.  Missing persist means next restart
+            # reverts to first-cycle behaviour (swap=0) for one cycle — degraded but
+            # safe; carrying forward a bad ts would be worse.
+            logger.warning(
+                "swap_ts.persist strategy_id=%s outcome=WRITE_ERROR exc=%s path=%s",
+                strategy_id,
+                repr(exc),
+                str(path),
+                extra={
+                    "event": "SWAP_TS_PERSIST_ERROR",
+                    "strategy_id": strategy_id,
+                    "path": str(path),
+                    "exc": repr(exc),
+                },
+            )
 
     # ---------------------------------------------------------------------------
     # F-005 / D-4.1: Dispatch stagger config validation

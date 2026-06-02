@@ -41,6 +41,8 @@ def _make_rubric(tmp_path: Path, **overrides) -> NhtRubric:
         "r2_dsr_lt": 0.50,
         "r3_max_dd_gt": 0.25,
         "r5_permutation_pvalue_gt": 0.05,
+        "r5_window_percentile_gt": 0.90,
+        "r5_spa_pvalue_gt": 0.05,
         "r6_n_trades_lt": 30,
         "r6_n_oos_bars_lt": 252,
     }
@@ -60,6 +62,7 @@ def _make_pre_reg(
     oos_overlap: bool = False,
     oos_window_start: str = "2020-01-01",
     oos_window_end: str = "2026-04-25",
+    r5_active: bool = False,
 ) -> PreRegistrationSpec:
     return PreRegistrationSpec(
         strategy=strategy,
@@ -72,6 +75,7 @@ def _make_pre_reg(
         oos_overlap=oos_overlap,
         oos_window_start=oos_window_start,
         oos_window_end=oos_window_end,
+        r5_active=r5_active,
     )
 
 
@@ -276,10 +280,44 @@ class TestMissingRubricFile:
             # r2_dsr_lt intentionally missing
             "r3_max_dd_gt": 0.25,
             "r5_permutation_pvalue_gt": 0.05,
+            "r5_window_percentile_gt": 0.90,
+            "r5_spa_pvalue_gt": 0.05,
             "r6_n_trades_lt": 30,
             "r6_n_oos_bars_lt": 252,
         }))
         with pytest.raises(ConfigError, match="r2_dsr_lt"):
+            NhtRubric.load_from_yaml(partial)
+
+    def test_missing_r5_window_field_in_rubric_raises(self, tmp_path: Path):
+        """Rubric YAML missing r5_window_percentile_gt raises ConfigError."""
+        partial = tmp_path / "partial2.yaml"
+        partial.write_text(yaml.dump({
+            "r1_oos_sharpe_lt": 0.30,
+            "r2_dsr_lt": 0.50,
+            "r3_max_dd_gt": 0.25,
+            "r5_permutation_pvalue_gt": 0.05,
+            # r5_window_percentile_gt intentionally missing
+            "r5_spa_pvalue_gt": 0.05,
+            "r6_n_trades_lt": 30,
+            "r6_n_oos_bars_lt": 252,
+        }))
+        with pytest.raises(ConfigError, match="r5_window_percentile_gt"):
+            NhtRubric.load_from_yaml(partial)
+
+    def test_missing_r5_spa_field_in_rubric_raises(self, tmp_path: Path):
+        """Rubric YAML missing r5_spa_pvalue_gt raises ConfigError."""
+        partial = tmp_path / "partial3.yaml"
+        partial.write_text(yaml.dump({
+            "r1_oos_sharpe_lt": 0.30,
+            "r2_dsr_lt": 0.50,
+            "r3_max_dd_gt": 0.25,
+            "r5_permutation_pvalue_gt": 0.05,
+            "r5_window_percentile_gt": 0.90,
+            # r5_spa_pvalue_gt intentionally missing
+            "r6_n_trades_lt": 30,
+            "r6_n_oos_bars_lt": 252,
+        }))
+        with pytest.raises(ConfigError, match="r5_spa_pvalue_gt"):
             NhtRubric.load_from_yaml(partial)
 
 
@@ -302,6 +340,98 @@ class TestPermutationAspirational:
         verdict = evaluate(metrics, pre_reg, rubric)
         assert verdict.passed is False
         assert "R5-Permutation" in verdict.triggered
+
+
+class TestR5Active:
+    """R5-active strategies: missing R5 fields raise MissingMetricError."""
+
+    def test_r5_active_missing_permutation_pvalue_raises(self, tmp_path: Path):
+        """R5-active strategy missing permutation_pvalue → MissingMetricError."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        # GOOD_METRICS has no R5 fields
+        with pytest.raises(MissingMetricError, match="permutation_pvalue"):
+            evaluate(GOOD_METRICS, pre_reg, rubric)
+
+    def test_r5_active_missing_r5b_metric_raises(self, tmp_path: Path):
+        """R5-active strategy missing r5b_window_percentile → MissingMetricError."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        metrics = {**GOOD_METRICS, "permutation_pvalue": 0.01}
+        # r5b_window_percentile still missing
+        with pytest.raises(MissingMetricError, match="r5b_window_percentile"):
+            evaluate(metrics, pre_reg, rubric)
+
+    def test_r5_active_missing_r5c_metric_raises(self, tmp_path: Path):
+        """R5-active strategy missing r5c_spa_pvalue_consistent → MissingMetricError."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        metrics = {
+            **GOOD_METRICS,
+            "permutation_pvalue": 0.01,
+            "r5b_window_percentile": 0.50,
+        }
+        with pytest.raises(MissingMetricError, match="r5c_spa_pvalue_consistent"):
+            evaluate(metrics, pre_reg, rubric)
+
+    def test_r5_active_all_fields_present_no_error(self, tmp_path: Path):
+        """R5-active with all R5 fields present → evaluates normally."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        metrics = {
+            **GOOD_METRICS,
+            "permutation_pvalue": 0.01,       # passes R5a
+            "r5b_window_percentile": 0.50,    # passes R5b (< 0.90)
+            "r5c_spa_pvalue_consistent": 0.01, # passes R5c
+        }
+        verdict = evaluate(metrics, pre_reg, rubric)
+        assert verdict.passed is True
+
+    def test_r5_active_fires_when_r5b_window_pct_high(self, tmp_path: Path):
+        """R5b fires when r5b_window_percentile >= 0.90 for R5-active strategy."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        metrics = {
+            **GOOD_METRICS,
+            "permutation_pvalue": 0.01,
+            "r5b_window_percentile": 0.95,    # fails R5b (>= 0.90)
+            "r5c_spa_pvalue_consistent": 0.01,
+        }
+        verdict = evaluate(metrics, pre_reg, rubric)
+        assert verdict.passed is False
+        assert "R5b-WindowPct" in verdict.triggered
+
+    def test_r5_active_fires_when_spa_pvalue_high(self, tmp_path: Path):
+        """R5c fires when r5c_spa_pvalue_consistent > 0.05 for R5-active strategy."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=True)
+        metrics = {
+            **GOOD_METRICS,
+            "permutation_pvalue": 0.01,
+            "r5b_window_percentile": 0.50,
+            "r5c_spa_pvalue_consistent": 0.20,  # fails R5c
+        }
+        verdict = evaluate(metrics, pre_reg, rubric)
+        assert verdict.passed is False
+        assert "R5c-SPA" in verdict.triggered
+
+    def test_non_r5_active_r5_fields_optional(self, tmp_path: Path):
+        """Non-R5-active strategy with R5 fields present: evaluated opportunistically."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=False)
+        # permutation_pvalue failing — should still fire
+        metrics = {**GOOD_METRICS, "permutation_pvalue": 0.20}
+        verdict = evaluate(metrics, pre_reg, rubric)
+        assert verdict.passed is False
+        assert "R5-Permutation" in verdict.triggered
+
+    def test_non_r5_active_missing_r5_fields_no_error(self, tmp_path: Path):
+        """Non-R5-active strategy missing R5 fields: no error (backward compat)."""
+        rubric = _make_rubric(tmp_path)
+        pre_reg = _make_pre_reg(r5_active=False)
+        # No R5 fields → should pass without raising
+        verdict = evaluate(GOOD_METRICS, pre_reg, rubric)
+        assert verdict.passed is True
 
 
 class TestVerdictImmutability:

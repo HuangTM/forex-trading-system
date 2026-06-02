@@ -44,13 +44,16 @@ Structured-log keys emitted on every assess() call:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
 import threading
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Callable, List, Optional
+from pathlib import Path
+from typing import List, Optional
 
 logger = logging.getLogger("drawdown_contract")
 
@@ -71,8 +74,8 @@ class StaleEquitySnapshotError(Exception):
 class DrawdownLevel(Enum):
     NORMAL = "normal"
     HALT_NEW_DISPATCH = "halt_new_dispatch"  # DD >= halt_threshold (10%)
-    REDUCE_SIZING = "reduce_sizing"           # DD >= reduce_threshold (15%)
-    FULL_HALT = "full_halt"                   # DD >= full_halt_threshold (20%)
+    REDUCE_SIZING = "reduce_sizing"  # DD >= reduce_threshold (15%)
+    FULL_HALT = "full_halt"  # DD >= full_halt_threshold (20%)
 
 
 @dataclass(frozen=True)
@@ -87,19 +90,122 @@ class DrawdownAssessment:
 
     current_equity: float
     peak_equity: float
-    drawdown_pct: float         # 0.0 to 1.0; positive means drawdown from peak
+    drawdown_pct: float  # 0.0 to 1.0; positive means drawdown from peak
     level: DrawdownLevel
-    sizing_multiplier: float    # 1.0 at NORMAL/HALT_NEW; 0.5 at REDUCE_SIZING; 0.0 at FULL_HALT
-    allows_new_dispatch: bool   # True only at NORMAL
+    sizing_multiplier: float  # 1.0 at NORMAL/HALT_NEW; 0.5 at REDUCE_SIZING; 0.0 at FULL_HALT
+    allows_new_dispatch: bool  # True only at NORMAL
 
 
 # Sizing multipliers per level — sourced from CRO Wave-4 binding; no silent defaults.
 _SIZING_BY_LEVEL: dict[DrawdownLevel, float] = {
     DrawdownLevel.NORMAL: 1.0,
-    DrawdownLevel.HALT_NEW_DISPATCH: 1.0,   # existing positions held; no NEW dispatch
+    DrawdownLevel.HALT_NEW_DISPATCH: 1.0,  # existing positions held; no NEW dispatch
     DrawdownLevel.REDUCE_SIZING: 0.5,
     DrawdownLevel.FULL_HALT: 0.0,
 }
+
+# CRO VETO #4 / BC-COST-RECON: Sentinel that identifies mock/paper backend equity.
+# DrawdownContract.assess() MUST NOT update _peak_equity from mock sentinel rows.
+_DD_MOCK_EQUITY_SENTINEL: float = 100_000.0
+
+# ---------------------------------------------------------------------------
+# Peak high-water mark persistence helpers (CRO VETO #5)
+#
+# _peak_equity initialises to 0.0 on every new process (init=False), so a
+# restart mid-drawdown rebuilds the peak from the first post-restart equity and
+# BLINDS the drawdown ladder for the entire recovery period.  We persist the
+# peak atomically across restarts and take max(persisted_peak, current) on load.
+# ---------------------------------------------------------------------------
+
+
+def _peak_state_path(strategy_id: str) -> Path:
+    """Return the canonical path for the strategy's DrawdownContract peak state file.
+
+    Convention: data/dd_peak_{strategy_id}.json
+    """
+    safe_id = strategy_id.replace("/", "_").replace(" ", "_")
+    return Path(f"data/dd_peak_{safe_id}.json")
+
+
+def _load_persisted_peak(strategy_id: str) -> float:
+    """Load the persisted high-water mark for strategy_id.
+
+    Returns the stored peak (float ≥ 0) if the file exists and is valid,
+    0.0 otherwise (first run or corrupt file — safe: next real equity will
+    establish the peak, meaning at most one cycle with no draw-down guard
+    rather than permanently blind).
+
+    Clock/sanity guard: if stored_peak is negative or NaN/inf, returns 0.0.
+    """
+    path = _peak_state_path(strategy_id)
+    if not path.exists():
+        return 0.0
+    try:
+        payload = json.loads(path.read_text())
+        peak = float(payload.get("peak_equity", 0.0))
+        if peak < 0.0 or not (peak == peak):  # NaN guard
+            logger.warning(
+                "dd_peak.load strategy_id=%s stored_peak=%.4f is invalid — using 0.0",
+                strategy_id,
+                peak,
+            )
+            return 0.0
+        return peak
+    except (KeyError, ValueError, json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "dd_peak.load strategy_id=%s outcome=PARSE_ERROR exc=%s — using 0.0",
+            strategy_id,
+            repr(exc),
+        )
+        return 0.0
+
+
+def _persist_peak(strategy_id: str, peak: float) -> None:
+    """Persist the drawdown high-water mark atomically (write-then-rename).
+
+    Non-fatal: logs a warning on OS error and continues. A missed write
+    means the next restart loses the peak for one cycle — degraded but safe.
+    """
+    path = _peak_state_path(strategy_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "strategy_id": strategy_id,
+        "peak_equity": peak,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".dd_peak_{strategy_id}_tmp_",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        logger.debug(
+            "dd_peak.persist strategy_id=%s peak=%.4f path=%s",
+            strategy_id,
+            peak,
+            str(path),
+        )
+    except OSError as exc:
+        logger.warning(
+            "dd_peak.persist strategy_id=%s outcome=WRITE_ERROR exc=%s",
+            strategy_id,
+            repr(exc),
+            extra={
+                "event": "DD_PEAK_PERSIST_ERROR",
+                "strategy_id": strategy_id,
+                "peak_equity": peak,
+                "exc": repr(exc),
+            },
+        )
 
 
 @dataclass
@@ -138,9 +244,15 @@ class DrawdownContract:
         # apply sizing_multiplier to target_units downstream
     """
 
-    halt_threshold: float        # 0.10 — caller passes; no silent default
-    reduce_threshold: float      # 0.15
-    full_halt_threshold: float   # 0.20
+    halt_threshold: float  # 0.10 — caller passes; no silent default
+    reduce_threshold: float  # 0.15
+    full_halt_threshold: float  # 0.20
+
+    # CRO VETO #5 / BC-COST-RECON: strategy_id enables peak persistence across
+    # restarts.  When provided, _peak_equity is loaded from disk at __post_init__
+    # and written atomically after every peak update.  When None (legacy / test
+    # paths), peak is in-process only (original behaviour — no regression).
+    strategy_id: Optional[str] = field(default=None)
 
     # Internal state — peak tracks the running high-water mark.
     _peak_equity: float = field(default=0.0, init=False)
@@ -154,26 +266,62 @@ class DrawdownContract:
                 f"0 < halt({self.halt_threshold}) < reduce({self.reduce_threshold}) "
                 f"< full_halt({self.full_halt_threshold}) < 1.0"
             )
+        # CRO VETO #5: load persisted peak at startup.
+        # Takes max(persisted_peak, 0.0) so a restart mid-drawdown does NOT erase
+        # the high-water mark.  If strategy_id is None (legacy), peak stays 0.0.
+        if self.strategy_id:
+            persisted = _load_persisted_peak(self.strategy_id)
+            if persisted > 0.0:
+                self._peak_equity = persisted
+                logger.info(
+                    "dd_contract.init strategy_id=%s loaded_persisted_peak=%.4f",
+                    self.strategy_id,
+                    persisted,
+                    extra={
+                        "event": "DD_PEAK_LOADED",
+                        "strategy_id": self.strategy_id,
+                        "persisted_peak": persisted,
+                    },
+                )
 
-    def assess(self, current_equity: float) -> DrawdownAssessment:
+    def assess(self, current_equity: float, *, is_mock: bool = False) -> DrawdownAssessment:
         """Evaluate current drawdown and return a DrawdownAssessment.
 
-        Updates the running peak if current_equity > _peak_equity.
+        Updates the running peak if current_equity > _peak_equity AND the cycle
+        is not a mock/sentinel cycle (CRO VETO #4).  Persists the updated peak
+        atomically if strategy_id was provided (CRO VETO #5).
+
         Classifies the drawdown into one of four DrawdownLevel values.
         Emits one structured log line per call including level transitions.
 
         Args:
             current_equity: The current account equity (same currency as the
                 initial equity — fetched from broker each cycle).
+            is_mock: If True, the peak is NOT updated (CRO VETO #4: mock rows must
+                not set the high-water mark). The drawdown computation still runs
+                against the existing peak so the contract remains conservative.
+                Callers MUST pass is_mock=True explicitly when the equity snapshot
+                comes from a mock/test backend. The sentinel value 100_000.0 is NOT
+                auto-detected here because it is a common real-equity value and
+                auto-detection would break legitimate assess() calls.
 
         Returns:
             DrawdownAssessment with level, sizing_multiplier, and allows_new_dispatch.
         """
+        # CRO VETO #4: mock guard — caller-asserted only (no auto-sentinel here).
+        _is_mock = is_mock
+        peak_updated = False
+
         with self._lock:
-            if current_equity > self._peak_equity:
+            if not _is_mock and current_equity > self._peak_equity:
                 self._peak_equity = current_equity
+                peak_updated = True
             peak = self._peak_equity
             previous_level = self._last_level
+
+        # CRO VETO #5: persist updated peak atomically.
+        if peak_updated and self.strategy_id:
+            _persist_peak(self.strategy_id, peak)
 
         if peak <= 0.0:
             # Defensive: cannot compute drawdown without a positive peak.
@@ -252,11 +400,12 @@ class DrawdownContract:
 
 class AggregateDDLevel(Enum):
     """Aggregate drawdown ladder rungs per CRO R-7.1."""
+
     NORMAL = "normal"
-    WARN = "warn"           # DD >= 4%: log only
-    HALVE = "halve"         # DD >= 8%: aggregate sizing_multiplier = 0.5
-    HALT = "halt"           # DD >= 12%: halt new dispatch ALL strategies
-    LOCKOUT = "lockout"     # DD >= 15%: force flat ALL strategies; frozen state
+    WARN = "warn"  # DD >= 4%: log only
+    HALVE = "halve"  # DD >= 8%: aggregate sizing_multiplier = 0.5
+    HALT = "halt"  # DD >= 12%: halt new dispatch ALL strategies
+    LOCKOUT = "lockout"  # DD >= 15%: force flat ALL strategies; frozen state
 
 
 @dataclass(frozen=True)
@@ -271,22 +420,120 @@ class AggregateDrawdownAssessment:
 
     current_aggregate_equity: float
     peak_aggregate_equity: float
-    aggregate_drawdown_pct: float    # 0.0 to 1.0; positive means drawdown from peak
+    aggregate_drawdown_pct: float  # 0.0 to 1.0; positive means drawdown from peak
     level: AggregateDDLevel
-    sizing_multiplier: float         # 1.0 (normal/warn), 0.5 (halve), 0.0 (halt/lockout)
-    allows_new_dispatch: bool        # False at HALT and LOCKOUT
-    force_flat: bool                 # True only at LOCKOUT
-    contributing_strategies: list    # list of strategy_id strings feeding into this assessment
+    sizing_multiplier: float  # 1.0 (normal/warn), 0.5 (halve), 0.0 (halt/lockout)
+    allows_new_dispatch: bool  # False at HALT and LOCKOUT
+    force_flat: bool  # True only at LOCKOUT
+    contributing_strategies: list  # list of strategy_id strings feeding into this assessment
 
 
 # Sizing multipliers per aggregate level — CRO R-7.1
 _AGGREGATE_SIZING_BY_LEVEL: dict[AggregateDDLevel, float] = {
     AggregateDDLevel.NORMAL: 1.0,
-    AggregateDDLevel.WARN: 1.0,    # warn only; no sizing change
-    AggregateDDLevel.HALVE: 0.5,   # multiplicative halving
-    AggregateDDLevel.HALT: 0.0,    # no new dispatch; existing positions held
-    AggregateDDLevel.LOCKOUT: 0.0, # force flat; frozen state
+    AggregateDDLevel.WARN: 1.0,  # warn only; no sizing change
+    AggregateDDLevel.HALVE: 0.5,  # multiplicative halving
+    AggregateDDLevel.HALT: 0.0,  # no new dispatch; existing positions held
+    AggregateDDLevel.LOCKOUT: 0.0,  # force flat; frozen state
 }
+
+
+# ---------------------------------------------------------------------------
+# Aggregate peak high-water mark persistence helpers (Gap-2 / CRO VETO #5 class)
+#
+# AggregateDrawdownContract._peak_equity re-anchors to 0.0 on every process
+# restart, so a restart mid-drawdown blinds the LTCM-class aggregate ladder
+# for the entire recovery period — the same kill-switch-blindness CRO vetoed
+# for per-strategy DrawdownContract.  Apply the identical pattern here.
+# ---------------------------------------------------------------------------
+
+_AGG_PEAK_FILE_NAME = "dd_agg_peak.json"
+
+
+def _agg_peak_state_path() -> Path:
+    """Return the canonical path for the AggregateDrawdownContract peak state file.
+
+    Convention: data/dd_agg_peak.json  (one aggregate contract per deployment).
+    """
+    return Path("data") / _AGG_PEAK_FILE_NAME
+
+
+def _load_agg_persisted_peak() -> float:
+    """Load the persisted aggregate high-water mark.
+
+    Returns the stored peak (float ≥ 0) if the file exists and is valid,
+    0.0 otherwise (first run or corrupt file — safe: next real equity will
+    establish the peak, meaning at most one cycle with no draw-down guard
+    rather than permanently blind).
+    """
+    path = _agg_peak_state_path()
+    if not path.exists():
+        return 0.0
+    try:
+        payload = json.loads(path.read_text())
+        peak = float(payload.get("peak_equity", 0.0))
+        if peak < 0.0 or not (peak == peak):  # NaN guard
+            logger.warning(
+                "dd_agg_peak.load stored_peak=%.4f is invalid — using 0.0",
+                peak,
+            )
+            return 0.0
+        return peak
+    except (KeyError, ValueError, json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "dd_agg_peak.load outcome=PARSE_ERROR exc=%s — using 0.0",
+            repr(exc),
+        )
+        return 0.0
+
+
+def _persist_agg_peak(peak: float, *, _state_path_override: Optional[Path] = None) -> None:
+    """Persist the aggregate drawdown high-water mark atomically (write-then-rename).
+
+    Non-fatal: logs a warning on OS error and continues. A missed write
+    means the next restart loses the peak for one cycle — degraded but safe.
+
+    Args:
+        peak:                 The aggregate peak to persist.
+        _state_path_override: If provided, write to this path instead of the
+                              canonical path (used in tests via mock patching).
+    """
+    path = _state_path_override if _state_path_override is not None else _agg_peak_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "peak_equity": peak,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=".dd_agg_peak_tmp_",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        logger.debug(
+            "dd_agg_peak.persist peak=%.4f path=%s",
+            peak,
+            str(path),
+        )
+    except OSError as exc:
+        logger.warning(
+            "dd_agg_peak.persist outcome=WRITE_ERROR exc=%s",
+            repr(exc),
+            extra={
+                "event": "DD_AGG_PEAK_PERSIST_ERROR",
+                "peak_equity": peak,
+                "exc": repr(exc),
+            },
+        )
 
 
 @dataclass
@@ -327,18 +574,23 @@ class AggregateDrawdownContract:
                             triggers kill_switch.trigger(DRAWDOWN_AGGREGATE_LOCKOUT).
         n_strategies_max:   Maximum number of strategies for startup assertion
                             (INV-R7-3 tighter-than-N×per-strategy check).
+        persist_peak:       If True (default), the aggregate peak is persisted
+                            atomically to data/dd_agg_peak.json and loaded on
+                            __post_init__ so restarts mid-drawdown do NOT blind
+                            the aggregate ladder (Gap-2 / CRO VETO #5 class).
+                            Set False in tests that mock the filesystem.
 
     INV-R7-3: Startup assertion verifies aggregate thresholds are strictly tighter
     than N × per_strategy_thresholds. This fires at contract instantiation time.
     """
 
-    warn_threshold: float = 0.04      # 4% — CRO R-7.1
-    halve_threshold: float = 0.08     # 8% — CRO R-7.1
-    halt_threshold: float = 0.12      # 12% — CRO R-7.1
-    lockout_threshold: float = 0.15   # 15% — CRO R-7.1
+    warn_threshold: float = 0.04  # 4% — CRO R-7.1
+    halve_threshold: float = 0.08  # 8% — CRO R-7.1
+    halt_threshold: float = 0.12  # 12% — CRO R-7.1
+    lockout_threshold: float = 0.15  # 15% — CRO R-7.1
 
     # Per-strategy thresholds (for INV-R7-3 startup assertion)
-    per_strategy_halt_threshold: float = 0.10    # 10% per-strategy halt
+    per_strategy_halt_threshold: float = 0.10  # 10% per-strategy halt
     per_strategy_full_halt_threshold: float = 0.20  # 20% per-strategy full halt
     n_strategies_max: int = 4
 
@@ -350,6 +602,11 @@ class AggregateDrawdownContract:
     # StaleEquitySnapshotError. 60s is the contract-level guard per F-004 spec.
     staleness_budget_seconds: float = 60.0
 
+    # Gap-2 / CRO VETO #5 class: persist_peak enables atomic peak persistence so
+    # that a restart mid-drawdown does NOT blind the aggregate ladder.
+    # Default True for production; tests set False to avoid filesystem I/O.
+    persist_peak: bool = True
+
     # Internal state
     _peak_equity: float = field(default=0.0, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
@@ -360,8 +617,14 @@ class AggregateDrawdownContract:
 
     def __post_init__(self) -> None:
         """Validate thresholds and enforce INV-R7-3 startup assertion."""
-        if not (0.0 < self.warn_threshold < self.halve_threshold
-                < self.halt_threshold < self.lockout_threshold < 1.0):
+        if not (
+            0.0
+            < self.warn_threshold
+            < self.halve_threshold
+            < self.halt_threshold
+            < self.lockout_threshold
+            < 1.0
+        ):
             raise ValueError(
                 f"AggregateDrawdownContract thresholds must satisfy "
                 f"0 < warn({self.warn_threshold}) < halve({self.halve_threshold}) "
@@ -382,12 +645,29 @@ class AggregateDrawdownContract:
             f"{n * self.per_strategy_full_halt_threshold})."
         )
 
+        # Gap-2 / CRO VETO #5 class: load persisted aggregate peak at startup.
+        # Takes max(persisted_peak, 0.0) so a restart mid-drawdown does NOT erase
+        # the high-water mark.  When persist_peak=False (test paths), peak stays 0.0.
+        if self.persist_peak:
+            persisted = _load_agg_persisted_peak()
+            if persisted > 0.0:
+                self._peak_equity = persisted
+                logger.info(
+                    "dd_agg_contract.init loaded_persisted_peak=%.4f",
+                    persisted,
+                    extra={
+                        "event": "DD_AGG_PEAK_LOADED",
+                        "persisted_peak": persisted,
+                    },
+                )
+
     def update_equity(
         self,
         aggregate_equity: float,
         *,
         snapshot_timestamp: Optional[datetime] = None,
         contributing_strategies: Optional[List[str]] = None,
+        is_mock: bool = False,
     ) -> AggregateDrawdownAssessment:
         """Update aggregate equity and evaluate the drawdown ladder.
 
@@ -412,6 +692,18 @@ class AggregateDrawdownContract:
                 a WARNING is emitted when omitted.
             contributing_strategies: List of strategy_id strings that contributed
                 to this equity snapshot (for observability).
+            is_mock: F1 / CRO VETO #4 mirror for the aggregate contract.
+                If True, the aggregate _peak_equity is NOT updated and
+                _persist_agg_peak is NOT called — identical guard semantics to
+                DrawdownContract.assess(is_mock=True). The drawdown computation
+                still runs against the existing peak so the contract remains
+                conservative. Callers MUST pass is_mock=True when the equity
+                snapshot comes from a mock/test cycle (i.e. the same _cycle_is_mock
+                flag used for per-strategy DrawdownContract.assess). This prevents
+                a 100_000.0 mock sentinel from advancing _peak_equity and poisoning
+                the persisted dd_agg_peak.json (the F1 bug: aggregate mock-poisoning).
+                CRO VETO #1 is preserved: the broker equity series watched by the
+                aggregate contract is unchanged — only PEAK ADVANCEMENT is gated.
 
         Returns:
             AggregateDrawdownAssessment with level, sizing_multiplier, and actions.
@@ -461,13 +753,25 @@ class AggregateDrawdownContract:
                 "F-004: potential broker cache hit on stale equity value."
             )
 
+        agg_peak_updated = False
         with self._lock:
-            if aggregate_equity > self._peak_equity:
+            # F1 / CRO VETO #4 mirror: do NOT advance peak on mock cycles.
+            # A 100_000.0 mock sentinel must not become the aggregate high-water mark
+            # and must not be written to dd_agg_peak.json — same guard as
+            # DrawdownContract.assess(is_mock=True). Peak advancement is skipped;
+            # drawdown evaluation still runs against the existing peak (conservative).
+            if not is_mock and aggregate_equity > self._peak_equity:
                 self._peak_equity = aggregate_equity
+                agg_peak_updated = True
             peak = self._peak_equity
             self._contributing_strategies = list(contrib)
             previous_level = self._last_level
             self._last_snapshot_timestamp = snapshot_timestamp
+
+        # Gap-2 / CRO VETO #5 class: persist updated aggregate peak atomically.
+        # Skip persist when is_mock=True — mock cycles must not write to disk.
+        if agg_peak_updated and self.persist_peak:
+            _persist_agg_peak(peak)
 
         if peak <= 0.0:
             dd_pct = 0.0
@@ -511,9 +815,11 @@ class AggregateDrawdownContract:
                 "contract_type": "aggregate",
                 "strategy_id": None,
                 "current_drawdown_pct": round(dd_pct, 6),
-                "threshold_pct": self.halt_threshold if level == AggregateDDLevel.HALT
-                    else self.lockout_threshold if level == AggregateDDLevel.LOCKOUT
-                    else self.halve_threshold,
+                "threshold_pct": self.halt_threshold
+                if level == AggregateDDLevel.HALT
+                else self.lockout_threshold
+                if level == AggregateDDLevel.LOCKOUT
+                else self.halve_threshold,
                 "peak_equity": peak,
                 "current_equity": aggregate_equity,
                 "level": level.value,
@@ -524,33 +830,40 @@ class AggregateDrawdownContract:
                     "AGGREGATE_DRAWDOWN_LOCKOUT dd=%.4f threshold=%.4f "
                     "contributing_strategies=%s — ALL strategies force-flat; "
                     "pending CRO review",
-                    dd_pct, self.lockout_threshold, contrib,
+                    dd_pct,
+                    self.lockout_threshold,
+                    contrib,
                     extra=log_extra,
                 )
             elif level == AggregateDDLevel.HALT:
                 logger.critical(
                     "AGGREGATE_DRAWDOWN_HALT dd=%.4f threshold=%.4f "
                     "contributing_strategies=%s — halting new dispatch ALL strategies",
-                    dd_pct, self.halt_threshold, contrib,
+                    dd_pct,
+                    self.halt_threshold,
+                    contrib,
                     extra=log_extra,
                 )
             elif level == AggregateDDLevel.HALVE:
                 logger.warning(
                     "AGGREGATE_DRAWDOWN_HALVE dd=%.4f threshold=%.4f — "
                     "aggregate sizing_multiplier=0.5 for ALL strategies",
-                    dd_pct, self.halve_threshold,
+                    dd_pct,
+                    self.halve_threshold,
                     extra=log_extra,
                 )
             elif level == AggregateDDLevel.WARN:
                 logger.warning(
                     "AGGREGATE_DRAWDOWN_WARN dd=%.4f threshold=%.4f — warn only",
-                    dd_pct, self.warn_threshold,
+                    dd_pct,
+                    self.warn_threshold,
                     extra=log_extra,
                 )
             else:
                 logger.info(
                     "AGGREGATE_DRAWDOWN_NORMAL dd=%.4f (recovered from %s)",
-                    dd_pct, previous_level.value,
+                    dd_pct,
+                    previous_level.value,
                     extra=log_extra,
                 )
 
@@ -559,6 +872,7 @@ class AggregateDrawdownContract:
             ks = self.kill_switch
             if level == AggregateDDLevel.HALT and not ks.is_triggered:
                 from forex_system.risk.kill_switch import TriggerReason
+
                 ks.trigger(
                     TriggerReason.DRAWDOWN_AGGREGATE_HALT,
                     f"aggregate_dd={dd_pct:.4f} >= halt_threshold={self.halt_threshold:.4f}",
@@ -566,6 +880,7 @@ class AggregateDrawdownContract:
                 )
             elif level == AggregateDDLevel.LOCKOUT and not ks.is_triggered:
                 from forex_system.risk.kill_switch import TriggerReason
+
                 ks.trigger(
                     TriggerReason.DRAWDOWN_AGGREGATE_LOCKOUT,
                     f"aggregate_dd={dd_pct:.4f} >= lockout_threshold={self.lockout_threshold:.4f}",
@@ -602,6 +917,7 @@ class ContractAssessment:
     Both DrawdownAssessment and AggregateDrawdownAssessment carry these three
     fields; this dataclass gives compose_dispatch_decision a uniform interface.
     """
+
     sizing: float
     dispatch_allowed: bool
     force_flat: bool
@@ -616,6 +932,7 @@ class ComposedDecision:
         effective_dispatch_allowed = per_strategy.dispatch_allowed AND aggregate.dispatch_allowed
         effective_force_flat       = per_strategy.force_flat OR aggregate.force_flat
     """
+
     effective_sizing: float
     effective_dispatch_allowed: bool
     effective_force_flat: bool
@@ -656,11 +973,15 @@ def compose_dispatch_decision(
         "per_strategy_sizing=%.2f per_strategy_dispatch=%s per_strategy_flat=%s "
         "aggregate_sizing=%.2f aggregate_dispatch=%s aggregate_flat=%s "
         "effective_sizing=%.2f effective_dispatch=%s effective_flat=%s",
-        per_strategy_assess.sizing, per_strategy_assess.dispatch_allowed,
+        per_strategy_assess.sizing,
+        per_strategy_assess.dispatch_allowed,
         per_strategy_assess.force_flat,
-        aggregate_assess.sizing, aggregate_assess.dispatch_allowed,
+        aggregate_assess.sizing,
+        aggregate_assess.dispatch_allowed,
         aggregate_assess.force_flat,
-        effective_sizing, effective_dispatch_allowed, effective_force_flat,
+        effective_sizing,
+        effective_dispatch_allowed,
+        effective_force_flat,
     )
 
     return ComposedDecision(

@@ -68,6 +68,7 @@ from forex_system.core.config import load_config
 from forex_system.core.types import Direction
 from forex_system.costs.model import RealisticCostModel
 from forex_system.paper.base_runner import PaperRunnerBase
+from forex_system.paper.cost_reconciliation import ModeledEquityLedger, ledger_from_config
 from forex_system.risk.account_key_parity import (
     reset_account_key_lock,
 )
@@ -107,6 +108,7 @@ EQUITY_LOG_PATH = "data/paper_trading_session.log"
 # implementation now lives in PaperRunnerBase / upstream modules.
 # ---------------------------------------------------------------------------
 
+
 def assert_account_key_parity(
     account_key: str,
     *,
@@ -120,6 +122,7 @@ def assert_account_key_parity(
     """
     from forex_system.paper.script_compat_shims import assert_account_key_parity_impl
     from forex_system.risk.account_key_parity import ACCOUNT_KEY_LOCK_PATH
+
     assert_account_key_parity_impl(
         account_key,
         lock_path=lock_path if lock_path is not None else ACCOUNT_KEY_LOCK_PATH,
@@ -137,6 +140,12 @@ _COST_MODEL = RealisticCostModel()
 
 # HIGH-1 swap accrual: track wall-clock timestamp of most recent equity-write
 # so per-cycle days-elapsed can be derived for swap accumulation.
+# Persisted to disk (data/paper_last_cycle_ts_carry_fred.json) so the
+# timestamp survives process restarts.  Loaded at startup via
+# PaperRunnerBase.load_last_cycle_ts(); written after each cycle via
+# PaperRunnerBase.persist_last_cycle_ts().
+# Clock source: UTC wall clock (datetime.now(timezone.utc)) in _accrue_swap.
+_LAST_CYCLE_TS_STRATEGY_ID = "carry_fred"
 _last_cycle_ts: datetime | None = None
 
 # ---------------------------------------------------------------------------
@@ -157,9 +166,9 @@ CRO_WATCHDOG_TIMEOUT_SECONDS: float = 300.0
 # Calibrated against raw broker TotalValue per
 # docs/specs/drawdown_ladder_amendment_2026-05-06.md (CEO Decision 5 amendment).
 # DO NOT change without CRO + CEO CONSENSUS amendment.
-CRO_DD_HALT_NEW_THRESHOLD: float = 0.10    # DD ≥ 10% (broker TotalValue) → halt new dispatch
+CRO_DD_HALT_NEW_THRESHOLD: float = 0.10  # DD ≥ 10% (broker TotalValue) → halt new dispatch
 CRO_DD_REDUCE_SIZING_THRESHOLD: float = 0.15  # DD ≥ 15% (broker TotalValue) → 0.5x sizing
-CRO_DD_FULL_HALT_THRESHOLD: float = 0.20   # DD ≥ 20% (broker TotalValue) → full halt
+CRO_DD_FULL_HALT_THRESHOLD: float = 0.20  # DD ≥ 20% (broker TotalValue) → full halt
 
 # Sentinel return values for skip paths
 SKIP_REGIME_INACTIVE: str = "SKIP_REGIME_INACTIVE"
@@ -223,20 +232,22 @@ def _emit_ws02(
     """
     logger.info(
         "ws02 %s",
-        json.dumps({
-            "decision_ts": datetime.now(timezone.utc).isoformat(),
-            "cycle_id": cycle_id,
-            "pair": pair,
-            "signal": _finite_or_none(signal),
-            "equity": _finite_or_none(equity),
-            "price": _finite_or_none(price),
-            "target_units": _finite_or_none(target_units),
-            "current_units": _finite_or_none(current_units),
-            "regime_active": regime_active,
-            "size_multiplier": _finite_or_none(size_multiplier),
-            "action": action,
-            "strategy_params": strategy_params,
-        }),
+        json.dumps(
+            {
+                "decision_ts": datetime.now(timezone.utc).isoformat(),
+                "cycle_id": cycle_id,
+                "pair": pair,
+                "signal": _finite_or_none(signal),
+                "equity": _finite_or_none(equity),
+                "price": _finite_or_none(price),
+                "target_units": _finite_or_none(target_units),
+                "current_units": _finite_or_none(current_units),
+                "regime_active": regime_active,
+                "size_multiplier": _finite_or_none(size_multiplier),
+                "action": action,
+                "strategy_params": strategy_params,
+            }
+        ),
     )
 
 
@@ -253,8 +264,7 @@ def notify(topic: str | None, title: str, message: str, priority: str = "default
         requests.post(
             f"https://ntfy.sh/{topic}",
             data=message.encode("ascii", errors="replace"),
-            headers={"Title": safe_title, "Priority": priority,
-                     "Tags": "chart_with_upwards_trend"},
+            headers={"Title": safe_title, "Priority": priority, "Tags": "chart_with_upwards_trend"},
             timeout=10,
         )
     except Exception as e:
@@ -298,8 +308,9 @@ def write_heartbeat(
 HEARTBEAT_PATH = "data/heartbeat_carry_fred.json"
 
 
-def fetch_recent_bars(client: SaxoClient, pair: str, count: int = 300,
-                      horizon: str = "daily") -> pd.DataFrame:
+def fetch_recent_bars(
+    client: SaxoClient, pair: str, count: int = 300, horizon: str = "daily"
+) -> pd.DataFrame:
     data = client.get_chart_data(pair, horizon=horizon, count=count)
     bars = data.get("Data", [])
     if not bars:
@@ -364,6 +375,7 @@ def run_cycle(
     ntfy_topic: str | None = None,
     horizon: str = "daily",
     cycle_id: int | None = None,
+    cost_ledger: ModeledEquityLedger | None = None,
 ) -> dict:
     """Execute one Bet #1 carry_fred cycle.
 
@@ -384,6 +396,7 @@ def run_cycle(
     _runner_is_shim = runner is None
     if _runner_is_shim:
         from forex_system.paper.script_compat_shims import construct_default_runner
+
         runner = construct_default_runner(
             kill_switch=kill_switch,
             strategy_id="carry_fred",
@@ -426,8 +439,7 @@ def run_cycle(
     if not regime_active:
         # BC-1: size_multiplier = 0.0 means no trades when regime is inactive.
         # This is not an error — it is the expected steady-state for Bet #1.
-        _emit_ws02(cycle_id, pair, SKIP_REGIME_INACTIVE,
-                   regime_active=False, size_multiplier=0.0)
+        _emit_ws02(cycle_id, pair, SKIP_REGIME_INACTIVE, regime_active=False, size_multiplier=0.0)
         return {"_action": SKIP_REGIME_INACTIVE}
 
     # Regime is active; proceed with equity fetch and risk checks.
@@ -435,29 +447,56 @@ def run_cycle(
     if equity is None:
         if kill_switch.record_equity_fetch_failure():
             print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
-            _emit_ws02(cycle_id, pair, "KILL_HALTED_EQUITY_FETCH",
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "KILL_HALTED_EQUITY_FETCH",
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             backend.flatten_all()
-            notify(ntfy_topic, "KILL SWITCH - equity fetch failures",
-                   kill_switch.status_line, "urgent")
+            notify(
+                ntfy_topic, "KILL SWITCH - equity fetch failures", kill_switch.status_line, "urgent"
+            )
         else:
-            remaining = (kill_switch.max_consecutive_fetch_failures
-                         - kill_switch.consecutive_fetch_failures)
+            remaining = (
+                kill_switch.max_consecutive_fetch_failures - kill_switch.consecutive_fetch_failures
+            )
             print(f"\n  Skipping cycle — equity unavailable ({remaining} skips before halt)")
-            _emit_ws02(cycle_id, pair, "SKIP_EQUITY_FETCH_FAIL",
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_EQUITY_FETCH_FAIL",
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
         return {"_action": "SKIP"}
     kill_switch.record_equity_fetch_success()
 
     if kill_switch.check_and_trigger(equity):
         print(f"\n  KILL SWITCH TRIGGERED: {kill_switch.status_line}")
-        _emit_ws02(cycle_id, pair, "KILL_HALTED_DRAWDOWN", equity=equity,
-                   regime_active=regime_active, size_multiplier=size_multiplier)
+        _emit_ws02(
+            cycle_id,
+            pair,
+            "KILL_HALTED_DRAWDOWN",
+            equity=equity,
+            regime_active=regime_active,
+            size_multiplier=size_multiplier,
+        )
         backend.flatten_all()
         return {"_action": "KILL_HALTED"}
 
+    # Gap-3 / CRO VETO #4: compute the mock flag ONCE here using the single
+    # canonical predicate so every downstream consumer (dd_contract.assess,
+    # _check_aggregate_drawdown, and cost_ledger.update) shares the same detection
+    # logic without duplication.
+    # MC-6: PRIMARY signal is backend.is_mock (backend identity, not float equality).
+    # SaxoExecutionBackend.is_mock always returns False; test stubs override to True.
+    # Secondary: 100_000.0 sentinel retained in is_mock_cycle for defence-in-depth.
+    _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(equity, is_mock_backend=backend.is_mock)
+
     # --- CRO DD-1/DD-2/DD-3: drawdown contract ---
-    _dd = dd_contract.assess(equity)
+    _dd = dd_contract.assess(equity, is_mock=_cycle_is_mock)
     if _dd.level == DrawdownLevel.FULL_HALT:
         logger.critical(
             "drawdown_contract_full_halt",
@@ -469,8 +508,14 @@ def run_cycle(
                 "cycle_id": cycle_id,
             },
         )
-        _emit_ws02(cycle_id, pair, f"SKIP_DD_FULL_HALT_{_dd.drawdown_pct:.4f}",
-                   equity=equity, regime_active=regime_active, size_multiplier=0.0)
+        _emit_ws02(
+            cycle_id,
+            pair,
+            f"SKIP_DD_FULL_HALT_{_dd.drawdown_pct:.4f}",
+            equity=equity,
+            regime_active=regime_active,
+            size_multiplier=0.0,
+        )
         halt_paper_loop(reason=f"drawdown_full_halt_{_dd.drawdown_pct:.4f}")
         return {"_action": SKIP_DD_FULL_HALT}
     elif _dd.level == DrawdownLevel.HALT_NEW_DISPATCH:
@@ -484,8 +529,14 @@ def run_cycle(
                 "cycle_id": cycle_id,
             },
         )
-        _emit_ws02(cycle_id, pair, f"SKIP_DD_HALT_NEW_{_dd.drawdown_pct:.4f}",
-                   equity=equity, regime_active=regime_active, size_multiplier=size_multiplier)
+        _emit_ws02(
+            cycle_id,
+            pair,
+            f"SKIP_DD_HALT_NEW_{_dd.drawdown_pct:.4f}",
+            equity=equity,
+            regime_active=regime_active,
+            size_multiplier=size_multiplier,
+        )
         return {"_action": SKIP_DD_HALT_NEW}
     # REDUCE_SIZING: honor _dd.sizing_multiplier downstream by multiplying
     # target_units before execution.
@@ -493,12 +544,15 @@ def run_cycle(
     # COND-2: AggregateDrawdownContract per-bar update via PaperRunnerBase
     # Called with the same equity value fetched above so both contracts share
     # a single broker-receive-time snapshot (clock-and-ordering discipline).
+    # F1 / MC-6: pass _cycle_is_mock so the aggregate peak cannot be poisoned
+    # by the 100_000.0 mock sentinel — mirrors dd_contract.assess(is_mock=).
     _snapshot_ts = datetime.now(timezone.utc)
     _agg_dd_extra_multiplier = 1.0
     _agg_assess = runner._check_aggregate_drawdown(
         equity,
         ["carry_fred"],
         snapshot_timestamp=_snapshot_ts,
+        is_mock=_cycle_is_mock,
     )
     if _agg_assess is not None:
         if _agg_assess.force_flat:
@@ -512,8 +566,14 @@ def run_cycle(
                     "pair": pair,
                 },
             )
-            _emit_ws02(cycle_id, pair, "SKIP_AGGREGATE_DD_LOCKOUT", equity=equity,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_AGGREGATE_DD_LOCKOUT",
+                equity=equity,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             halt_paper_loop(reason=f"aggregate_dd_lockout_{_agg_assess.aggregate_drawdown_pct:.4f}")
             return {"_action": "SKIP_AGGREGATE_DD_LOCKOUT"}
         elif not _agg_assess.allows_new_dispatch:
@@ -527,8 +587,14 @@ def run_cycle(
                     "pair": pair,
                 },
             )
-            _emit_ws02(cycle_id, pair, "SKIP_AGGREGATE_DD_HALT", equity=equity,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_AGGREGATE_DD_HALT",
+                equity=equity,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             return {"_action": "SKIP_AGGREGATE_DD_HALT"}
         # Apply aggregate sizing multiplier (HALVE level) multiplicatively
         _agg_dd_extra_multiplier = _agg_assess.sizing_multiplier
@@ -542,6 +608,7 @@ def run_cycle(
             # Distinguish BUSY (lock held by another process) from FS_ERROR (OS error).
             # _DISPATCH_LOCK_FS_ERROR sentinel is yielded on OSError; False on LOCK_NB busy.
             from forex_system.paper.base_runner import _DISPATCH_LOCK_FS_ERROR
+
             if _dl_acquired is _DISPATCH_LOCK_FS_ERROR:
                 logger.warning(
                     "dispatch_lock.fs_error",
@@ -551,11 +618,21 @@ def run_cycle(
                         "pair": pair,
                     },
                 )
-                _emit_ws02(cycle_id, pair, SKIP_DISPATCH_LOCK_FS_ERROR,
-                           regime_active=regime_active, size_multiplier=size_multiplier)
+                _emit_ws02(
+                    cycle_id,
+                    pair,
+                    SKIP_DISPATCH_LOCK_FS_ERROR,
+                    regime_active=regime_active,
+                    size_multiplier=size_multiplier,
+                )
                 return {"_action": SKIP_DISPATCH_LOCK_FS_ERROR}
-            _emit_ws02(cycle_id, pair, SKIP_DISPATCH_LOCK_BUSY,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                SKIP_DISPATCH_LOCK_BUSY,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             return {"_action": SKIP_DISPATCH_LOCK_BUSY}
 
         # Lock held — all remaining work is inside this block.
@@ -569,6 +646,7 @@ def run_cycle(
                 AggregationGateBlocked,
                 compute_exposure,
             )
+
             _exposure = compute_exposure(_open_pos_list)
             _cond6_allowed = True
             try:
@@ -591,8 +669,14 @@ def run_cycle(
                 equity=equity,
             )
         if not _cond6_allowed:
-            _emit_ws02(cycle_id, pair, "SKIP_AGGREGATION_GATE_BLOCKED", equity=equity,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_AGGREGATION_GATE_BLOCKED",
+                equity=equity,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             return {"_action": "SKIP_AGGREGATION_GATE"}
 
         print("\n" + "=" * 60)
@@ -604,20 +688,33 @@ def run_cycle(
         ohlcv = fetch_recent_bars(client, pair, count=300, horizon=horizon)
         if ohlcv.empty:
             print(f"  No data for {pair}")
-            _emit_ws02(cycle_id, pair, "SKIP_NO_DATA", equity=equity,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_NO_DATA",
+                equity=equity,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             return {"_action": "SKIP"}
         min_bars = strategy.params.get("lookback", 252) + 10
         if len(ohlcv) < min_bars:
             print(f"  Not enough bars: {len(ohlcv)} (need ≥ {min_bars})")
-            _emit_ws02(cycle_id, pair, "SKIP_INSUFFICIENT_BARS", equity=equity,
-                       regime_active=regime_active, size_multiplier=size_multiplier)
+            _emit_ws02(
+                cycle_id,
+                pair,
+                "SKIP_INSUFFICIENT_BARS",
+                equity=equity,
+                regime_active=regime_active,
+                size_multiplier=size_multiplier,
+            )
             return {"_action": "SKIP"}
 
         signals = strategy.generate_signals(ohlcv)
         sig = float(signals.iloc[-1])
-        pred_log.log(signals.iloc[-1:], "carry_fred", pair,
-                     parameters=strategy.params, source="paper")
+        pred_log.log(
+            signals.iloc[-1:], "carry_fred", pair, parameters=strategy.params, source="paper"
+        )
 
         try:
             pi = client.get_info_price(pair)
@@ -646,10 +743,11 @@ def run_cycle(
         # Compute raw target units from sizer then apply BC-2 size_multiplier.
         # Also honor REDUCE_SIZING if the drawdown contract requires it.
         raw_target_units = sizer.calculate_size(sig, equity, mid, 0.0, pair)
-        effective_dd_multiplier = _dd.sizing_multiplier   # 1.0/0.5/0.0 per DD level
+        effective_dd_multiplier = _dd.sizing_multiplier  # 1.0/0.5/0.0 per DD level
         # REM-7: also apply aggregate DD multiplier (1.0 if HALVE not fired, 0.5 if HALVE)
-        target_units = int(raw_target_units * size_multiplier * effective_dd_multiplier
-                           * _agg_dd_extra_multiplier)
+        target_units = int(
+            raw_target_units * size_multiplier * effective_dd_multiplier * _agg_dd_extra_multiplier
+        )
 
         cur_pos = current_positions.get(pair)
         cur_units = cur_pos.size if cur_pos else 0.0
@@ -661,7 +759,9 @@ def run_cycle(
         print(f"  BC-2 multiplier: {size_multiplier}  (regime_active={regime_active})")
         print(f"  DD multiplier:   {effective_dd_multiplier}  (DD level: {_dd.level.value})")
         print(f"  Target units:    {target_units:>10,.0f}")
-        print(f"  Current:         {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}")
+        print(
+            f"  Current:         {('FLAT' if not cur_pos else f'{cur_dir.name} {cur_units:.0f}'):>10}"
+        )
 
         needs_action = False
         is_close = False
@@ -688,7 +788,9 @@ def run_cycle(
             action = "HOLD FLAT"
 
         _emit_ws02(
-            cycle_id, pair, action,
+            cycle_id,
+            pair,
+            action,
             signal=sig,
             equity=equity,
             price=mid,
@@ -721,10 +823,14 @@ def run_cycle(
             _cost_pips = 0.0
             _trade_units_nom = 0.0
         # F-001: convert USD-nominal to engine-units (divides by price for JPY pairs).
-        _engine_units = (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
+        _engine_units = (
+            (_trade_units_nom / mid) if ("JPY" in pair.upper() and mid > 0) else _trade_units_nom
+        )
         _cost_usd = _cost_pips * _pip_v * _engine_units
 
         # COND-7: swap accrual via PaperRunnerBase — mirrors engine.py:316-317.
+        # _last_cycle_ts is loaded from disk at startup (see main()) so it
+        # survives process restarts; after each cycle it is persisted back.
         _swap_usd, _now_ts = runner._accrue_swap(
             pair=pair,
             held_units_nom=cur_units,
@@ -733,6 +839,9 @@ def run_cycle(
             cost_model=_COST_MODEL,
         )
         _last_cycle_ts = _now_ts
+        # Persist _now_ts so the next process restart can load it and accrue swap
+        # correctly on the first cycle.  Non-fatal if write fails (logged in base_runner).
+        PaperRunnerBase.persist_last_cycle_ts(_LAST_CYCLE_TS_STRATEGY_ID, _now_ts)
 
         logger.info(
             "cost_compute.decision",
@@ -750,15 +859,62 @@ def run_cycle(
                 "decision_ts": _now_ts.isoformat(),
             },
         )
+        # BC-COST-RECON Option B: update cumulative modeled-equity ledger.
+        # Writes modeled_equity (E_m) and residual instead of the broken
+        # non-cumulative paper_equity_bt_equiv (equity - cost + swap).
+        # CRO VETO #1: equity (broker TotalValue) is NOT fed into kill/DD here.
+        _modeled_equity_val: float | None = None
+        _residual_val: float | None = None
+        if cost_ledger is not None:
+            cost_ledger.seed(equity, pair, mid)
+            _recon = cost_ledger.update(
+                pair=pair,
+                mid_now=mid,
+                held_units_nom=cur_units,
+                cost_usd=_cost_usd,
+                swap_usd=_swap_usd,
+                broker_equity=equity,
+                # Gap-3 / CRO VETO #4: reuse the single canonical mock predicate
+                # computed above (ModeledEquityLedger.is_mock_cycle) so that mock
+                # sentinel rows are excluded from both dd_contract peak AND residual.
+                is_mock_backend=_cycle_is_mock,
+                cycle_id=cycle_id,
+            )
+            _modeled_equity_val = round(_recon.modeled_equity, 4)
+            _residual_val = round(_recon.residual, 4)
+            if cost_ledger.should_halt_new_dispatch() or (
+                cost_ledger.enforce and _recon.double_breach
+            ):
+                logger.warning(
+                    "cost_recon_halt_new_dispatch strategy_id=carry_fred cycle_id=%s — "
+                    "reusing SKIP_DD_HALT_NEW path (measurement failure, not capital failure)",
+                    cycle_id,
+                    extra={
+                        "event": "COST_RECON_HALT_NEW_DISPATCH",
+                        "strategy_id": "carry_fred",
+                        "cycle_id": cycle_id,
+                        "consecutive_breaches": _recon.consecutive_breaches,
+                        "double_breach": _recon.double_breach,
+                    },
+                )
+                return {"_action": SKIP_DD_HALT_NEW}
         with open(EQUITY_LOG_PATH, "a") as _ef:
-            _ef.write(json.dumps({
-                "ts": _now_ts.isoformat(),
-                "strategy": "carry_fred", "equity": equity,
-                "regime_active": regime_active,
-                "cost_pips": round(_cost_pips, 4), "cost_usd": round(_cost_usd, 4),
-                "swap_usd": round(_swap_usd, 4),
-                "paper_equity_bt_equiv": round(equity - _cost_usd + _swap_usd, 4),
-            }) + "\n")
+            _ef.write(
+                json.dumps(
+                    {
+                        "ts": _now_ts.isoformat(),
+                        "strategy": "carry_fred",
+                        "equity": equity,
+                        "regime_active": regime_active,
+                        "cost_pips": round(_cost_pips, 4),
+                        "cost_usd": round(_cost_usd, 4),
+                        "swap_usd": round(_swap_usd, 4),
+                        "modeled_equity": _modeled_equity_val,
+                        "residual": _residual_val,
+                    }
+                )
+                + "\n"
+            )
 
         print(f"  Action:          {action}")
 
@@ -767,8 +923,9 @@ def run_cycle(
             discrepancies = backend.reconcile()
             if discrepancies:
                 print(f"\n  RECONCILIATION WARNINGS: {discrepancies[0]}")
-                kill_switch.trigger(TriggerReason.RECONCILIATION,
-                                    f"{len(discrepancies)} discrepancies", equity)
+                kill_switch.trigger(
+                    TriggerReason.RECONCILIATION, f"{len(discrepancies)} discrepancies", equity
+                )
                 backend.flatten_all()
             return {pair: sig, "_action": "HOLD", "_signal": sig}
 
@@ -782,13 +939,19 @@ def run_cycle(
             result = backend.execute_signal(pair, 0, 0)
             status = "EXECUTED" if result.success else f"FAILED: {result.error}"
             print(f"  Result:          CLOSE — {status}")
-            trade_log.record(result, signal=0, strategy="carry_fred",
-                             source="paper", context={"equity": equity})
+            trade_log.record(
+                result, signal=0, strategy="carry_fred", source="paper", context={"equity": equity}
+            )
             notify(ntfy_topic, f"CLOSE: {pair}", f"Closed at {mid:.4f}", "high")
         elif is_rebalance:
             close_r = backend.execute_signal(pair, 0, 0)
-            trade_log.record(close_r, signal=0, strategy="carry_fred",
-                             source="paper", context={"equity": equity, "rebalance": True})
+            trade_log.record(
+                close_r,
+                signal=0,
+                strategy="carry_fred",
+                source="paper",
+                context={"equity": equity, "rebalance": True},
+            )
             if not close_r.success:
                 print(f"  Result:          REBALANCE CLOSE FAILED: {close_r.error}")
                 return {pair: sig, "_action": "SKIP", "_signal": sig}
@@ -796,26 +959,45 @@ def run_cycle(
             result = backend.execute_signal(pair, sig, target_units)
             status = "EXECUTED" if result.success else f"FAILED: {result.error}"
             print(f"  Result:          REBALANCED — {status}")
-            trade_log.record(result, signal=sig, strategy="carry_fred",
-                             source="paper", context={"equity": equity, "rebalance": True})
-            notify(ntfy_topic, f"REBALANCE {status}: {pair}",
-                   f"{cur_units:.0f} → {target_units:.0f} @ {mid:.4f}", "high")
+            trade_log.record(
+                result,
+                signal=sig,
+                strategy="carry_fred",
+                source="paper",
+                context={"equity": equity, "rebalance": True},
+            )
+            notify(
+                ntfy_topic,
+                f"REBALANCE {status}: {pair}",
+                f"{cur_units:.0f} → {target_units:.0f} @ {mid:.4f}",
+                "high",
+            )
         else:
             result = backend.execute_signal(pair, sig, target_units)
             status = "EXECUTED" if result.success else f"FAILED: {result.error}"
             print(f"  Result:          OPEN — {status}")
-            trade_log.record(result, signal=sig, strategy="carry_fred",
-                             source="paper", context={"equity": equity})
-            notify(ntfy_topic, f"OPEN LONG {status}: {pair}",
-                   f"{target_units:.0f} units @ {mid:.4f} (regime={regime_active}, "
-                   f"mult={size_multiplier})", "high")
+            trade_log.record(
+                result,
+                signal=sig,
+                strategy="carry_fred",
+                source="paper",
+                context={"equity": equity},
+            )
+            notify(
+                ntfy_topic,
+                f"OPEN LONG {status}: {pair}",
+                f"{target_units:.0f} units @ {mid:.4f} (regime={regime_active}, "
+                f"mult={size_multiplier})",
+                "high",
+            )
 
         time.sleep(2)
         discrepancies = backend.reconcile()
         if discrepancies:
             print(f"\n  RECONCILIATION WARNINGS: {discrepancies[0]}")
-            kill_switch.trigger(TriggerReason.RECONCILIATION,
-                                f"{len(discrepancies)} discrepancies", equity)
+            kill_switch.trigger(
+                TriggerReason.RECONCILIATION, f"{len(discrepancies)} discrepancies", equity
+            )
             backend.flatten_all()
         else:
             print("\n  Reconciliation: OK")
@@ -839,12 +1021,14 @@ def main():
     parser.add_argument("--timeframe", default="daily", choices=["daily", "4h", "1h"])
     parser.add_argument("--ntfy", metavar="TOPIC")
     parser.add_argument(
-        "--reset-account-key-lock", metavar="NEW_KEY",
-        help="Atomically replace the account-key lock. Must pair with --confirm-account-reset."
+        "--reset-account-key-lock",
+        metavar="NEW_KEY",
+        help="Atomically replace the account-key lock. Must pair with --confirm-account-reset.",
     )
     parser.add_argument(
-        "--confirm-account-reset", action="store_true",
-        help="Required second factor for --reset-account-key-lock to prevent accidental reset."
+        "--confirm-account-reset",
+        action="store_true",
+        help="Required second factor for --reset-account-key-lock to prevent accidental reset.",
     )
     args = parser.parse_args()
 
@@ -860,6 +1044,13 @@ def main():
 
     _attach_ws02_file_handler()
 
+    # SWAP-FIX: load persisted last-cycle timestamp so swap accrual is non-zero
+    # on the first cycle of a restarted process (SEV-2 fix).
+    # Clock source: UTC wall clock stored by prior run; guarded against future ts
+    # in PaperRunnerBase.load_last_cycle_ts().
+    global _last_cycle_ts
+    _last_cycle_ts = PaperRunnerBase.load_last_cycle_ts(_LAST_CYCLE_TS_STRATEGY_ID)
+
     config = load_config(args.config)
     pair = config.pair_symbols[0]
     strat_cfg = next(s for s in config.strategies if s.name == "carry_fred")
@@ -872,7 +1063,8 @@ def main():
     sizer = VolTargetSizer(
         leverage_cap=leverage_cap,
         min_order_size=config.backtest.position_sizing.get("min_order_size", 100)
-            if hasattr(config.backtest, "position_sizing") else 100,
+        if hasattr(config.backtest, "position_sizing")
+        else 100,
     )
     strategy = CarryFREDStrategy({**strat_params, "pair": pair})
     pred_log = PredictionLog(output_dir="data/predictions")
@@ -891,19 +1083,20 @@ def main():
     # Peak tracking persists across all cycles of this session.
     # Thresholds explicit from CRO binding constants above; no silent defaults.
     dd_contract = DrawdownContract(
-        halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,        # 0.10 — CRO DD-1
-        reduce_threshold=CRO_DD_REDUCE_SIZING_THRESHOLD, # 0.15 — CRO DD-2
+        halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,  # 0.10 — CRO DD-1
+        reduce_threshold=CRO_DD_REDUCE_SIZING_THRESHOLD,  # 0.15 — CRO DD-2
         full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,  # 0.20 — CRO DD-3
+        strategy_id="carry_fred",  # CRO VETO #5: enables peak persistence
     )
 
     # --- REM-7: AggregateDrawdownContract (LTCM-class defense, cardinality-1) ---
     # Instantiated ONCE here in main(); passed to PaperRunnerBase.
     # Cardinality-1 invariant: one instance per loop run (LTCM defense per CRO R-7.1).
     aggregate_dd_contract = AggregateDrawdownContract(
-        warn_threshold=0.04,      # 4% — CRO R-7.1
-        halve_threshold=0.08,     # 8% — CRO R-7.1
-        halt_threshold=0.12,      # 12% — CRO R-7.1
-        lockout_threshold=0.15,   # 15% — CRO R-7.1
+        warn_threshold=0.04,  # 4% — CRO R-7.1
+        halve_threshold=0.08,  # 8% — CRO R-7.1
+        halt_threshold=0.12,  # 12% — CRO R-7.1
+        lockout_threshold=0.15,  # 15% — CRO R-7.1
         per_strategy_halt_threshold=CRO_DD_HALT_NEW_THRESHOLD,
         per_strategy_full_halt_threshold=CRO_DD_FULL_HALT_THRESHOLD,
         n_strategies_max=CRO_MAX_ACTIVE_STRATEGIES,
@@ -918,9 +1111,11 @@ def main():
     print(f"  Account: {backend.account_key}")
     print(f"  Equity: {initial_equity:,.2f}")
     print(f"  Kill switch: {kill_switch.status_line}")
-    print(f"  DD thresholds: halt_new={CRO_DD_HALT_NEW_THRESHOLD:.0%}  "
-          f"reduce={CRO_DD_REDUCE_SIZING_THRESHOLD:.0%}  "
-          f"full_halt={CRO_DD_FULL_HALT_THRESHOLD:.0%}")
+    print(
+        f"  DD thresholds: halt_new={CRO_DD_HALT_NEW_THRESHOLD:.0%}  "
+        f"reduce={CRO_DD_REDUCE_SIZING_THRESHOLD:.0%}  "
+        f"full_halt={CRO_DD_FULL_HALT_THRESHOLD:.0%}"
+    )
     print("=" * 60)
 
     loop_start = time.monotonic()
@@ -965,6 +1160,22 @@ def main():
         dispatch_lock_path=DISPATCH_LOCK_PATH,
     )
 
+    # --- BC-COST-RECON Option B: cumulative modeled-equity ledger ---
+    def _ntfy_fn_for_recon(title, msg, pri):
+        if args.ntfy:
+            notify(args.ntfy, title, msg, pri)
+
+    # Gap-1 / BC-COST-RECON: pass config.raw (the full parsed YAML dict) so that
+    # ledger_from_config can read config["paper"]["cost_reconciliation"] directly.
+    # SystemConfig.raw is now always populated by load_config; no defensive fallback
+    # needed.  The empty-dict default on SystemConfig.raw means tests that construct
+    # SystemConfig without raw= still work (ledger falls back to spec defaults).
+    cost_ledger = ledger_from_config(
+        "carry_fred",
+        config.raw,
+        ntfy_fn=_ntfy_fn_for_recon,
+    )
+
     if args.loop:
         print(f"\nLoop mode (every {args.interval}s). Ctrl+C to stop.")
         cycle_id = 0
@@ -972,16 +1183,30 @@ def main():
             while True:
                 cycle_id += 1
                 runner._tick_heartbeat()  # COND-4: dead-man tick via PaperRunnerBase
-                write_heartbeat(HEARTBEAT_PATH, cycle_id, loop_start,
-                                last_signal=last_signal, last_action=last_action)
+                write_heartbeat(
+                    HEARTBEAT_PATH,
+                    cycle_id,
+                    loop_start,
+                    last_signal=last_signal,
+                    last_action=last_action,
+                )
                 result = run_cycle(
-                    client, backend, sizer, strategy, pair,
-                    pred_log, trade_log, kill_switch, dd_contract,
+                    client,
+                    backend,
+                    sizer,
+                    strategy,
+                    pair,
+                    pred_log,
+                    trade_log,
+                    kill_switch,
+                    dd_contract,
                     rebal_threshold=rebal_threshold,
                     runner=runner,
-                    auto_mode=args.auto, ntfy_topic=args.ntfy,
+                    auto_mode=args.auto,
+                    ntfy_topic=args.ntfy,
                     horizon=args.timeframe,
                     cycle_id=cycle_id,
+                    cost_ledger=cost_ledger,
                 )
                 last_signal = result.get("_signal")
                 last_action = result.get("_action")
@@ -1005,13 +1230,22 @@ def main():
             runner._tick_heartbeat()  # COND-4: tick even for single-shot run
             write_heartbeat(HEARTBEAT_PATH, 1, loop_start)
             run_cycle(
-                client, backend, sizer, strategy, pair,
-                pred_log, trade_log, kill_switch, dd_contract,
+                client,
+                backend,
+                sizer,
+                strategy,
+                pair,
+                pred_log,
+                trade_log,
+                kill_switch,
+                dd_contract,
                 rebal_threshold=rebal_threshold,
                 runner=runner,
-                auto_mode=args.auto, ntfy_topic=args.ntfy,
+                auto_mode=args.auto,
+                ntfy_topic=args.ntfy,
                 horizon=args.timeframe,
                 cycle_id=1,
+                cost_ledger=cost_ledger,
             )
         finally:
             watchdog.stop()

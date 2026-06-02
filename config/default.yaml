@@ -92,3 +92,12 @@ paper:
   # Startup validation: len(dispatch_stagger_offsets_seconds) >= len(active_strategies)
   # is enforced at BaseRunner startup — CRITICAL log + halt if violated (D-4.1 FM-4).
   dispatch_stagger_offsets_seconds: [0, 30, 60, 90]
+
+  # BC-COST-RECON Option B — cumulative reconciliation tolerances.
+  # Shipped in alarm-only mode (reconciliation_enforce: false) until ≥30-50
+  # real-fill cycles accrue (CRO open-Q1). Flip to true after calibration.
+  cost_reconciliation:
+    tol_rel: 0.005                  # 0.5% of peak broker equity
+    tol_abs: 500.0                  # USD absolute tolerance floor
+    reconciliation_enforce: false   # alarm-only until calibrated
+    consecutive_breach_halt_n: 3    # N consecutive real-fill breaches → HALT-NEW

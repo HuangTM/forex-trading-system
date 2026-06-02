@@ -138,6 +138,17 @@ class PositionSizer(ABC):
 class ExecutionBackend(ABC):
     """Contract for execution — backtest, paper, or live."""
 
+    @property
+    def is_mock(self) -> bool:
+        """Return True if this backend is a test/mock backend (not a real broker connection).
+
+        MC-6: Backend-identity mock detection.  Production backends (SaxoExecutionBackend)
+        override this to return False; test/stub backends override to return True.
+        Defaults to False so that subclasses that don't override are treated as real
+        (fail-safe: under-detecting mock is safer than over-detecting it).
+        """
+        return False
+
     @abstractmethod
     def execute_signal(
         self, pair: str, signal: float, size: float,

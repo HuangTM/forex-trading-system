@@ -100,7 +100,12 @@ class NhtRubric:
     r3_max_dd_gt:
         R3: Max drawdown > this value (positive fraction) → trigger fires.
     r5_permutation_pvalue_gt:
-        R5: Permutation p-value > this value → trigger fires (aspirational).
+        R5a: permutation_pvalue > this value → trigger fires (now ACTIVE for R5-active
+        strategies). permutation_pvalue is the flat mirror of r5a_circular_block_pvalue.
+    r5_window_percentile_gt:
+        R5b: r5b_window_percentile >= this value → trigger fires (ACTIVE for R5-active).
+    r5_spa_pvalue_gt:
+        R5c: r5c_spa_pvalue_consistent > this value → trigger fires (ACTIVE for R5-active).
     r6_n_trades_lt:
         R6a: n_trades < this value → sample size trigger fires.
     r6_n_oos_bars_lt:
@@ -111,6 +116,8 @@ class NhtRubric:
     r2_dsr_lt: float
     r3_max_dd_gt: float
     r5_permutation_pvalue_gt: float
+    r5_window_percentile_gt: float
+    r5_spa_pvalue_gt: float
     r6_n_trades_lt: int
     r6_n_oos_bars_lt: int
 
@@ -145,6 +152,8 @@ class NhtRubric:
             "r2_dsr_lt",
             "r3_max_dd_gt",
             "r5_permutation_pvalue_gt",
+            "r5_window_percentile_gt",
+            "r5_spa_pvalue_gt",
             "r6_n_trades_lt",
             "r6_n_oos_bars_lt",
         )
@@ -159,6 +168,8 @@ class NhtRubric:
             r2_dsr_lt=float(raw["r2_dsr_lt"]),
             r3_max_dd_gt=float(raw["r3_max_dd_gt"]),
             r5_permutation_pvalue_gt=float(raw["r5_permutation_pvalue_gt"]),
+            r5_window_percentile_gt=float(raw["r5_window_percentile_gt"]),
+            r5_spa_pvalue_gt=float(raw["r5_spa_pvalue_gt"]),
             r6_n_trades_lt=int(raw["r6_n_trades_lt"]),
             r6_n_oos_bars_lt=int(raw["r6_n_oos_bars_lt"]),
         )
@@ -290,6 +301,19 @@ def _effective_r1_threshold(
 # ---------------------------------------------------------------------------
 
 
+def _is_r5_active(pre_reg: PreRegistrationSpec) -> bool:
+    """Return True if the pre-registration declares r5_active: true.
+
+    R5 is only enforced for strategies that explicitly opt-in via their
+    sidecar YAML (r5_active: true). This prevents retroactively forcing
+    R5 on all existing pre-registrations.
+
+    The flag is surfaced as an attribute on PreRegistrationSpec if present;
+    absent → False (opt-in gate, not opt-out).
+    """
+    return bool(getattr(pre_reg, "r5_active", False))
+
+
 def evaluate(
     metrics: dict[str, float],
     pre_reg: PreRegistrationSpec,
@@ -301,12 +325,21 @@ def evaluate(
     falsification_criterion is the trigger with the highest priority rank
     (R2 > R3 > R1 > R6 > strategy-T-N > R5).
 
+    R5 handling:
+      - If pre_reg declares r5_active=True AND any of the three R5 metric keys
+        (permutation_pvalue, r5b_window_percentile, r5c_spa_pvalue_consistent)
+        is absent from the metrics dict → raises MissingMetricError.
+      - If pre_reg does NOT declare r5_active, R5 is evaluated opportunistically
+        (only when metric is present), preserving backward compatibility.
+
     Parameters
     ----------
     metrics:
         Dict of metric_key → float value, assembled by the harness wrapper.
         Expected keys for NHT rubric: "oos_sharpe", "dsr", "max_drawdown",
-        "n_trades", "n_oos_bars", and optionally "permutation_pvalue".
+        "n_trades", "n_oos_bars".
+        R5-active also requires: "permutation_pvalue", "r5b_window_percentile",
+        "r5c_spa_pvalue_consistent".
         Missing keys for required triggers raise MissingMetricError.
     pre_reg:
         Parsed pre-registration spec (from parse_pre_registration()).
@@ -321,7 +354,8 @@ def evaluate(
     Raises
     ------
     MissingMetricError
-        If a trigger references a metric absent from the metrics dict.
+        If a trigger references a metric absent from the metrics dict, or if
+        an R5-active strategy is missing any of the three R5 metric fields.
 
     Decision trace
     --------------
@@ -329,6 +363,26 @@ def evaluate(
     regardless of pass/fail outcome.
     """
     fired: list[tuple[int, str, str]] = []  # (priority, label, reason)
+
+    # --- R5 active check: raise immediately for R5-active strategies with missing fields ---
+    r5_active = _is_r5_active(pre_reg)
+    _R5_REQUIRED_METRICS = (
+        "permutation_pvalue",
+        "r5b_window_percentile",
+        "r5c_spa_pvalue_consistent",
+    )
+    if r5_active:
+        for r5_key in _R5_REQUIRED_METRICS:
+            if r5_key not in metrics:
+                raise MissingMetricError(
+                    f"Strategy '{pre_reg.strategy}' is R5-active (pre-reg declares "
+                    f"r5_active=True) but metrics dict is missing required R5 field "
+                    f"'{r5_key}'. "
+                    f"Run run_r5() and merge R5CombinedResult.to_metrics_dict() into "
+                    f"the metrics dict before calling evaluate(). "
+                    f"Available keys: {sorted(metrics.keys())}. "
+                    "Do not silently treat as pass — R5 fields are mandatory for R5-active strategies."
+                )
 
     # --- Build synthetic NHT rubric triggers ---
     r1_threshold, r1_source = _effective_r1_threshold(nht_rubric, pre_reg)
@@ -342,10 +396,21 @@ def evaluate(
         ("R6-Trades", "n_trades",      "<",  float(nht_rubric.r6_n_trades_lt), _trigger_priority("R6")),
         ("R6-OOSBars","n_oos_bars",    "<",  float(nht_rubric.r6_n_oos_bars_lt), _trigger_priority("R6")),
     ]
-    # R5 — aspirational; only evaluate if metric is present.
+    # R5 — evaluated if R5-active (mandatory) OR opportunistically if metric present.
+    # R5a: permutation_pvalue (flat mirror of r5a_circular_block_pvalue)
     if "permutation_pvalue" in metrics:
         nht_triggers.append(
             ("R5-Permutation", "permutation_pvalue", ">", nht_rubric.r5_permutation_pvalue_gt, _trigger_priority("R5"))
+        )
+    # R5b: window percentile
+    if "r5b_window_percentile" in metrics:
+        nht_triggers.append(
+            ("R5b-WindowPct", "r5b_window_percentile", ">=", nht_rubric.r5_window_percentile_gt, _trigger_priority("R5"))
+        )
+    # R5c: SPA consistent p-value
+    if "r5c_spa_pvalue_consistent" in metrics:
+        nht_triggers.append(
+            ("R5c-SPA", "r5c_spa_pvalue_consistent", ">", nht_rubric.r5_spa_pvalue_gt, _trigger_priority("R5"))
         )
 
     per_trigger_results: list[dict] = []
@@ -406,6 +471,7 @@ def evaluate(
         rejection_reason=rejection_reason,
         r1_threshold_used=r1_threshold,
         r1_threshold_source=r1_source,
+        r5_active=r5_active,
         per_trigger_results=per_trigger_results,
     )
 

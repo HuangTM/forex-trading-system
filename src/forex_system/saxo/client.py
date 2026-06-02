@@ -178,6 +178,9 @@ class SaxoClient:
             time.sleep(jitter)
 
         self.base_url = LIVE_BASE if live else SIM_BASE
+        # MC-6: store is_live for backend-identity mock detection downstream.
+        # SaxoExecutionBackend.is_mock uses this rather than float-equality on equity.
+        self.is_live: bool = live
         self._auth = None  # Set by from_auth()
         self._strategy_id = strategy_id or "unset"
         self._max_retries = max_retries

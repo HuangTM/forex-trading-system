@@ -37,6 +37,21 @@ class SaxoExecutionBackend(ExecutionBackend):
             self._account_key = self.client.get_account_key()
         return self._account_key
 
+    @property
+    def is_mock(self) -> bool:
+        """Return False: SaxoExecutionBackend is always a real broker connection (SIM or LIVE).
+
+        MC-6: Backend-identity mock detection.  SaxoExecutionBackend routes through
+        the real Saxo API whether in SIM or LIVE mode — it is never a test stub.
+        Test suites that need a mock backend should subclass ExecutionBackend directly
+        and override is_mock to return True.
+
+        Note: both SIM (paper) and LIVE Saxo accounts initialise at 100_000.0 —
+        float-equality on equity value cannot distinguish them from test mocks.
+        Backend-identity (this property) is the correct primary signal.
+        """
+        return False
+
     def execute_signal(
         self,
         pair: str,

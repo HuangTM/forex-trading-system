@@ -228,8 +228,10 @@ class TestCostModelParity:
         entry = json.loads(lines[-1])
         assert "cost_pips" in entry, f"cost_pips missing from equity log entry: {entry}"
         assert "cost_usd" in entry, f"cost_usd missing from equity log entry: {entry}"
-        assert "paper_equity_bt_equiv" in entry, (
-            f"paper_equity_bt_equiv missing from equity log entry: {entry}"
+        # BC-COST-RECON Option B: paper_equity_bt_equiv replaced by modeled_equity + residual.
+        # modeled_equity is None when no cost_ledger is passed to run_cycle (test-only path).
+        assert "modeled_equity" in entry, (
+            f"modeled_equity missing from equity log entry: {entry}"
         )
 
 
@@ -444,9 +446,15 @@ class TestE2EParity:
         lines = [ln for ln in eq_log.read_text().splitlines() if ln.strip()]
         assert lines, "Equity log must contain at least one entry"
         entry = json.loads(lines[-1])
-        paper_eq = entry["paper_equity_bt_equiv"]
+        # BC-COST-RECON Option B: paper_equity_bt_equiv replaced by modeled_equity.
+        # When no cost_ledger passed to run_cycle, modeled_equity is None in the JSONL.
+        # Parity is verified via cost_usd instead: initial_capital - cost_usd ≈ engine_at_entry.
+        assert "cost_usd" in entry, f"cost_usd missing: {entry}"
+        cost_usd = entry["cost_usd"]
+        paper_eq = self.INITIAL_CAPITAL - cost_usd  # equivalent to old paper_equity_bt_equiv (swap=0)
         assert paper_eq == pytest.approx(engine_at_entry, abs=1e-4), (
-            f"paper_equity_bt_equiv={paper_eq:.4f} != engine equity_curve[1]={engine_at_entry:.4f}"
+            f"E2E parity: initial_capital-cost_usd={paper_eq:.4f} != "
+            f"engine equity_curve[1]={engine_at_entry:.4f}"
         )
 
 
@@ -825,12 +833,17 @@ class TestUSDJPYE2EParity:
         lines = [ln for ln in eq_log.read_text().splitlines() if ln.strip()]
         assert lines, "Equity log must contain at least one entry after run_cycle"
         entry = json.loads(lines[-1])
-        paper_eq = entry["paper_equity_bt_equiv"]
+        # BC-COST-RECON Option B: paper_equity_bt_equiv → modeled_equity / residual.
+        # When no cost_ledger passed (test-only), modeled_equity is None.
+        # Parity verified via cost_usd (F-001 guard): initial_capital - cost_usd ≈ engine.
+        assert "cost_usd" in entry, f"cost_usd missing: {entry}"
+        cost_usd = entry["cost_usd"]
+        paper_eq = self.INITIAL_CAPITAL - cost_usd  # equivalent to old formula (swap=0)
 
         # Assert engine parity within 0.1% of initial_capital
         tolerance = self.INITIAL_CAPITAL * 0.001  # 0.1% = 100 USD
         assert abs(paper_eq - engine_at_entry) < tolerance, (
-            f"USDJPY E2E parity FAILED: paper_equity_bt_equiv={paper_eq:.4f} "
+            f"USDJPY E2E parity FAILED: initial_capital-cost_usd={paper_eq:.4f} "
             f"vs engine equity_curve[1]={engine_at_entry:.4f} "
             f"(diff={abs(paper_eq - engine_at_entry):.4f} > tolerance={tolerance:.2f}). "
             f"If diff≈745, F-001 fix is not applied (pre-fix cost=750 USD vs engine cost≈5 USD)."

@@ -1,42 +1,46 @@
-"""Tests for deflated_sharpe module (BLP 2014, eq. 10).
+"""Tests for deflated_sharpe shim module (harness/deflated_sharpe.py).
 
 Coverage:
-- Known-result cases: N=1 (no inflation), N=22 (Phase 1 baseline), N=29
-- Edge cases: n_obs=1 raises, n_trials=0 raises
-- Monotonicity: more trials → lower DSR for same observed SR
-- Non-normality: skew/kurt sensitivity direction
-- Boundary: SR ≤ 0 returns 0.0
+- The shim correctly delegates to compute_dsr with periods_per_year=252.
+- Input validation (n_trials, n_obs) is forwarded correctly.
+- Monotonicity: more trials → lower DSR for same observed SR.
+- Non-normality: skew/kurt sensitivity direction.
+- Boundary: SR <= 0 returns 0.0.
+
+Note: _expected_max_sr tests are now in test_dsr.py (it lives in dsr.py).
+The shim no longer exposes _expected_max_sr directly.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from forex_system.harness.deflated_sharpe import deflated_sharpe, _expected_max_sr
+from forex_system.harness.deflated_sharpe import deflated_sharpe
+from forex_system.harness.dsr import expected_max_sr
 
 
-class TestExpectedMaxSR:
-    """Internal helper: _expected_max_sr (E[max SR | N trials])."""
+class TestExpectedMaxSRViaShim:
+    """Test the underlying expected_max_sr (sourced from dsr.py)."""
 
     def test_n_trials_1_returns_zero(self):
         """Single trial has no multiple-comparisons benchmark — E[max SR] = 0."""
-        result = _expected_max_sr(n_trials=1, n_obs=252)
+        result = expected_max_sr(n_trials=1, n_observations=252)
         assert result == 0.0
 
     def test_n_trials_22_positive(self):
         """N=22 (Phase 1 org-wide): expected max SR must be positive."""
-        result = _expected_max_sr(n_trials=22, n_obs=252)
+        result = expected_max_sr(n_trials=22, n_observations=252)
         assert result > 0.0
 
     def test_n_trials_29_greater_than_22(self):
         """More trials → higher expected maximum SR (monotone in N)."""
-        r22 = _expected_max_sr(n_trials=22, n_obs=252)
-        r29 = _expected_max_sr(n_trials=29, n_obs=252)
+        r22 = expected_max_sr(n_trials=22, n_observations=252)
+        r29 = expected_max_sr(n_trials=29, n_observations=252)
         assert r29 > r22
 
     def test_monotone_in_n(self):
         """E[max SR | N] is strictly increasing in N for N >= 2."""
-        vals = [_expected_max_sr(n_trials=k, n_obs=252) for k in [2, 10, 22, 50, 100]]
+        vals = [expected_max_sr(n_trials=k, n_observations=252) for k in [2, 10, 22, 50, 100]]
         for i in range(len(vals) - 1):
             assert vals[i + 1] > vals[i], f"Not monotone at index {i}: {vals}"
 
@@ -48,12 +52,12 @@ class TestDeflatedSharpe:
 
     def test_n_trials_zero_raises(self):
         """n_trials < 1 must raise ValueError (no silent default)."""
-        with pytest.raises(ValueError, match="n_trials_at_spawn"):
+        with pytest.raises(ValueError, match="n_trials"):
             deflated_sharpe(sharpe=1.0, n_trials=0, n_obs=252)
 
     def test_n_obs_one_raises(self):
-        """n_obs < 2 must raise ValueError (insufficient observations)."""
-        with pytest.raises(ValueError, match="n_obs"):
+        """n_obs <= 1 must raise ValueError (insufficient observations)."""
+        with pytest.raises(ValueError, match="n_observations"):
             deflated_sharpe(sharpe=1.0, n_trials=5, n_obs=1)
 
     # ---- Boundary conditions ---------------------------------------------
@@ -78,19 +82,22 @@ class TestDeflatedSharpe:
     # ---- Known-result cases: N=22 ----------------------------------------
 
     def test_n22_high_sharpe_high_dsr(self):
-        """vol_target_carry OOS Sharpe 0.76, N=22, T=2520 → DSR near 1."""
-        # BLP deflation factor 0.5–0.7x for N=22; 0.76 * 0.7 = 0.53 > R2 threshold 0.50
+        """vol_target_carry OOS Sharpe 0.76, N=22, T=2520 → DSR > 0.50.
+
+        Corrected formula: SR_pp = 0.76/sqrt(252) ≈ 0.0479, SR_star(22,2520) ≈ 0.039.
+        z ≈ 0.46 → DSR ≈ 0.677.
+        """
         dsr = deflated_sharpe(sharpe=0.76, n_trials=22, n_obs=2520)
         assert dsr > 0.50, f"Expected DSR > 0.50 for Sharpe=0.76 N=22, got {dsr:.4f}"
 
     def test_n22_low_sharpe_below_threshold(self):
-        """Sharpe=0.30, N=100, T=60: DSR should be modest (≤ 0.80).
+        """Sharpe=0.30, N=100, T=60: DSR should be well below 0.50.
 
-        With many trials (N=100) and few bars (T=60), the expected max SR is
-        large and the variance term large, deflating DSR well below 1.
+        With many trials (N=100), few bars (T=60), and the corrected per-obs
+        conversion, DSR is small.
         """
         dsr = deflated_sharpe(sharpe=0.30, n_trials=100, n_obs=60)
-        assert dsr <= 0.80, f"Expected DSR ≤ 0.80 for deflated case N=100 T=60, got {dsr:.4f}"
+        assert dsr < 0.50, f"Expected DSR < 0.50 for deflated case N=100 T=60, got {dsr:.4f}"
 
     def test_n1_no_inflation(self):
         """N=1: no multiple-comparisons penalty; modest SR still gets moderate DSR."""
@@ -98,7 +105,7 @@ class TestDeflatedSharpe:
         dsr_n22 = deflated_sharpe(sharpe=0.50, n_trials=22, n_obs=252)
         # N=1 should yield higher or equal DSR than N=22 (less deflation).
         assert dsr_n1 >= dsr_n22, (
-            f"N=1 should have ≥ DSR vs N=22 for same SR: n1={dsr_n1:.4f} n22={dsr_n22:.4f}"
+            f"N=1 should have >= DSR vs N=22 for same SR: n1={dsr_n1:.4f} n22={dsr_n22:.4f}"
         )
 
     def test_n29_deflates_more_than_n22(self):
@@ -112,23 +119,28 @@ class TestDeflatedSharpe:
     # ---- Non-normality sensitivity ---------------------------------------
 
     def test_negative_skew_reduces_dsr(self):
-        """Negative skewness inflates variance term → lower DSR.
+        """Negative skewness inflates variance term → lower DSR (when z > 0).
 
-        With positive SR and negative skew: 1 - skew*SR = 1 + |skew|*SR > 1
-        → larger variance_term → larger sigma_sr → lower z → lower DSR.
+        Direction: 1 - skew*SR_pp = 1 + |skew|*SR_pp > 1 (larger var_term).
+        When z > 0 (SR_pp > SR_star), larger var_term → smaller z → lower DSR.
+        This requires a high annualised SR so that SR_pp = SR_ann/sqrt(252)
+        exceeds SR_star.  SR_ann=2.0, N=5, T=252 gives z ≈ 0.80 > 0.
         """
-        dsr_normal = deflated_sharpe(sharpe=0.50, n_trials=10, n_obs=120)
-        dsr_neg_skew = deflated_sharpe(sharpe=0.50, n_trials=10, n_obs=120, skew=-2.0)
+        dsr_normal = deflated_sharpe(sharpe=2.0, n_trials=5, n_obs=252)
+        dsr_neg_skew = deflated_sharpe(sharpe=2.0, n_trials=5, n_obs=252, skew=-2.0)
         assert dsr_neg_skew <= dsr_normal, (
-            f"Negative skew should reduce DSR: normal={dsr_normal:.4f} neg_skew={dsr_neg_skew:.4f}"
+            f"Negative skew should reduce DSR when z>0: normal={dsr_normal:.4f} neg_skew={dsr_neg_skew:.4f}"
         )
 
     def test_positive_excess_kurtosis_reduces_dsr(self):
-        """High excess kurtosis (fat tails) increases variance term → lower DSR."""
-        dsr_normal = deflated_sharpe(sharpe=0.50, n_trials=10, n_obs=120)
+        """High excess kurtosis (fat tails) increases variance term → lower DSR (when z > 0).
+
+        Uses same z > 0 regime: SR_ann=2.0, N=5, T=252.
+        """
+        dsr_normal = deflated_sharpe(sharpe=2.0, n_trials=5, n_obs=252)
         dsr_fat_tails = deflated_sharpe(
-            sharpe=0.50, n_trials=10, n_obs=120, excess_kurtosis=4.0
+            sharpe=2.0, n_trials=5, n_obs=252, excess_kurtosis=4.0
         )
         assert dsr_fat_tails <= dsr_normal, (
-            f"Fat tails should reduce DSR: normal={dsr_normal:.4f} fat={dsr_fat_tails:.4f}"
+            f"Fat tails should reduce DSR when z>0: normal={dsr_normal:.4f} fat={dsr_fat_tails:.4f}"
         )

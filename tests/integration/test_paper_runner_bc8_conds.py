@@ -593,6 +593,302 @@ class TestPaperRunnerBc8Cond7:
 
 
 # ---------------------------------------------------------------------------
+# SWAP-FIX: last-cycle-ts persistence tests (SEV-2 cross-restart fix)
+# ---------------------------------------------------------------------------
+
+class TestSwapTsPersistence:
+    """Tests for PaperRunnerBase.load_last_cycle_ts / persist_last_cycle_ts.
+
+    These tests verify the four invariants required by the SEV-2 fix:
+    (a) swap accrues a non-zero amount across two cycles when a position is held
+    (b) swap=0.0 correctly on genuine first cycle (no prior state)
+    (c) restart persistence: persisted ts is loaded so next cycle accrues
+    (d) clock-backwards guard: future ts is rejected, treated as no-accrual
+    """
+
+    def _make_cost_model(self):
+        from forex_system.costs.model import RealisticCostModel
+        return RealisticCostModel()
+
+    # ---- (a) swap accrues non-zero across two cycles with a held position ----
+
+    def test_swap_nonzero_two_cycles_with_held_position(self, tmp_path) -> None:
+        """(a) swap is non-zero on cycle 2 when position held and ts loaded from disk.
+
+        Simulates: cycle 1 persists ts; cycle 2 loads ts and accrues swap.
+        The cycle gap is 1 day so elapsed > 0 and USDJPY positive carry
+        means swap_usd should be a positive carry credit (> 0).
+        """
+        strategy_id = "test_swap_two_cycles"
+        runner = _make_runner(strategy_id=strategy_id)
+        cost_model = self._make_cost_model()
+
+        # Cycle 1: first-ever cycle (no file) — swap is 0.0
+        ts_cycle1 = datetime.now(timezone.utc) - timedelta(days=1)
+        # Simulate what the script does: persist the ts after cycle 1
+        # Use a tmp_path-relative path by patching _last_cycle_ts_path
+        state_file = tmp_path / f"paper_last_cycle_ts_{strategy_id}.json"
+        import json as _json
+        state_file.write_text(_json.dumps({
+            "last_cycle_ts_utc": ts_cycle1.isoformat(),
+            "strategy_id": strategy_id,
+            "clock_source": "wall_utc",
+        }))
+
+        # Cycle 2: load the persisted ts and compute swap
+        # Patch Path so load_last_cycle_ts finds the tmp file
+        with patch.object(PaperRunnerBase, "_last_cycle_ts_path", staticmethod(lambda sid: state_file)):
+            loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        assert loaded_ts is not None, "Cycle 2 must load a non-None ts from disk"
+
+        swap_usd, now_ts = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=loaded_ts,
+            cost_model=cost_model,
+        )
+        # USDJPY has positive carry (swap_long = 0.8 pips/day credit per RealisticCostModel)
+        # 1 day * 100k USDJPY should produce a measurable non-zero carry credit
+        assert abs(swap_usd) > 0.0, (
+            "swap must be non-zero on cycle 2 when ts was loaded from disk "
+            f"(got swap_usd={swap_usd})"
+        )
+
+    # ---- (b) swap is zero on genuine first cycle (no prior state file) ----
+
+    def test_swap_zero_first_cycle_no_file(self, tmp_path) -> None:
+        """(b) swap=0.0 on genuine first cycle when no state file exists.
+
+        load_last_cycle_ts returns None; _accrue_swap computes 0.0.
+        """
+        strategy_id = "test_swap_first_cycle"
+        runner = _make_runner(strategy_id=strategy_id)
+        cost_model = self._make_cost_model()
+
+        # No state file — simulated by patching _last_cycle_ts_path to a non-existent path
+        nonexistent = tmp_path / f"paper_last_cycle_ts_{strategy_id}.json"
+        assert not nonexistent.exists()
+
+        with patch.object(PaperRunnerBase, "_last_cycle_ts_path", staticmethod(lambda sid: nonexistent)):
+            loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        assert loaded_ts is None, "No file → load must return None (first cycle)"
+
+        swap_usd, _ = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=None,
+            cost_model=cost_model,
+        )
+        assert swap_usd == 0.0, "swap must be 0.0 on genuine first cycle (no prior ts)"
+
+    # ---- (c) restart persistence: persisted ts loaded, next cycle accrues ----
+
+    def test_persist_then_load_round_trip(self, tmp_path) -> None:
+        """(c) persist_last_cycle_ts → load_last_cycle_ts round-trip is lossless.
+
+        Simulates a process restart: persist at end of cycle N, then load at
+        startup of cycle N+1 (new process). The loaded ts must equal the persisted ts
+        (modulo ISO 8601 round-trip which preserves microsecond precision).
+        """
+        strategy_id = "test_persist_load"
+        ts_to_persist = datetime(2026, 5, 30, 12, 0, 0, 123456, tzinfo=timezone.utc)
+
+        with patch.object(
+            PaperRunnerBase, "_last_cycle_ts_path", staticmethod(
+                lambda sid: tmp_path / f"paper_last_cycle_ts_{sid}.json"
+            )
+        ):
+            PaperRunnerBase.persist_last_cycle_ts(strategy_id, ts_to_persist)
+            loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        assert loaded_ts is not None, "Loaded ts must not be None after persist"
+        assert loaded_ts == ts_to_persist, (
+            f"Round-trip must preserve ts: persisted={ts_to_persist.isoformat()}, "
+            f"loaded={loaded_ts.isoformat()}"
+        )
+        assert loaded_ts.tzinfo is not None, "Loaded ts must be timezone-aware"
+
+    def test_restart_then_swap_accrues(self, tmp_path) -> None:
+        """(c) Full restart simulation: persist ts, 'restart' (new runner), load ts, accrue swap.
+
+        This is the canonical SEV-2 fix invariant: after a process restart, the
+        second process must accrue non-zero swap on its first cycle.
+        """
+        strategy_id = "test_restart_swap"
+        runner = _make_runner(strategy_id=strategy_id)
+        cost_model = self._make_cost_model()
+
+        # End of prior process: persist timestamp 6 hours ago
+        ts_end_of_prior_run = datetime.now(timezone.utc) - timedelta(hours=6)
+        with patch.object(
+            PaperRunnerBase, "_last_cycle_ts_path", staticmethod(
+                lambda sid: tmp_path / f"paper_last_cycle_ts_{sid}.json"
+            )
+        ):
+            PaperRunnerBase.persist_last_cycle_ts(strategy_id, ts_end_of_prior_run)
+
+            # --- Simulate process restart: new process loads the ts ---
+            loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        assert loaded_ts is not None, "After restart, ts must be loadable from disk"
+
+        # First cycle of new process: with loaded_ts, swap must be non-zero
+        swap_usd, now_ts = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=loaded_ts,
+            cost_model=cost_model,
+        )
+        assert abs(swap_usd) > 0.0, (
+            "SEV-2 sacred invariant VIOLATED: first cycle after restart must "
+            f"accrue non-zero swap (got swap_usd={swap_usd}). "
+            "Process restart broke swap accrual continuity."
+        )
+
+    # ---- (d) clock-backwards guard ----
+
+    def test_clock_backwards_guard_rejects_future_ts(self, tmp_path, caplog) -> None:
+        """(d) load_last_cycle_ts returns None when stored ts is in the future.
+
+        A future timestamp (clock skew / corrupted file) would produce negative
+        elapsed time in _accrue_swap. The guard must reject it and log a WARNING.
+        """
+        import logging
+        strategy_id = "test_clock_backwards"
+
+        # Write a state file with a timestamp 2 hours in the future
+        future_ts = datetime.now(timezone.utc) + timedelta(hours=2)
+        state_file = tmp_path / f"paper_last_cycle_ts_{strategy_id}.json"
+        import json as _json
+        state_file.write_text(_json.dumps({
+            "last_cycle_ts_utc": future_ts.isoformat(),
+            "strategy_id": strategy_id,
+            "clock_source": "wall_utc",
+        }))
+
+        with patch.object(PaperRunnerBase, "_last_cycle_ts_path", staticmethod(lambda sid: state_file)):
+            with caplog.at_level(logging.WARNING, logger="forex_system.paper.base_runner"):
+                loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        assert loaded_ts is None, (
+            "Clock-backwards guard must reject a future timestamp and return None "
+            f"(future_ts={future_ts.isoformat()}, got={loaded_ts})"
+        )
+        # Must log a WARNING with the guard outcome
+        found_warning = any(
+            "CLOCK_BACKWARDS" in r.message or "clock_backwards" in r.message.lower()
+            for r in caplog.records
+        )
+        assert found_warning, (
+            "Clock-backwards guard must emit a WARNING log. "
+            f"Records: {[r.message for r in caplog.records]}"
+        )
+
+    def test_clock_backwards_guard_swap_zero_after_rejection(self, tmp_path) -> None:
+        """(d) swap=0.0 when clock-backwards guard rejects the stored ts.
+
+        Full path: future ts in file → load returns None → _accrue_swap returns 0.0.
+        This is the safe degraded mode: one cycle without accrual rather than a
+        negative swap computation.
+        """
+        strategy_id = "test_cb_swap_zero"
+        runner = _make_runner(strategy_id=strategy_id)
+        cost_model = self._make_cost_model()
+
+        future_ts = datetime.now(timezone.utc) + timedelta(hours=2)
+        state_file = tmp_path / f"paper_last_cycle_ts_{strategy_id}.json"
+        import json as _json
+        state_file.write_text(_json.dumps({
+            "last_cycle_ts_utc": future_ts.isoformat(),
+            "strategy_id": strategy_id,
+            "clock_source": "wall_utc",
+        }))
+
+        with patch.object(PaperRunnerBase, "_last_cycle_ts_path", staticmethod(lambda sid: state_file)):
+            loaded_ts = PaperRunnerBase.load_last_cycle_ts(strategy_id)
+
+        # loaded_ts is None due to clock-backwards guard
+        assert loaded_ts is None
+
+        swap_usd, _ = runner._accrue_swap(
+            pair="USDJPY",
+            held_units_nom=100_000.0,
+            mid=150.0,
+            last_cycle_ts=loaded_ts,  # None
+            cost_model=cost_model,
+        )
+        assert swap_usd == 0.0, (
+            "After clock-backwards guard rejection, swap must degrade to 0.0 "
+            f"(got swap_usd={swap_usd})"
+        )
+
+    # ---- decision-trace log fields ----
+
+    def test_accrue_swap_logs_last_cycle_ts_source(self, caplog) -> None:
+        """COND-7 decision trace includes last_cycle_ts_source field.
+
+        When last_cycle_ts is provided (loaded from disk), the log must indicate
+        'disk_loaded'.  When None (first cycle), it must indicate 'none_first_cycle'.
+        """
+        import logging
+        runner = _make_runner(strategy_id="trace_test")
+        cost_model = self._make_cost_model()
+
+        last_ts = datetime.now(timezone.utc) - timedelta(hours=1)
+
+        with caplog.at_level(logging.INFO, logger="forex_system.paper.base_runner"):
+            runner._accrue_swap(
+                pair="USDJPY",
+                held_units_nom=100_000.0,
+                mid=150.0,
+                last_cycle_ts=last_ts,
+                cost_model=cost_model,
+            )
+
+        # extra fields appear in structured log output; test via the log record extras
+        found_in_extra = any(
+            r.__dict__.get("last_cycle_ts_source") == "disk_loaded"
+            for r in caplog.records
+        )
+        assert found_in_extra, (
+            "COND-7 log record must include last_cycle_ts_source='disk_loaded' "
+            "in extra fields when last_cycle_ts is provided. "
+            f"Records: {[{k: v for k, v in r.__dict__.items() if not k.startswith('_')} for r in caplog.records]}"
+        )
+
+    def test_persist_last_cycle_ts_atomic_write(self, tmp_path) -> None:
+        """persist_last_cycle_ts uses atomic write-then-rename (no partial writes).
+
+        After persist, the file must exist and contain valid JSON with the expected key.
+        """
+        strategy_id = "test_atomic"
+        ts = datetime(2026, 5, 31, 10, 0, 0, tzinfo=timezone.utc)
+
+        with patch.object(
+            PaperRunnerBase, "_last_cycle_ts_path", staticmethod(
+                lambda sid: tmp_path / f"paper_last_cycle_ts_{sid}.json"
+            )
+        ):
+            PaperRunnerBase.persist_last_cycle_ts(strategy_id, ts)
+            state_file = tmp_path / f"paper_last_cycle_ts_{strategy_id}.json"
+
+        assert state_file.exists(), "State file must exist after persist"
+        import json as _json
+        payload = _json.loads(state_file.read_text())
+        assert "last_cycle_ts_utc" in payload, "Payload must have last_cycle_ts_utc key"
+        assert payload["strategy_id"] == strategy_id
+        assert payload["clock_source"] == "wall_utc"
+        # Verify round-trip
+        parsed = datetime.fromisoformat(payload["last_cycle_ts_utc"])
+        assert parsed == ts
+
+
+# ---------------------------------------------------------------------------
 # N-2 relocation prevention tests
 # ---------------------------------------------------------------------------
 

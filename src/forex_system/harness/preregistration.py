@@ -130,6 +130,10 @@ class PreRegistrationSpec:
         ISO date string for the OOS window start (from sidecar YAML).
     oos_window_end:
         ISO date string for the OOS window end (from sidecar YAML).
+    r5_active:
+        True if the strategy opts-in to mandatory R5 falsification testing.
+        Sourced from sidecar YAML (key: r5_active). Defaults to False (opt-in gate).
+        When True, the evaluator raises MissingMetricError if any R5 metric is absent.
     """
 
     strategy: str
@@ -144,6 +148,7 @@ class PreRegistrationSpec:
     oos_window_end: str
     timeframe: str = "daily"
     data_dir: str = "data"
+    r5_active: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +316,9 @@ def _parse_sidecar(sidecar_path: Path, markdown_raw_texts: dict[str, str]) -> di
     if "data_dir" in raw:
         result["data_dir"] = str(raw["data_dir"])
 
+    # R5 opt-in flag: absent defaults to False (backward compat).
+    result["r5_active"] = bool(raw.get("r5_active", False))
+
     return result
 
 
@@ -420,6 +428,7 @@ def parse_pre_registration(
         oos_window_end=sidecar_data["oos_window_end"],
         timeframe=sidecar_data.get("timeframe", "daily"),
         data_dir=sidecar_data.get("data_dir", "data"),
+        r5_active=sidecar_data.get("r5_active", False),
     )
 
     _log_event(
@@ -436,6 +445,7 @@ def parse_pre_registration(
         oos_overlap=spec.oos_overlap,
         oos_window_start=spec.oos_window_start,
         oos_window_end=spec.oos_window_end,
+        r5_active=spec.r5_active,
     )
 
     return spec

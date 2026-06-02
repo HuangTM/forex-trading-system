@@ -14,17 +14,14 @@ Covers:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
 
 import pytest
 
 from forex_system.risk.drawdown_contract import (
-    AggregateDrawdownAssessment,
     AggregateDrawdownContract,
     AggregateDDLevel,
-    ComposedDecision,
     ContractAssessment,
     DrawdownContract,
     DrawdownLevel,
@@ -110,6 +107,10 @@ class _MockTrajectoryFragileContract:
 
 
 def _make_agg_contract(kill_switch=None) -> AggregateDrawdownContract:
+    # persist_peak=False: tests must not write to or read from data/dd_agg_peak.json.
+    # Production code uses persist_peak=True (the default); tests use False so that:
+    #   (a) test isolation is guaranteed — no cross-test state leakage via the file
+    #   (b) tests that mock the FS can control the path without side-effects
     return AggregateDrawdownContract(
         warn_threshold=AGG_WARN,
         halve_threshold=AGG_HALVE,
@@ -119,6 +120,7 @@ def _make_agg_contract(kill_switch=None) -> AggregateDrawdownContract:
         per_strategy_full_halt_threshold=PS_FULL,
         n_strategies_max=4,
         kill_switch=kill_switch,
+        persist_peak=False,  # test path: no filesystem I/O
     )
 
 
@@ -632,3 +634,222 @@ class TestInvR7_3StartupAssertion:
         )
         assert TriggerReason.DRAWDOWN_AGGREGATE_HALT.value == "drawdown_aggregate_halt"
         assert TriggerReason.DRAWDOWN_AGGREGATE_LOCKOUT.value == "drawdown_aggregate_lockout"
+
+
+# ---------------------------------------------------------------------------
+# Gap-2 / CRO VETO #5 class: AggregateDrawdownContract peak persistence tests
+# ---------------------------------------------------------------------------
+
+
+class TestAggregateDrawdownPeakPersistence:
+    """Gap-2: AggregateDrawdownContract persists its peak across restarts.
+
+    Without this fix, a restart mid-drawdown re-anchors the aggregate peak to 0.0
+    and blinds the LTCM-defense ladder for the entire recovery period — the same
+    kill-switch-blindness CRO vetoed for per-strategy DrawdownContract.
+    """
+
+    def _make_persisting_contract(
+        self, *, data_dir, kill_switch=None
+    ) -> AggregateDrawdownContract:
+        """Create an AggregateDrawdownContract with persist_peak=True wired to tmp_path.
+
+        Uses unittest.mock.patch to redirect _agg_peak_state_path to the temp dir
+        so tests are isolated and don't write to data/dd_agg_peak.json.
+        """
+        # Patch applied by each test individually via with-block.
+        return AggregateDrawdownContract(
+            warn_threshold=AGG_WARN,
+            halve_threshold=AGG_HALVE,
+            halt_threshold=AGG_HALT,
+            lockout_threshold=AGG_LOCKOUT,
+            per_strategy_halt_threshold=PS_HALT,
+            per_strategy_full_halt_threshold=PS_FULL,
+            n_strategies_max=4,
+            kill_switch=kill_switch,
+            persist_peak=True,
+        )
+
+    def test_peak_survives_restart(self) -> None:
+        """Gap-2: Aggregate peak written on update is loaded by a new contract instance.
+
+        Simulates two process starts. First process establishes a peak;
+        second process (new contract) loads it and should NOT re-anchor to 0.
+        """
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path as _Path
+
+        tmp_dir = _Path(tempfile.mkdtemp())
+        state_path = tmp_dir / "dd_agg_peak.json"
+
+        def _patched_path():
+            return state_path
+
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            # Session 1: establish peak at 110_000
+            c1 = self._make_persisting_contract(data_dir=str(tmp_dir))
+            c1.update_equity(110_000.0, snapshot_timestamp=_ts(1))
+            assert abs(c1._peak_equity - 110_000.0) < 1e-6
+
+            # State file must exist after the first update
+            assert state_path.exists(), "Gap-2: peak state file must be written after update"
+
+        # Session 2: new contract instance — must load the persisted 110_000 peak
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            c2 = self._make_persisting_contract(data_dir=str(tmp_dir))
+            assert abs(c2._peak_equity - 110_000.0) < 1e-6, (
+                f"Gap-2: restart erased aggregate peak; "
+                f"loaded={c2._peak_equity}, expected=110000. "
+                "Restart mid-drawdown would blind the LTCM-defense ladder."
+            )
+
+    def test_restart_mid_drawdown_does_not_blind_ladder(self) -> None:
+        """Gap-2: After restart during 18% DD, ladder must still fire LOCKOUT.
+
+        Without fix: new contract starts at peak=0, first equity sets new peak,
+        DD appears to be 0% — LOCKOUT never fires even though the REAL DD is 18%.
+        With fix: persisted peak is loaded; 18% DD fires LOCKOUT immediately.
+        """
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path as _Path
+
+        tmp_dir = _Path(tempfile.mkdtemp())
+        state_path = tmp_dir / "dd_agg_peak.json"
+
+        def _patched_path():
+            return state_path
+
+        peak_equity = 100_000.0
+        equity_after_drawdown = peak_equity * (1.0 - 0.18)  # 18% DD — above lockout 15%
+
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            # Session 1: establish peak, then drop 18% (no restart yet)
+            c1 = self._make_persisting_contract(data_dir=str(tmp_dir))
+            c1.update_equity(peak_equity, snapshot_timestamp=_ts(1))
+            # Don't update with the drawdown equity yet — simulate restart before that
+
+        # Session 2: restart. Peak was 100_000. Now provide equity at 18% DD.
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            c2 = self._make_persisting_contract(data_dir=str(tmp_dir))
+            # Loaded peak must be 100_000 (not 0)
+            assert abs(c2._peak_equity - peak_equity) < 1e-6, (
+                f"Gap-2: pre-condition failed — loaded peak={c2._peak_equity} != {peak_equity}"
+            )
+            assessment = c2.update_equity(equity_after_drawdown, snapshot_timestamp=_ts(2))
+            assert assessment.level == AggregateDDLevel.LOCKOUT, (
+                f"Gap-2: restart-blind bug — after restart with persisted peak, "
+                f"18% DD should fire LOCKOUT but got level={assessment.level.value}. "
+                "Without this fix the ladder is blind until the peak re-establishes."
+            )
+
+    def test_persist_peak_false_no_file_written(self) -> None:
+        """persist_peak=False (test path) must not write any state file."""
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path as _Path
+
+        tmp_dir = _Path(tempfile.mkdtemp())
+        state_path = tmp_dir / "dd_agg_peak.json"
+
+        def _patched_path():
+            return state_path
+
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            c = _make_agg_contract()  # uses persist_peak=False
+            c.update_equity(100_000.0, snapshot_timestamp=_ts(1))
+
+        assert not state_path.exists(), (
+            "Gap-2: persist_peak=False must not write a state file "
+            "(test isolation violation)"
+        )
+
+    def test_aggregate_mock_cycle_does_not_advance_agg_peak(self, tmp_path) -> None:
+        """F1: AggregateDrawdownContract.update_equity(is_mock=True) must NOT advance peak.
+
+        This test drives the AGGREGATE path directly — not the per-strategy contract.
+        It verifies the F1 fix: that the 100_000.0 mock-sentinel cannot poison the
+        aggregate high-water mark or be written to dd_agg_peak.json.
+
+        Previous test (Gap-3) was a FALSE test: it exercised DrawdownContract.assess()
+        (per-strategy) while the aggregate AggregateDrawdownContract.update_equity()
+        had NO is_mock guard and would advance _peak_equity unconditionally.
+
+        Assertions:
+            1. After update_equity(100_000.0, is_mock=True), _peak_equity remains 0.0.
+            2. No dd_agg_peak.json file is written (persist_peak=False in test fixture;
+               also verified via a persist_peak=True variant with tmp_path).
+            3. A subsequent real cycle sets the peak from the first non-mock equity.
+        """
+        from unittest import mock
+
+        # --- Part A: persist_peak=False (test isolation, verifies in-process guard) ---
+        c = _make_agg_contract()  # persist_peak=False
+
+        # Mock cycle: must NOT advance _peak_equity
+        c.update_equity(100_000.0, snapshot_timestamp=_ts(0), is_mock=True)
+        assert c._peak_equity == 0.0, (
+            "F1: update_equity(is_mock=True) must not advance aggregate _peak_equity. "
+            f"Got {c._peak_equity}; expected 0.0. Mock sentinel poisoned the aggregate peak."
+        )
+
+        # First real cycle: peak must be established from this equity value
+        c.update_equity(98_500.0, snapshot_timestamp=_ts(1), is_mock=False)
+        assert abs(c._peak_equity - 98_500.0) < 1e-6, (
+            f"F1: first non-mock update_equity must set peak to 98500.0; got {c._peak_equity}"
+        )
+
+        # Second mock cycle with higher value: peak must NOT advance
+        c.update_equity(200_000.0, snapshot_timestamp=_ts(2), is_mock=True)
+        assert abs(c._peak_equity - 98_500.0) < 1e-6, (
+            f"F1: mock cycle with higher equity must not advance peak; "
+            f"expected 98500.0, got {c._peak_equity}"
+        )
+
+        # --- Part B: persist_peak=True — verify no file written on mock cycle ---
+        agg_peak_path = tmp_path / "dd_agg_peak.json"
+
+        def _patched_path():
+            return agg_peak_path
+
+        with mock.patch(
+            "forex_system.risk.drawdown_contract._agg_peak_state_path",
+            side_effect=_patched_path,
+        ):
+            c2 = AggregateDrawdownContract(
+                warn_threshold=AGG_WARN,
+                halve_threshold=AGG_HALVE,
+                halt_threshold=AGG_HALT,
+                lockout_threshold=AGG_LOCKOUT,
+                per_strategy_halt_threshold=PS_HALT,
+                per_strategy_full_halt_threshold=PS_FULL,
+                n_strategies_max=4,
+                persist_peak=True,  # production mode: writes to disk
+            )
+            c2.update_equity(100_000.0, snapshot_timestamp=_ts(0), is_mock=True)
+
+        assert not agg_peak_path.exists(), (
+            "F1: update_equity(is_mock=True) with persist_peak=True must NOT write "
+            "dd_agg_peak.json. The mock sentinel 100_000.0 must not poison the "
+            "persisted aggregate high-water mark."
+        )
+        assert c2._peak_equity == 0.0, (
+            f"F1 (persist_peak=True path): _peak_equity must remain 0.0 after mock cycle; "
+            f"got {c2._peak_equity}"
+        )

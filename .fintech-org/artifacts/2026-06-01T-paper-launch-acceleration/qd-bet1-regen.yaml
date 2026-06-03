@@ -1,0 +1,173 @@
+role: quant-developer
+artifact_type: implementation
+decision: implement
+timestamp: "2026-06-03T04:12:00Z"
+subtask_ref: bet1-regeneration
+subtask_id: pla-2026-06-01-qd-bet1
+
+regeneration:
+  harness_invocation: |
+    # Faithfulness verification (dry-run, no registry writes):
+    python3 scripts/run_falsification_trial.py \
+        --pre-reg references/pre-registrations/momentum.md \
+        --config config/default.yaml \
+        --dry-run
+    # (No --pair-restrict: original trial ran all 3 Phase-2 pairs per sidecar pair=all)
+    #
+    # Equity file construction (direct Python, no registry writes):
+    # Replicates _run_single_pair x3 (EURUSD, USDJPY, GBPUSD) + equal-weight mean
+    # equity aggregation. Schema: {timestamp, equity, signal}
+    # Written to: data/results/trials/87fa1d23_equity.parquet
+  config_used: |
+    config/default.yaml
+    strategies.momentum: {lookback_period: 20, threshold: 0.0}
+    backtest.entry_delay_bars: 1
+    backtest.rebalance_mode: discrete (default, not set in YAML)
+    pairs: EURUSD + USDJPY + GBPUSD (sidecar pair=all; no --pair-restrict)
+  reproduced_metrics:
+    sharpe: 0.31406425289253254
+    n_trades: 126
+    max_dd: 0.15425023750104697
+  recorded_metrics:
+    sharpe: 0.314064
+    n_trades: 126
+    max_dd: 0.154250
+  faithfulness: |
+    MATCH — exact reproduction:
+    sharpe=0.31406425289253254 (vs recorded 0.31406425289253254, delta=0.0)
+    n_trades=126 (exact match: EURUSD=43 + USDJPY=30 + GBPUSD=53)
+    max_dd=0.15425023750104697 (vs recorded 0.15425023750104697, delta=0.0)
+
+    Key finding: original trial used ALL THREE Phase-2 pairs (EURUSD, USDJPY, GBPUSD)
+    per sidecar pair=all. The "pair: EURUSD," in the registry entry is the markdown
+    **Pair:** field parsed to the first token — it is NOT a restriction. The aggregate
+    metrics (mean Sharpe, worst max_dd, sum n_trades) fully reproduce the recorded values.
+
+    Engine invariant: run_falsification_trial.py at git commit 717b0d9 (the original
+    trial execution commit) used identical OOS window slicing + rebalance_mode=discrete
+    + lookback_period=20 (from default params). momentum.py UNCHANGED from baseline a8f5f1d.
+
+    Spec claim "engine.py UNCHANGED since baseline" is INCORRECT — engine.py has 468
+    lines of diff from a8f5f1d — but the discrete-mode path (_run_discrete) is
+    backward-compatible and produces identical results. This does not affect faithfulness.
+  equity_file_restored: true
+  trial_count_after: 35
+  transient_entry_removed: true  # no transient entry was created; dry-run only
+
+dsr_recompute:
+  bar_count:
+    T: 519
+    skew: 0.356470
+    excess_kurt: 1.002344
+    n_honest: 10
+    dsr: 0.12963110645828024
+    vs_0_50: below
+  t_eff:
+    rho_lag1: 0.025257
+    T_eff: 519
+    dsr: 0.12963110645828024
+    vs_0_50: below
+
+gate_context: |
+  momentum-T3 falsifies if DSR < 0.50; bar-count DSR=0.1296 (below 0.50),
+  T_eff DSR=0.1296 (below 0.50). Both DSR values are well below the 0.50 threshold.
+  |rho_lag1|=0.0253 < 0.05 → T_eff = T (no autocorrelation shrinkage applied).
+  Adjudication = NHT+HoQR next wave.
+
+evidence:
+  - "scripts/run_falsification_trial.py:729 — backtest.done log confirms Sharpe=0.31406425289253254, n_trades=126, max_dd=0.15425023750104697"
+  - "scripts/run_falsification_trial.py:427 — pair loop (EURUSD, USDJPY, GBPUSD) per sidecar pair=all"
+  - "scripts/run_falsification_trial.py:526 — _aggregate_pair_results: mean Sharpe, sum n_trades, max max_dd"
+  - ".fintech-org/trials.jsonl:line with trial_id=87fa1d23 — recorded metrics verified as source"
+  - "data/results/trials/87fa1d23_equity.parquet — created; 520 rows, columns: timestamp/equity/signal"
+  - ".fintech-org/dsr_recompute_2026-06-01.jsonl — trial_id=87fa1d23: new_dsr=0.12963110645828024, n_obs=519, skew=0.35647, excess_kurt=1.002344, n_honest=10"
+  - "python3 T_eff computation: rho_lag1=0.025257, |rho|<0.05 → T_eff=T=519, DSR_t_eff=0.129631"
+  - "references/pre-registrations/momentum.triggers.yaml — sidecar pair=all, oos_window_start=2022-01-01, oos_window_end=2023-12-31"
+  - "config/default.yaml:55-57 — momentum: lookback_period=20, threshold=0.0"
+  - "src/forex_system/strategies/momentum.py:19 — required_indicators returns ['momentum_20'] with default lookback=20"
+  - "git show 717b0d9:scripts/run_falsification_trial.py — original _run_single_pair used create_strategy(strategy_name, base_params) without rate_data; same OOS slicing"
+  - ".fintech-org/trials.jsonl: wc -l = 35 (unchanged before and after operation)"
+
+firewall-self-review: |
+  regeneration + recompute only; no adjudication; no new trial registered (N stays 35);
+  no capital; no live trading path touched; T_eff analysis is a standalone computation
+  (NOT productionized into dsr_recompute.py — that change requires Principal-Reviewer;
+  flagged as follow-up below).
+
+assumptions:
+  - "Equal-weight mean across 3 pairs is the correct portfolio equity construction for
+     this multi-pair aggregate trial (consistent with how dsr_recompute.py will consume it:
+     pct_change().dropna() of the portfolio equity curve)."
+  - "T_eff = T when |rho| < 0.05 is the correct rule per the 2026-06-01 BINDING ruling
+     (no autocorrelation shrinkage when serial correlation is negligible)."
+  - "n_honest=10 from honest_n.compute_honest_n() is the correct deduplicated hypothesis
+     count (verified: dsr_recompute.py output explicitly logs N_honest=10)."
+  - "lookback_period=20 from default config (not pre-reg mention of 'momentum_14 default'):
+     pre-reg prose is informational; config is authoritative. Reproduction confirms this."
+  - "The trial was run via run_falsification_trial.py (NOT run_trial.py): confirmed by
+     trial entry format (has verdict/triggered/oos_window_start/end fields)."
+
+confidence: high
+
+body: |
+  ## Regeneration
+
+  Trial 87fa1d23 (momentum/EURUSD,USDJPY,GBPUSD, OOS 2022-01-01..2023-12-31) was
+  reproduced FAITHFULLY. The missing equity file was caused by the original
+  run_falsification_trial.py at git commit 717b0d9 not writing equity parquets — that
+  feature was added later in run_trial.py but was never backfilled to the falsification
+  entry-point.
+
+  Critical discovery: the trial ran on ALL THREE Phase-2 pairs (not EURUSD-only).
+  The "EURUSD," in the registry entry is an artifact of the markdown **Pair:** line
+  regex stopping at the first whitespace token. The sidecar declares pair=all, which
+  resolves to (EURUSD, USDJPY, GBPUSD). Aggregate metrics (mean Sharpe across pairs,
+  sum n_trades, worst max_dd) reproduce exactly:
+    - Sharpe: 0.31406425289253254 (delta=0 vs recorded)
+    - n_trades: 126 = 43+30+53 (exact)
+    - max_dd: 0.15425023750104697 (delta=0 vs recorded)
+
+  The equity file was constructed as an equal-weight portfolio (mean of the 3 per-pair
+  equity curves, each starting at 100,000). Schema: {timestamp, equity, signal}
+  with 520 rows (2022-01-03..2023-12-29).
+
+  ## DSR Results
+
+  Bar-count DSR:
+    T=519 (returns from 520-bar equity), skew=0.3565, excess_kurt=1.0023
+    n_honest=10, Sharpe=0.3141
+    DSR = 0.1296 (BELOW 0.50 threshold)
+
+  T_eff DSR:
+    rho_lag1=0.0253, |rho|<0.05 → T_eff=T=519 (no autocorrelation shrinkage)
+    DSR = 0.1296 (identical to bar-count; BELOW 0.50 threshold)
+
+  The old degenerate DSR (0.9999998614) was a units bug in compute_dsr() where the
+  annualized Sharpe was not converted to per-observation scale before computing z.
+  The corrected DSR (0.1296) reflects the true modest edge of this strategy at n_honest=10.
+
+  ## Registry Integrity
+
+  No new trial entry was written. The equity file was constructed from a direct Python
+  computation replicating the _run_single_pair pipeline, not via the trial harness.
+  trials.jsonl remains at exactly 35 lines.
+
+  ## Follow-up Required (NOT productionized here)
+
+  Productionizing the T_eff branch into dsr_recompute.py requires Principal-Reviewer
+  sign-off (Principal-Reviewer change). Flagged for next HoQR/NHT wave.
+
+knowledge_gaps: []
+
+policy_violations_detected:
+  - |
+    Spec assertion "engine.py UNCHANGED since baseline a8f5f1d" is factually incorrect:
+    468-line diff confirmed via git diff a8f5f1d HEAD. The discrete-mode path is
+    backward-compatible, but the assertion is wrong and should be corrected in future
+    context documents to avoid misleading future investigators.
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

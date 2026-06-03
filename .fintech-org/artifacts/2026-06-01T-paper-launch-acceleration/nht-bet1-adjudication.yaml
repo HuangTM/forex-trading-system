@@ -1,0 +1,121 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: 2026-06-03T04:10:48Z
+subtask_ref: bet1-adjudication
+subtask_id: pla-2026-06-01-nht-bet1
+claim-tested: "Trial 87fa1d23 (the firm's FRED-carry 'Bet#1') demonstrates exploitable out-of-sample momentum alpha and cleared its pre-registered falsification gates — i.e. it is a VALIDATED OOS survivor."
+gate-checks:
+  - "T1 OOS Sharpe<0.30: does-not-fire (Sharpe=0.31406; 0.314 > 0.30 by 0.014 — passes the floor by a hair)"
+  - "T2 maxDD>25%: does-not-fire (maxDD=0.15425; 15.4% < 25%)"
+  - "T3 DSR<0.50: FIRES (DSR=0.12963 at both T=519 bar-count and T_eff=519; 0.130 << 0.50 — fails by a factor of ~3.9x) => FALSIFY"
+  - "T4 n_trades<30 or n_oos_bars<252: does-not-fire (126 trades >= 30; 519 bars >= 252)"
+matched-benchmark-sharpe: "No, 0.314 raw is NOT distinguishable from a matched-random/noise benchmark once multiplicity-deflated. The DSR IS the matched-benchmark test: it answers 'what is the probability the true Sharpe exceeds 0 given that this was the best/a selected result out of N independent trials, adjusted for the non-normal return distribution (skew=0.356, excess kurtosis=1.002).' DSR=0.1296 means there is only ~13% posterior confidence the underlying edge is positive — equivalently ~87% of the apparent 0.314 is consistent with selection luck + finite-sample noise on a heavy-tailed series. A raw Sharpe of 0.314 over T=519 observations carries a standard error on Sharpe of roughly sqrt((1 + 0.5*SR^2)/T) ~ sqrt(1.05/519) ~ 0.045 on a PER-OBSERVATION basis; but the deflation benchmark (expected max Sharpe of N=10 noise trials) sits ABOVE the realized 0.314/sqrt(T) signal, which is exactly why DSR collapses below 0.5. The result is inside the noise band of a matched random benchmark."
+dsr-assessment: "DSR=0.12963 at honest-N=10 is the MOST GENEROUS deflation available (fewer trials => smaller expected-max-Sharpe benchmark => less haircut). It still fails T3's 0.50 threshold by ~3.9x. Robustness to N: the verified block states N=24 (the pre-reg's actual n_trials_at_spawn, which T3 binds to) produces an EVEN LOWER DSR. So the gate fires under BOTH the generous N=10 and the pre-reg-correct N=24. The verdict is fully robust to the N choice — there is no value of N in [10, 24] that rescues the claim, because the most generous endpoint already fails by a wide margin. NOTE the governance wrinkle: T3 as written binds to N=n_trials_at_spawn=24, but DSR was reported at N=10. This does not change the outcome (N=10 is strictly more lenient and still fails), so the discrepancy is immaterial to the verdict — but it should be logged: the gate was evaluated against an easier N than the pre-reg specified, and still failed."
+raw-vs-deflated: "The 0.314 -> 0.130 collapse is the whole story. Raw Sharpe 0.314 clears the T1 floor (0.30) by a trivial 0.014 margin — a margin smaller than one standard error of the Sharpe estimate (~0.045). That alone makes T1 a coin-flip pass, not a signal. The Deflated Sharpe then accounts for the two things the raw Sharpe ignores: (1) MULTIPLICITY — this trial was selected from a family of N trials, so the relevant null is the expected MAXIMUM Sharpe under noise, not zero; (2) HIGHER MOMENTS — positive skew (0.356) and fat tails (excess kurtosis 1.002) inflate the apparent Sharpe relative to a Gaussian, and the DSR penalizes this. Deflation maps the 0.314 to a confidence-that-edge-is-real of only 12.96%. A 'validated OOS survivor' should clear DSR>=0.50 (better-than-even odds the edge is real); this clears 0.13. The barely-passing T1 and the decisively-failing T3 are not in tension — they are the SAME observation viewed before vs after correcting for selection and non-normality. The pre-registration deliberately included T3 precisely to catch a marginal-T1 result like this one."
+dissent-statement: |
+  NHT DISSENT — Bet#1 (trial 87fa1d23) is NOT a validated OOS survivor; the claim is
+  noise-indistinguishable and the trial is FALSIFIED by its own pre-registered gates.
+
+  Pre-registered gate T3 (Deflated Sharpe < 0.50 => FALSIFY) FIRES: DSR = 0.12963,
+  failing the 0.50 threshold by a factor of ~3.9x. This holds at the most-generous
+  honest-N=10 AND at the pre-reg-binding n_trials_at_spawn=24 (which yields an even
+  lower DSR). The T3 gate firing is decisive and triggers the pre-registered FALSIFY
+  verdict regardless of the other three gates.
+
+  The raw OOS Sharpe of 0.31406 clears the T1 floor of 0.30 by only 0.014 — a margin
+  smaller than one standard error of the Sharpe estimate (~0.045 per-obs on T=519).
+  Once multiplicity (selection from N trials => compare against expected-max under
+  noise) and higher-moment deflation (skew 0.356, excess kurtosis 1.002) are applied,
+  that apparent edge collapses to a 12.96% confidence that the true Sharpe exceeds
+  zero. ~87% of the realized 0.314 is consistent with selection luck plus finite-sample
+  noise on a heavy-tailed return series.
+
+  The prior recorded DSR of 0.99999986 that earlier supported a PASS was a degenerate
+  units bug (annualized-Sharpe numerator over a per-observation standard error). That
+  bug is fixed; the corrected DSR fails the gate. Any earlier "Bet#1 PASSES" or
+  "VALIDATED" memory rests on the broken metric and is HEREBY SUPERSEDED.
+
+  A pre-registered falsification trial that trips its own kill-criterion is a SUCCESSFUL
+  experiment with a NEGATIVE result, not a survivor. The correct action is to mark
+  momentum/Bet#1 REJECTED on this universe and to deploy NO CAPITAL — paper or live —
+  on the basis of this trial. Treating a falsified trial as validated alpha would be
+  exactly the multiplicity-driven false-positive the pre-registration was built to
+  prevent.
+
+  Governance note (non-blocking): T3 as written binds to N=n_trials_at_spawn=24, but
+  the reported DSR used N=10. The outcome is unchanged because N=10 is strictly more
+  lenient and still fails — but the gate should be re-evaluated and logged at the
+  pre-reg-specified N=24 for audit fidelity.
+contamination-check: "clean"
+evidence:
+  - "references/pre-registrations/momentum.md (R4; T1-T4 gates locked before OOS run; T3 DSR<0.50, N=n_trials_at_spawn)"
+  - "src/forex_system/harness/deflated_sharpe.py (DSR implementation referenced by pre-reg; exists, 2.8K)"
+  - "Orchestrator-verified numbers: OOS Sharpe=0.31406, maxDD=0.15425, n_trades=126, T=519, DSR=0.12963 (T=519 and T_eff=519, rho=0.0253), skew=0.356, excess kurtosis=1.002, honest-N=10, n_trials_at_spawn=24"
+assumptions:
+  - "I treat the orchestrator's verified numbers as ground truth (equity regenerated to exact metric match, DSR recomputed independently with the units/kurtosis/variance-guard fixes); I did not re-run code, per role constraints."
+  - "T3 firing alone is sufficient for a FALSIFY verdict — the pre-reg uses 'ANY of the following triggers fire'. T1/T2/T4 not firing does not rescue a trial whose T3 fires."
+  - "The old DSR=0.99999986 was a units bug, as stated; I do not rely on it."
+  - "Lag-1 autocorr rho=0.0253 < 0.05 justifies T_eff=T=519 with no autocorrelation shrinkage; if anything, autocorrelation would only DECREASE T_eff and further lower DSR, so this assumption is conservative in the claim's favor."
+confidence: high
+body: |
+  STRUCTURAL NULL POSTURE: I assume Bet#1 is noise and attempt to reject that
+  assumption. The pre-registered gates are the agreed rejection rules; I apply them
+  mechanically and then interpret what survives.
+
+  GATE-BY-GATE (pre-reg uses "FALSIFIED if ANY trigger fires"):
+    T1 (OOS Sharpe<0.30): Sharpe=0.31406 > 0.30 -> does-not-fire. Margin = +0.014,
+        which is < one Sharpe standard error (~0.045). A coin-flip pass.
+    T2 (maxDD>25%): 0.15425 < 0.25 -> does-not-fire.
+    T3 (DSR<0.50): DSR=0.12963 < 0.50 -> FIRES. Fails by ~3.9x.
+    T4 (n_trades<30 OR n_oos_bars<252): 126>=30 and 519>=252 -> does-not-fire.
+  One gate (T3) fires. Under the pre-reg's "ANY" logic, the trial is FALSIFIED.
+
+  WHY T1-PASS AND T3-FAIL ARE CONSISTENT (not a contradiction):
+  T1 and T3 measure the SAME data through different lenses. T1 asks "is the point
+  estimate above an arbitrary floor?" — and 0.314 barely is. T3 asks "after accounting
+  for (a) the fact this trial was selected from a family of N trials, and (b) the
+  non-normal shape of the returns, what is the probability the true Sharpe is positive?"
+  The answer is 12.96%. The deflation does two things to the raw 0.314:
+    (a) MULTIPLICITY: the null is no longer "Sharpe=0" but "Sharpe = expected MAXIMUM
+        of N noise trials." With N>=10 candidate hypotheses, the best-of-N noise
+        Sharpe benchmark sits near/above 0.314/sqrt(T) effective signal, so the
+        z-score against the correct null is small.
+    (b) HIGHER MOMENTS: positive skew (0.356) + fat tails (excess kurtosis 1.002)
+        inflate raw Sharpe vs Gaussian; the corrected DSR formula penalizes both.
+  Result: the apparent edge dissolves into the noise band of a matched-random
+  benchmark. The pre-registration ANTICIPATED this exact failure mode — T3 exists
+  specifically to catch a marginal-T1 pass driven by selection + shape.
+
+  ROBUSTNESS TO N: DSR was computed at honest-N=10, the MOST GENEROUS choice (fewer
+  trials -> smaller expected-max benchmark -> less haircut). It still fails 0.50 by
+  ~3.9x. The pre-reg's T3 actually binds to n_trials_at_spawn=24, under which DSR is
+  even LOWER (more deflation). Therefore the verdict is robust across the entire
+  plausible N range [10, 24]: the lenient endpoint already fails decisively, and the
+  binding endpoint fails harder. No N choice rescues the claim. (Governance flag: gate
+  evaluated at N=10 vs pre-reg-specified N=24; immaterial to outcome, but should be
+  logged.)
+
+  AUTOCORRELATION CHECK: rho=0.0253 < 0.05 => T_eff = T = 519, no shrinkage. This is
+  conservative toward the claim: real autocorrelation would shrink T_eff and lower DSR
+  further. So the 0.12963 figure is, if anything, an upper bound on the DSR.
+
+  THE OLD 0.99999986: a degenerate units bug (annualized numerator / per-obs SE).
+  Any prior "PASSES/VALIDATED" record for Bet#1 that cited a near-1.0 DSR is built on
+  that bug and is superseded by this adjudication.
+
+  VERDICT: noise-indistinguishable. The pre-registered T3 kill-criterion fires; the
+  trial is FALSIFIED by its own locked rules. A falsified pre-registered trial is a
+  successful experiment with a negative result — it is NOT a validated OOS survivor,
+  and it warrants NO capital deployment (paper or live). Calling it "validated alpha"
+  would institutionalize the precise multiplicity false-positive the pre-registration
+  was constructed to block.
+knowledge_gaps: []
+policy_violations_detected:
+  - "Claim under test asserts 'cleared its pre-registered falsification gates' — this is FALSE per the corrected DSR; gate T3 fires. Surfacing as a factual misstatement in the claim, not a process violation by the orchestrator (whose verified numbers correctly expose it)."
+  - "Audit-fidelity flag (non-blocking): T3 binds to N=n_trials_at_spawn=24; DSR reported at N=10. Outcome unchanged (N=10 strictly more lenient), but gate should be re-logged at N=24."
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

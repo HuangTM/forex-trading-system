@@ -1,0 +1,124 @@
+role: head-of-quant-research
+artifact_type: retirement-decision
+decision: retire
+timestamp: 2026-06-03T04:11:40Z
+subtask_ref: bet1-adjudication
+subtask_id: pla-2026-06-01-hoqr-bet1
+verdict: "RETIRE — momentum-T3 fires: deflated Sharpe 0.12963 < 0.50 gate. Bet#1 is FALSIFIED. Raw Sharpe clearing the 0.30 floor is not evidence of edge once the multiple-testing deflation is applied."
+gate-T3: "fires: DSR 0.12963 vs 0.50"
+validated-oos-survivor-count-after: 0
+auto-retire-2026-07-01: "resolved-early"
+falsification-archive-entry: "FALSIFIED (2026-06-03): The momentum (rate-of-change) strategy generates NO exploitable price-momentum alpha on the EURUSD+USDJPY+GBPUSD equal-weight portfolio over OOS-2022 (2022-01-01..2023-12-31). Raw OOS Sharpe 0.31406 clears the 0.30 R1 floor but the deflated Sharpe (Bailey & Lopez de Prado 2014, corrected units, bar-count T=519, T_eff=519 since |rho_lag1|=0.0253<0.05, honest-N=10 — the MOST generous of the admissible N) = 0.12963, far below the pre-registered momentum-T3 gate of 0.50. The original 'passed' verdict was an artifact of the F-001 degenerate-units DSR bug (old DSR 0.99999986). Do not resurrect this hypothesis (any momentum/ROC variant on this carry-dominated G3 universe) without (a) a NEW pre-registration with a NEW OOS window, and (b) a prior-probability argument that survives honest-N deflation at the org's current trial count — not merely a raw-Sharpe pass. Caveat: underlying data is Phase-0 SYNTHETIC, so even the retained-direction conclusion (carry dominates, momentum does not clear deflation) is provisional pending real-data confirmation."
+ranked-alternatives:
+  - "1. R5 permutation / White Reality-Check on REAL carry data — the cheapest class-level YES/NO on whether ANY carry-family edge survives false-discovery control; this is now the firm's highest-value research question since the last OOS survivor is gone."
+  - "2. Fix the carry USDJPY data-quality outlier (F-001 lineage) — upstream of any real-data carry evaluation; do this before R5 so R5 runs on clean inputs."
+  - "3. Acquire/validate a REAL (non-synthetic) price+rate dataset — every current verdict (including this retirement) rests on synthetic data; no 'validated alpha' claim is defensible until at least one trial runs end-to-end on real fills."
+  - "4. Strengthen the falsification machinery itself — the log is <20 entries with 0 STRONG OOS rejections; until the evaluator demonstrably fails a strategy on real data, no PASS it issues is interpretable."
+retirement-criteria:
+  - "momentum-T3 fired: machine-check dsr_recompute_2026-06-01.jsonl trial_id=87fa1d23 new_dsr=0.12963110645828024 < 0.50 (pre-reg references/pre-registrations/momentum.md line 43)."
+  - "Falsification rule is ANY-trigger: pre-reg states 'FALSIFIED if ANY of the following triggers fire' — exactly one (T3) firing is sufficient; T1/T2/T4 passing does not rescue it."
+  - "DSR computed at honest-N=10, the MOST generous admissible N (N=24 at-spawn or N=35 org-count would only lower it) — the gate fails even under the most charitable deflation."
+  - "T_eff ruling is non-binding here: |rho_lag1|=0.0253 < 0.05, so T_eff=T=519; the verdict does not depend on the autocorrelation-shrinkage branch."
+  - "Equity reconstruction reproduces recorded metrics with zero delta (Sharpe 0.31406, n_trades 126, maxDD 0.15425) — the trial is faithfully regenerated, so the FAIL is on real reproduced behavior, not a missing-data default."
+evidence:
+  - ".fintech-org/trials.jsonl: trial_id=87fa1d23, oos=true, verdict=passed (pre-correction), sharpe=0.31406425289253254, n_trades=126, max_dd=0.15425023750104697, old dsr=0.9999998614080806, n_trials_at_spawn=24 — the sole oos=true entry of 35 total trials."
+  - ".fintech-org/dsr_recompute_2026-06-01.jsonl: trial_id=87fa1d23, new_dsr=0.12963110645828024, n_obs_used=519, n_honest=10, recompute_status=ok."
+  - ".fintech-org/artifacts/2026-06-01T-paper-launch-acceleration/qd-bet1-regen.yaml: faithful reproduction (delta=0 on all three metrics), 3-pair equal-weight portfolio confirmed, T_eff=519 (rho_lag1=0.0253), DSR=0.1296 below gate; old 0.99999986 identified as units bug in compute_dsr()."
+  - "references/pre-registrations/momentum.md lines 40-46: T1 Sharpe<0.30, T2 maxDD>25%, T3 DSR<0.50 (Bailey & Lopez de Prado 2014), T4 n_trades<30 OR bars<252; 'FALSIFIED if ANY trigger fires.'"
+  - ".fintech-org/artifacts/.../hoqr-prioritization.yaml lines 24-25: WIND-DOWN trigger fires if Bet#1 'regenerated-and-FAILS the corrected DSR/effective-N gate'; CONTINUE trigger requires it to PASS — it does not pass."
+  - "grep '\"oos\": true' trials.jsonl returns exactly one trial (87fa1d23); after this retirement the validated-OOS-survivor count is 0."
+assumptions:
+  - "honest-N=10 is the correct deduplicated hypothesis count (per QD: dsr_recompute.py logs N_honest=10 explicitly); even if N were higher the DSR would be lower and the FAIL would stand a fortiori."
+  - "The pre-registered momentum-T3 gate (DSR<0.50) is binding and was locked before any OOS-2022 run; no post-hoc threshold relaxation is admissible."
+  - "Synthetic Phase-0 data means this retirement falsifies the hypothesis ON THE FIRM'S CURRENT TEST HARNESS; a real-data re-test could in principle differ, but the burden is on a NEW pre-registration to show it, not on keeping this trial alive."
+  - "T_eff binding ruling is satisfied (computed; coincides with bar-count T because autocorrelation is negligible) — no separate adjudication of the shrinkage branch is required for this verdict."
+confidence: high
+body: |
+  ## 1. Does momentum-T3 fire? Verdict.
+
+  YES — momentum-T3 (DSR < 0.50) FIRES. The corrected deflated Sharpe is 0.12963
+  under bar-count T=519, and identically 0.12963 under T_eff=519 (the binding T_eff
+  ruling coincides with bar-count here because lag-1 autocorrelation is 0.0253 < 0.05,
+  so no shrinkage applies). 0.12963 is far below the 0.50 gate. This DSR is computed
+  at honest-N=10 — the MOST generous admissible N; at N=24 (n_trials_at_spawn) or N=35
+  (org count) it would only be lower. The gate fails under the most charitable
+  assumption available.
+
+  Verdict: **RETIRE — Bet#1 is FALSIFIED.** The pre-registration's rule is explicit:
+  "FALSIFIED if ANY of the following triggers fire." Exactly one firing (T3) is
+  dispositive. The fact that T1 (raw Sharpe), T2 (drawdown), and T4 (sample size) all
+  pass does not rescue it.
+
+  ## 2. Raw-Sharpe-clears-floor vs deflated-Sharpe-fails: what it means.
+
+  The trial clears T1 (raw OOS Sharpe 0.31406 > 0.30 floor) but fails T3 (DSR 0.12963
+  < 0.50). This is the textbook signature of a NON-discovery dressed up as one. Raw
+  Sharpe says "this looks slightly positive in-sample-of-the-OOS-window." Deflated
+  Sharpe asks the only question that matters: "given how many hypotheses the firm has
+  tested, what is the probability this 0.31 Sharpe is real rather than the best-looking
+  draw from noise?" The answer — DSR 0.13 — is "almost certainly noise." A raw Sharpe
+  of 0.31 on a 519-bar window with honest-N=10 prior tests is exactly what you expect
+  to see by luck. The 0.30 floor is a necessary-but-not-sufficient screen; the 0.50
+  DSR gate is the binding test of whether an edge survives multiple-testing deflation.
+  It does not.
+
+  Plainly: this is NOT validated alpha. The original "passed" verdict was an artifact
+  of the F-001 degenerate-units DSR bug (old DSR 0.99999986, which saturated near 1.0
+  because annualized Sharpe was not converted to per-observation scale before computing
+  the z-statistic). Once that bug is fixed, the trial fails.
+
+  Does the firm now have ANY validated OOS survivor? **NO.** 87fa1d23 was the firm's
+  only oos=true trial (verified: grep returns exactly one of 35). With it retired, the
+  validated-OOS-survivor count is ZERO. This is consistent with — and now confirms — the
+  ratified 2026-05-31 honest-system-review finding of zero validated OOS alpha. The
+  earlier "VALIDATED/PASSES" memories for vol_target_carry and Bet#1 are both retracted:
+  vol_target_carry by the 05-31/06-01 audit, and Bet#1 by this decision.
+
+  ## 3. Consequence for the 2026-07-01 auto-retire trigger and the mandate.
+
+  The 2026-07-01 trigger is RESOLVED EARLY. Its WIND-DOWN condition (a) was: Bet#1
+  "regenerated-and-FAILS the corrected DSR/effective-N gate." That has now happened —
+  faithfully regenerated (zero-delta reproduction) and failed the corrected gate. The
+  CONTINUE trigger required Bet#1 to PASS the corrected DSR/effective-N gate; it does
+  not. So condition (a) of the structural-wind-down test is met today rather than at
+  the deadline. The trigger no longer needs to wait for 2026-07-01 to fire on the Bet#1
+  leg.
+
+  Important scope note: this resolves ONLY the Bet#1 leg. The full structural-wind-down
+  recommendation is conjunctive — it also requires (b) R5 permutation/Reality-Check on
+  real carry returning p>=0.05 AND (c) the falsification log still <20 entries with 0
+  STRONG OOS rejections. Those two legs are NOT yet adjudicated. So: Bet#1 is dead, the
+  firm has zero validated OOS survivors, but the formal active-research-mandate wind-down
+  is NOT yet triggered in full — it awaits the R5 real-carry result and the falsification-
+  machinery threshold. The honest framing: the cheapest, fastest leg of the kill-test has
+  now returned a clean NO. Research capacity should redirect to the R5 real-carry leg
+  (the next dominant question), not to resurrecting momentum.
+
+  Kill-criterion status: the kill-criterion remains TRIPPED (no paper P&L curve, <20
+  falsification entries, 0 STRONG OOS rejections). This decision does not un-trip it;
+  it removes the last candidate that might have.
+
+  ## 4. Falsification-archive entry and residual caveats.
+
+  The archive entry is recorded in `falsification-archive-entry` above. It states the
+  hypothesis as falsified, pins the exact numbers, identifies the F-001 bug as the cause
+  of the prior false PASS, and sets the bar for any future resurrection (NEW pre-reg +
+  NEW OOS window + a deflation-surviving prior argument — never a bare raw-Sharpe pass).
+
+  Residual caveats, stated honestly:
+  - SYNTHETIC DATA: the entire test ran on Phase-0 synthetic data. This retirement is
+    valid on the firm's current harness, but no verdict here — including "carry
+    dominates, momentum does not" — is real-data-confirmed. A real-data re-test could
+    differ; the burden to mount one is on a new pre-registration.
+  - RAW-SHARPE NUANCE: the trial DID clear the 0.30 floor. Anyone re-reading the registry
+    must not mistake the T1 pass for evidence of edge. The archive entry foregrounds this
+    so the trial is not silently resurrected on "but its Sharpe was positive."
+  - The trial is RETAINED IN THE REGISTRY as a falsified entry (status flips passed →
+    falsified); it is not deleted. Org trial count stays 35; no new trial registered.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,476 @@
+role: execution-trader
+artifact_type: execution-plan
+decision: route-with-reduced-size
+timestamp: 2026-06-02T00:00:00Z
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-et
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CRITICAL PATH — sequenced to "first real paper bar"
+# "First real paper bar" = first observe-cycle that (a) reads a real Saxo SIM
+# fill, (b) is not excluded by the mock-sentinel, and (c) writes to the JSONL
+# log with is_mock=False and a non-100000.0-ambiguous account identity.
+# ─────────────────────────────────────────────────────────────────────────────
+critical-path:
+  - "STEP 1 | P1 secrets-purge: verify no residual secrets in local backup refs,
+    stash, or un-gitignored files (.env, etc); delete any local backup tags from
+    the 2026-05-06 filter-branch (pre-token-scrub-backup tag + origin/main
+    backup refs); confirm push path is clean | owner:operator |
+    duration:15-30min | depends-on:none | parallel-ok:yes (alongside STEP 2)"
+
+  - "STEP 2 | P4 mock-sentinel-fix: replace float==100000.0 disambiguation with
+    a positive run-mode flag (env var CANARY_RUN_MODE=sim or explicit
+    is_sim_account flag from SaxoClient.is_live==False + account_id tagging);
+    patch ModeledEquityLedger.is_mock_cycle to use is_mock_backend (primary)
+    and retire the equality-sentinel as sole guard; add a cycle_id / startup
+    UUID to the JSONL log so every real-fill entry is traceable to the process
+    that produced it | owner:quant-developer | duration:1-2h |
+    depends-on:none | parallel-ok:yes (alongside STEP 1)"
+
+  - "STEP 3 | Operator provisions a 24h Saxo SIM developer token and sets
+    SAXO_TOKEN in the terminal environment; this is outside firm control and
+    is the wall-clock bottleneck | owner:operator | duration:0-24h (dominates)
+    | depends-on:none | parallel-ok:yes (can be obtained while STEP 1+2 run)"
+
+  - "STEP 4 | P1+P4 merge+push: quant-developer commits and pushes the P4
+    mock-sentinel fix; operator verifies git log has no secrets re-introduced
+    (run secret-scan inline: git rev-list HEAD | xargs git grep -l SAXO_TOKEN)
+    | owner:quant-developer+operator | duration:15min | depends-on:STEP 1 AND
+    STEP 2 | parallel-ok:no (sequential after both close)"
+
+  - "STEP 5 | Token in hand + P1+P4 closed: operator exports SAXO_TOKEN, runs
+    run_observe_momentum_eurusd.py --loop once in a named tmux session; verifies
+    the first log entry has is_mock=False and the equity does NOT equal 100000.0
+    (or if it does, that the mock-sentinel fix correctly tags it as SIM-real
+    based on run-mode flag, not float equality); this is the FIRST REAL PAPER
+    BAR | owner:operator | duration:5min execution + 1 observe cycle (daily
+    bar = up to 24h to see a new closed bar; intraday 4h = up to 4h) |
+    depends-on:STEP 3 AND STEP 4 | parallel-ok:no"
+
+  - "STEP 6 | P2 saxo-marking probe (ADVISORY at zero capital, completes after
+    loop starts): operator runs probe_saxo_marking.py --open-and-flatten EURUSD
+    against the same SIM token; confirms CurrentPriceType==Bid for long;
+    records result in docs/research/saxo_totalvalue_marking_2026-06-01.md
+    empirical-confirmation section | owner:operator | duration:5min |
+    depends-on:STEP 3 | parallel-ok:yes (can run alongside STEP 5 or shortly
+    after the first real bar)"
+
+  - "STEP 7 | P3 calibration accrual (OUTPUT of canary, NOT a gate): allow
+    loop to accumulate 30-50 real-fill observe cycles; review JSONL residuals;
+    update tol_abs/tol_rel from placeholder (500.0/0.005) to empirical values;
+    flip reconciliation_enforce:true only after calibration passes | owner:
+    orchestrator+quant-developer | duration:30-50 daily bars = 30-50 calendar
+    days (daily timeframe) | depends-on:STEP 5 | parallel-ok:n/a (time-bound)"
+
+critical-path-bottleneck: >
+  STEP 3 (operator token provisioning) is the true wall-clock bottleneck.
+  It is a human/administrative action with a 0-to-24h window that is entirely
+  outside firm control. STEP 1 (secrets-purge) and STEP 2 (mock-sentinel-fix)
+  are parallelizable and can complete in 2-3h of engineering time while the
+  operator arranges the token. STEP 5 (first real bar) cannot start until BOTH
+  the token and the P4 fix are in hand. The earliest possible first-real-bar
+  time = max(token_arrival, P1_close, P4_close). The 24h SIM token TTL means
+  the operator must also time token issuance to the intended run window — tokens
+  issued and then left unused for hours are wasted.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAXO MARKING PROTOCOL
+# ─────────────────────────────────────────────────────────────────────────────
+saxo-marking-protocol: |
+  WHAT THE PROBE MUST SHOW
+  ────────────────────────
+  For an open long EUR/USD position (opened via --open-and-flatten EURUSD):
+    1. PRIMARY (unit-free, definitive): CurrentPriceType == "Bid"
+       Any value other than "Bid" for a long is an unexpected finding that
+       invalidates the documentary conclusion and requires investigation.
+    2. SECONDARY (arithmetic, USD-quoted only): broker's ProfitLossOnTrade
+       must be arithmetically closer to (amount * (bid - open_price)) than
+       to (amount * (mid - open_price)), where mid = (bid+ask)/2.
+       Acceptable deviation: ≤ 1 pip (0.0001 USD/EUR) × |amount|, to allow
+       for SIM pricing engine rounding and the CalculationReliability edge case.
+    3. CalculationReliability field: should be "Reliable". If "Delayed" or
+       absent, note it — delayed prices can introduce apparent mid-marking
+       artifacts on illiquid SIM pairs; for EUR/USD this should not occur but
+       must be recorded.
+
+  WHAT "CONFIRMED" MEANS
+  ──────────────────────
+  Confirmed = BOTH conditions met:
+    (a) CurrentPriceType == "Bid" (primary, always checked), AND
+    (b) ProfitLossOnTrade arithmetically closer to bid-marked value than to
+        mid-marked value (secondary, checked for USD-quoted pairs).
+  If only (a) passes and (b) fails: record as "partial — investigate arithmetic
+  discrepancy (possible commission or SIM adjustment)". Do NOT treat as a refutation
+  of the documentary finding unless the arithmetic delta exceeds 3 pips.
+
+  EXPECTED OPEN-POSITION RESIDUAL
+  ─────────────────────────────────
+  From docs/research/saxo_totalvalue_marking_2026-06-01.md (corrected 2026-06-01):
+    While a long of u nominal units is OPEN:
+      Broker marks at bid:  unrealized_broker = u*(mid_now - mid_0) - 2*u*hs
+      Model marks at mid:   unrealized_model  = u*(mid_now - mid_0) - u*(hs+sl)
+      Residual while open:  R = broker - model = u*(sl - hs)
+
+    For EUR/USD config (hs=0.25pip, sl=0.5pip, c=0.5pip):
+      R_open ≈ +u * 0.25 pip  (model sits BELOW broker; model over-charges vs
+      broker's spread-only marking because slippage > half-spread)
+
+    On CLOSE (per trade, cumulative):
+      R_close = u * (2*sl + c) = u * 1.5 pip  (not zero — this is the signal
+      cost-reconciliation exists to measure: modeled_cost vs actual_cost divergence)
+
+  The residual DOES NOT converge to zero on close — it converges to u*(2sl+c)
+  which equals the modeled cost excess over what the broker actually charged.
+  This is interpretable only if the model's sl+c assumptions match Saxo SIM reality.
+
+  FLAT-TO-FLAT RECONCILIATION RECOMMENDATION
+  ────────────────────────────────────────────
+  Primary method (all cycles, including open): track
+    R_adj = R(t) - u(t)*(sl - hs)
+  i.e. remove the known open-position spread basis each cycle using the live
+  half-spread from the same quote fetch. R_adj should hover near zero + model
+  error; a TREND in R_adj across cycles is genuine divergence.
+
+  Flat-to-flat as corroborating check: on zero-exposure (flat) cycles the open
+  basis vanishes and the realized residual ≈ u*(2sl+c) per completed trade is the
+  pure cost-model error. This is the cleanest, lowest-noise signal to cross-check
+  the per-cycle R_adj tracking. Use both — flat-to-flat corroborates, per-cycle
+  R_adj gives coverage across the full holding period. The observe-only canary
+  generates no fills and therefore produces NO flat-to-flat signal; this
+  calibration requires the full paper loop (or probe_saxo_marking.py).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FILL MODEL FOR OBSERVE LOOP
+# ─────────────────────────────────────────────────────────────────────────────
+fill-model-for-observe-loop: |
+  OBSERVE-ONLY CANARY: no fills are actually placed. The modeled-equity ledger
+  (ModeledEquityLedger in cost_reconciliation.py) computes a purely notional
+  running P&L with held_units_nom=0 (size_multiplier=0.0 per CRO). There is
+  therefore no real fill to model. However, for calibration to be MEANINGFUL
+  once the loop graduates to a non-zero sizing path, the fill model embedded in
+  the cost model must follow these conventions:
+
+  BID/ASK, NOT MID (non-negotiable for any future sizing)
+  ─────────────────────────────────────────────────────────
+  Entry fills: use Ask (buying EUR buys at ask, not mid).
+  Exit fills:  use Bid for longs, Ask for shorts (close at the far side).
+  Mid is used ONLY for unrealised P&L marking within a cycle (model convention),
+  with the documented open-position basis R_open = u*(sl-hs) expected and tracked.
+  The broker's TotalValue uses close-out (bid/ask) marking — the reconciliation
+  residual is the mechanism that surfaces the spread basis, not the fill model.
+
+  ORDER TYPES — OBSERVE-ONLY CANARY CONTEXT
+  ───────────────────────────────────────────
+  The momentum strategy is a trend-following daily signal (long or flat from
+  the research spec). Fills at execution are assumed to be immediate-or-cancel
+  market orders at the opening ask of the following day's session (or first tick
+  after signal bar closes, consistent with the backtest's entry_delay_bars=1
+  convention). Stop-limit and limit-on-retest fills are NOT appropriate for a
+  trend-following momentum signal that intends immediate entry once the bar
+  confirms — using them would introduce positive selection bias into the fill
+  model (only the most favourable entries fill) that does NOT correspond to how
+  the backtest is priced.
+
+  No GTC, no limit-on-retest, no stop-entry for the momentum strategy. Any
+  future intraday ORB strategy (P3) that uses breakout entries should be re-
+  evaluated separately under the execution-firewall-review skill before its fill
+  model is locked — breakout entries DO benefit from buy-stop (enter above the
+  ORB high) to avoid premature fills, but this is out of scope for this wave.
+
+  EUR/USD SPREAD REGIME (from market knowledge, not web lookup)
+  ──────────────────────────────────────────────────────────────
+  EUR/USD is the most-traded pair globally. Saxo Bank SIM spreads track realistic
+  institutional spreads with a modest SIM markup. Expected regimes:
+
+    London–NY overlap (13:00–16:00 UTC): 0.3–0.7 pip. This is peak liquidity;
+    spreads compress to near institutional. Best time to execute daily-bar
+    signals that require a morning open fill.
+
+    London session (07:00–13:00 UTC): 0.5–1.0 pip. Good liquidity.
+    Post-London, pre-NY (10:00–13:00 UTC): brief widening possible.
+
+    NY session (13:00–22:00 UTC): 0.5–1.0 pip.
+
+    Asia / Tokyo (00:00–07:00 UTC): 0.8–1.5 pip. Lowest EUR/USD liquidity.
+
+    Rollover / Sunday open (21:30–22:30 UTC): 2–5 pip possible. This is the
+    worst time to execute; spread can spike 5–10× vs normal. Daily-bar signals
+    that fire at the Sunday open should use Monday's 07:00 UTC open instead.
+
+    Scheduled news events (NFP, ECB, Fed): 3–10+ pip instantaneous widening
+    during the 1-min announcement window, reverting within 2–5 min. Any backtest
+    that does not model news-time spread widening understates cost by 2–5× on
+    those bars.
+
+  For the observe-only canary: the fill model in the cost model (hs=0.25pip for
+  EUR/USD, i.e. full spread=0.5pip) is at the low end of the London–NY regime.
+  This is acceptable as a conservative lower-bound for calibration — the probe's
+  flat-to-flat residual will reveal whether Saxo SIM charges more.
+
+expected-slippage-distribution: >
+  Observe-only (zero capital, zero fills): no empirical slippage distribution
+  exists yet. Qualitative estimate for EUR/USD daily-bar market orders:
+  For 1k–10k unit fills in SIM, slippage should be negligible to zero (SIM
+  does not model queue depth). For production market orders at 100k+ units
+  (1 standard lot), intraday slippage in the London–NY overlap is typically
+  0.1–0.5 pip; outside overlap or during news, 0.5–2.0 pip. The current
+  config models slippage_pips=0.5 — consistent with a conservative daytime
+  execution assumption. This will be empirically constrained by P3 calibration
+  (30–50 observe cycles). Until then, treat 0.5pip as an untested assumption.
+
+capacity-bound: >
+  Observe-only; no capital, no fills. Capacity constraints are irrelevant for
+  this wave. For reference: EUR/USD daily volume is ~$1T; a 100k-unit (1 lot)
+  position is ~$100k notional and has zero observable market impact. Even at
+  10-lot scale ($1M), EUR/USD is effectively capacity-unconstrained for a
+  paper-loop canary. Capacity becomes a concern only for very large institutional
+  sizing or pairs with <$1B daily volume.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GO / NO-GO CHECKLIST — all must be TRUE before first real paper bar
+# ─────────────────────────────────────────────────────────────────────────────
+go-no-go-checklist:
+  - "[ ] P1 SECRETS-PURGE: git log --all -p | grep -i SAXO_TOKEN returns zero
+    results on current branch AND all reachable refs. Local backup tags from
+    the 2026-05-06 filter-branch have been deleted. No .env or credential file
+    is untracked in the project directory."
+
+  - "[ ] P4 MOCK-SENTINEL-FIX: ModeledEquityLedger.is_mock_cycle no longer
+    relies solely on float==100000.0 as the discriminator. An explicit is_mock_backend
+    run-mode flag (sourced from SaxoClient.is_live==False + canary env tag) is
+    the primary guard. The JSONL log emits a run_mode or account_id field that
+    makes every real-fill cycle unambiguously traceable. Tests pass (pytest)."
+
+  - "[ ] SAXO_TOKEN in environment: SAXO_TOKEN is set, non-empty, is a valid
+    24h SIM developer token (not a revoked or live-account token), and
+    has been issued within the last 2h to avoid TTL expiry mid-run."
+
+  - "[ ] SIM confirmed (not LIVE): python3 -c 'from forex_system.saxo.client
+    import SaxoClient; c=SaxoClient(\"$SAXO_TOKEN\",live=False);
+    assert not getattr(c,\"is_live\",True)' exits 0."
+
+  - "[ ] READ-ONLY ARCHITECTURAL GUARD CONFIRMED: run_observe_momentum_eurusd.py
+    wraps SaxoClient in ReadOnlySaxoClient; any call to place_order,
+    close_position, or flatten_all raises AttributeError. This guard is structural,
+    not by-convention or controlled only by size_multiplier=0."
+
+  - "[ ] PYTHON ENVIRONMENT: 'python3 -c import forex_system' succeeds from
+    .venv (not system python). All deps installed (pip install -e .[dev])."
+
+  - "[ ] DATA DIR WRITABLE: data/ exists and is writable (the JSONL log at
+    data/paper_observe_momentum_eurusd.jsonl will be created/appended here)."
+
+  - "[ ] NO ACTIVE KILL-SWITCH HALT: data/kill_switch_audit.log last entry
+    is NOT in HALTED state."
+
+  - "[ ] CRO size_multiplier=0.0 confirmed: the canary's modeled ledger uses
+    held_units_nom=0 for all P&L calculations. No position sizing, no order
+    routing."
+
+fastest-time-to-first-bar: >
+  Absolute minimum (everything in parallel, operator moves immediately):
+    P1 + P4 engineering work: ~2h (parallel)
+    Token provisioning: ~0-2h if operator has Saxo developer portal access and
+    acts immediately
+    STEP 4 (commit+push): 15min after P1+P4 close
+    STEP 5 (first run): 5min to launch; then must wait for a new CLOSED bar.
+      Daily timeframe: up to 24h for the next closed bar (if run mid-bar).
+      4h timeframe: up to 4h for the next closed bar.
+      1h timeframe: up to 1h for the next closed bar.
+
+  Fastest realistic estimate: 3-5h from NOW if:
+    (a) operator provisions token immediately (fastest path: log into Saxo
+        developer portal, create a SIM application, generate access token —
+        ~30min for first-time setup, ~5min for repeat issuance)
+    (b) P4 mock-sentinel-fix is implemented and pushed within 2h
+    (c) canary is started on --timeframe 1h rather than daily
+    (d) the 1h bar closes within 60min of launch
+
+  Realistic estimate accounting for operator availability:
+    If token is provisioned same-day: 4-8h.
+    If token requires next business day: 18-32h.
+
+  OPERATOR-TOKEN CAVEAT: This estimate is entirely dominated by the
+  human-in-the-loop token step. The Saxo developer portal requires login,
+  application selection or creation, and token issuance — a process that requires
+  the operator's attention and portal access. This cannot be automated or
+  parallelised by engineering. Every other step can be completed in advance.
+  The 24h TTL also means the operator cannot issue the token speculatively and
+  come back later — it must be issued within 2h of the intended run window.
+
+venue-choice: "Saxo SIM (simulated) — observe-only, no live venue"
+
+live-cost-surface-reference: >
+  docs/research/saxo_totalvalue_marking_2026-06-01.md — documentary + upcoming
+  empirical confirmation of bid/ask marking convention.
+  src/forex_system/costs/model.py — RealisticCostModel: per-pair hs, sl, c, swap
+  parameters; EUR/USD hs=0.25pip, sl=0.5pip, c=0.5pip, direction-dependent swap.
+  config/default.yaml — per-pair cost parameters; the authoritative source for
+  what assumptions the model is actually running.
+  data/paper_observe_momentum_eurusd.jsonl — will accumulate real-cycle residuals
+  once the loop runs; this becomes the live cost surface once P3 calibration runs.
+
+evidence:
+  - "docs/research/saxo_totalvalue_marking_2026-06-01.md — full documentary
+    analysis of TotalValue marking convention with corrected residual algebra
+    (corrected 2026-06-01 after adversarial review: sl=0.5pip > hs=0.25pip
+    so R_open = +u*0.25pip, not -u*hs). Read directly."
+  - "scripts/probe_saxo_marking.py — confirmed read-only by default; --open-and-
+    flatten SIM guard present (raises error on is_live). Relies on
+    forex_system.saxo.client.PAIR_UICS and SaxoClient. Read directly."
+  - "scripts/run_observe_momentum_eurusd.py — ReadOnlySaxoClient structural
+    guard confirmed in lines 56-76; mutating methods raise AttributeError.
+    JSONL log path data/paper_observe_momentum_eurusd.jsonl. Read directly."
+  - "src/forex_system/paper/cost_reconciliation.py — ModeledEquityLedger.
+    is_mock_cycle uses float==100000.0 as secondary guard (MC-6 residual risk
+    documented at lines 344-356: 'SIM also seeds at 100_000.0' acknowledged as
+    known gap; is_mock_backend is primary but sourced from SaxoExecutionBackend
+    which always returns False). P4 fix required. Read directly."
+  - ".fintech-org/artifacts/2026-06-01T-paper-launch-acceleration/
+    cro-risk-assessment.yaml — CRO ruling: P1+P4 blocking, P2+P3 advisory;
+    size_multiplier=0.0; routing-disabled architectural flag required. Read
+    directly."
+  - ".fintech-org/artifacts/2026-06-01T-paper-launch-acceleration/
+    nht-null-test-report.yaml — NHT dissent: no validated OOS alpha for the
+    momentum strategy (equity series missing, DSR=null); canary is plumbing
+    smoke-test not alpha validation. Read directly."
+  - "docs/launch/t0-dispatch-runbook.md v2 — pre-launch checklist for fuller
+    paper loop (beyond this observe canary). Read directly."
+
+assumptions:
+  - "Saxo SIM developer token provisioning is operator-driven; no API or automated
+    pathway exists to self-issue it from within the codebase."
+  - "The observe canary on a daily timeframe means 'first real closed bar' may
+    take up to 24h after loop start. Using --timeframe 1h or 4h reduces this to
+    1-4h but the strategy was validated (to the extent it was) on daily bars."
+  - "NHT dissent is noted and preserved. The canary is treated as a plumbing
+    smoke-test only. It does NOT constitute evidence of edge, does not advance N,
+    and does not count as a falsification-log entry. This plan explicitly does not
+    claim otherwise."
+  - "The ReadOnlySaxoClient structural guard is a sufficient architectural observe-
+    only enforcement (per the code review). size_multiplier=0.0 is a second,
+    redundant layer — not the primary guard."
+  - "EUR/USD spread regime estimates are from market knowledge (forex-trading
+    skill) and the existing config (hs=0.25pip / spread=0.5pip). Not verified
+    by a live quote fetch in this session."
+  - "The P4 fix is scoped to adding an explicit run-mode flag / account-id tag
+    to the is_mock_cycle discriminator. The float==100000.0 check should be
+    RETAINED as a defence-in-depth secondary signal for test harnesses, but must
+    NOT be the primary discriminator for a real SIM account."
+
+confidence: high
+
+body: |
+  EXECUTION PLAN — SEQUENCED CRITICAL PATH
+
+  The task is to produce the fastest LEGITIMATE path to a first real paper bar
+  while respecting the CRO's risk taxonomy (P1+P4 blocking; P2+P3 advisory) and
+  NHT's dissent (canary = plumbing smoke-test, not alpha validation).
+
+  CRITICAL PATH ANALYSIS
+  ──────────────────────
+  Four preconditions were given. The CRO correctly identified P1 and P4 as
+  blocking and P2/P3 as advisory. My sequencing is:
+
+  P1 and P4 are fully parallelisable with each other AND with token provisioning
+  (STEP 3). All three can start simultaneously. P4 is on the quant-developer's
+  critical path because it requires a code change + test run; this takes ~2h.
+  P1 is on the operator's critical path for the git-ref cleanup; it can be done
+  in parallel and takes ~30min.
+
+  STEP 3 (token) is the wall-clock bottleneck because it requires a human
+  interacting with an external portal (Saxo developer portal). The portal is
+  outside firm control. If the operator has portal access and acts immediately,
+  this is 15-30min. If they need to locate credentials or wait for next business
+  day, this is 18-32h.
+
+  The FIRST REAL PAPER BAR cannot start until all three (P1, P4, token) are
+  ready. There is no engineering path to bypass the token dependency.
+
+  P3 is circular as a gate: it is the OUTPUT of the observe loop, not an input.
+  Gating the loop on its own calibration data would make the loop impossible to
+  start. The CRO correctly classified this as advisory (for the loop start) and
+  blocking (for reconciliation_enforce:true and any "paper-launch" claim).
+
+  P2 is advisory at zero capital. It can be run concurrently with or immediately
+  after the first real bar (the token required for P2 is the same one used to
+  start the loop). It should not be serialised before STEP 5.
+
+  FILL MODEL RATIONALE
+  ────────────────────
+  Even at zero capital, the fill model conventions matter for calibration
+  validity. The observe loop does not model fills (held_units_nom=0), but the
+  underlying cost model's assumptions (hs, sl, c) will be calibrated against the
+  residual once real fills happen in a future non-zero-sizing wave. The
+  conventions I specify (bid/ask not mid; market orders at next-bar open; no
+  limit-on-retest for a trend-following daily signal) must be consistent with
+  how the backtest priced its fills, or the reconciliation residual will carry
+  a permanent backtest-vs-live methodology basis that is not a cost error.
+
+  The current config (hs=0.25pip, sl=0.5pip) is at the conservative end of the
+  London-NY spread regime for EUR/USD. The flat-to-flat probe will reveal whether
+  the Saxo SIM spread is wider — if it is, tol_abs will need to be raised and
+  the config's hs recalibrated upward.
+
+  SAXO MARKING
+  ────────────
+  The documentary conclusion (CurrentPriceType=Bid for long) is HIGH confidence.
+  The empirical probe is gold-standard and should be run once after the first
+  bar, not as a precondition to it. The residual algebra in
+  docs/research/saxo_totalvalue_marking_2026-06-01.md is the corrected version
+  (adversarial-reviewed 2026-06-01): R_open = +u*(sl-hs) = +u*0.25pip for
+  EUR/USD, converging to u*(2sl+c) = u*1.5pip per trade at close. This means
+  the cost-reconciliation alarm will see a POSITIVE residual (broker above
+  model) while open, which is the EXPECTED direction — not a false alarm if
+  correctly computed as R_adj.
+
+  NHT DISSENT — ACKNOWLEDGED
+  ────────────────────────────
+  The NHT's dissent is structurally correct and is preserved here. The observe
+  canary is a plumbing smoke-test. It does not validate the momentum signal,
+  does not advance N off 35, and does not satisfy the kill-criterion's insight
+  conjunct. This plan explicitly treats it as such. The "first real paper bar"
+  milestone is a plumbing milestone, not an alpha milestone. Any subsequent
+  communication that presents it as evidence of edge would be a policy violation.
+
+  ROUTING DECISION
+  ─────────────────
+  Decision: route-with-reduced-size (size_multiplier=0.0, observe-only).
+  This is the only risk-correct routing for an unvalidated observe canary.
+  The routing-disabled architectural guard (ReadOnlySaxoClient wrapping the
+  SaxoClient) is confirmed in the code. The observe loop CANNOT route orders
+  even if size_multiplier were changed — the structural guard will raise
+  AttributeError on any mutating call.
+
+  ROUTE_TO: quant-developer — P4 mock-sentinel-fix implementation.
+    Specific task: patch is_mock_cycle to accept an explicit is_sim flag
+    (sourced from canary env or SaxoClient.is_live) as PRIMARY discriminator;
+    retain float==100000.0 as defence-in-depth secondary; add run_mode or
+    account_id to the JSONL record schema so every real-fill cycle is
+    unambiguously tagged.
+
+knowledge_gaps:
+  - "Exact Saxo developer portal flow for SIM token issuance (number of steps,
+    whether a SIM application already exists for this account, whether MFA is
+    required) — affects the token provisioning duration estimate."
+  - "Whether the momentum-EURUSD equity parquet for trial 87fa1d23 is recoverable
+    from git history at commit 54df16a — directly relevant to NHT's minimum
+    precondition for any alpha interpretation. Raised by NHT, not in scope for
+    ET role but noted."
+  - "Whether Saxo SIM spreads for EUR/USD are wider than 0.5pip at any time of
+    day the daily-bar canary executes. The probe's flat-to-flat residual will
+    empirically answer this."
+
+policy_violations_detected:
+  - "ADVISORY ONLY — float==100000.0 sentinel in ModeledEquityLedger.is_mock_cycle
+    is documented as a known ambiguity (MC-6) in cost_reconciliation.py:344-356
+    but is currently the ONLY guard path when is_mock_backend=False (which is
+    always the case for SaxoExecutionBackend). The P4 fix is required before
+    any real-fill cycle can be counted with integrity. This is a blocking policy
+    gap for the calibration claims, not for the loop start itself."
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

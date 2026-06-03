@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from forex_system.paper.cost_reconciliation import (
     ModeledEquityLedger,
+    RunMode,
     ledger_from_config,
 )
 
@@ -47,8 +48,14 @@ def _make_ledger(
     consecutive_n: int = 3,
     data_dir: Optional[str] = None,
     ntfy_fn=None,
+    run_mode: RunMode = "mock-test",
 ) -> ModeledEquityLedger:
-    """Create a fresh in-memory ledger (temp dir so state files don't pollute cwd)."""
+    """Create a fresh in-memory ledger (temp dir so state files don't pollute cwd).
+
+    Default run_mode="mock-test" preserves historical test behaviour: float-sentinel
+    100_000.0 is treated as mock.  Tests that specifically want sim-paper semantics
+    (to prove the MC-6 fix) must pass run_mode="sim-paper" explicitly.
+    """
     if data_dir is None:
         data_dir = tempfile.mkdtemp()
     return ModeledEquityLedger(
@@ -59,6 +66,7 @@ def _make_ledger(
         consecutive_n=consecutive_n,
         data_dir=data_dir,
         ntfy_fn=ntfy_fn,
+        run_mode=run_mode,
     )
 
 
@@ -428,7 +436,9 @@ class TestTC8MockCycleExclusion:
     """TC8: Mock sentinel (100000.0) cycles excluded from peak + residual counting."""
 
     def test_mock_sentinel_excluded_from_peak(self, tmp_path):
-        led = _make_ledger(data_dir=str(tmp_path))
+        # MC-6 fix: float-sentinel alone no longer excludes in sim-paper mode.
+        # Must use run_mode="mock-test" to get the old exclusion behaviour.
+        led = _make_ledger(data_dir=str(tmp_path), run_mode="mock-test")
         led.seed(50_000.0, "USDJPY", 150.0)
 
         # Mock cycle with 100000.0 sentinel — must NOT update peak
@@ -438,7 +448,7 @@ class TestTC8MockCycleExclusion:
             held_units_nom=0.0,
             cost_usd=0.0,
             swap_usd=0.0,
-            broker_equity=100_000.0,  # mock sentinel
+            broker_equity=100_000.0,  # mock sentinel (excluded because run_mode="mock-test")
             cycle_id=1,
         )
         assert result.is_mock is True
@@ -448,11 +458,16 @@ class TestTC8MockCycleExclusion:
         )
 
     def test_mock_excluded_from_breach_counting(self, tmp_path):
-        """Breaches on mock cycles do NOT increment consecutive_breaches."""
+        """Breaches on mock cycles do NOT increment consecutive_breaches.
+
+        MC-6 fix: use run_mode="mock-test" so float-sentinel exclusion is active.
+        In sim-paper mode, 100_000.0 is no longer a mock discriminator.
+        """
         led = _make_ledger(
             data_dir=str(tmp_path),
             tol_abs=1.0,  # tiny tolerance so any real deviation breaches
             enforce=True,
+            run_mode="mock-test",
         )
         led.seed(50_000.0, "USDJPY", 150.0)
 
@@ -830,22 +845,32 @@ class TestTC14Gap3MockFlagPropagation:
     """
 
     def test_sentinel_equity_is_detected_as_mock(self):
-        """is_mock_cycle(100000.0) returns True — the sentinel IS the predicate."""
-        assert ModeledEquityLedger.is_mock_cycle(100_000.0) is True
+        """is_mock_cycle(100000.0, run_mode='mock-test') returns True.
+
+        MC-6 fix: the sentinel is ONLY a mock discriminator in mock-test mode.
+        In sim-paper mode (the production default) the same value returns False.
+        """
+        # mock-test mode: sentinel still excluded (preserves historical test behaviour)
+        assert ModeledEquityLedger.is_mock_cycle(100_000.0, run_mode="mock-test") is True
+        # sim-paper mode: sentinel is NOT excluded (MC-6 fix)
+        assert ModeledEquityLedger.is_mock_cycle(100_000.0, run_mode="sim-paper") is False
 
     def test_non_sentinel_equity_is_not_mock(self):
-        """is_mock_cycle returns False for non-sentinel values."""
+        """is_mock_cycle returns False for non-sentinel values in all modes."""
         assert ModeledEquityLedger.is_mock_cycle(100_001.0) is False
         assert ModeledEquityLedger.is_mock_cycle(99_999.0) is False
         assert ModeledEquityLedger.is_mock_cycle(50_000.0) is False
 
     def test_mock_cycle_propagated_to_dd_contract_suppresses_peak(self):
-        """End-to-end: mock predicate → dd_contract.assess(is_mock=True) → peak unchanged.
+        """End-to-end: mock predicate (mock-test mode) → dd_contract.assess(is_mock=True).
 
-        Simulates the script cycle path:
-          equity = fetch_account_equity(...)  # returns 100_000.0 (sentinel)
-          _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(equity)  # True
-          dd_contract.assess(equity, is_mock=_cycle_is_mock)          # is_mock=True
+        MC-6 fix: callers in production (sim-paper) must use explicit is_mock_backend
+        or run_mode="mock-test". This test proves the chain with mock-test.
+
+        Simulates the test-harness cycle path:
+          equity = 100_000.0
+          _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(equity, run_mode="mock-test")
+          dd_contract.assess(equity, is_mock=_cycle_is_mock)  # is_mock=True
           → peak must NOT be updated to 100_000.0
         """
         from forex_system.risk.drawdown_contract import DrawdownContract
@@ -853,7 +878,7 @@ class TestTC14Gap3MockFlagPropagation:
         dc = DrawdownContract(halt_threshold=0.10, reduce_threshold=0.15, full_halt_threshold=0.20)
 
         sentinel_equity = 100_000.0
-        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity)
+        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity, run_mode="mock-test")
         assert _cycle_is_mock is True  # pre-condition
 
         dc.assess(sentinel_equity, is_mock=_cycle_is_mock)
@@ -864,19 +889,23 @@ class TestTC14Gap3MockFlagPropagation:
         )
 
     def test_mock_cycle_propagated_to_ledger_excludes_residual(self, tmp_path):
-        """End-to-end: mock predicate → ledger.update(is_mock_backend=True) → no peak/breach.
+        """End-to-end: mock predicate (mock-test mode) → ledger excludes peak/breach.
 
-        Simulates the script cycle path:
-          equity = 100_000.0  (sentinel)
-          _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(equity)  # True
+        MC-6 fix: test harnesses must use run_mode="mock-test" to get exclusion.
+        Ledger created with run_mode="mock-test" (default in _make_ledger for tests).
+
+        Simulates the test-harness cycle path:
+          equity = 100_000.0
+          _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(equity, run_mode="mock-test")
           ledger.update(..., broker_equity=equity, is_mock_backend=_cycle_is_mock)
           → peak_broker_equity must NOT advance; consecutive_breaches must stay 0
         """
         led = _make_ledger(data_dir=str(tmp_path), tol_abs=1.0, enforce=True, consecutive_n=1)
+        # _make_ledger defaults to run_mode="mock-test"
         led.seed(50_000.0, "USDJPY", 150.0)
 
         sentinel_equity = 100_000.0
-        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity)
+        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity, run_mode="mock-test")
         assert _cycle_is_mock is True
 
         result = led.update(
@@ -889,7 +918,7 @@ class TestTC14Gap3MockFlagPropagation:
             is_mock_backend=_cycle_is_mock,
             cycle_id=1,
         )
-        assert result.is_mock is True, "TC14: sentinel with is_mock_backend=True must produce is_mock=True result"
+        assert result.is_mock is True, "TC14: is_mock_backend=True must produce is_mock=True result"
         assert led.peak_broker_equity == 0.0, (
             f"TC14: mock cycle must not advance peak_broker_equity; got {led.peak_broker_equity}"
         )
@@ -905,10 +934,11 @@ class TestTC14Gap3MockFlagPropagation:
         real-fill cycles.'  So a mock cycle with a cost still deducts from E_m.
         """
         led = _make_ledger(data_dir=str(tmp_path))
+        # _make_ledger defaults to run_mode="mock-test"
         led.seed(50_000.0, "USDJPY", 150.0)
 
         sentinel_equity = 100_000.0
-        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity)
+        _cycle_is_mock = ModeledEquityLedger.is_mock_cycle(sentinel_equity, run_mode="mock-test")
 
         result = led.update(
             pair="USDJPY",

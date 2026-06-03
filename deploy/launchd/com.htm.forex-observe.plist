@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OPT-IN macOS LaunchAgent for the observe-only momentum-EURUSD canary loop.
+  NOT installed automatically (persistence is the operator's decision). To enable:
+
+      cp deploy/launchd/com.htm.forex-observe.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.htm.forex-observe.plist
+
+  To disable:
+
+      launchctl unload ~/Library/LaunchAgents/com.htm.forex-observe.plist
+      rm ~/Library/LaunchAgents/com.htm.forex-observe.plist
+
+  Requires a valid token at ~/.saxo_sim_token. Saxo SIM tokens are short-lived
+  (~24h) — refresh that file or the loop logs an error and exits each cycle.
+  Adjust the absolute paths below if your repo lives elsewhere.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.htm.forex-observe</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>/Users/huangtm/Projects/forex-trading-system/scripts/run_observe_loop.sh</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHON</key>
+        <string>/opt/homebrew/bin/python3</string>
+    </dict>
+    <!-- KeepAlive (restart on exit), NOT StartInterval: the canary runs as one
+         long-running --loop process whose new-bar dedup is in-process. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/huangtm/Library/Logs/forex-observe.launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/huangtm/Library/Logs/forex-observe.launchd.err</string>
+</dict>
+</plist>

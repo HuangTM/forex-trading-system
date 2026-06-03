@@ -1,0 +1,122 @@
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: dissent
+timestamp: 2026-06-02T00:00:00Z
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-nht
+claim-tested: "Starting an observe-only momentum-EURUSD paper canary now is the correct next action to move the firm toward paper trading, and the firm's delay to date reflects execution slowness rather than the absence of a deployable edge."
+
+tests-requested:
+  - "n/a — meta-claim, no price signal. There is no new return series under test; the claim asserts (a) a correct-next-action and (b) a causal attribution of the delay. Both are evaluated against the existing org-level evidence base, not via a fresh backtest."
+  - "ROUTE_TO: quant-developer (CONDITIONAL, only if claim is revised) — regenerate or locate the equity parquet for trial 87fa1d23 (momentum EURUSD OOS) and recompute corrected-units DSR with audited effective-N. Spec: load OOS equity 2022-01-01..2023-12-31, compute per-observation Sharpe SE = sqrt((1 - skew*SR + ((kurt-1)/4)*SR^2)/(n_eff-1)), n_eff = decorrelation-adjusted bar count, report DSR vs the n_honest=10 trial-count gate. This is the test that MUST pass before any deployment claim; it currently CANNOT run (missing-file)."
+  - "ROUTE_TO: quant-developer — confirm whether the 12-entry falsification/kill structure contains ANY out-of-sample STRONG rejection of a return hypothesis (vs operational halt events). Spec: classify each of the 12 entries as {operational-halt | in-sample-reject | STRONG-OOS-reject}. Current read: kill_switch_audit.log holds 2 operational RESET/VERIFY events (daily-loss flatten), 0 STRONG-OOS rejections."
+
+tests-results:
+  - "Sub-claim (a) — 'canary is the correct next action toward paper trading': FAILS structural test. The canary, by its own definition (computes a momentum signal, marks a MODELED ledger, routes no orders, carries zero capital), produces NO edge metric and leaves org-N frozen at 35 and the falsification log frozen. It cannot advance the firm toward the ACTUAL goal (validated alpha) because it generates no falsifiable out-of-sample test. It advances plumbing, which is exactly the category the kill-criterion was written to penalize."
+  - "Sub-claim (b) — 'delay reflects slowness, not absence of edge': FAILS — directly contradicted by data. Of 35 trials, exactly 1 is OOS (87fa1d23). Its in-sample Sharpe is 0.314; its reported DSR 0.99999986 is a confirmed bar-count artifact of the now-fixed units bug. Its equity parquet is MISSING (recompute_status: blocked-no-equity-series, new_dsr: null) so it cannot be independently re-verified at all. The single OOS candidate is unverifiable, not merely slow-to-deploy. Absence-of-deployable-edge is the better-supported explanation."
+  - "Kill-criterion status: BOTH conjuncts tripped. (1) No paper P&L curve exists. (2) Falsification log has <=12 entries and 0 STRONG-OOS rejections, below the >=20 threshold. Per the firm's own pre-declared criterion, the firm is currently 'producing infrastructure not insight.' Running a no-edge canary satisfies neither conjunct — it is an infrastructure deliverable presented during an infrastructure-overproduction alarm."
+  - "MATERIAL DISCREPANCY found in the supporting data vs the claim packet's framing. The claim packet states corrected DSR puts previously-passing trials at ~0.02-0.27 below a 0.50 gate. The actual recompute file (.fintech-org/dsr_recompute_2026-06-01.jsonl) shows the OPPOSITE for the trials that could be recomputed: vol_target_carry f66dd64c new_dsr=0.847 and d572999d new_dsr=0.938 — both ABOVE 0.50. The trials that score low/null are the ones with MISSING equity (incl. the momentum OOS trial itself, new_dsr=null). So the corrected-DSR picture is NOT 'uniformly sub-gate'; it is 'two carry trials survive at ~0.85-0.94 on heavily skewed/fat-tailed series (skew up to 10.8, excess-kurt up to 385 — DSR's Gaussian-tail assumption is violated, so even those numbers are suspect), and the momentum candidate is uncomputable.' Either way, the momentum-EURUSD edge underpinning THIS canary is unverifiable."
+
+matched-benchmark-sharpe: "n/a — no signal under test"
+permutation-results: "n/a"
+
+dsr-assessment: |
+  The org-N DSR situation does not support deploying momentum-EURUSD. Three layers of problem:
+  (1) The candidate's DSR is uncomputable — equity parquet missing, new_dsr=null. You cannot deploy what you cannot re-verify.
+  (2) The trials that DID recompute above 0.50 (vol_target_carry, 0.85/0.94) are not the momentum strategy and sit on series with skew up to ~10.8 and excess-kurtosis up to ~385/688. DSR assumes approximately-Gaussian returns to map z to a probability; at that kurtosis the normal-tail approximation is badly optimistic, so 0.85/0.94 are upper bounds at best, not clean passes.
+  (3) Multiple-testing exposure is real: 35 trials, n_trials_at_spawn=24 for the momentum candidate. DSR must deflate against the full search, and with the corrected per-observation SE the previously-spectacular 0.99999986 collapses to null/uninterpretable. Net: there is currently ZERO trial in the org that is both (recomputed under correct units) AND (above gate) AND (Gaussian-tail-valid) AND (the momentum strategy this canary runs). The DSR evidence base for THIS action is empty.
+
+dissent-statement: |
+  I dissent. The claim is false on both sub-claims and cannot be salvaged by execution.
+
+  (a) The observe-only canary is NOT the correct next action toward paper trading, because it
+  produces no edge metric, routes no orders, carries no capital, and leaves the trial count frozen
+  at N=35 and the falsification log frozen below its threshold. It is an infrastructure deliverable.
+  The firm's own pre-declared kill-criterion is ALREADY TRIPPED on both conjuncts — no paper P&L
+  curve AND a falsification log with <=12 entries / 0 STRONG out-of-sample rejections, against a
+  required >=20. Shipping a no-edge canary during an infrastructure-overproduction alarm deepens the
+  exact failure the criterion was written to catch. Its output can count as: a plumbing smoke-test
+  (does live ingestion + modeled marking run without error). Its output canNOT count as: evidence of
+  edge, an out-of-sample test, a falsification-log entry, progress on N, or progress toward validated
+  alpha. A modeled paper-equity ledger with no capital and no order routing is a simulation of a
+  simulation; it confirms code paths, not a hypothesis.
+
+  (b) The delay does NOT reflect execution slowness over a deployable edge. The firm has exactly ONE
+  out-of-sample trial (87fa1d23, momentum EURUSD). Its headline DSR ~0.99999986 is a confirmed
+  bar-count artifact of a now-fixed units bug. Its equity series is MISSING from the repo, so the
+  corrected DSR is literally null/uncomputable and the trial cannot be independently re-verified.
+  A single, unverifiable OOS candidate is the signature of ABSENCE of a confirmed deployable edge, not
+  of slowness. I additionally flag a material discrepancy: the recompute file shows the surviving
+  corrected-DSR trials are vol_target_carry (~0.85/0.94 on series with excess-kurtosis up to ~385-688,
+  violating DSR's tail assumption) — NOT momentum, and NOT the strategy this canary runs.
+
+  MINIMUM precondition before ANY canary evidence is interpretable as progress toward validated alpha:
+  the falsification log must reach >=20 entries with >=1 STRONG out-of-sample rejection of a real
+  return hypothesis (clearing the kill-criterion's insight conjunct), AND at least one trial — ideally
+  the momentum-EURUSD candidate itself — must have its equity series restored and a corrected-units,
+  multiple-testing-deflated, tail-aware DSR computed at or above the firm's gate. Until then, a canary
+  measures plumbing, not edge, and starting it now is the wrong action.
+
+  This dissent is append-only and may not be softened.
+
+contamination-check: "clean"
+
+evidence:
+  - ".fintech-org/trials.jsonl — N=35; exactly one oos=true (87fa1d23, momentum EURUSD, IS Sharpe 0.314, 126 trades, n_trials_at_spawn=24, dsr 0.9999998614080806, triggered: [])"
+  - ".fintech-org/dsr_recompute_2026-06-01.jsonl line 8 — 87fa1d23 new_dsr: null, n_obs_source: missing-file, recompute_status: blocked-no-equity-series"
+  - ".fintech-org/dsr_recompute_2026-06-01.jsonl lines 5-6 — f66dd64c new_dsr 0.847 (skew 10.82, excess_kurt 384.9); d572999d new_dsr 0.938 (vol_target_carry) — both ABOVE 0.50, contradicting the 'uniformly sub-gate' framing; both heavily non-Gaussian"
+  - "find for *87fa* and momentum parquet — zero files; equity series confirmed missing"
+  - "data/kill_switch_audit.log — 2 entries, both operational (RESET 2026-04-25 daily_loss flatten; VERIFY 2026-04-27); grep STRONG -> 0; these are halts, not hypothesis falsifications"
+  - "Kill-criterion text confirmed present in docs/decisions/CONSENSUS_2026-05-31_honest_system_review.md and related artifacts; both conjuncts (no paper P&L curve; falsification log <20 with 0 STRONG-OOS) tripped"
+
+assumptions:
+  - "The 12-entry falsification/kill log figure from the raw-data references is taken as given; my direct inspection found 2 entries in kill_switch_audit.log, all operational — consistent with the claim of 0 STRONG-OOS rejections regardless of which count (2 or 12) is canonical."
+  - "DSR's probability interpretation assumes approximately-Gaussian returns; trials with excess-kurtosis in the hundreds violate this, so recomputed DSR values on those series are treated as optimistic upper bounds."
+  - "'STRONG out-of-sample rejection' means a falsified return hypothesis on held-out data, not an operational trading halt (daily-loss flatten)."
+
+confidence: high
+
+body: |
+  DECOMPOSITION. The claim is a conjunction of two falsifiable sub-claims; I tested each by trying to
+  prove it false against the org evidence base (structural-skeptic mandate).
+
+  SUB-CLAIM (a) — canary is correct next action. The canary's own spec defeats it: no orders, zero
+  capital, modeled ledger, no edge metric. It cannot move N off 35 and cannot add a falsification-log
+  entry. The firm's pre-declared kill-criterion is a two-part AND that is currently fully tripped:
+  (1) no paper P&L curve, (2) falsification log under 20 entries with 0 STRONG-OOS rejections. The
+  canary satisfies NEITHER conjunct. Worse, it IS an infrastructure artifact, so shipping it now is a
+  direct instance of the behavior the criterion penalizes ("producing infrastructure not insight").
+  What the canary CAN count as: a plumbing smoke-test of live ingestion + modeled marking. What it
+  CANNOT count as: evidence of edge, an OOS test, a falsification entry, progress on N, or progress
+  toward validated alpha.
+
+  SUB-CLAIM (b) — delay = slowness, not absence of edge. Inverted test: what evidence would exist if a
+  deployable edge were present and only execution were lagging? At minimum, one verifiable OOS trial
+  clearing a correct-units gate. The data shows the opposite: exactly one OOS trial, its DSR a confirmed
+  units artifact, its equity series MISSING (new_dsr null, blocked-no-equity-series). An unverifiable
+  single candidate is the fingerprint of absent confirmed edge. Sub-claim (b) is contradicted.
+
+  MINIMUM FALSIFICATION-LOG STATE before canary evidence is interpretable as progress toward validated
+  alpha: >=20 falsification-log entries AND >=1 STRONG out-of-sample rejection (clearing the insight
+  conjunct), plus restoration of at least the momentum-EURUSD equity series and a corrected,
+  deflated, tail-aware DSR at/above gate. Current state: <=12 entries, 0 STRONG-OOS, candidate DSR
+  uncomputable. The precondition is not met.
+
+  MATERIAL FINDING surfaced early (face-problems-early): the recompute file contradicts the packet's
+  "~0.02-0.27 sub-gate" framing — the recomputable survivors are carry trials at 0.85/0.94 (non-Gaussian),
+  not momentum, and the momentum candidate is null. This does not rescue the claim (momentum edge still
+  unverifiable) but the firm should correct the framing before any consensus relies on it.
+
+  VERDICT: dissent. Both sub-claims fail. The correct next action is to restore the momentum-EURUSD
+  equity series, recompute its DSR under correct units, and grow the falsification log toward 20 with a
+  real STRONG-OOS rejection — NOT to start a no-edge canary that deepens the tripped kill-criterion.
+
+knowledge_gaps:
+  - "Canonical count of the falsification/kill log (raw-data says 12; direct inspection of kill_switch_audit.log found 2 operational entries) — does not change the conclusion (0 STRONG-OOS either way) but the discrepancy should be reconciled."
+  - "Whether the missing 87fa1d23 equity parquet is recoverable from git history or must be regenerated from the trial's git_hash 54df16a."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

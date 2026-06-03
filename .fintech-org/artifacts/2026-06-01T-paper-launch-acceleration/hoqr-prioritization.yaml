@@ -1,0 +1,108 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-06-02T00:00:00Z"
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-hoqr
+
+ranked-alternatives:
+  - "1. REGENERATE Bet#1 (87fa1d23) equity parquet + re-adjudicate under FIXED DSR. HIGHEST alpha/cost: it is the ONLY oos=true trial in the registry (N=35); regeneration is deterministic re-run of an existing pre-registered config (git_hash 54df16a), not new search. If its OOS Sharpe 0.314 survives the corrected DSR/effective-N gate, the firm has its FIRST defensible alpha candidate. Cost: ~hours of a Quant-Developer re-run. This is the single cheapest path to a YES/NO on whether ANY validated edge exists."
+  - "2. RUN R5 (permutation / White Reality-Check) on REAL carry data. SECOND: directly attacks the firm's core open question — is carry alpha real or a multiple-comparisons artifact? Never run on real data. Bounds the false-discovery risk across the whole carry program at once (a class-level answer, not an instance). Cost: moderate (one stats run over existing data); routes to Mathematician/Quant-Researcher, not HoQR."
+  - "3. CARRY USDJPY data-quality outlier bug. THIRD: cheap and prerequisite-flavored — a known data defect can silently inflate or destroy carry Sharpe; until fixed, both Bet#1 re-adjudication and R5 sit on contaminated inputs. Low cost, high leverage on the two items above. Routes to Quant-Developer/data."
+  - "4. OBSERVE-ONLY momentum-EURUSD canary. FOURTH — necessary but NOT a research priority. Its expected-alpha-per-unit-cost is ZERO BY CONSTRUCTION (no edge claim, no sizing, no P&L optimization). It buys live-loop/plumbing confidence and reconciliation tolerances, not insight. Correctly an OPERATIONS/EXECUTION deliverable funded from operational capacity, not scarce RESEARCH capacity. Approve it — but it must NOT preempt items 1–3 for researcher attention."
+  - "5. NEW-ALPHA PRODUCTION (new strategies / sweeps). LOWEST right now: with the kill-criterion tripped and the DSR gate only just fixed, adding trials before re-adjudicating the existing 35 and validating the falsification machinery would manufacture more multiple-comparisons debt and re-inflate the very artifact the audit retracted. Gated until items 1–3 resolve and N can responsibly unfreeze."
+
+evidence:
+  - "Trial registry .fintech-org/trials.jsonl: exactly 35 trials (wc -l = 35); exactly ONE oos=true (trial_id 87fa1d23, strategy momentum, pair EURUSD, sharpe 0.31406, dsr 0.99999986, n_trials_at_spawn 24, oos_window 2022-01-01..2023-12-31)."
+  - "87fa1d23 equity parquet GENUINELY MISSING: `find . -name '*87fa1d23*'` returns zero files; only 4 unrelated equity parquets exist (a9bc0d21, a9c0902d, d572999d, f66dd64c). Bet#1 is therefore CURRENTLY UNVERIFIABLE and auto-retires 2026-07-01 unless regenerated. This makes regeneration time-critical, not optional."
+  - "DSR 0.99999986 on a Sharpe-0.314 / 126-trade trial is the fingerprint of the F-001 bar-count artifact (DSR saturates at ~1.0 when T uses raw bar count instead of effective independent samples). The corrected gate must be applied to THIS trial before any 'validated' claim — confirms re-adjudication is the binding research question."
+  - "Ratified audit (CONSENSUS_2026-05-31_honest_system_review.md, CEO-accepted per .agent-accountability/ratifications/honest-system-review-2026-05-31): ZERO validated OOS alpha; kill-criterion TRIPPED (no paper P&L curve AND falsification log <20 entries with 0 STRONG OOS rejections — 'infrastructure, not insight')."
+  - "Canary runner scripts/run_observe_momentum_eurusd.py (9.8K) and scripts/probe_saxo_marking.py (8.0K) EXIST but neither has executed against real fills. src/forex_system/paper/cost_reconciliation.py (30K) exists, uncommitted; NHT verdict on record: fix does NOT unblock paper trading."
+  - "Capacity reasoning: research capacity is the firm's scarcest input. The canary consumes ZERO research insight by design; spending researcher attention on it is a category error. Items 1–3 are existing-asset re-runs (deterministic, bounded), not open-ended search — highest insight-per-hour available."
+
+retirement-criteria:
+  - "WIND-DOWN TRIGGER (research mandate): IF by 2026-07-01 (a) Bet#1 87fa1d23 equity parquet is NOT regenerated OR regenerated-and-FAILS the corrected DSR/effective-N gate, AND (b) R5 permutation/Reality-Check on real carry data returns p >= 0.05 (carry indistinguishable from chance), AND (c) falsification log still < 20 entries with 0 STRONG OOS rejections — THEN zero validated alpha is confirmed structural, not pending: recommend formal wind-down of the active-research mandate to a maintenance/monitoring footing."
+  - "CONTINUE TRIGGER: IF Bet#1 regenerated equity passes corrected DSR AND effective-N gate (machine-check: dsr_recompute entry exists for 87fa1d23 with pass=true under audited N), OR R5 on real carry returns p < 0.05 with a pre-registered hypothesis — THEN one defensible alpha candidate exists: continue, and unfreeze N only for confirmatory (not exploratory) trials."
+  - "CANARY-SPECIFIC: canary may run to completion of >=30 real-fill observe cycles (PRECONDITION-4) PURELY to set reconciliation tolerances. Machine-check that it claims NOTHING beyond plumbing: trial_count in .fintech-org/trials.jsonl MUST remain == 35 throughout; any increment = constraint violation, halt. No edge metric (Sharpe/DSR/P&L-vs-benchmark) may be computed or reported from canary output."
+  - "FALSIFICATION-MACHINERY GATE: before ANY canary P&L curve is read as evidence, the falsification log must reach >= 20 entries AND record >= 1 STRONG OOS rejection demonstrating the evaluator can actually fail a strategy. Until then the gate is unproven and no pass it issues is interpretable."
+
+assumptions:
+  - "Bet#1 config is deterministically reproducible from registry git_hash 54df16a + pre_reg_path references/pre-registrations/momentum.md; regeneration is a re-run, not new research."
+  - "The F-001 DSR fix (committed 2026-06-01, separate track) is correct and available to re-adjudicate 87fa1d23; HoQR directs, does not derive — Mathematician/Quant-Developer verify the corrected statistic."
+  - "Carry USDJPY data-quality outlier bug is upstream of both R5 and any carry re-adjudication; fixing it first prevents contaminated inputs (fix-the-class)."
+  - "Operational/execution capacity for the canary is SEPARATE from research capacity; approving the canary does not draw down the researcher-hours owed to items 1–3."
+  - "N=35 freeze holds for this wave; unfreezing requires a separate pre-registration."
+
+confidence: medium
+
+body: |
+  Direct answers.
+
+  (1) IS THE CANARY THE RIGHT NEXT USE OF RESEARCH CAPACITY? No — not of RESEARCH
+  capacity. The observe-only canary has zero expected-alpha-per-unit-research-cost
+  by construction: no edge claim, no sizing, no P&L optimization. It is a plumbing
+  test and belongs to OPERATIONS/EXECUTION, funded from operational capacity. Scarce
+  research capacity should go, in order: (1) regenerate Bet#1 87fa1d23 equity and
+  re-adjudicate under the FIXED DSR gate — it is the ONLY oos=true trial in the
+  whole 35-trial registry and its parquet is genuinely missing (verified: zero files
+  match), so it auto-retires 2026-07-01 and is the single cheapest YES/NO on whether
+  ANY validated edge exists; (2) run R5 permutation/Reality-Check on REAL carry data
+  to bound false-discovery across the carry program at the class level; (3) fix the
+  carry USDJPY data-quality outlier bug, which is upstream of both. New-alpha
+  production ranks LAST — adding trials before re-adjudicating the existing 35 just
+  manufactures more multiple-comparisons debt of exactly the kind the audit retracted.
+  Approve the canary, but with a CAPACITY LIMIT: it must not preempt researcher
+  attention on items 1–3.
+
+  (2) HONEST MINIMUM BEFORE A CANARY P&L CURVE IS INTERPRETABLE AS EVIDENCE OF
+  ANYTHING: The canary tests PLUMBING, not edge, so its P&L curve is evidence ONLY
+  of execution fidelity — never of alpha. For it to be interpretable even as plumbing
+  evidence, ALL of: (a) PRECONDITION-1 secrets purge done (else nothing pushes/runs);
+  (b) PRECONDITION-2 Saxo TotalValue marking convention empirically confirmed via the
+  probe with a real SIM token, CRO sign-off on the reconciliation baseline — without
+  this, every reconciliation number is uninterpretable; (c) PRECONDITION-3
+  mock-sentinel (float==100000.0) disambiguation resolved so real 1,000,000-notional
+  fills are distinguishable from test mocks WITHOUT manual filtering; (d) PRECONDITION-4
+  >=30 real-fill pure-observe cycles completed and reconciliation tolerances replaced
+  from placeholders (500.0 / 0.005) with empirically measured values, CRO-approved.
+  And one item the PM list under-weights: the FALSIFICATION MACHINERY must be shown to
+  WORK — >=20 log entries with >=1 STRONG OOS rejection — before any pass/fail it
+  emits is trustworthy. Absent these, a green curve means "the pipe is connected,"
+  nothing more. It is NOT evidence the strategy works, NOT evidence the firm has alpha,
+  NOT a basis to size capital.
+
+  (3) CONTINUATION/RETIREMENT STANCE GIVEN TRIPPED KILL-CRITERION: Do not relitigate
+  the trip — decide forward. The honest stance is a TIME-BOXED last look, not open-ended
+  continuation. Machine-checkable: by 2026-07-01, if Bet#1 fails to regenerate OR fails
+  the corrected DSR/effective-N gate, AND R5 on real carry returns p>=0.05, AND the
+  falsification log is still <20 entries with 0 STRONG rejections, then zero validated
+  alpha is STRUCTURAL — recommend formal wind-down of the active-research mandate to a
+  monitoring footing. Conversely, a single clean pass (Bet#1 survives corrected gate,
+  or R5 p<0.05 on a pre-registered hypothesis) flips to CONTINUE and justifies
+  unfreezing N for confirmatory-only trials. The canary may run purely to set
+  tolerances, gated so trial_count stays ==35 and it computes no edge metric.
+
+  (4) IS "SPEED UP TO PAPER TRADING" THE RIGHT FRAMING? No — it optimizes the wrong
+  thing. From a research-capacity standpoint the bottleneck is NOT time-to-first-paper-bar;
+  it is the absence of any validated edge to put behind the bar. Speeding to paper
+  trading with no validated alpha accelerates spending operational and execution effort
+  on a curve that, by the firm's own ratified audit, can prove nothing about alpha. The
+  correct objective function is expected-validated-alpha, not latency-to-first-fill. The
+  legitimate reading of "speed it up" is: close the 4 preconditions on the shortest
+  critical path so the OBSERVE-ONLY canary can de-risk the live loop CHEAPLY — while
+  research capacity races, in parallel, to answer the only question that matters
+  (does any edge survive a correct gate?) via Bet#1 regeneration and R5. Paper speed is
+  an operations KPI; alpha validation is the research KPI. Conflating them is how a firm
+  ships infrastructure and calls it insight — which is precisely the failure the
+  kill-criterion already flagged.
+
+knowledge_gaps:
+  - "Whether the F-001-corrected DSR, once applied to 87fa1d23, leaves OOS Sharpe 0.314 above or below the effective-N-adjusted threshold — cannot know until regeneration + Mathematician re-derivation."
+  - "Magnitude of the carry USDJPY data-quality outlier and whether it materially moves carry Sharpe — unmeasured."
+  - "Saxo TotalValue marking convention not yet empirically confirmed (PRECONDITION-2 open; awaits operator SIM token)."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

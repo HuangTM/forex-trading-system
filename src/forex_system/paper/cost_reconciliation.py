@@ -42,9 +42,21 @@ Tolerance band:
         reconciliation_enforce: false   (alarm-only until ≥30-50 real fills accrue)
         consecutive_breach_halt_n: 3    (N consecutive real-fill-cycle breaches → HALT-NEW)
 
-Mock-cycle guard (CRO VETO #4):
-    A cycle is "mock" if equity == 100000.0 sentinel or the backend reports
-    is_mock=True. Mock cycles are excluded from residual calculation AND peak tracking.
+Run-mode discriminator (MC-6 fix, CRO+ET 2026-06-01):
+    run_mode is an explicit string discriminator for mock-cycle detection:
+        "mock-test"  — test harness; float-sentinel check + is_mock_backend both force mock
+        "sim-paper"  — Saxo SIM paper account (default for real runners)
+        "live"       — reserved; not used in current codebase
+    In "sim-paper" / "live" mode, broker_equity == 100_000.0 is NOT treated as mock.
+    The sentinel check becomes a WARNING-only defence-in-depth log (once per ledger).
+    In "mock-test" mode, all historical behaviour is preserved.
+
+Mock-cycle guard (CRO VETO #4, updated):
+    A cycle is "mock" if:
+      - is_mock_backend is True (backend-identity override — test stubs), OR
+      - run_mode == "mock-test" (explicit test-harness discriminator)
+    In "sim-paper" / "live" mode, broker_equity == 100_000.0 is processed normally
+    (not excluded). A one-time defence-in-depth WARNING is logged if the value collides.
 
 Enforce-mode ladder (inactive by default; reconciliation_enforce: false):
     1 breach          → ALARM (structured log + ntfy; no halt)
@@ -63,12 +75,19 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 logger = logging.getLogger(__name__)
 
-# Sentinel — broker equity value indicating mock/paper backend during tests.
-# The actual Saxo paper backend also uses 100000.0 as a synthetic initial balance.
+# Run-mode discriminator (MC-6 fix — CRO+ET 2026-06-01).
+# "mock-test": test harness — float-sentinel + is_mock_backend both force mock exclusion.
+# "sim-paper": Saxo SIM paper account — 100_000.0 is NOT excluded (processed normally).
+# "live":      reserved for future live trading; same semantics as "sim-paper".
+RunMode = Literal["mock-test", "sim-paper", "live"]
+
+# Sentinel — broker equity value that was PREVIOUSLY used as the mock discriminator.
+# Kept for defence-in-depth WARNING in sim-paper/live mode (MC-6 fix: no longer excludes).
+# In mock-test mode, float-equality on this value still forces mock exclusion.
 _MOCK_EQUITY_SENTINEL: float = 100_000.0
 
 
@@ -123,6 +142,7 @@ class ModeledEquityLedger:
         consecutive_n: int = 3,
         data_dir: str = "data",
         ntfy_fn=None,  # callable(title, message, priority) | None
+        run_mode: RunMode = "sim-paper",
     ) -> None:
         if not strategy_id or not strategy_id.strip():
             raise ValueError("ModeledEquityLedger requires a non-empty strategy_id")
@@ -132,6 +152,10 @@ class ModeledEquityLedger:
             raise ValueError(f"tol_abs must be >= 0.0, got {tol_abs}")
         if consecutive_n < 1:
             raise ValueError(f"consecutive_n must be >= 1, got {consecutive_n}")
+        if run_mode not in ("mock-test", "sim-paper", "live"):
+            raise ValueError(
+                f"run_mode must be 'mock-test', 'sim-paper', or 'live'; got {run_mode!r}"
+            )
 
         self.strategy_id = strategy_id
         self.tol_rel = tol_rel
@@ -140,6 +164,7 @@ class ModeledEquityLedger:
         self.consecutive_n = consecutive_n
         self._data_dir = data_dir
         self._ntfy_fn = ntfy_fn
+        self.run_mode: RunMode = run_mode
 
         # Running state — initialised to None until seed() is called.
         self._modeled_equity: Optional[float] = None
@@ -148,6 +173,8 @@ class ModeledEquityLedger:
         self._real_cycle_count: int = 0  # real-fill cycles only
         self._peak_broker_equity: float = 0.0  # real-fill cycles only (VETO #4)
         self._consecutive_breaches: int = 0  # real-fill consecutive breach counter
+        # Defence-in-depth: warn once when sim-paper sees 100_000.0 (log once per instance).
+        self._sentinel_warning_emitted: bool = False
 
         # Try to load persisted state; if missing, wait for seed().
         self._load()
@@ -321,40 +348,45 @@ class ModeledEquityLedger:
     # ---------------------------------------------------------------------------
 
     @staticmethod
-    def is_mock_cycle(broker_equity: float, *, is_mock_backend: bool = False) -> bool:
+    def is_mock_cycle(
+        broker_equity: float,
+        *,
+        is_mock_backend: bool = False,
+        run_mode: RunMode = "sim-paper",
+    ) -> bool:
         """Return True if this cycle should be excluded from residual + peak tracking.
 
+        MC-6 fix (CRO+ET 2026-06-01): mock determination is now run_mode-gated.
+
         A cycle is mock if:
-          - is_mock_backend is True (PRIMARY signal — MC-6: backend identity), OR
-          - broker_equity equals the 100_000.0 sentinel value exactly (SECONDARY /
-            legacy signal — kept for backwards-compatibility; cannot distinguish a
-            test mock from a real Saxo SIM paper account initialised at 100_000.0).
+          - is_mock_backend is True (backend-identity override: test stubs), OR
+          - run_mode == "mock-test" (explicit test-harness discriminator)
 
-        MC-6 KNOWLEDGE_GAP (NHT-raised):
-            The Saxo SIM paper backend ALSO initialises at 100_000.0, so float-equality
-            cannot reliably distinguish a mock backend from a live SIM account at startup.
-            The PRIMARY guard (is_mock_backend) must be sourced from backend identity:
-                is_mock_backend = backend.is_mock          # ExecutionBackend.is_mock property
-            Both paper scripts now pass is_mock_backend from the backend property.
-            SaxoExecutionBackend.is_mock always returns False (it is a real connection).
-            Test stubs should subclass ExecutionBackend and override is_mock → True.
-
-            Residual risk: is_mock_backend is currently hardcoded to False in both paper
-            scripts (because SaxoExecutionBackend.is_mock == False). The 100_000.0 float
-            check remains as a defence-in-depth secondary signal for test harnesses that
-            accidentally pass a real 100_000.0 equity value. If a live SIM account lands
-            exactly on 100_000.0 mid-cycle, that cycle will be excluded — conservatively
-            safe (one missed breach check) but not the worst failure mode.
+        In "sim-paper" / "live" mode, broker_equity == 100_000.0 is NO LONGER treated
+        as mock — the float-equality sentinel check is removed as a decision gate.
+        See ModeledEquityLedger.update() for the defence-in-depth WARNING that fires
+        (once per ledger instance) when sim-paper sees 100_000.0.
 
         Args:
             broker_equity: Raw broker TotalValue for this cycle.
             is_mock_backend: True if the execution backend is a mock/test backend
                 (derived from backend.is_mock — see ExecutionBackend.is_mock property).
+            run_mode: Explicit run-mode discriminator. Default "sim-paper" (real runner).
+                Pass "mock-test" for test harnesses (preserves historical exclusion logic).
 
         Returns:
             True if this cycle is mock and should be excluded.
         """
-        return is_mock_backend or broker_equity == _MOCK_EQUITY_SENTINEL
+        # is_mock_backend is always authoritative (backend-identity override).
+        if is_mock_backend:
+            return True
+        # In mock-test mode: float-sentinel check is ACTIVE (preserves legacy test behaviour).
+        # In sim-paper / live mode: float-sentinel check is DISABLED (MC-6 fix — the Saxo
+        # SIM paper account also seeds at 100_000.0; float-equality cannot distinguish it
+        # from a test mock).
+        if run_mode == "mock-test" and broker_equity == _MOCK_EQUITY_SENTINEL:
+            return True
+        return False
 
     # ---------------------------------------------------------------------------
     # Public: update — called each cycle (real or mock)
@@ -371,6 +403,7 @@ class ModeledEquityLedger:
         *,
         is_mock_backend: bool = False,
         cycle_id: Optional[int] = None,
+        run_mode: Optional[RunMode] = None,
     ) -> ReconResult:
         """Apply one cycle of the Mathematician recurrence and compute residual.
 
@@ -399,6 +432,9 @@ class ModeledEquityLedger:
                               residual and peak tracking; NOT fed to kill/DD.
             is_mock_backend:  True if backend is mock/test (VETO #4 exclusion).
             cycle_id:         Optional cycle counter for observability logging.
+            run_mode:         Explicit run-mode override for this call. If None,
+                              falls back to self.run_mode set at construction.
+                              Callers may pass "mock-test" to force mock-exclusion.
 
         Returns:
             ReconResult with modeled_equity, residual, breach flags, and mock flag.
@@ -424,7 +460,39 @@ class ModeledEquityLedger:
             )
 
         self._cycle_count += 1
-        is_mock = self.is_mock_cycle(broker_equity, is_mock_backend=is_mock_backend)
+        effective_run_mode: RunMode = run_mode if run_mode is not None else self.run_mode
+        is_mock = self.is_mock_cycle(
+            broker_equity,
+            is_mock_backend=is_mock_backend,
+            run_mode=effective_run_mode,
+        )
+
+        # Defence-in-depth WARNING (MC-6 fix): when sim-paper/live sees 100_000.0,
+        # log once per ledger instance. The cycle is NOT excluded — only logged.
+        if (
+            not is_mock
+            and effective_run_mode != "mock-test"
+            and broker_equity == _MOCK_EQUITY_SENTINEL
+            and not self._sentinel_warning_emitted
+        ):
+            self._sentinel_warning_emitted = True
+            logger.warning(
+                "cost_recon.sentinel_collision strategy_id=%s cycle_id=%s "
+                "broker_equity exactly equals legacy mock sentinel (%.1f); "
+                "NOT excluding because run_mode=%s — processing cycle normally",
+                self.strategy_id,
+                cycle_id,
+                _MOCK_EQUITY_SENTINEL,
+                effective_run_mode,
+                extra={
+                    "event": "COST_RECON_SENTINEL_COLLISION",
+                    "strategy_id": self.strategy_id,
+                    "cycle_id": cycle_id,
+                    "broker_equity": broker_equity,
+                    "run_mode": effective_run_mode,
+                    "decision": "not_excluding_sentinel_in_sim_paper_mode",
+                },
+            )
 
         # --- Step 1: Compute unrealised P&L from held position ---
         # F3: The Mathematician recurrence assumes long-only (held_units_nom >= 0).
@@ -687,7 +755,12 @@ class ModeledEquityLedger:
 # ---------------------------------------------------------------------------
 
 
-def ledger_from_config(strategy_id: str, config: dict, ntfy_fn=None) -> ModeledEquityLedger:
+def ledger_from_config(
+    strategy_id: str,
+    config: dict,
+    ntfy_fn=None,
+    run_mode: RunMode = "sim-paper",
+) -> ModeledEquityLedger:
     """Construct a ModeledEquityLedger from the loaded config dict.
 
     Reads from config['paper']['cost_reconciliation']:
@@ -702,6 +775,8 @@ def ledger_from_config(strategy_id: str, config: dict, ntfy_fn=None) -> ModeledE
         strategy_id: Strategy identifier.
         config: The full loaded config dict (from load_config or as dict).
         ntfy_fn: Optional notification callable.
+        run_mode: Run-mode discriminator — "sim-paper" for real runners (default),
+            "mock-test" for test harnesses. Passed through to ModeledEquityLedger.
 
     Returns:
         Configured ModeledEquityLedger instance (state loaded from disk if present).
@@ -723,4 +798,5 @@ def ledger_from_config(strategy_id: str, config: dict, ntfy_fn=None) -> ModeledE
         enforce=enforce,
         consecutive_n=consecutive_n,
         ntfy_fn=ntfy_fn,
+        run_mode=run_mode,
     )

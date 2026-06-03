@@ -1,0 +1,99 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: 2026-06-02T00:00:00Z
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-cro
+size_multiplier: 0.0
+binding_constraints:
+  - "observe_only: size_multiplier=0.0 — no position sizing applied to any modeled fill; ledger marks a zero-position equity path only. This is the binding clause for this activity."
+  - "no orders routed to any venue (Saxo SIM or otherwise); read-only price ingestion only. Aggregate-cap 2.5%, per-pair 1.0%, per-trade 0.25%, EUR+GBP 1.5% correlated-unit, max-leverage 3:1 are all SATISFIED-BY-CONSTRUCTION at zero exposure but remain the declared envelope the moment sizing > 0 is ever proposed (it is not, here)."
+  - "daily-loss breaker 4% / hard drawdown stop 15% / graduated de-risk at 50%/75% of DD budget: ARMED on the modeled paper ledger as a plumbing exercise; NOT load-bearing at zero capital, but the drawdown peak-persistence fix (2026-06-01) must remain in effect so the breaker logic is exercised correctly across restarts."
+  - "no_unvalidated_alpha_deployed: momentum signal is computed and observed ONLY; it may not size a position, claim edge, or be promoted out of canary status."
+  - "no_paper_launch_claim until >=30 real-fill cycles distinguishable from mock cycles."
+regime_flags:
+  - "none — observe-only zero-capital. No market exposure, so no regime-conditional sizing applies. EUR/USD single-instrument; correlated-unit (EUR+GBP) clause dormant."
+preconditions-risk-classification:
+  - "PRECONDITION-1 secrets-purge: blocking — a secrets leak on push is an unbounded, irreversible operational/security loss independent of capital at risk. The Saxo key was nearly leaked on 2026-06-01. Purge-before-push must complete before any commit/push that the canary depends on. Pure-risk BLOCKING."
+  - "PRECONDITION-2 saxo-marking: advisory — at size_multiplier=0.0 the marking convention (Bid-for-long / Ask-for-short close-out) only affects the COSMETIC value of a modeled ledger that controls zero capital. Mis-marking cannot produce a loss because there is no position to mark. It MUST be closed before any non-zero sizing or any reconciliation-tolerance sign-off, but it does not block a read-only observe loop. Advisory (escalates to BLOCKING at the sizing>0 gate)."
+  - "PRECONDITION-3 30-50-cycle-calibration: advisory — this precondition is the PURPOSE of the canary, not a gate on it. Calibrating tol_abs/tol_rel (currently placeholder 500.0 / 0.005) REQUIRES the observe loop to run first to generate the real-fill cycles. Blocking it on its own output is circular. It is BLOCKING for the downstream 'reconciliation_enforce:true' / 'paper-launch' claim, ADVISORY for starting the observe loop."
+  - "PRECONDITION-4 mock-sentinel-fix: blocking — the float==100000.0 sentinel makes real-fill cycles indistinguishable from mock cycles because the Saxo SIM ALSO seeds at 100000.0. Without disambiguation the canary cannot truthfully count its >=30 real cycles, the calibration data is uninterpretable, and any later 'it ran clean' claim is unfalsifiable. This is a data-integrity / decision-trace failure, not a capital failure — but it corrupts the canary's entire epistemic output. Pure-risk BLOCKING (must be a non-equality discriminator: explicit run-mode flag / account-id tag / cycle counter, never float equality)."
+blowup-analog: "Knight Capital (2012, SEC File No. 3-15570) — as the cautionary analog for kill-switch-existence-vs-kill-switch-tested. The switch here HAS an audit trail (property 5) but has NEVER been exercised in prod-equivalent conditions (properties 3 & 4 unmet). At ZERO capital this is not a blowup path, but the canary must NOT be allowed to graduate to any sizing>0 path until a timed prod-equivalent drill closes properties 3 & 4."
+contamination-check: clean
+evidence:
+  - "Atomic facts: portfolio flat; paper SIM seed 100000; zero capital anywhere; no orders routed."
+  - "Risk-plumbing: kill switch audit-trail present, properties 3&4 unmet (no timed prod drill); tail-risk VaR-only, no ES/CVaR; drawdown peak now persists across restarts (fixed 2026-06-01); cost-recon alarm-only (reconciliation_enforce:false, never flattens/trips); mock-sentinel float==100000.0 collides with SIM seed; swap accrual previously 0.0/cycle (_last_cycle_ts resets)."
+  - "Firm risk contract: 0.25/1.0/2.5%, EUR+GBP 1.5% correlated unit, 3:1 leverage, 4% daily breaker, 15% hard DD, 50/75% graduated de-risk."
+  - "Hard constraints: paper_only, no_live_capital, observe_only_canary, secrets_purge_before_push, saxo_sim_token_required, mock_sentinel_disambiguation_required, no_paper_launch_claim_until_30_real_fill_cycles, trial_count_frozen_at_35."
+  - "kill-switch-design SKILL: five properties; property 4 (tested in prod on schedule) explicitly unmet here."
+  - "quantitative-risk-management SKILL: ES at 97.5% is the headline tail metric; VaR-only is a flagged gap."
+assumptions:
+  - "size_multiplier is interpreted as the sizing applied to any MODELED fill in the paper ledger; setting it 0.0 means the ledger marks a zero-position equity path while still ingesting prices and computing the (unsized) momentum signal."
+  - "No code path in the canary can route an order to a real venue; 'observe-only' is enforced architecturally, not merely by sizing=0. (If sizing=0 is the ONLY guard, that is itself a finding — defense-in-depth requires a routing-disabled flag independent of the multiplier.)"
+  - "The 24h Saxo SIM token, when provided, is used for read-only price ingestion and the marking probe only."
+confidence: high
+body: |
+  This is a read-only, zero-capital observe loop on a single instrument (EUR/USD) against a
+  simulated account. From a pure market-risk standpoint there is no exposure: VaR=ES=0, no
+  leverage, no drawdown that controls real money. Therefore the SIZING decision is unambiguous:
+  size_multiplier = 0.0. Any value > 0 would convert a "canary" into an unvalidated-alpha
+  deployment, which the firm's own ratified audit findings forbid (no validated OOS alpha exists;
+  the kill-criterion already tripped on infra, not insight). I additionally require that
+  observe-only be enforced by an architectural routing-disabled flag, not by the multiplier alone —
+  a single numeric guard is the Knight-class footgun (one config flip from zero to live).
+
+  The firm risk-contract clauses (0.25/1.0/2.5%, EUR+GBP correlated unit, 3:1, 4% daily, 15% DD,
+  50/75% graduated de-risk) are SATISFIED-BY-CONSTRUCTION at zero exposure. They remain the declared
+  envelope and become load-bearing the instant any sizing>0 is proposed — which is out of scope for
+  this wave.
+
+  PRECONDITION TRIAGE (the requested critical judgment):
+  - The two operationally/epistemically dangerous preconditions are BLOCKING even at zero capital,
+    because the risk they carry is NOT capital risk:
+      P1 secrets-purge — a leaked broker credential is an unbounded, irreversible loss regardless of
+        whether any capital is at risk. Nearly leaked on 2026-06-01. Hard gate before any push.
+      P4 mock-sentinel-fix — float==100000.0 collides with the SIM seed, so the canary cannot
+        distinguish its real cycles from mock cycles. Every downstream claim ("ran 30 clean cycles",
+        "tolerances calibrated") becomes unfalsifiable. This is a decision-trace / data-integrity
+        failure that corrupts the canary's entire reason for existing. Hard gate.
+  - The two preconditions that are ADVISORY for STARTING the loop (but BLOCKING for graduation):
+      P2 saxo-marking — at sizing=0 the marking convention only changes a cosmetic ledger figure that
+        controls zero capital; mis-marking cannot produce a loss with no position. Must close before
+        sizing>0 or before reconciliation-tolerance sign-off.
+      P3 30-50-cycle-calibration — this is the canary's OUTPUT, not a precondition to running it.
+        Gating the loop on data the loop must generate is circular. It is the gate on
+        reconciliation_enforce:true and on any "paper-launch" claim, not on the observe loop itself.
+
+  KILL-SWITCH PROD DRILL: NOT required to START this zero-capital observe loop (there is no runaway
+  loss path when no orders route and sizing=0). It IS a hard REQUIRED precondition before this canary
+  may graduate to ANY sizing>0 / order-routing path: kill-switch properties 3 (known SLA) and 4
+  (tested in prod-equivalent conditions) are unmet, which is exactly the Knight-class gap. Recommend
+  scheduling the timed prod-equivalent drill now and recording it to .fintech-org/kill-switch-tests.jsonl
+  so it is not the blocker at the sizing>0 gate.
+
+  ES/CVaR GAP: acknowledged (VaR-only system). NOT a go/no-go blocker for a zero-capital observe loop —
+  there is no tail to measure when exposure is zero. It IS a blocking gap before any capitalized sizing,
+  per the quantitative-risk-management standard (headline metric must be ES@97.5%, not VaR). Logged as
+  BC-ES, out of scope for this wave per stated constraints, but must not be silently carried into a
+  sizing decision later.
+
+  ADDITIONAL PLUMBING NOTES (not gates, but risk-relevant for the canary's validity):
+  - cost-recon is alarm-only (reconciliation_enforce:false): acceptable for observe-only since there is
+    nothing to flatten; a breach simply alarms. Must flip to enforce (with calibrated tolerances from P3)
+    before any sizing>0.
+  - swap accrual previously 0.0/cycle (_last_cycle_ts resets per process): at zero position swap is
+    correctly zero, so this does not corrupt the observe ledger — but it MUST be fixed before sizing>0,
+    or carry cost will be systematically under-counted. Flag, not gate, for this wave.
+  - drawdown peak-persistence fix (2026-06-01) must remain in effect; it is what lets the breaker logic
+    be exercised correctly across restarts during the long observe loop.
+
+  DECISION: size-reduced to 0.0 (the only risk-correct value for an observe-only canary), conditional on
+  P1 and P4 closing before the loop produces any claimed-real cycles, and conditional on routing being
+  architecturally disabled independent of the multiplier.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

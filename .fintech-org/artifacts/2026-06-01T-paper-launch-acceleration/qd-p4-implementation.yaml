@@ -1,0 +1,39 @@
+role: quant-developer
+artifact_type: implementation
+decision: implement
+timestamp: "2026-06-02T00:00:00Z"
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-qd-p4
+note: "Authored by quant-developer agent (a47f318); agent dropped on socket-close after 72 tool-uses before writing this artifact. Code landed on disk; orchestrator performed verification per spawn-agent.md step 9e. bash-execution-performed-by-orchestrator: true."
+files-changed:
+  - "src/forex_system/paper/cost_reconciliation.py — added RunMode Literal[mock-test|sim-paper|live]; is_mock_cycle()/update() now gate the 100_000.0 float-sentinel behind run_mode=='mock-test' (MC-6 fix: SIM cycles at 100k no longer wrongly excluded in sim-paper/live); once-per-ledger defence-in-depth WARNING on sentinel collision"
+  - "src/forex_system/core/interfaces.py — added RoutingDisabledError + ExecutionBackend.routing_disabled property (default False); execute_signal contract must raise when disabled"
+  - "src/forex_system/saxo/execution.py — SaxoExecutionBackend(client, *, routing_disabled=False); raises RoutingDisabledError in execute_signal when True; structured log on construction"
+  - "tests/paper/test_cost_reconciliation.py — updated legacy callers to pass run_mode explicitly"
+tests-added:
+  - "tests/paper/test_mc6_run_mode_and_routing.py — sim-paper@100000 NOT excluded; mock-test excluded; is_mock_backend override; routing_disabled raises; sentinel WARNING fires without excluding"
+test-results: "VERIFIED BY ORCHESTRATOR: tests/paper + tests/risk + tests/backtest/test_engine.py (sacred no-lookahead) = 227 passed; MC-6+reconciliation subset = 65 passed; ruff check on changed src = clean. No-lookahead guarantee intact."
+firewall-self-review: "Classical execution-path code only; design points (run-mode discriminator, routing-disabled flag) came verbatim from ET + CRO role artifacts. No research/risk decisions introduced."
+open-gap:
+  - "WIRING (defence-in-depth, NON-blocking for the canary): routing_disabled=True is NOT yet set as the default in the four STRATEGY paper runners (run_paper_trading.py, run_paper_trading_vt.py, run_paper_trading_carry_fred.py, run_multi_strategy.py — each does SaxoExecutionBackend(client) without it). The OBSERVE canary needs no wiring: it uses ReadOnlySaxoClient and constructs no execution backend, so observe-only is structurally enforced. Recommend a follow-up CRO+PR-reviewed change to default routing_disabled=True in the strategy runners until a validated strategy + CEO authorization flips it."
+evidence:
+  - "src/forex_system/paper/cost_reconciliation.py:324 is_mock_cycle; :357 prior float-equality return now run_mode-gated"
+  - "src/forex_system/saxo/execution.py:41 is_mock; new routing_disabled guard"
+  - "scripts/run_observe_momentum_eurusd.py:25 ReadOnlySaxoClient (canary has no execution backend)"
+assumptions:
+  - "Real runner default run_mode='sim-paper' is correct for production paper; test harnesses pass 'mock-test'"
+confidence: high
+body: |
+  P4 core fix (MC-6 reconciliation) is complete and verified: in sim-paper/live mode the
+  100_000.0 float-equality is no longer a mock-exclusion gate, so a real Saxo SIM cycle landing
+  on 100k is processed normally; mock-ness is now determined by an explicit run_mode discriminator
+  plus the backend-identity override. CRO's routing-disabled mechanism is implemented and tested.
+  The only remaining item is defence-in-depth wiring of routing_disabled=True into the STRATEGY
+  paper runners — non-blocking for the observe canary, which is already read-only by construction.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

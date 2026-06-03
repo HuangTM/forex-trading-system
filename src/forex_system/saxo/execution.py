@@ -12,7 +12,7 @@ from typing import Any
 
 import pandas as pd
 
-from forex_system.core.interfaces import ExecutionBackend
+from forex_system.core.interfaces import ExecutionBackend, RoutingDisabledError
 from forex_system.core.types import Direction, Position, ExecutionResult
 from forex_system.saxo.client import SaxoClient
 
@@ -24,18 +24,47 @@ class SaxoExecutionBackend(ExecutionBackend):
 
     Works with both SIM (paper) and LIVE environments.
     The SaxoClient determines which environment is used.
+
+    Args:
+        client: SaxoClient instance (SIM or LIVE).
+        routing_disabled: Knight-Capital defense flag (CRO requirement 2026-06-01).
+            When True, any call to execute_signal raises RoutingDisabledError before
+            any order reaches the broker.  Observe-only canary runners MUST set
+            routing_disabled=True at construction.  Default False (routing enabled).
     """
 
-    def __init__(self, client: SaxoClient):
+    def __init__(self, client: SaxoClient, *, routing_disabled: bool = False):
         self.client = client
         self._account_key: str | None = None
         self._internal_positions: dict[str, Position] = {}
+        self._routing_disabled = routing_disabled
+
+        if routing_disabled:
+            logger.info(
+                "saxo_backend.routing_disabled strategy=SaxoExecutionBackend "
+                "routing_disabled=True — order routing is architecturally blocked; "
+                "any execute_signal call will raise RoutingDisabledError",
+                extra={
+                    "event": "SAXO_BACKEND_ROUTING_DISABLED",
+                    "routing_disabled": True,
+                },
+            )
 
     @property
     def account_key(self) -> str:
         if self._account_key is None:
             self._account_key = self.client.get_account_key()
         return self._account_key
+
+    @property
+    def routing_disabled(self) -> bool:
+        """Return True if order routing is architecturally blocked for this backend.
+
+        When True, execute_signal raises RoutingDisabledError before any order is
+        sent to the broker.  Set at construction; cannot be changed at runtime
+        (Knight-Capital defense: requires an explicit re-construction to enable).
+        """
+        return self._routing_disabled
 
     @property
     def is_mock(self) -> bool:
@@ -69,7 +98,35 @@ class SaxoExecutionBackend(ExecutionBackend):
 
         Returns:
             ExecutionResult with fill details.
+
+        Raises:
+            RoutingDisabledError: if self.routing_disabled is True (architectural
+                observe-only / canary guard).  This is raised BEFORE any I/O so
+                the broker never sees the request.
         """
+        # --- Routing-disabled guard (Change 2 / CRO Knight-Capital defense) ---
+        if self._routing_disabled:
+            logger.error(
+                "saxo_backend.routing_blocked pair=%s signal=%s size=%s — "
+                "routing_disabled=True; order NOT sent to broker",
+                pair,
+                signal,
+                size,
+                extra={
+                    "event": "ROUTING_DISABLED_BLOCK",
+                    "pair": pair,
+                    "signal": signal,
+                    "size": size,
+                    "routing_disabled": True,
+                    "decision": "raise_routing_disabled_error",
+                },
+            )
+            raise RoutingDisabledError(
+                f"SaxoExecutionBackend.routing_disabled=True — order routing is "
+                f"architecturally blocked. pair={pair!r} signal={signal} size={size}. "
+                "Construct with routing_disabled=False to enable routing."
+            )
+
         context = context or {}
         timestamp = pd.Timestamp.now(tz="UTC")
 

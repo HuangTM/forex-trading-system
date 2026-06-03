@@ -135,6 +135,18 @@ class PositionSizer(ABC):
         ...
 
 
+class RoutingDisabledError(Exception):
+    """Raised when order routing is attempted while routing_disabled=True.
+
+    This is an architectural hard-block (Change 2, CRO requirement 2026-06-01):
+    observe-only / canary runners set routing_disabled=True so that any attempt to
+    route an order fails loudly rather than silently no-oping.  A misconfigured
+    caller that reaches execute_signal in routing-disabled mode indicates a wiring
+    error; raising here makes it visible immediately rather than producing a silent
+    no-op that leaves the system in an inconsistent state.
+    """
+
+
 class ExecutionBackend(ABC):
     """Contract for execution — backtest, paper, or live."""
 
@@ -149,12 +161,35 @@ class ExecutionBackend(ABC):
         """
         return False
 
+    @property
+    def routing_disabled(self) -> bool:
+        """Return True if order routing is architecturally disabled for this backend.
+
+        When True, any call to execute_signal MUST hard-block with RoutingDisabledError
+        (or a structured ERROR log + no-op for backends that choose that pattern).
+        The canonical implementation raises RoutingDisabledError so that misconfigured
+        callers fail loudly rather than silently no-oping.
+
+        Knight-Capital defense (CRO requirement 2026-06-01): observe-only / canary
+        runners set routing_disabled=True at construction so the guard is structural,
+        not reliant on size_multiplier=0.0 alone.  Flipping to False requires an
+        explicit construction-time argument change, not a one-line patch.
+
+        Defaults to False (routing enabled) so existing concrete subclasses are
+        unaffected — they must opt in to routing_disabled by passing it at init.
+        """
+        return False
+
     @abstractmethod
     def execute_signal(
         self, pair: str, signal: float, size: float,
         context: dict[str, Any] | None = None,
     ) -> Any:
-        """Execute a trading signal. Returns execution result."""
+        """Execute a trading signal. Returns execution result.
+
+        MUST check self.routing_disabled before placing any order and raise
+        RoutingDisabledError if routing is disabled.
+        """
         ...
 
     @abstractmethod

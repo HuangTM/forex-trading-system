@@ -1,0 +1,119 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-01T08:00:00Z"
+subtask_ref: paper-launch-acceleration
+subtask_id: pla-2026-06-01-wave1
+task-statement: >
+  Define the fastest legitimate sequence to first real paper bar, given zero
+  validated OOS alpha and a tripped kill-criterion.
+deliverable-type: spec-completion
+# Justification in body; machine-readable fields only in structured section.
+
+deadline: "2026-06-08T23:59:59Z"
+instrument-universe:
+  - "EUR/USD"
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "no_unvalidated_alpha_deployed: true"
+  - "observe_only_canary: true — no position sizing, no P&L optimization, no edge claims"
+  - "no_new_alpha_deployment_before_dsr_gate_fixed: true — F-001 DSR fix is a prerequisite for any trial re-adjudication"
+  - "secrets_purge_before_push: true — 4 historic commits retain Saxo account-key literals; push is blocked until purge is complete"
+  - "saxo_sim_token_required: true — 24h SIM token must be obtained by operator before marking probe can run"
+  - "mock_sentinel_disambiguation_required: true — float==100000.0 guard must be resolved before paper log is interpretable"
+  - "no_paper_launch_claim_until_30_real_fill_cycles: true — calibration phase (>=30 real-fill cycles pure-observe) must complete before reconciliation tolerances are set"
+  - "no_new_strategy_deployment: true — momentum-EURUSD canary only; no other strategy authorised"
+  - "trial_count_frozen_at_35: true — org trial count must not increment during observe-only canary"
+
+criteria:
+  - "PRECONDITION-1 CLOSED: git history purged of Saxo account-key literals in 4 historic commits; secrets-clean push to origin/main confirmed"
+  - "PRECONDITION-2 CLOSED: Saxo TotalValue marking convention confirmed empirically — operator provides 24h SIM token, scripts/probe_saxo_marking.py executes, output matches docs/saxo-marking-investigation-2026-06-01.md expectations; CRO signs off on reconciliation baseline"
+  - "PRECONDITION-3 CLOSED: float==100000.0 mock-sentinel disambiguation resolved in paper log pipeline; real Saxo entries (notional 1,000,000) distinguishable from test mock entries without manual filtering"
+  - "PRECONDITION-4 CLOSED: >=30 real-fill cycles executed as pure-observe canary on momentum-EURUSD; reconciliation tolerances (currently placeholder 500.0/0.005) updated to empirically measured values; CRO approves final tolerance levels"
+  - "ROLE-DELIVERABLE HoQR: signed artifact answering — is observe-only canary the right next use of research capacity, or should capacity go to new-alpha production first? What is the honest minimum before any paper P&L curve is interpretable?"
+  - "ROLE-DELIVERABLE CRO: risk guardrails for observe-only canary (sizing=0, exposure cap, kill-switch drill requirement, BC-ES gap acknowledged); explicit list of which preconditions are risk-BLOCKING vs advisory"
+  - "ROLE-DELIVERABLE Execution-Trader: sequenced critical path for the 4 preconditions with owner, duration estimate, and dependency ordering; Saxo marking + fill-realism notes; go/no-go checklist for first real paper bar"
+  - "ROLE-DELIVERABLE NHT: explicit falsification verdict on CEO's premise ('speed up to paper trading'); does observe-only canary satisfy or further defer the kill-criterion? What is the minimum falsification-log entry count required before the canary evidence is interpretable?"
+  - "PM SYNTHESIS: single consensus artifact with sequenced critical path, named owners, and explicit statement of what cannot be compressed or skipped (the alpha-validation gate)"
+  - "All four preconditions closed AND all four role-deliverables signed before the PM synthesis is written — no consensus before inputs are in"
+
+out-of-scope:
+  - "Authoring new alpha strategies or running new backtests"
+  - "Re-adjudicating any prior trial pass/fail (gated on F-001 DSR fix, separate track)"
+  - "Committing or pushing any code (operator action; not agent action)"
+  - "P3 intraday ORB implementation (3 infra prerequisites unmet: 15m pipeline, session-calendar, intrabar engine)"
+  - "Running any strategy with an edge claim or non-zero position sizing"
+  - "Resolving BC-ES (Expected Shortfall / CVaR gap) — acknowledged risk; out of scope for this wave"
+  - "Fixing SEV-3 watchdog observer loop exception guard — known since 2026-05-03; separate remediation track"
+  - "Any vendor onboarding, charter edits, or live capital movement"
+  - "Interpreting the paper P&L curve produced during observe phase — that is the NEXT wave after >=30 cycles"
+
+roles-staffed:
+  - "head-of-quant-research: must answer whether observe-only canary is the right next use of research capacity vs. new-alpha production; must bound what the canary's output can and cannot tell us"
+  - "cro: must define risk guardrails and explicit go/no-go conditions for the canary; must sign off on reconciliation tolerances after PRECONDITION-2 and PRECONDITION-4"
+  - "execution-trader: owns the operational sequencing of the 4 preconditions — critical path, dependency ordering, duration estimates, Saxo marking confirmation protocol"
+  - "null-hypothesis-tester: must falsify or preserve the CEO's premise ('we are slow to deploy a validated strategy'); must state whether observe-only canary satisfies or defers the kill-criterion; dissent is append-only"
+  - "pm: coordinator + consensus author"
+
+evidence:
+  - "docs/decisions/CONSENSUS_2026-05-31_honest_system_review.md — ratified audit: zero validated OOS alpha; DSR gate degenerate (F-001); kill-criterion tripped; BC-COST-RECON blocking"
+  - ".agent-accountability/ratifications/honest-system-review-2026-05-31:phase1:task1.0.yaml — CEO ratification of audit findings (outcome: ratified)"
+  - "src/forex_system/paper/cost_reconciliation.py — BC-COST-RECON plumbing fixed 2026-06-01 (uncommitted); NHT verdict: fix does NOT unblock paper trading"
+  - "scripts/probe_saxo_marking.py — exists; needs 24h SIM token (operator action) to execute"
+  - "scripts/run_observe_momentum_eurusd.py — canary runner exists; not yet executed against real fills"
+  - "docs/decisions/CONSENSUS_2026-05-31_honest_system_review.md §DIM-4 — kill criterion verbatim: no paper P&L curve AND <20 falsification entries with 0 STRONG OOS rejections"
+  - ".agent-accountability/ratifications/p3-intraday-orb-2026-05-30:phase1:task1.0.yaml — P3 design-only ratification; 3 blocking impl prerequisites unmet"
+
+assumptions:
+  - "CEO's 'speed it up' directive is interpreted as: find the fastest path that is LEGITIMATE (i.e., does not deploy unvalidated alpha or falsify the firm's own audit findings)"
+  - "The observe-only canary (momentum-EURUSD, no edge claim, read-only) is the only paper path the firm's own audit findings permit at this date"
+  - "The 4 preconditions enumerated by NHT on 2026-06-01 are the binding gate for the canary; none can be skipped without a separate CEO-ratified decision"
+  - "Saxo SIM token provision is an operator action that cannot be automated; its timeline is outside the firm's control"
+  - "The F-001 DSR fix (separate track, committed 2026-06-01) does not itself unlock paper trading; it is a prerequisite for re-adjudicating trial results"
+  - "Trial count N=35 is frozen for the duration of this wave; any increment requires a separate pre-registration"
+
+confidence: medium
+# Medium: preconditions are well-defined; critical path is clear; duration uncertain due to operator-dependent Saxo token timeline
+
+body: |
+  DELIVERABLE TYPE JUSTIFICATION: spec-completion.
+  The firm has a partially specified path to paper trading (the observe-only canary) with 4 preconditions
+  enumerated but no sequenced critical path, no named owners, and no role-level sign-offs. This wave
+  completes that specification so it can be handed to operators and agents as an executable plan.
+  A "risk-assessment" would be too narrow (the CRO deliverable is one input, not the whole); an "audit"
+  would re-examine the past (already done 2026-05-31); "architecture-review" and "postmortem" do not fit.
+
+  HONEST REFRAME OF THE CEO'S REQUEST:
+  The CEO's framing — "we haven't started paper trading, speed it up" — contains a false premise:
+  the firm does not have a validated strategy waiting to be deployed. The firm's own ratified audit
+  (2026-05-31, CEO-accepted) found zero validated OOS alpha and a tripped kill-criterion (infrastructure,
+  not insight). The bottleneck is not PM coordination speed; it is the absence of validated alpha plus
+  four unresolved operational preconditions that gate even the minimal observe-only canary.
+  "Speed it up" legitimately means: (1) close the 4 preconditions on the shortest possible critical path,
+  (2) get the right role-deliverables in parallel, and (3) emit the first real paper bar from an
+  OBSERVE-ONLY canary — not from a strategy with an edge claim.
+
+  WHAT "FASTEST HONEST PATH" MEANS:
+  The fastest honest path to a paper-traded P&L curve is: complete the 4 preconditions (secrets purge →
+  Saxo marking confirmation → mock-sentinel fix → >=30-cycle calibration), run the observe-only canary,
+  and THEN — after the canary's reconciliation tolerances are empirically set — evaluate whether the
+  resulting P&L curve is interpretable enough to re-open the alpha-validation track. Nothing before
+  that first step (secrets purge) can begin paper fills; nothing before the calibration step (>=30 cycles)
+  produces an interpretable P&L curve. These steps cannot be compressed or parallelized past their
+  dependency constraints.
+
+  WHAT IS EXPLICITLY NOT COMPRESSIBLE:
+  The alpha-validation gate cannot be skipped or shortcut. Deploying momentum-EURUSD as if it were a
+  validated edge (rather than a read-only canary) would violate the firm's own ratified audit findings
+  and constitute deploying unvalidated alpha — forbidden by hard-constraint. The NHT role exists
+  precisely to preserve this constraint against schedule pressure.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

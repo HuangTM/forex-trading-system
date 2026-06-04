@@ -20,8 +20,11 @@ CONSENSUS clauses implemented
 
 Tools that MUST run first
 --------------------------
-- Data: ``data/processed_synthetic_phase0/<PAIR>/daily.parquet`` must exist.
-  Produce via ``scripts/download_data.py``.
+- Data: ``data/processed/<PAIR>_<timeframe>.parquet`` must exist (flat layout,
+  e.g. ``data/processed/EURUSD_daily.parquet``). Produce via ``scripts/download_data.py``
+  or ``scripts/download_saxo_data.py``. Do NOT point data_dir at
+  ``data/processed_synthetic_phase0/`` — that directory contains corrupted synthetic
+  series and is NOT a valid input for falsification trials.
 - Rates: ``data/rates/rate_differentials.parquet`` for carry strategies.
 - FRED macro: ``data/fred_macro.parquet`` for fred_carry_stripped.
 - trials.jsonl: may or may not exist; created on first write.

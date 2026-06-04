@@ -1,0 +1,329 @@
+role: principal-reviewer
+artifact_type: review-report
+date: "2026-06-03"
+session: "r5-scope STEP-1 data-integrity PR review"
+
+artifact-under-review:
+  description: >
+    Uncommitted working-tree diff adding a load-time per-pair close-price sanity
+    gate (_assert_price_range) + _PAIR_CLOSE_BOUNDS / _PAIR_TIMEFRAME_SKIP tables
+    in storage.py, a call in load_parquet() after pd.read_parquet, decision-trace
+    logging of the resolved path, and a docstring fix in run_falsification_trial.py.
+  files:
+    - src/forex_system/data/storage.py
+    - scripts/run_falsification_trial.py
+  spec-reference: .fintech-org/artifacts/2026-06-02T-r5-scope/qd-step1-data-integrity.yaml
+
+decision: approve-with-conditions
+# Rationale: the change does what it claims for the THREE identified corrupted
+# daily series (USDJPY/GBPJPY/CADJPY caught; 0 false positives on all 15 real
+# files — both verified by me). The approach is sound defense-in-depth. But two
+# findings are blocking against the stated hard constraints: (BLOCK-1) a fully /
+# all-NaN close series passes the "fail-closed" gate silently, violating
+# hard-constraint #1; (BLOCK-2) the gate has ZERO automated test coverage, so any
+# of seven input-class behaviors can silently break (test-inversion failure).
+# Neither requires rethinking the approach — both are bounded fixes in the same PR.
+
+contamination-check:
+  status: clean
+  statement: >
+    This prompt conveyed DESIGN INTENT and acceptance constraints only. It did NOT
+    convey any other role's approval/rejection stance, and no author self-review
+    stance was embedded. The qd-step1 artifact I read is the implementation report
+    (declares "implemented-complete") — that is the author's account of WHAT was
+    done, not a reviewer approval I am inheriting. I reviewed the code and data
+    directly, not anyone's opinion of it. No contamination-veto warranted.
+
+rubrics-applied:
+  - rubric: spec-to-impl-trace
+    applied: true
+    note: Traced each acceptance constraint #1-#5 to code + verified against real/synthetic parquet.
+  - rubric: execution-firewall-review
+    applied: true
+    note: >
+      Sections A-E applied with adaptation — this is data-integrity infra, not a
+      strategy implementation, so there is no TradeIntent spec. Firewall-relevant
+      question is whether research/strategy judgment leaked into data code (A4) and
+      whether silent data-cleaning was introduced (A2). See FINDING-3, FINDING-7.
+  - rubric: log-as-decision-trace
+    applied: true
+    note: Items 1-10 applied to the two new decision boundaries (load.start, range_check).
+  - rubric: edge-case-enumeration
+    applied: true
+    note: NaN / all-NaN / partial-NaN / inf / empty / missing-close / unlisted-pair / skip-set all exercised.
+  - rubric: invariant-search
+    applied: true
+    note: No-lookahead invariant (sacred test) re-run green; bound-derivation invariant examined.
+  - rubric: test-inversion
+    applied: true
+    note: PRIMARY FINDING SOURCE — confirmed zero tests touch the helper; enumerated silent-break classes.
+  - rubric: failure-mode-reasoning
+    applied: true
+    note: Reasoned about the realistic contamination path vs the modeled threat. See FINDING-2.
+  - rubric: numerical-statistical-correctness
+    applied: true
+    note: Examined NaN semantics of pandas min/max, the 1.5x bound rule, lower-bound coverage.
+
+findings:
+  - id: FINDING-1
+    severity: blocking
+    location: src/forex_system/data/storage.py:125-152
+    category: edge-case / fail-open-gap / spec-violation(constraint-#1)
+    observation: >
+      A close series that is entirely NaN passes the gate silently. observed_min =
+      float(df["close"].min()) is NaN; the comparison "NaN < lo" is False and
+      "NaN > hi" is False, so no DataError is raised and the log even emits
+      event="data.range_check.ok". Verified directly: an all-NaN close DataFrame
+      returns from _assert_price_range with no exception. Partial-NaN and empty-df
+      cases also pass through (min/max ignore NaN / are NaN on empty).
+    inference: >
+      The function docstring and the load_parquet inline comment both claim
+      "fail-closed on bad data," but NaN is precisely the canonical corruption /
+      missing-data mode and the gate fails OPEN on it. This violates hard-constraint
+      #1 ("a corrupted/implausible price series must NEVER be silently consumed").
+      The +inf case is caught only incidentally (inf > upper); it is not a
+      principled NaN/inf guard.
+    evidence: >
+      python3 -c run: all-NaN close -> "PASSED THROUGH"; partial-NaN -> "PASSED
+      THROUGH"; empty -> "PASSED THROUGH min=nan"; +inf -> "CAUGHT".
+    recommended-action-class: >
+      Add an explicit non-finite guard BEFORE the bound comparison: if the close
+      series contains any NaN/inf (or is empty), the contract a fix must satisfy is
+      to fail-closed with a DataError naming the pair, path, and count of non-finite
+      values — not pass through. Whether upstream OHLCV validation already rejects
+      NaN at save time is NOT a substitute: load_parquet reads raw parquet and this
+      gate is explicitly positioned as the last-line defense-in-depth check.
+    owning-role: quant-developer
+
+  - id: FINDING-2
+    severity: major
+    location: src/forex_system/data/storage.py:39-43 (comment) and :196 (path join)
+    category: failure-mode / threat-model-mismatch
+    observation: >
+      The realistic contamination path the comment names — "data_dir pointed at
+      processed_synthetic_phase0/" — cannot actually reach the corrupted files
+      through load_parquet. The corrupted parquets live FLAT at
+      data/processed_synthetic_phase0/<PAIR>_<tf>.parquet, but load_parquet joins
+      data_dir / "processed" / ... . I verified: load_parquet("USDJPY","daily",
+      "data/processed_synthetic_phase0") raises DataError "No data found:
+      .../processed_synthetic_phase0/processed/USDJPY_daily.parquet" — it never
+      reaches the range check. The ONLY way corrupted data flows through
+      load_parquet is if corrupted files are copied INTO data/processed/ (the real
+      tree). The range-assert defends against THAT scenario, which is real and worth
+      defending, but it is NOT the scenario the rationale comment describes.
+    inference: >
+      The comment's stated threat model ("primary defense is the hardcoded
+      /processed/ join; range-assert is defense-in-depth against wrong data_dir") is
+      internally inconsistent: a wrong data_dir pointed at the synthetic root
+      fails-closed on path-not-found BEFORE the range check, so the range check adds
+      nothing on that path. The range check's actual value is against
+      copied-into-processed corruption — which the comment does not state. Logs and
+      future readers will be misled about what this guard protects.
+    evidence: >
+      ls data/processed_synthetic_phase0/ shows flat *.parquet, no nested
+      processed/ subdir. load_parquet resolution test (3 data_dir variants) all
+      either fail "No data found" or load the REAL tree.
+    recommended-action-class: >
+      Correct the rationale comment to state the actual covered threat (corrupted
+      files copied into data/processed/, or a future synthetic tree that DOES use a
+      nested processed/ layout), and stop asserting the /processed/ join is the
+      "primary defense" against the synthetic dir — for the current on-disk layout
+      that join fails on path-existence, not on range. Documentation-accuracy fix;
+      route to author.
+    owning-role: quant-developer
+
+  - id: FINDING-3
+    severity: blocking
+    location: src/forex_system/data/storage.py:81-152 (entire helper)
+    category: test-inversion / zero-coverage
+    observation: >
+      No automated test exercises _assert_price_range. Grep across tests/ for
+      _assert_price_range, range_check, _PAIR_CLOSE_BOUNDS, "economically plausible"
+      returns nothing. The three pre-existing storage tests (test_save_and_load,
+      test_load_missing, test_list_available) do not touch the helper. The author's
+      own implementation report records tests_added: 0 and flags this as a gap.
+    inference: >
+      Every one of the seven input classes can silently break with no test failure:
+      (a) close > upper, (b) close < lower, (c) in-bounds, (d) NaN/inf present,
+      (e) missing close column, (f) pair-not-in-registry, (g) pair/timeframe in
+      skip-set. A future edit that flips the comparison operator, deletes a bound
+      row, widens a bound, or breaks the skip-set membership test would pass CI.
+      For a FAIL-CLOSED safety gate guarding data integrity, absence of an
+      inversion test is itself the highest-leverage defect: the gate can rot to a
+      no-op undetected. This is the classic "the safety check that was silently
+      disabled" failure mode.
+    evidence: >
+      pytest tests/data/test_storage.py tests/backtest/test_engine.py -> 7 passed,
+      but grep confirms none reference the helper.
+    recommended-action-class: >
+      Add table-driven tests covering all seven input classes. Contract the tests
+      must satisfy: (1) the three known corrupted synthetic daily series
+      (USDJPY 5-8, GBPJPY 1.5-2.3, CADJPY max 203.64) MUST raise DataError; (2) all
+      six real JPY daily series + all listed non-JPY pairs MUST NOT raise; (3) a
+      synthetic in-bounds-but-NaN series MUST raise (couples to FINDING-1); (4) an
+      unlisted pair and a skip-set pair MUST pass-through without raising. Use the
+      REAL on-disk parquets as fixtures, not hand-mocked frames, so the test also
+      pins the no-false-positive guarantee. Owning role implements; this reviewer
+      re-checks only that the seven classes are present and the corrupted-fixture
+      cases assert DataError.
+    owning-role: quant-developer
+
+  - id: FINDING-4
+    severity: major
+    location: src/forex_system/data/storage.py:71-78 ("USDJPY","4h") skip-entry
+    category: coverage-gap / invariant
+    observation: >
+      The data/processed/USDJPY_4h.parquet REAL file has close range 4.998-7.786 —
+      identical scale to the CORRUPTED synthetic USDJPY_daily (5.03-7.75). The 4h
+      USDJPY series is genuinely stored at a JPY/~20 (non-standard) scale, which is
+      why it is in the skip-set. But this means: (a) the skip-set is masking a real
+      data-scale anomaly that is indistinguishable by value from the very corruption
+      this PR exists to catch, and (b) a corrupted USDJPY_4h series could never be
+      caught — the skip-set is an unconditional pass-through for it.
+    inference: >
+      The skip mechanism is necessary to avoid false positives on the scaled 4h
+      files (confirmed: those files would fail the daily bounds), but it creates a
+      blind spot exactly where corruption is most camouflaged. The deeper issue is
+      that 4h files are stored at a different/unexplained scale than daily — a
+      data-pipeline smell the PR papers over rather than surfaces. This is not
+      blocking for the daily-focused R5 scope, but it is a real hole in the
+      "never silently consume corrupted data" guarantee for the 4h timeframe.
+    evidence: >
+      Real data/processed/USDJPY_4h close [4.9983, 7.7861]; helper run shows
+      USDJPY 4h -> skip (pass-through). Synthetic USDJPY_4h identical range.
+    recommended-action-class: >
+      Document explicitly (in the skip-set comment) that 4h JPY files are stored at
+      a non-standard scale and are therefore UNGUARDED, and file a follow-up to
+      either (i) derive correct per-(pair,timeframe) bounds for the scaled files so
+      the skip-set can be emptied, or (ii) normalize 4h storage scale. Route the
+      scale-investigation to the owning data role; the comment fix to author.
+    owning-role: quant-developer
+
+  - id: FINDING-5
+    severity: minor
+    location: src/forex_system/data/storage.py:122-123
+    category: edge-case / silent-skip
+    observation: >
+      "if 'close' not in df.columns: return" silently passes a frame with no close
+      column, with NO log entry (unlike the other two skip paths, which DO log).
+      The inline comment says "should not happen for OHLCV," but the function is a
+      fail-closed gate; a missing close column on an OHLCV load is itself a
+      corruption signal that here produces a silent no-op.
+    inference: >
+      Violates log-as-decision-trace item 6 (skipped path must be logged) and the
+      fail-closed posture. Inconsistent with the two other early-returns in the same
+      function which both emit data.range_check.skipped.
+    evidence: storage.py:122-123 returns with no logger call; contrast :93-105 and :107-119.
+    recommended-action-class: >
+      Either emit a data.range_check.skipped (reason="no close column") log on this
+      path for trace parity, or — preferable given the fail-closed contract — raise
+      DataError, since a missing close column on a load is a hard data defect.
+      Route to author.
+    owning-role: quant-developer
+
+  - id: FINDING-6
+    severity: minor
+    location: src/forex_system/data/storage.py:128-142 + 200-210
+    category: log-as-decision-trace (items 4, 5, 10)
+    observation: >
+      The two new log boundaries (data.load.start at :200, data.range_check.* at
+      :128) are structured, name the outcome, include inputs, and name the bound
+      source — items 1,2,3,8,9 PASS. But: (item 5) there is no correlation/trace id
+      tying a load.start to its subsequent range_check entry; under concurrent
+      loads the two lines cannot be reliably joined. (item 4) no event/decision
+      timestamp field is emitted (the code relies on the log framework default).
+      (item 10) load_parquet now emits TWO info lines per successful load
+      (load.start then range_check.ok) for a single decision outcome.
+    inference: >
+      Adequate as a baseline trace and far better than prose, but not fully
+      reconstructable under concurrency without correlation, and slightly chatty.
+      Minor for a single-threaded falsification harness; would matter if load_parquet
+      is ever called concurrently.
+    evidence: storage.py:200-210 (load.start), :128-142 (range_check), no shared id field.
+    recommended-action-class: >
+      Add a per-load correlation id (e.g. derived from path + a monotonic counter)
+      to both entries, and consider folding load.start into the single range_check
+      outcome line to satisfy item 10. Non-blocking; route to author.
+    owning-role: quant-developer
+
+  - id: FINDING-7
+    severity: observation
+    location: src/forex_system/data/storage.py:48-69 (bounds), :28-37 (derivation)
+    category: numerical-correctness / firewall(A4-adjacent)
+    observation: >
+      The upper-bound rule is ceil(real_max * 1.5). I confirmed it catches CADJPY
+      (synth 203.64 > 180) with 0 false positives today. The lower bound of 20 for
+      JPY pairs catches USDJPY(5-8) and GBPJPY(1.5-2.3) comfortably. Two soundness
+      notes: (1) the bound is a pure data-plausibility envelope derived from
+      observed real maxima — it encodes NO strategy/research judgment, so the
+      execution firewall A4 (no research-class logic in data code) is SATISFIED;
+      this is correctly data-integrity-only. (2) The 1.5x headroom is a value
+      judgment about future price moves: USDJPY at 245 implies ~51% above the
+      2026-06 real max of 161.71. A legitimate future yen collapse beyond that would
+      false-positive a REAL series and fail-closed a valid load. That is the
+      intended conservative trade-off (fail-closed > silent-consume), but it means
+      the table is time-sensitive and will need revisiting as real maxima drift.
+    inference: >
+      The derivation is sound and firewall-clean for the current corruption set.
+      The headroom band (real_max .. upper) is an acknowledged blind spot (the
+      comment states this). No corrupted pair in the identified set slips through
+      today. Residual risk: a corrupted pair NOT in the registry (e.g., a future
+      JPY cross, or AUDUSD/USDCAD/EURGBP which are deliberately unlisted) passes
+      unchecked — pass-through-on-unlisted is a deliberate coverage gap, acceptable
+      for R5 scope but worth a registry-completeness follow-up.
+    evidence: >
+      Helper run over all 15 real files = 0 false positives; over synthetic =
+      USDJPY/GBPJPY/CADJPY daily CAUGHT, others passed-through. EURJPY synth (94-186)
+      is NOT corrupted and correctly passes.
+    recommended-action-class: >
+      No change required for approval. Recommend a dated TODO to re-derive bounds
+      when real maxima are refreshed, and a follow-up to decide whether unlisted
+      majors should get bounds (registry-completeness). Informational.
+    owning-role: head-of-quant-research
+
+  - id: FINDING-8
+    severity: nit
+    location: src/forex_system/data/storage.py:131
+    category: clarity
+    observation: >
+      The event-name is computed inline via a ternary inside json.dumps
+      ('data.range_check.ok' if ... else 'data.range_check.FAIL'). The .ok variant
+      is emitted even when the function is about to raise is NOT the case here
+      (raise is gated on the same condition), but the duplicated boundary expression
+      (lo <= observed_min and observed_max <= hi) at :131 and the inverted form
+      (observed_min < lo or observed_max > hi) at :144 are two encodings of the same
+      predicate and can drift apart under future edits.
+    inference: Minor maintainability risk; single-source the predicate.
+    evidence: storage.py:131 vs :144 — De Morgan duals of one predicate, written twice.
+    recommended-action-class: Compute the pass/fail boolean once and reuse for both the log event name and the raise gate. Nit; route to author.
+    owning-role: quant-developer
+
+coverage-statement: >
+  Reviewed the full diff of both files plus the unchanged load_parquet path,
+  save_parquet, _record_oos_burn, list_available, and core/errors.py (DataError /
+  LookaheadError hierarchy). Verified hard-constraint #2 myself by running
+  _assert_price_range over all 15 real data/processed/*.parquet files (0 false
+  positives) and all 15 synthetic files (USDJPY/GBPJPY/CADJPY daily caught; all
+  others passed through, EURJPY correctly not flagged). Verified hard-constraint #3
+  by running pytest -k no_lookahead (1 passed) and the full storage+engine suite
+  (7 passed). Verified the contamination threat model by resolving load_parquet
+  against three synthetic data_dir variants (none reach the corrupted files via the
+  /processed/ join). Exercised seven edge-case input classes directly. NOT covered:
+  the broader R5 harness plumbing (joint return-matrix, Politis-White block length,
+  White-RC), which is out of scope per the prompt; upstream OHLCV save-time
+  validation behavior (read errors.py hierarchy but did not exhaustively trace the
+  validate module); concurrency behavior of logging under real multi-load.
+
+decision-summary: >
+  approve-with-conditions. The gate correctly catches the three identified
+  corrupted daily series with zero false positives on real data, preserves the
+  sacred no-lookahead test, and keeps research judgment out of the data layer
+  (firewall-clean). Two blocking conditions before merge: (BLOCK-1 / FINDING-1)
+  close the NaN fail-open hole so the "fail-closed" claim is true for the canonical
+  corruption mode; (BLOCK-3 / FINDING-3) add inversion tests for all seven input
+  classes so the safety gate cannot silently rot to a no-op. Major non-blockers:
+  correct the threat-model comment (FINDING-2) and document the 4h skip blind spot
+  (FINDING-4). All conditions are bounded fixes within this PR; the approach is
+  sound and needs no rethink. Owning role for the blocking fixes: quant-developer.
+
+time-spent-reasoning: ~26 minutes (read diff + surrounding code + errors; ran 5 verification scripts over real+synthetic data; resolved the contamination path; ran the sacred + storage suites; enumerated edge cases).

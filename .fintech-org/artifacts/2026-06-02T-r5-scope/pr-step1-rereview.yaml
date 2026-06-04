@@ -1,0 +1,201 @@
+role: Principal Reviewer (structurally independent, staff-grade)
+artifact_type: review-report
+decision: approve
+artifact-under-review: >
+  Uncommitted changeset to src/forex_system/data/storage.py (new _assert_price_range
+  load-time price-sanity gate + _PAIR_CLOSE_BOUNDS / _PAIR_TIMEFRAME_SKIP registries,
+  wired into load_parquet) and tests/data/test_storage.py (12 unit cases + 2 integration
+  parametrizations against real and corrupted on-disk parquets). This is a RE-REVIEW
+  confirming closure of prior findings FINDING-1..FINDING-5, FINDING-8.
+
+rubrics-applied:
+  - review-plan (correctness, completeness, executability)
+  - execution-firewall-review (spec-vs-implementation drift; fail-closed defaults; no silent winsorize/fillna)
+  - log-as-decision-trace (every decision boundary emits replayable structured context)
+  - python (dtype/coercion correctness, idiomatic numpy/pandas)
+  - probability-statistics (bound-setting methodology, coverage of input classes)
+
+findings:
+  - id: CLOSURE-1
+    severity: blocking-now-closed
+    prior-finding: "FINDING-1 (blocking) NaN fails OPEN"
+    closure-verdict: CLOSED
+    location: "src/forex_system/data/storage.py:_assert_price_range basic-validity block"
+    category: fail-closed-correctness
+    observation: >
+      The non-finite guard runs BEFORE any bound comparison:
+      n_non_finite = int((~np.isfinite(pd.to_numeric(close, errors="coerce"))).sum());
+      if n == 0 or n_non_finite > 0: raise DataError. Empty, all-NaN, partial-NaN,
+      +inf and -inf all raise. The guard runs for EVERY loaded series, including
+      range-skipped (4h) and unlisted pairs, because it sits above the skip/registry
+      returns.
+    inference: >
+      The exact previously-broken case (all-NaN passing because NaN<lo and NaN>hi are
+      both False) is now structurally impossible — the comparison is never reached for
+      a non-finite series.
+    evidence: >
+      Independent runtime check: _assert_price_range(all-NaN USDJPY daily) RAISED
+      DataError (n_non_finite=3). Skip-pair non-finite check: _assert_price_range(
+      [5.0, NaN], USDJPY, 4h) RAISED. Real 4h USDJPY (finite, scale 4.99-7.78) PASSED
+      the validity guard while range was skipped. pytest: test_range_rejects_all_nan_close,
+      _partial_nan_, _infinite_ (both +inf and -inf), _empty_, and
+      _skips_listed_skip_pair_but_still_rejects_non_finite all PASS.
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+  - id: CLOSURE-3
+    severity: blocking-now-closed
+    prior-finding: "FINDING-3 (blocking) zero test coverage of the safety gate"
+    closure-verdict: CLOSED
+    location: "tests/data/test_storage.py:38-134"
+    category: test-coverage
+    observation: >
+      Table-driven unit cases cover every named input class: above-upper, below-lower,
+      in-bounds, all-NaN, partial-NaN, +inf, -inf, empty, missing-close-column,
+      unlisted-pair pass-through, and skip-pair (finite-passes + non-finite-raises).
+      Integration: test_real_processed_jpy_passes_range_check parametrized over 6 real
+      JPY dailies (must not raise); test_corrupted_synthetic_jpy_is_rejected over the
+      3 corrupted synthetics (USDJPY/GBPJPY/CADJPY) that the bounds were designed to
+      catch (must raise).
+    inference: >
+      A flipped operator or deleted bound is caught: above-upper and below-lower cases
+      pin both directions of the range comparison; the in-bounds + real-data cases pin
+      against over-tightening. Deleting the non-finite guard is caught by 5 distinct cases.
+    evidence: >
+      pytest tests/data/test_storage.py = 23 passed (0.11s). All integration parametrizations
+      executed (real files present; none skipped). Independent confirmation: real USDJPY
+      [75.82,161.71] PASSED; synth USDJPY[5.03,7.75]/GBPJPY[1.54,2.28]/CADJPY[77.47,203.64]
+      all RAISED.
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+  - id: CLOSURE-2
+    severity: major-now-closed
+    prior-finding: "FINDING-2 (major) threat-model comment inaccurate"
+    closure-verdict: CLOSED
+    location: "src/forex_system/data/storage.py: module comment lines ~40-46"
+    category: documentation-accuracy
+    observation: >
+      Comment now states explicitly: "The PRIMARY DEFENSE against wrong-directory
+      ingestion is load_parquet()'s hardcoded join on '.../processed/...' — this
+      range-assert is DEFENCE-IN-DEPTH only. Do not rely on it exclusively." It also
+      documents the in-band-corruption limitation honestly.
+    inference: The comment now matches the code: load_parquet line 242 hardcodes /processed/.
+    evidence: grep confirms hardcoded "processed" join at storage.py:242; comment text verified.
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+  - id: CLOSURE-4
+    severity: major-now-closed
+    prior-finding: "FINDING-4 (major) 4h JPY skip blind spot"
+    closure-verdict: CLOSED
+    location: "src/forex_system/data/storage.py:_PAIR_TIMEFRAME_SKIP branch"
+    category: observability / documented-limitation
+    observation: >
+      Skip now emits a WARNING-level structured log (event=data.range_check.skipped,
+      reason="...range UNGUARDED") and an inline comment states a corrupted-but-finite
+      4h file at the wrong scale would slip through, noting R5 is daily-only so it is
+      off-path. The honesty requirement is met: the limitation is visible, not silent.
+    inference: >
+      Confirmed empirically that a corrupted-but-finite 4h file DOES slip through — but
+      it is now logged at WARNING and documented, which is exactly what FINDING-4 asked.
+      Notably the synthetic 4h USDJPY is range-identical to the real 4h (both 4.99-7.78),
+      so even a range check on 4h would not distinguish them; the skip is well-founded.
+    evidence: >
+      _assert_price_range(synth 4h USDJPY) returned without raising and emitted the
+      WARNING skip log. Real and synthetic 4h USDJPY both [4.998, 7.786].
+    recommended-action-class: none (limitation documented; out of R5 daily path)
+    owning-role: Quant Developer
+
+  - id: CLOSURE-5
+    severity: missing-close-now-closed
+    prior-finding: "FINDING-5 (missing-close silent skip)"
+    closure-verdict: CLOSED
+    location: "src/forex_system/data/storage.py: 'close' not in df.columns branch"
+    category: fail-closed-correctness
+    observation: A missing 'close' column now raises DataError before any other logic.
+    inference: Malformed frames can no longer pass the gate silently.
+    evidence: test_range_rejects_missing_close_column PASSES (match="no 'close' column").
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+  - id: CLOSURE-8
+    severity: minor-now-closed
+    prior-finding: "FINDING-8 (duplicated predicate)"
+    closure-verdict: CLOSED
+    location: "src/forex_system/data/storage.py: 'failed = observed_min < lo or observed_max > hi'"
+    category: maintainability
+    observation: The range predicate is computed once and reused in both the log event and the raise.
+    inference: No risk of log/raise divergence on a future edit.
+    evidence: Single 'failed' assignment with inline FINDING-8 marker; verified in diff.
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+  - id: NEW-OBS-1
+    severity: informational
+    closure-verdict: n/a
+    location: "tests/data/test_storage.py:test_corrupted_synthetic_jpy_is_rejected parametrization"
+    category: test-scope honesty
+    observation: >
+      The corrupted-synthetic integration test parametrizes ONLY USDJPY/GBPJPY/CADJPY.
+      I independently confirmed synthetic EURJPY[94.29,186.24], AUDJPY[62.40,113.69],
+      and NZDJPY[56.63,98.82] are NOT caught by the gate (they sit within real-scale
+      bounds). This is NOT a defect: those synthetic series are range-plausible (the
+      contamination signature for those three is not a gross scale error), and the
+      comment scopes the gate to the three gross-scale corruptions. The test set
+      honestly matches what the gate can actually catch. Flagged only so the firm does
+      not over-trust the gate as a universal synthetic detector.
+    inference: >
+      The range-assert is defence-in-depth, as the comment states; it is not and does
+      not claim to be a complete synthetic-vs-real discriminator. Consistent with the
+      primary-defense being the /processed/ path join.
+    evidence: >
+      Runtime: synth EURJPY/AUDJPY/NZDJPY daily PASSED _assert_price_range without raising.
+    recommended-action-class: accept-as-scoped (no change required)
+    owning-role: Head of Quant Research (awareness only)
+
+  - id: NEW-OBS-2
+    severity: informational
+    closure-verdict: n/a
+    location: "src/forex_system/data/storage.py: pd.to_numeric(close, errors='coerce')"
+    category: dtype-robustness
+    observation: >
+      Adversarial dtype check: pd.to_numeric(..., errors='coerce') + np.isfinite correctly
+      flags object/string-garbage as non-finite (fail-closed) and passes int64 cleanly.
+      All six real JPY dailies are float64 with zero non-finite values and ranges inside
+      bounds — no false-positive surface on legitimate data.
+    inference: The non-finite guard introduces no new false-positive on real data dtypes.
+    evidence: >
+      Runtime: string Series ['100.0','abc','120.0'] -> 1 non_finite (raises); int64 -> 0;
+      all 6 real JPY dailies non_finite=0, dtype float64.
+    recommended-action-class: none
+    owning-role: Quant Developer
+
+coverage-statement: >
+  Reviewed the full git diff of both files and the current on-disk _assert_price_range
+  and its module comment. Independently executed: (1) the required pytest selection
+  (tests/data/test_storage.py + the sacred test_no_lookahead) = 23 passed, 0 failed,
+  no skips — the no-lookahead guarantee is intact; (2) the exact previously-broken case
+  (all-NaN USDJPY daily) — now RAISES DataError; (3) real data/processed/USDJPY_daily.parquet
+  — does NOT raise; (4) all 6 real JPY dailies — pass with zero non-finite; (5) all 6
+  synthetic JPY dailies — confirmed which 3 raise (the bounded gross-scale ones) and which
+  3 pass (range-plausible, correctly scoped out); (6) skip-pair 4h finite-passes /
+  non-finite-raises; (7) coercion edge cases on object/int dtypes. Both blocking findings
+  (FINDING-1, FINDING-3) are CLOSED. Two major (FINDING-2, FINDING-4) and the two lesser
+  (FINDING-5, FINDING-8) are CLOSED. No new blocking or major defect found; two
+  informational observations recorded (scoped test coverage, dtype robustness), neither
+  requiring a change. NOT verified (out of scope of this gate, unchanged by this diff):
+  whether the synthetic non-gross-scale contamination is detectable by any means, and the
+  end-to-end harness wiring beyond load_parquet's single call site.
+
+contamination-check:
+  prior-findings-disclosed: true
+  approval-stance-disclosed: false
+  verdict: clean
+  note: >
+    The prompt disclosed the prior findings (the legitimate re-review contract) but did
+    NOT convey any approval/rejection stance on the fix. No contamination trigger. All
+    closure verdicts were derived from direct code reading and independently executed
+    runtime checks, not from anyone's stated opinion.
+
+time-spent-reasoning: ~14 minutes (diff read, full-file read of the gate + load path, 4 independent runtime probes, sacred test run, dtype adversarial check)

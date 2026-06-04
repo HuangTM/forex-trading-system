@@ -1,0 +1,66 @@
+role: orchestrator
+artifact_type: remediation-note
+timestamp: "2026-06-03T06:30:00Z"
+subtask_ref: r5-scope-step1-remediation
+context: >
+  Two QD agents failed to land the STEP-1 PR-blocking fixes (QD#1 dropped before
+  report; QD#3 stalled on the watchdog after only a partial comment edit). Per CEO
+  decision (option "I apply it, PR re-reviews"), the orchestrator applied the
+  Principal-Reviewer's exact fix contracts directly. Fix contains zero research/
+  strategy judgment (a data-validity guard); independence is preserved by a fresh
+  PR re-review (below) — the author does not self-certify.
+findings_addressed:
+  - id: FINDING-1
+    severity: blocking
+    fix: >
+      Added an explicit basic-validity guard at the TOP of _assert_price_range
+      (before the skip/registry early-returns and before any bound comparison):
+      empty close OR any non-finite value (NaN/±inf) raises DataError. Applies to
+      ALL pairs incl. range-skipped (4h) and unlisted. Closes the all-NaN
+      fail-OPEN (NaN<lo and NaN>hi both False).
+    location: src/forex_system/data/storage.py _assert_price_range (post-docstring block)
+    tests: tests/data/test_storage.py::test_range_rejects_all_nan_close, test_range_rejects_partial_nan_close, test_range_rejects_infinite_close, test_range_rejects_empty_close
+  - id: FINDING-3
+    severity: blocking
+    fix: >
+      Added 14 table-driven inversion tests covering above-upper, below-lower,
+      in-bounds, all-NaN, partial-NaN, +inf/-inf, empty, missing-close,
+      unlisted-pair pass-through, skip-pair (finite passes / non-finite raises),
+      plus parametrized integration against the 6 real data/processed/ JPY
+      parquets (must pass) and the 3 corrupted synthetic JPY parquets (must raise).
+    location: tests/data/test_storage.py
+    tests: 14 new cases; all pass
+  - id: FINDING-5
+    severity: minor-escalated
+    fix: missing 'close' column now raises DataError (was a silent return).
+    location: src/forex_system/data/storage.py _assert_price_range
+    tests: tests/data/test_storage.py::test_range_rejects_missing_close_column
+  - id: FINDING-4
+    severity: major
+    fix: >
+      4h skip-set branch now logs at WARNING ("range UNGUARDED") so the unguarded
+      skip is visible; the new basic-validity guard still catches non-finite even
+      for skipped pairs. Documented that a corrupted-but-finite 4h file at the
+      anomalous scale can still slip through (R5 is daily-only, so out of path).
+      The 4h files being at a ~5-8 scale is itself a data-quality anomaly flagged
+      for future work.
+    location: src/forex_system/data/storage.py _assert_price_range skip branch + comment
+    tests: tests/data/test_storage.py::test_range_skips_listed_skip_pair_but_still_rejects_non_finite
+  - id: FINDING-2
+    severity: major
+    fix: >
+      Comment corrected: PRIMARY DEFENSE against wrong-directory ingestion is
+      load_parquet()'s hardcoded ".../processed/..." join; this range-assert is
+      defence-in-depth (catches a corrupted file copied INTO processed/).
+    location: src/forex_system/data/storage.py module-level comment + raise message
+  - id: FINDING-8
+    severity: nit
+    fix: single `failed` predicate computed once, reused in both the log event and the raise.
+    location: src/forex_system/data/storage.py _assert_price_range
+verification_run_by_orchestrator:
+  ruff: "All checks passed"
+  storage_plus_no_lookahead: "23 passed (incl. test_no_lookahead)"
+  broader_regression: "71 passed (tests/data + tests/backtest + tests/features)"
+  positive_control: "6 real JPY pass; 3 corrupted (USDJPY/GBPJPY/CADJPY) reject; all-NaN raises"
+next: "Fresh Principal-Reviewer re-review to independently confirm FINDING-1 and FINDING-3 (blocking) are closed."
+uncommitted: true

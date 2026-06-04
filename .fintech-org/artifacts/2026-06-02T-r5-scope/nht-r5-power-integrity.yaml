@@ -1,0 +1,173 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent
+timestamp: 2026-06-03T04:36:12Z
+subtask_ref: r5-scope
+subtask_id: r5-scope-2026-06-02-nht
+power-assessment: >-
+  PER-CELL POWER IS ADEQUATE; K=200 RESOLUTION IS NOT, AND THE MULTIPLICITY MATH IS THE
+  BINDING CONSTRAINT. (1) Per-cell detectability: a daily Sharpe of 0.30 over ~4000 bars
+  (~16y) has a standard error on the annualized Sharpe of roughly sqrt((1+0.5*SR^2)/T_years)
+  ~ sqrt(1.045/16) ~ 0.26 in annualized units. A single-cell t-stat for SR=0.30 over 16y is
+  ~0.30/0.255 ~ 1.18 — that is BELOW the ~1.65 one-sided / 1.96 two-sided single-test
+  threshold. So even ONE pre-specified cell at the assumed alternative is marginal-to-
+  underpowered before any multiplicity correction. (Note: if "0.30 Sharpe" means PER-BAR
+  daily Sharpe rather than annualized, the cell is wildly significant and the whole framing
+  is wrong — this ambiguity MUST be resolved before sizing the test; I assume annualized,
+  the only economically plausible reading for a carry cell.) (2) Multiplicity: controlling
+  FWER across ~36 cells via a max-statistic Reality-Check / StepM null pushes the effective
+  rejection threshold from ~1.96 toward ~2.7-3.0 (Bonferroni-equivalent alpha ~0.05/36 ~
+  0.0014, z~3.0). Against a true per-cell t of ~1.18, the per-cell power under FWER control
+  collapses to single digits. The PROGRAM-level question "is there ANY real carry edge" has
+  more power than any single cell because the max-stat aggregates, but it still needs at
+  least a handful of genuinely independent cells each near t~1.2 to push the max above ~3.0
+  with appreciable probability — JPY-cross carry cells are HIGHLY cross-correlated (all long
+  the same rate-differential factor), so the effective number of independent bets is closer
+  to 2-4 than 36, which REDUCES the multiplicity penalty but ALSO means you do not get 36
+  independent shots at significance — you get ~3. (3) For ~80% power at the program level you
+  would need EITHER a true per-cell annualized Sharpe nearer ~0.5-0.6 over the same 16y, OR a
+  materially longer / higher-frequency sample, OR genuinely independent cells. At SR=0.30 the
+  honest expected outcome is a NON-rejection that is UNINFORMATIVE about absence of edge. (4)
+  K=200: a bootstrap/permutation p-value is quantized in steps of 1/(K+1)~0.005 and its Monte
+  Carlo standard error near the 0.05 boundary is sqrt(0.05*0.95/200)~0.0154 — i.e. +/-0.015
+  on a 0.05 decision, a coin-flip's worth of noise straddling the threshold. For a
+  multiplicity-corrected tail (effective alpha ~0.0014) K=200 cannot even RESOLVE the
+  quantile: you need on the order of K>=2000 (ideally 5000-10000) so the corrected critical
+  quantile is estimated with <~10% relative MC error. K=200 is a theatrical number for an
+  FWER-controlled 0.05 decision.
+theatricality-risks:
+  - "Over-easy null: permuting/sign-flipping RETURNS so the benchmark is iid-zero-mean noise, when the real null must preserve FX autocorrelation, vol clustering, and the carry FACTOR -> guard: null is 'this specific timing/weighting adds nothing OVER a naive always-on carry-factor exposure', built via stationary BLOCK bootstrap (block ~ 20-60 bars) or circular block permutation, NOT iid shuffle."
+  - "Permuting the wrong object so autocorrelation leaks (shuffling signals while holding the price path lets serial structure inflate the matched benchmark's tails inconsistently) -> guard: permute the OBJECT WHOSE EXCHANGEABILITY IS THE NULL — block-resample the strategy's own return stream, or randomize entry timing within blocks; pre-register exactly which array is resampled and the block length, and prove stationarity of blocks."
+  - "Benchmark too weak (matched-random benchmark is random trades with no carry tilt, so any carry-flavored strategy beats it trivially) -> guard: benchmark MUST carry the same gross factor exposure (same average signed carry tilt / same turnover / same vol target). The test is incremental skill over naive carry, not 'beats random'."
+  - "Post-hoc spec dressed as pre-registered: the 6 variants x 6 pairs were chosen AFTER seeing which looked good -> guard: cryptographic pre-registration (hash committed before any R5 run) of the FULL cell grid, the statistic, K, block length, alpha, and the multiplicity method; any cell not in the pre-reg is reported as exploratory and excluded from the FWER claim."
+  - "Multiplicity uncontrolled / cherry-picking the winning cell: reporting the best of 36 at uncorrected 0.05 (expected ~1.8 false winners by chance) -> guard: Romano-Wolf StepM or White's Reality-Check max-statistic over the JOINT null across ALL cells; report the corrected p of the MAX, not per-cell p's; never headline the single best cell."
+  - "In-sample contamination / look-ahead: signals or cost params fit on the same bars scored; entry executed on the bar the signal is observed -> guard: confirm the no-lookahead shift (entry_delay_bars) is active inside the R5 path, costs are out-of-sample-frozen, and any parameter selection is nested inside the resampling (resample THEN re-select), else the bootstrap understates variance."
+  - "Wrong-data contamination: R5 silently run on processed_synthetic_phase0/ (corrupted USDJPY 5.03-7.75) -> guard: assert price-range sanity bounds at harness entry (USDJPY in [50,200]) and log the resolved data path + a content hash into the permutation output; fail closed if bounds violated."
+  - "K too small to resolve the corrected quantile (p quantized at 1/(K+1), MC SE ~0.015 at the 0.05 line, far larger in the 0.0014 tail) -> guard: K>=2000 (target 5000-10000); report the Monte Carlo SE of every reported p so the reader sees whether the decision is inside the noise band."
+  - "Decision-threshold gaming: alpha 0.05 chosen, but the ECONOMIC decision (CONTINUE vs WIND-DOWN) should weigh the prior odds the program is dead -> guard: pre-register the action mapping (what p triggers wind-down) and acknowledge a single non-significant program-level test cannot itself license CONTINUE."
+data-snooping-verdict: >-
+  R5 CONTROLS ONLY THE LOOKS IT IS PRE-REGISTERED OVER — IT CANNOT RETROACTIVELY CONTROL THE
+  SPENT SELECTION. The firm has already mined these carry strategies across a LARGE prior
+  trial history; those degrees of freedom were consumed before R5 exists. A prospective
+  Reality-Check/StepM bounds the FWER over the cells in ITS pre-registered grid evaluated on
+  the data ONCE; it does NOT, and cannot, deflate the multiplicity from every prior look,
+  refit, pair-swap, and parameter nudge that shaped why these particular 6x6 cells are the
+  ones being tested. Honest claim R5 CAN support: "Among this pre-registered grid, the
+  joint/max evidence against the matched-carry null is [p], MC-SE [.]." Honest claim R5
+  CANNOT support: "carry has a real edge" or "the program's historical Sharpe is genuine" —
+  because the historical numbers were selected, and R5 on the SAME 2010-2026 data inherits
+  that selection. The only way to make R5's p-value clean is to evaluate the pre-registered
+  specs on data NOT used in the prior mining (true hold-out / post-pre-reg forward bars), or
+  to apply a deflated-Sharpe / haircut that explicitly charges for the estimated number of
+  prior trials. Without one of those, R5 is a re-test on snooped data and its p is
+  optimistically biased by an unknown but large factor.
+data-integrity-precondition: >-
+  HARD BLOCKER. I independently confirmed both paths: data/processed/USDJPY_daily.parquet
+  close 75.82-161.71 (real, n=4245) vs data/processed_synthetic_phase0/USDJPY_daily.parquet
+  close 5.03-7.75 (corrupted, impossible, n=4237). It is UNKNOWN whether prior carry results
+  used the real or corrupted series. Until proven otherwise, every historical carry number is
+  suspect, and an R5 built to "confirm" them could be confirming an artifact. MUST verify
+  BEFORE any R5 spec is sized: (1) which exact file path the carry harness loads at runtime
+  (instrument the loader, print resolved path + content hash); (2) re-derive every prior
+  carry Sharpe/equity used in the CONTINUE/WIND-DOWN case from the REAL series and diff
+  against what was reported; (3) delete or quarantine the corrupted synthetic dir, or
+  range-assert at load so it can never be silently consumed; (4) confirm rate-differential
+  inputs (2001-2026) align in date index with the real price series. If prior results were on
+  the corrupted USDJPY, the program decision must be re-litigated on corrected numbers FIRST —
+  R5 is moot until then.
+worth-building: >-
+  NO — not as the rescue mechanism it is being framed as, and not at K=200. Three independent
+  reasons: (a) DATA INTEGRITY is unresolved (corrupted USDJPY ambiguity) — building a test on
+  possibly-artifact inputs is wasted or actively misleading; (b) POWER — at the stated SR~0.30
+  annualized, an FWER-controlled test over ~36 highly-correlated cells is expected to FAIL TO
+  REJECT regardless of whether a small real edge exists, so a non-rejection is uninformative
+  and cannot honestly license CONTINUE, while a rejection on snooped data cannot honestly
+  license it either; (c) SNOOPING — R5 cannot launder the already-spent selection. A
+  PROPERLY-designed R5 is still WORTH building, but ONLY scoped as: (i) data-integrity gate
+  passed first; (ii) block-bootstrap matched-CARRY null (not iid); (iii) cryptographic
+  pre-registration of the full grid + action mapping; (iv) Romano-Wolf StepM over the joint
+  null; (v) K>=2000-10000 with reported MC-SE; (vi) evaluated on post-pre-reg forward / true
+  hold-out bars OR with an explicit deflated-Sharpe haircut for prior trials. Built that way,
+  its most likely honest outcome is a NON-rejection — which is evidence the program cannot be
+  rescued by re-testing and the firm should weigh WIND-DOWN. R5 is worth building as an
+  HONEST KILL TEST, not as a vehicle expected to validate carry.
+dissent-statement: |
+  NHT DISSENT — R5 as proposed is underpowered theater, not a test that can reject.
+
+  1. At the stated per-cell annualized Sharpe ~0.30 over ~4000 bars, a single pre-specified
+     cell already only reaches t ~ 1.2 — below the ordinary 1.96 threshold BEFORE any
+     multiplicity correction. Under FWER control across ~36 highly cross-correlated JPY-cross
+     carry cells (effective independent bets ~ 2-4), the expected outcome is FAILURE TO
+     REJECT whether or not a small real edge exists. A p >= 0.05 from this design is therefore
+     UNINFORMATIVE — it is not evidence of no-edge, and it must not be read as one.
+  2. K=200 cannot resolve a multiplicity-corrected 0.05 quantile: p is quantized at ~0.005
+     with Monte-Carlo SE ~0.015 at the boundary, a coin-flip straddling the threshold. Any
+     FWER-controlled decision needs K >= 2000 (target 5000-10000) with reported MC-SE.
+  3. R5 controls ONLY the looks it pre-registers. These are the firm's longest-studied
+     strategies with a large prior trial history; that spent selection is NOT retroactively
+     controlled by a prospective Reality-Check. A re-test on the same 2010-2026 data inherits
+     the snooping and yields an optimistically biased p. The only clean p comes from
+     post-pre-registration forward/hold-out bars or an explicit deflated-Sharpe haircut.
+  4. HARD BLOCKER: I confirmed a corrupted USDJPY series (close 5.03-7.75) sits in
+     data/processed_synthetic_phase0/ alongside the real one (75.82-161.71). It is unknown
+     which fed prior carry results. No R5 may be sized until the runtime data path is
+     instrumented, prior carry numbers are re-derived on the REAL series, and the corrupted
+     file is quarantined/range-asserted.
+
+  RECOMMENDATION: Do NOT build R5 as a validation vehicle. Resolve data integrity first.
+  Then, if built, scope R5 explicitly as an HONEST KILL TEST (block-bootstrap matched-carry
+  null, crypto pre-reg of the full grid + wind-down action map, Romano-Wolf StepM, K>=2000
+  with MC-SE, evaluated on hold-out/forward bars). Its most probable honest outcome is a
+  non-rejection — which is itself the signal to weigh WIND-DOWN. A non-significant R5 cannot
+  license CONTINUE; a significant R5 on snooped in-sample data cannot either.
+contamination-check: clean
+evidence:
+  - "Independently verified data ranges via pandas read_parquet: data/processed/USDJPY_daily.parquet close 75.818-161.709 n=4245 (real); data/processed_synthetic_phase0/USDJPY_daily.parquet close 5.029-7.751 n=4237 (corrupted)."
+  - "Directory listing confirms both data/processed/ and data/processed_synthetic_phase0/ exist with parallel USDJPY_daily.parquet files."
+  - "probability-statistics SKILL.md sections 1.5 (CLT O(1/sqrt n)), 1.8 (bias-variance, non-rejection != absence of effect), 2.1 (concentration / tail-quantile estimation) ground the power and K-resolution arithmetic."
+assumptions:
+  - "The stated per-cell carry Sharpe ~0.30 is ANNUALIZED, not per-bar daily. If it is per-bar daily, the cell is trivially significant and the entire test framing is wrong — this MUST be confirmed before sizing R5."
+  - "~36 cells are highly cross-correlated (all long the JPY-cross carry/rate-differential factor); effective number of independent bets ~ 2-4, which both lowers the multiplicity penalty and the number of independent rejection chances."
+  - "Sharpe SE approximated by sqrt((1+0.5*SR^2)/T_years) (Lo 2002 / Jobson-Korkie family); returns assumed roughly stationary over 16y, which carry regime shifts may violate (further reducing effective power)."
+  - "Reality-Check interpreted as White (2000) / Romano-Wolf (2005) StepM max-statistic family over a joint resampling null."
+confidence: high
+body: |
+  I verified the load-bearing data facts myself rather than trusting the brief: the corrupted
+  USDJPY (close 5.03-7.75) and the real USDJPY (75.82-161.71) both exist as parallel files.
+  This makes data integrity a precondition, not a footnote — a "confirmatory" R5 run on the
+  wrong path would confirm an artifact.
+
+  The core statistical finding: at SR~0.30 annualized over 16 years, the t-statistic of a
+  SINGLE pre-specified cell is ~1.2, already sub-threshold. FWER control across ~36 cells
+  pushes the bar to z~3.0. The program-level max-statistic aggregates, but JPY-cross carry
+  cells share one factor, so effective independent bets ~ 2-4, not 36 — you neither pay the
+  full 36-wide penalty nor get 36 independent chances to win. Net: the design is expected to
+  fail to reject even if a small real edge exists. A non-rejection is therefore uninformative
+  about absence of edge — the most dangerous failure mode is reading p>=0.05 as "no edge,
+  wind down for the right reason" OR as a clean bill of health; it is neither.
+
+  K=200 is independently disqualifying for an FWER-corrected 0.05 decision: the p-value is
+  quantized at ~0.005 with MC-SE ~0.015 at the boundary, and the corrected critical quantile
+  (effective alpha ~0.0014) is in a tail K=200 simply cannot resolve. K>=2000, ideally
+  5000-10000, with the Monte-Carlo SE of every p reported.
+
+  The snooping verdict is the deepest problem: a prospective Reality-Check controls only the
+  pre-registered grid evaluated once; it cannot retroactively charge for the large prior trial
+  history that selected these exact strategies. The only honest clean p comes from
+  post-pre-registration forward/hold-out data or an explicit deflated-Sharpe haircut.
+
+  Conclusion: a properly designed R5 is worth building ONLY as an honest kill test, gated on
+  data integrity, with a matched-CARRY block-bootstrap null, crypto pre-registration including
+  the wind-down action map, Romano-Wolf StepM, adequate K, and hold-out/forward evaluation.
+  Its most probable honest outcome is a non-rejection — which the firm should treat as a
+  signal to weigh wind-down, not as a defect of the test.
+knowledge_gaps:
+  - "Whether the stated 0.30 Sharpe is annualized vs per-bar — flips the entire power conclusion."
+  - "Which exact data path the carry harness loads at runtime — unresolved until the loader is instrumented."
+  - "The true count of prior looks/trials spent on these strategies — needed to size a deflated-Sharpe haircut."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,287 @@
+role: mathematician
+artifact_type: formal-analysis
+decision: implement
+timestamp: 2026-06-03T04:35:59Z
+subtask_ref: r5-scope
+subtask_id: r5-scope-2026-06-02-math
+method-choice: >
+  hansen-spa (with White's Reality Check as the conservative cross-check, both computed on the
+  SAME stationary-bootstrap draws). SPA is the correct class-level test because the question is
+  FWER over the WHOLE carry universe (~36 cells) against a benchmark, and the universe is dominated
+  by poor/irrelevant cells (most variant-pair combinations are near-zero or negative Sharpe — verified:
+  a sign-of-rate-differential USDJPY carry has annualized Sharpe -0.158). White RC's least-favourable-
+  configuration null loses power catastrophically exactly when many bad models are present; SPA's
+  studentization + recentering removes them from the null distribution, preserving power without
+  sacrificing FWER control. We report BOTH p-values: SPA as the primary decision statistic, RC as a
+  conservative sanity bound. A feature-label permutation is REJECTED for the class question because it
+  tests a single-strategy null, not the multiplicity-corrected universe null.
+method-steelman: >
+  BLOCK-PERMUTATION (feature-label shuffle, NHT's original R5): STEELMAN — it directly destroys the
+  signal-to-return alignment while preserving the marginal return distribution, giving an exact
+  finite-sample null for ONE strategy with no asymptotic approximation, and it is assumption-light
+  (only exchangeability of the shuffled labels under H0). It is the right tool to ask "does THIS
+  variant's signal carry information?" REJECTED for R5 because the 2026-06-01 consensus elevated R5
+  to a CLASS-level question: shuffling labels strategy-by-strategy and taking the best p-value across
+  36 cells does NOT control FWER — it is precisely the data-snooping it was meant to prevent. It also
+  breaks the cross-cell dependence that makes the family correction non-trivial (the 6 variants are
+  near-collinear; an independent-cell Bonferroni would be wildly conservative).
+  WHITE'S REALITY CHECK (2000): STEELMAN — it is the canonical, peer-reviewed answer to exactly this
+  problem (is the BEST of L strategies better than a benchmark, after accounting for the search over
+  L?), it controls FWER by construction via the max-statistic null, and the stationary bootstrap
+  (Politis-Romano 1994) handles the autocorrelation and cross-strategy dependence jointly without
+  needing to model it. Its conservatism is a FEATURE for a WIND-DOWN decision — a false CONTINUE is
+  the expensive error. REJECTED-AS-PRIMARY (kept as cross-check) only because SPA dominates it: SPA
+  gives identical FWER guarantee but strictly more power when irrelevant models are present, which is
+  our regime. Using RC alone risks a theatrical, underpowered test (see power-note).
+  HANSEN SPA (2005): SELECTED. Studentizes each cell's mean by its bootstrap std and recenters poor
+  cells out of the null (the SPA_c "consistent" recentering threshold), so the null distribution is
+  not dragged toward the least-favourable configuration. Same stationary-bootstrap resampling as RC,
+  so the two are computed from one set of draws at no extra cost.
+null-hypothesis: >
+  H0 (class-level, pre-registerable): max over all cells k in the carry universe U of the EXPECTED
+  benchmark-relative performance is <= 0. Formally, let d_k = E[f_k] where f_k is the per-bar
+  benchmark-relative performance series of cell k (defined in test-statistic). H0: max_{k in U} d_k <= 0
+  — i.e., NO carry variant-pair cell has positive expected performance relative to the benchmark; the
+  entire carry program's best apparent edge is consistent with sampling noise plus the search over
+  |U|=~36 cells. H1: max_{k in U} d_k > 0 — at least one pre-registered cell has genuine positive
+  expected benchmark-relative performance that survives the multiple-comparison correction. The
+  universe U, the benchmark, the OOS window, and the per-cell return construction MUST be frozen in
+  the pre-registration before any bootstrap draw; H0 is rejected iff the SPA p-value < alpha = 0.05.
+test-statistic: >
+  Per cell k, define the OOS performance series f_{k,t} = (strategy log-return of cell k at bar t)
+  MINUS (benchmark log-return at bar t), where the strategy return already embeds the no-lookahead
+  entry_delay_bars=1 shift and the RealisticCostModel costs (spread/slippage/commission/swap) — the
+  benchmark-relative AND net-of-cost series, not gross. BENCHMARK = zero (flat / no-position): the
+  decision is "does carry beat holding no position, net of its own trading and carry costs?" This is
+  the correct economic null for a CONTINUE/WIND-DOWN pivot — a buy-and-hold or random-matched benchmark
+  would test relative skill, not existence of alpha. (Rationale for zero: cost-of-carry is already
+  inside f via the swap leg of the cost model, so subtracting an external carry benchmark would
+  double-count.) Cell statistic: standardized mean T_k = sqrt(n) * mean_t(f_{k,t}) / omega_hat_k, where
+  omega_hat_k is the stationary-bootstrap (HAC-consistent) std of sqrt(n)*mean(f_k). Family statistic:
+  T_SPA = max_k T_k. Sharpe is the reporting metric (annualized OOS Sharpe per cell, daily returns
+  *sqrt(252)) but the TEST operates on the studentized mean of f, which is monotone-equivalent to a
+  benchmark-relative Sharpe and is what SPA/RC theory is stated over. Daily (not monthly) returns: 4245
+  daily bars vs ~190 monthly gives far more resolution and the autocorrelation is handled by the block
+  bootstrap, so there is no reason to throw away resolution by aggregating to monthly.
+resampling-design:
+  unit: >
+    The JOINT per-bar performance VECTOR f_t = (f_{1,t}, ..., f_{|U|,t}) across all ~36 cells,
+    resampled as a single multivariate time series. Resampling the joint vector (not each cell
+    independently) is REQUIRED — it preserves the cross-strategy correlation (the 6 carry variants are
+    near-collinear; carry vs carry_fred vs vol_target_carry differ mostly by scaling/conditioning), and
+    that dependence is exactly what shrinks the effective number of independent tests and makes the
+    family correction tractable. Each bootstrap replicate b resamples the SAME blocks of bars across all
+    cells simultaneously, recomputes each T_k^{(b)} on the recentered (mean-subtracted, per SPA/RC)
+    series, and records max_k T_k^{(b)}. The p-value = fraction of replicates with max_k T_k^{(b)} >=
+    observed T_SPA.
+  block-length-rule: >
+    Stationary bootstrap (Politis-Romano 1994): block lengths are i.i.d. Geometric(1/L) with MEAN block
+    length L, giving a stationary, circular resample robust to the choice of start point. L chosen by the
+    Politis-White (2004) automatic optimal-block-length rule applied to the JOINT series (take the max L
+    across the |U| cells so every cell's dependence is covered), NOT a hand-picked constant. EMPIRICAL
+    GROUNDING (verified this session, must be re-confirmed in pre-reg on the frozen cells): although carry
+    POSITIONS are extremely persistent (~0.2 sign-flips/year for sign-of-rate-diff USDJPY), the carry
+    STRATEGY-RETURN series f is near-white (ACF lag-1 = -0.003, |ACF| < 0.017 out to lag 60) because
+    persistent positions multiply near-white daily price returns. Consequence: the autocorrelation block
+    bootstrap must capture is MODEST; Politis-White will likely return L in roughly the 1–20 day range.
+    DO NOT default to a large block from the (false) intuition "positions are held for months therefore
+    returns are highly autocorrelated" — that intuition is empirically wrong here and an oversized L
+    needlessly inflates bootstrap variance. The dominant dependence to preserve is CROSS-SECTIONAL
+    (between cells), handled by joint resampling, not temporal. Lower-bound guard: L >= 1; if Politis-White
+    returns L<1 round to 1 (degenerates to i.i.d. case, acceptable given near-white f).
+  K: >
+    revised UP to K=2000 (from the aspirational K=200). Reason: at the alpha=0.05 decision boundary the
+    Monte-Carlo standard error of a bootstrap p-value is sqrt(p(1-p)/K). At p=0.05, K=200 gives SE ≈
+    0.0154 — a 1-sigma band of [0.035, 0.065] straddling the threshold, so the CONTINUE/WIND-DOWN decision
+    could flip on bootstrap noise alone. K=2000 gives SE ≈ 0.0049 (band [0.040,0.060]); K=2000 is the
+    standard floor in the Hsu-Kuan/Hansen empirical literature. This does NOT reduce below the K=200 floor
+    (it raises it), so no NHT sign-off-to-reduce is triggered. Cost is linear and trivial for a one-shot
+    test (no new trial, no capital). If runtime on the full joint |U|x4245 matrix is a concern, K=1000 is
+    an acceptable fallback (SE≈0.0069) but K=2000 is preferred.
+multiplicity-control: >
+  FWER (family-wise error rate), strong control, via the max-statistic null of SPA/RC across all ~36
+  cells. This is the right error concept: CONTINUE/WIND-DOWN is a single BINARY firm-level decision, so
+  the cost object is "P(any false CONTINUE)", which is exactly FWER. The max-over-cells construction
+  enforces it automatically — no separate Bonferroni/Holm layer is needed (and Bonferroni would be far
+  too conservative given the near-collinearity of the 6 variants; the joint bootstrap captures the true,
+  much-smaller effective number of independent tests). FDR (Benjamini-Hochberg) is the WRONG control
+  here: FDR answers "of the cells I flag, what fraction are false?", which is a portfolio-construction
+  question ("how many variants survive"), not the existence question R5 asks. POOLED vs PER-PAIR
+  PRE-REGISTRATION changes the count and MUST be fixed in the pre-reg: the pooled design (single family
+  of all 36 cells, one SPA p-value) is recommended for the firm-level pivot. If instead one pre-registers
+  per-pair families (6 families of ~6 variants each), that is 6 separate FWER tests and a SECOND-level
+  correction (Bonferroni-over-6, alpha/6 = 0.0083) is required or the family count is gamed. Recommend
+  the single pooled family of |U| cells = one number, one decision.
+assumptions:
+  - >
+    STATIONARITY of f_t over the OOS window (SPA/RC + stationary bootstrap require weak/strict
+    stationarity of the benchmark-relative series). VIOLATION: structural breaks / regime shifts in the
+    carry premium (e.g. BoJ regime 2010-2026, COVID, 2022 JPY collapse) make f non-stationary; the
+    bootstrap then under-states variance and inflates false-CONTINUE rate. Partial mitigation: the
+    block bootstrap tolerates weak dependence but NOT trending means. Pre-reg should note the window
+    spans multiple JPY regimes.
+  - >
+    WEAK DEPENDENCE (alpha-mixing) of f_t — stationary bootstrap is consistent only for mixing series.
+    VIOLATION: long-memory in volatility could leave residual dependence the chosen L does not capture.
+    Empirically low risk here (f near-white, ACF<0.017) but conditional-heteroskedasticity remains.
+  - >
+    The studentization std omega_hat_k is consistently estimable (SPA). VIOLATION: cells with
+    near-zero variance (a variant that almost never trades a pair) give an unstable T_k; such degenerate
+    cells must be screened out in pre-reg or they destabilize the max.
+  - >
+    Cross-sectional dependence is FULLY carried by joint (same-block) resampling. VIOLATION: if any cell
+    uses a different bar index / calendar than the others, the blocks misalign and cross-correlation is
+    corrupted — all cells MUST be on a common, gap-aligned daily index (data-provenance prerequisite).
+  - >
+    NO-LOOKAHEAD already enforced in f (entry_delay_bars=1) and costs already embedded. VIOLATION:
+    testing gross or un-shifted returns would inflate every T_k and the whole test. This must be asserted
+    by QD at emit time (sacred test_no_lookahead must hold for every cell's series).
+  - >
+    EXCHANGEABILITY (only if the feature-label permutation cross-check is also run): shuffled labels are
+    exchangeable under the single-strategy null. NOT assumed by the primary SPA path.
+  - >
+    The universe U is EXHAUSTIVE and FROZEN (all 6 variants x in-scope JPY pairs). VIOLATION: silently
+    dropping a tested-but-bad variant from U after seeing results re-introduces selection bias and voids
+    the FWER guarantee — the universe must be the FULL set the firm ever looked at, including losers.
+data-snooping-caveat: >
+  R5 controls ONLY the multiplicity SPENT WITHIN the pre-registered universe U evaluated in this single
+  run. It does NOT retroactively control the org-wide trial history (N=35 trials, plus the many informal
+  looks at carry across waves since 2026-04). Those prior looks are sunk snooping the bootstrap cannot
+  undo — SPA corrects for searching over the |U| cells IN THIS TEST, not for the analyst having
+  previously inspected, tuned, and selected these same six variants. Two honest consequences the pre-reg
+  must state: (1) The strategies and their parameters were chosen with knowledge of past performance, so
+  even a SPA p<0.05 is a LOWER bound on the true data-snooping-adjusted evidence — interpret a pass as
+  "necessary, not sufficient" (consistent with CRIT-19). (2) The only way R5 becomes a clean prospective
+  test is if U, the OOS window, and all parameters are frozen in pre-reg BEFORE the run and the OOS
+  window contains data never used to develop these variants. If the OOS window overlaps the development
+  window, R5 is in-sample-contaminated and its p-value is not trustworthy at face value. RECOMMEND: NHT
+  and HoQR confirm the OOS window is genuinely held-out from all six variants' development.
+power-note-for-nht: >
+  Order-of-magnitude: BORDERLINE-FEASIBLE, leaning underpowered for the smallest true effects. A single
+  cell's Sharpe estimate over n=4245 daily bars has SE(Sharpe_ann) ~ sqrt((1+0.5*S^2)/n)*sqrt(252) ~
+  sqrt(252/4245) ~ 0.244 (annualized) for S~0.3, so a true ann-Sharpe of 0.30 is only ~1.2 SE from zero
+  on a SINGLE test — already marginal at alpha=0.05 (single-test power ~30-40%). Under FWER control over
+  ~36 correlated cells the effective threshold rises (the max-stat null shifts right), cutting power
+  further: rough order-of-magnitude class-level power to detect a SINGLE true 0.30-Sharpe cell is ~20-35%.
+  K=2000 is NOT the binding constraint — it controls p-value resolution, not statistical power; power is
+  governed by n, the true Sharpe, and the family size. So: if real carry alpha is ~0.30 ann-Sharpe, R5
+  is more likely than not to FAIL TO REJECT even when alpha is real (a Type-II / WIND-DOWN-on-real-signal
+  risk). NHT should flag: a non-rejection is therefore WEAK evidence for wind-down, NOT proof of no alpha.
+  Power improves materially only if (a) the true effect is larger (~0.5+ ann-Sharpe -> power ~50-70%), or
+  (b) effects are concentrated and correlated so the max-stat is consistently driven by the same cell.
+  This is a real, structural limitation of ~16 years of daily data — not fixable by K. Recommend NHT
+  pre-commit that "R5 p>=0.05" is read as "no DISTINGUISHABLE class-level alpha at the achievable power",
+  with the power number stated, rather than "carry alpha is zero".
+harness-prereq: >
+  BLOCKING IMPLEMENTATION GAP (out of scope for this spec): the backtest harness does NOT emit the
+  per-bar benchmark-relative, net-of-cost performance series f_{k,t} aligned on a common daily index for
+  each cell — per CONSENSUS_2026-05-01 R5 is aspirational precisely because "the harness does NOT emit
+  permutation fields". The QD must implement: (1) emit per-cell f_{k,t} (post-entry-delay, post-cost,
+  benchmark=zero) as a |U| x n_bars matrix on a gap-aligned common index; (2) the stationary-bootstrap
+  resampler (geometric block lengths, mean L from Politis-White, JOINT same-block draw across cells);
+  (3) compute T_k, T_SPA=max_k T_k, and BOTH SPA (recentered/studentized) and White-RC p-values over
+  K=2000 draws; (4) assert no-lookahead per cell at emit time. ROUTE_TO: quant-developer for
+  implementation. This spec is math/methodology only — NO code produced here.
+evidence:
+  - "White (2000) 'A Reality Check for Data Snooping', Econometrica — max-statistic FWER over a strategy universe vs benchmark via stationary bootstrap: https://www.researchgate.net/publication/2551052_A_Reality_Check_For_Data_Snooping"
+  - "Hansen (2005) SPA test — studentized statistic + recentering of poor models, less conservative than RC, avoids least-favourable configuration; summarized in Hsu & Kuan, Step-SPA: https://homepage.ntu.edu.tw/~ckuan/pdf/Step-SPA-20090720.pdf"
+  - "Hsu, Kuan & Kuo 'Re-Examining Profitability of Technical Analysis with White's RC and Hansen's SPA': https://papers.ssrn.com/sol3/papers.cfm?abstract_id=685361"
+  - "Corradi & Swanson, 'The White Reality Check and Some of Its Recent Extensions': https://econweb.rutgers.edu/nswanson/papers/corradi_swanson_whitefest_1108_2011_09_06.pdf"
+  - "Politis & Romano (1994) stationary bootstrap; Politis & White (2004) automatic block-length selection (cited as the data-driven L rule)"
+  - "Empirical (this session): data/processed/USDJPY_daily.parquet — 4245 daily bars 2010-01-04..2026-04-17, px range 75.8..161.7 (real-market-consistent); sign-of-rate-diff carry strat-return ACF lag1=-0.003, |ACF|<0.017 to lag60, ~0.2 position-flips/yr, ann-Sharpe -0.158"
+  - "data/rates/rate_differentials.parquet — 6540 rows 2001-03-14..2026-04-07, columns include USDJPY_diff, EURJPY_diff, GBPJPY_diff, AUDJPY_diff, NZDJPY_diff, CADJPY_diff (carry signal source for all variants)"
+confidence: high
+body: |
+  DERIVATION AND REASONING (steps, no handwaving).
+
+  STEP 0 — What question is R5 actually asking now?
+  The 2026-06-01 consensus elevated R5 from a single-strategy falsification ("does this signal's
+  label ordering matter?") to a CLASS-level data-snooping control ("is the BEST result across the
+  entire carry program distinguishable from what you'd get by searching ~36 correlated cells?").
+  This reframing alone disqualifies the original feature-label-shuffle as the PRIMARY method: a
+  per-strategy permutation null, repeated 36 times and min'd, IS the data-snooping it was meant to
+  bound. The class question is exactly the White (2000) / Hansen (2005) problem statement: given L
+  strategies and a benchmark, is sup_k E[f_k] > 0 after correcting for the search over L?
+
+  STEP 1 — Why SPA over White RC (the core method choice).
+  White RC builds its null at the "least favourable configuration" (all E[f_k]=0). When the universe
+  contains many cells with E[f_k] << 0 (verified: most carry cells are near-zero/negative; the USDJPY
+  sign-carry I computed is ann-Sharpe -0.158), RC still puts them in the max-statistic null with mean
+  zero, which inflates the null distribution of max_k T_k and crushes power. Hansen's SPA fixes this two
+  ways: (a) STUDENTIZATION — divide each mean by its bootstrap std omega_hat_k, so cells are on a common
+  scale and a high-variance loser cannot dominate; (b) RECENTERING — cells whose sample mean is below a
+  threshold (~ -sqrt(2 omega_hat_k^2 log log n / n)) are recentered to their LFC value and effectively
+  removed from the null, so the null reflects only plausibly-good cells. Same FWER guarantee, strictly
+  more power in our regime. Because both are functions of the identical stationary-bootstrap draws, we
+  emit BOTH p-values for one cost: SPA primary, RC as a conservative bound. If RC and SPA disagree
+  (SPA rejects, RC does not), that is the expected, documented behaviour, not a contradiction — report
+  both and let the pre-registered decision rule (SPA primary) govern.
+
+  STEP 2 — The benchmark choice (zero) is load-bearing.
+  f_k = strategy_return - benchmark. If benchmark = buy-and-hold or a random-matched no-skill series,
+  the test asks "does carry beat that alternative?" — a relative-skill question. R5's job is existential
+  ("does carry have edge AT ALL, net of its costs?"), so benchmark = zero (flat). Critically, the swap /
+  cost-of-carry leg is ALREADY inside the strategy return via RealisticCostModel, so f already nets out
+  the cost of holding the carry position; an external cost-of-carry benchmark would double-subtract it.
+  Net-of-cost, post-entry-delay returns are mandatory — a gross or un-shifted series inflates every T_k.
+
+  STEP 3 — Resampling unit: JOINT vector, not per-cell.
+  The 6 variants are near-collinear (carry vs carry_fred vs vol_target_carry are scalings/conditionings
+  of the same rate-differential signal). If we resampled each cell independently we would (i) destroy the
+  cross-cell dependence and (ii) make the family correction act as if there were 36 independent tests,
+  when the effective number is far smaller. Resampling the SAME blocks across all cells in lockstep
+  preserves the true cross-correlation, so the max-statistic null automatically reflects the real
+  (small) effective dimensionality. This is also why no separate Bonferroni layer is needed.
+
+  STEP 4 — Block length: the counter-intuitive empirical result.
+  Naive intuition: "carry holds positions for months, so returns are highly autocorrelated, so use a
+  large block." I tested this. Positions ARE persistent (~0.2 sign-flips/year). But the STRATEGY RETURN
+  f_t = position_{t-1} * price_return_t is near-WHITE: ACF lag-1 = -0.003, |ACF| < 0.017 out to lag 60.
+  Reason: a (near-)constant position multiplied by near-white daily price increments yields near-white
+  products. The autocorrelation a temporal block bootstrap must preserve is therefore SMALL, and
+  Politis-White will return a short mean block L (likely 1-20 days). The dependence that actually matters
+  is cross-sectional (Step 3), not temporal. So: use the data-driven Politis-White L (max across cells),
+  guard L>=1, and do NOT inflate it from the false "long-holding" intuition. (This must be re-run on the
+  frozen pre-reg cells; my sign-carry proxy is illustrative, the real variants may differ modestly.)
+
+  STEP 5 — K and p-value resolution vs power (do not conflate).
+  Two different sqrt(.) errors are in play. (a) Monte-Carlo p-value SE = sqrt(p(1-p)/K) — controlled by
+  K. At p=0.05, K=200 -> SE 0.0154 (decision flips on bootstrap noise); K=2000 -> SE 0.0049 (safe). So
+  K=2000. (b) Statistical power — controlled by n, true Sharpe, family size — NOT by K. Raising K cannot
+  rescue an underpowered test. This separation is the key thing NHT must internalize: K=2000 makes the
+  p-value crisp; it does nothing for the ~20-35% class-level power against a true 0.30 ann-Sharpe.
+
+  STEP 6 — FWER vs FDR.
+  CONTINUE/WIND-DOWN is one binary firm decision; the relevant risk is P(any false CONTINUE) = FWER, and
+  SPA's max-stat controls it in strong form. FDR answers a different (portfolio-sizing) question and is
+  inappropriate for an existence pivot. Pooled single family of |U| cells = one p-value, one decision —
+  recommended. Per-pair families would need a second Bonferroni-over-6 correction; avoid by pooling.
+
+  STEP 7 — Honest scope of what R5 controls (snooping) and whether it can even reject (power).
+  R5 controls the search over the |U| cells in THIS run only; it cannot undo the org-wide prior looks at
+  these same six variants (sunk snooping). And at ~0.30 true Sharpe over 16y of daily data under a
+  36-cell FWER correction, power is ~20-35% — so a non-rejection is weak evidence, not proof, of no
+  alpha. Both facts go to NHT/HoQR verbatim. R5 p<0.05 on a frozen pre-reg is NECESSARY-not-sufficient
+  for CONTINUE (consistent with CRIT-19); R5 p>=0.05 is "no distinguishable class-level alpha at the
+  achievable power", with the power number stated.
+
+  DECISION: implement SPA (primary) + White RC (cross-check) on the joint, net-of-cost, benchmark=zero,
+  post-entry-delay per-cell return matrix; stationary bootstrap with Politis-White data-driven mean block
+  length (joint, max across cells, guard L>=1); K=2000; FWER via max-statistic; single pooled family of
+  ~36 cells. Math/methodology only — harness emit + resampler are QD's. ROUTE_TO: quant-developer for
+  the permutation-emit + bootstrap implementation.
+knowledge_gaps:
+  - "Exact per-variant return construction (sizing, vol-targeting, FRED conditioning) differs across the 6 files; my ACF/Sharpe numbers use a sign-of-rate-diff proxy. The Politis-White L and per-cell variance MUST be recomputed on the actual frozen variant returns in pre-reg — direction of conclusion (short L, joint resampling, K=2000) is robust to this, magnitudes may shift."
+  - "Whether the firm's OOS window is genuinely held-out from all six variants' development is unverified here (HoQR/NHT to confirm) — if not, R5 is in-sample contaminated and the p-value is not face-valid."
+  - "Provenance of data/processed/ vs processed_synthetic_phase0/ and of rate_differentials.parquet is a HoQR/QD blocking prerequisite (CRIT-1..3), assumed-real here based on range checks only."
+policy_violations_detected: []
+sources:
+  - "https://www.researchgate.net/publication/2551052_A_Reality_Check_For_Data_Snooping"
+  - "https://homepage.ntu.edu.tw/~ckuan/pdf/Step-SPA-20090720.pdf"
+  - "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=685361"
+  - "https://econweb.rutgers.edu/nswanson/papers/corradi_swanson_whitefest_1108_2011_09_06.pdf"
+  - "https://eprints.gla.ac.uk/253683/2/253683.pdf"
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 0
+no-capital-instruction: true

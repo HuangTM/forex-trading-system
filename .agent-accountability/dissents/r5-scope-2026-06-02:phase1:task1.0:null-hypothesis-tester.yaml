@@ -1,0 +1,65 @@
+role: null-hypothesis-tester
+session: r5-scope-2026-06-02
+subtask_ref: "r5-scope-2026-06-02:phase1:task1.0"
+artifact_type: dissent
+timestamp: "2026-06-03T04:36:12Z"
+decision: dissent
+severity: material_concern
+does_block: false   # non-blocking on the SCOPE deliverable, which adopts NHT's conditions; the data-integrity HARD BLOCKER is a gate on EXECUTION (encoded as STEP 1), not on this design wave
+
+linked_consensus: "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md"
+source_artifact: ".fintech-org/artifacts/2026-06-02T-r5-scope/nht-r5-power-integrity.yaml"
+
+# dissent-statement is VERBATIM from the source artifact's `dissent-statement` field
+# (nht-r5-power-integrity.yaml lines 94-122). Append-only per fintech-org rule 6 — never paraphrased.
+dissent-statement: |
+  NHT DISSENT — R5 as proposed is underpowered theater, not a test that can reject.
+
+  1. At the stated per-cell annualized Sharpe ~0.30 over ~4000 bars, a single pre-specified
+     cell already only reaches t ~ 1.2 — below the ordinary 1.96 threshold BEFORE any
+     multiplicity correction. Under FWER control across ~36 highly cross-correlated JPY-cross
+     carry cells (effective independent bets ~ 2-4), the expected outcome is FAILURE TO
+     REJECT whether or not a small real edge exists. A p >= 0.05 from this design is therefore
+     UNINFORMATIVE — it is not evidence of no-edge, and it must not be read as one.
+  2. K=200 cannot resolve a multiplicity-corrected 0.05 quantile: p is quantized at ~0.005
+     with Monte-Carlo SE ~0.015 at the boundary, a coin-flip straddling the threshold. Any
+     FWER-controlled decision needs K >= 2000 (target 5000-10000) with reported MC-SE.
+  3. R5 controls ONLY the looks it pre-registers. These are the firm's longest-studied
+     strategies with a large prior trial history; that spent selection is NOT retroactively
+     controlled by a prospective Reality-Check. A re-test on the same 2010-2026 data inherits
+     the snooping and yields an optimistically biased p. The only clean p comes from
+     post-pre-registration forward/hold-out bars or an explicit deflated-Sharpe haircut.
+  4. HARD BLOCKER: I confirmed a corrupted USDJPY series (close 5.03-7.75) sits in
+     data/processed_synthetic_phase0/ alongside the real one (75.82-161.71). It is unknown
+     which fed prior carry results. No R5 may be sized until the runtime data path is
+     instrumented, prior carry numbers are re-derived on the REAL series, and the corrupted
+     file is quarantined/range-asserted.
+
+  RECOMMENDATION: Do NOT build R5 as a validation vehicle. Resolve data integrity first.
+  Then, if built, scope R5 explicitly as an HONEST KILL TEST (block-bootstrap matched-carry
+  null, crypto pre-reg of the full grid + wind-down action map, Romano-Wolf StepM, K>=2000
+  with MC-SE, evaluated on hold-out/forward bars). Its most probable honest outcome is a
+  non-rejection — which is itself the signal to weigh WIND-DOWN. A non-significant R5 cannot
+  license CONTINUE; a significant R5 on snooped in-sample data cannot either.
+
+resolution_in_session: |
+  CONCORDANT-WITH-CONDITIONS — the scope ADOPTS every NHT condition rather than overriding it:
+  - Kill-test framing (not validation vehicle): adopted — scope states R5 is a KILL TEST, not a
+    rescue; pre-reg must map underpowered non-rejection -> WIND-DOWN.
+  - Data-integrity HARD BLOCKER first: adopted as STEP 1 (instrument loader, re-derive prior
+    carry on REAL series, quarantine/range-assert the corrupted synthetic set) — gate on R5
+    EXECUTION before any spec is sized.
+  - K>=2000 with reported MC-SE: adopted (Mathematician raised K to 2000; raises, not lowers,
+    the floor — no NHT sign-off-to-reduce triggered).
+  - Romano-Wolf StepM / White-RC / Hansen-SPA max-statistic over the JOINT null: adopted
+    (Mathematician selected SPA primary + White-RC cross-check on joint stationary-block draws).
+  - Crypto pre-registration of the full grid + wind-down action map: adopted as STEP 3 (the
+    NEXT deliverable; pre-reg frozen before any run).
+  - Hold-out / deflated-Sharpe haircut for prior snooping: adopted — p<0.05 is recorded as
+    NECESSARY-NOT-SUFFICIENT for CONTINUE; pre-reg must confirm a genuine hold-out or apply a
+    deflation haircut.
+  - 0.30-Sharpe annualized-vs-per-bar ambiguity: resolved (both NHT and Mathematician read it
+    as ANNUALIZED — the only economically plausible reading for a carry cell).
+  does_block resolves to FALSE on the SCOPE because the design honors the dissent in full. The
+  underpowered-kill-test reality and the build-vs-wind-down fork it implies are surfaced to the
+  CEO as a first-class decision (not auto-ratified). Dissent preserved append-only per rule 6.

@@ -1,0 +1,183 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-06-02T00:00:00Z"
+subtask_ref: r5-scope
+subtask_id: r5-scope-2026-06-02-hoqr
+
+carry-universe:
+  variants-included:
+    - carry.py                            # static differential -> signal (single-pair)
+    - carry_fred.py                       # cross-sectional rank on FRED rate diffs (canonical carry)
+    - fred_carry_stripped.py              # carry_fred minus filters (ablation of same idea)
+    - vol_target_carry.py                 # carry_fred return stream, vol-scaled
+    - vol_target_carry_no_vol_scaling.py  # vol_target_carry with scaling removed (ablation)
+    - carry_momentum.py                   # carry + momentum overlay (composite of carry idea)
+  pairs-included: [USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY]
+  multiplicity-count: 6
+  exclusions-with-reason:
+    - "NO variant excluded — class-level FWER control is invalid if any sibling is silently dropped. All 6 files enter the family."
+    - "USDJPY pair is INCLUDED for R5 because the canonical input (data/processed/USDJPY_daily.parquet) is real (75.8-161.7). It is excluded ONLY if R5 were ever pointed at processed_synthetic_phase0/ — which is prohibited (see provenance)."
+    - "Non-JPY pairs in rate_differentials.parquet (EURUSD, GBPUSD, AUDUSD, NZDUSD, USDCAD, EURGBP) are OUT of scope: the carry program is defined over the 6 JPY crosses per CLAUDE.md and the PM instrument-universe. Including them would inflate the family with pairs the program never claimed."
+  multiplicity-note: >
+    These are NOT 6 independent hypotheses. They are 6 re-parameterizations / ablations of ONE
+    carry idea (signal proportional to rate differential), sharing the same rate_differentials
+    feed and overlapping price returns. They are HIGHLY correlated. The correct multiplicity unit
+    for the family is 6 strategy variants, but the EFFECTIVE number of independent tests is far
+    lower (likely 1-2). This is exactly why a CLASS-level joint test (WRC/SPA over the max statistic
+    across all 6) is the right instrument and a naive Bonferroni over 6 would be both wrong and
+    anti-conservative in the wrong direction. The family is "best-of-6-correlated", not "6-of-6-independent".
+
+data-provenance:
+  is_processed_real: >
+    yes — verified by reading the parquets, not by filename. data/processed/ holds realistic ranges
+    over 2010-2026 (n~4240/pair): USDJPY 75.82-161.71, EURUSD 0.959-1.483, EURJPY 94.29-186.24,
+    GBPJPY 116.97-215.60, AUDJPY 62.40-113.69, CADJPY 72.65-118.74, NZDJPY 56.63-98.82. These match
+    real FX history. storage.load_ohlcv reads from data_dir/'processed'/ (storage.py path line),
+    so the harness consumes the REAL set by default.
+  canonical_dataset_for_r5: "data/processed/ (price) + data/rates/rate_differentials.parquet (carry signal)"
+  rate_signal_provenance: >
+    REAL but MONTHLY. rate_differentials.parquet is 2001-2026 (n=6540 daily, forward-filled) with
+    sensible policy-rate diffs (USDJPY_diff mean 1.54%, NZDJPY_diff mean 3.51%, EURGBP_diff -0.33%).
+    Sourced from data/rates/raw/{USD,EUR,GBP,JPY}.csv which are MONTHLY central-bank policy rates
+    (e.g. JPY pinned 0.5% in 2000). Implication for R5: the carry SIGNAL changes only monthly; daily
+    carry "alpha" is mostly the price-return leg, and effective independent observations are closer
+    to monthly count (~300) than daily (~4200). This must be reflected in block length and power.
+  synthetic_phase0_disposition: >
+    quarantine (not purge, this wave). Move data/processed_synthetic_phase0/ out of the loader's
+    reach (or rely on it never being on the storage.py path) and tag it read-only/DO-NOT-USE. Do not
+    delete yet: it has historical value as the artifact that contaminated phase-0 work and may be
+    needed to forensically reconstruct which past "results" used it. Purge only after the contamination
+    audit (below) is closed.
+  corrupted_usdjpy_implication: >
+    The corruption is BROADER than reported: in processed_synthetic_phase0/ THREE pairs are corrupt,
+    not one — USDJPY (close 5.03-7.75), GBPJPY (1.54-2.28), CADJPY (max 203.64). EURUSD/EURJPY/AUDJPY/
+    NZDJPY there are identical to the real set. So 'the USDJPY synthetic bug' undersells it: half the
+    JPY-cross universe was corrupt in the synthetic set. Contamination of prior carry results is
+    PLAUSIBLE-BUT-UNCONFIRMED: the live loader (storage.py) reads from processed/ (real), so harness-run
+    results are most likely clean — BUT any phase-0 script that hardcoded processed_synthetic_phase0/
+    would have produced garbage USDJPY/GBPJPY/CADJPY carry returns. Until the contamination audit
+    (grep for the synthetic path) is run, NO prior carry Sharpe should be trusted as a CONTINUE input.
+    This is a flagged unresolved check, not a closed finding.
+  unresolved_provenance_checks:
+    - "Run a data-source manifest / fetch-script check: confirm processed/ was generated from a real vendor/FRED fetch, not a synthetic generator. data/raw is EMPTY, so the fetch script + its provenance log must be located to prove processed/ origin definitively."
+    - "Contamination audit: grep all of scripts/, src/, and committed result parquets for 'processed_synthetic_phase0' or hardcoded synthetic paths. Enumerate exactly which historical carry 'results' (data/results/) were computed on the corrupted USDJPY/GBPJPY/CADJPY. Until done, prior carry Sharpes are provisional."
+    - "Verify rate_differentials forward-fill alignment vs price index (monthly->daily) introduces no lookahead at month boundaries."
+
+sequencing:
+  - "STEP 1 | Data-provenance confirmation: read-verify processed/ (DONE here), locate fetch/manifest to prove origin, quarantine processed_synthetic_phase0/, run contamination audit on prior results | owner: QD/data | depends-on: none | blocking?: YES"
+  - "STEP 2 | Harness emits full-history per-pair return arrays into the metrics dict (reality_check.py header: 'these arrays are not currently surfaced by the harness metrics dict'). The R5 test math (R5a/R5b/R5c in reality_check.py) ALREADY EXISTS; the gap is the data plumbing that feeds it real per-variant per-pair return series | owner: QD/harness | depends-on: none (parallel to STEP 1) | blocking?: YES"
+  - "STEP 3 | R5 pre-registration drafted, filed, FROZEN: null hypothesis, statistic, 6-variant x 6-pair universe, OOS window, block length, K/B, alpha, go/no-go threshold | owner: HoQR (author) + Mathematician + NHT | depends-on: STEP 1 + STEP 2 design decisions | blocking?: YES (NEXT deliverable; not this wave)"
+  - "STEP 4 | Execute R5 on confirmed-real carry data, one-shot, against frozen pre-reg | owner: QD + NHT (witness) | depends-on: STEP 3 | blocking?: terminal"
+bottleneck: >
+  STEP 2 (harness return-array emission) — and within it, the monthly-signal effective-sample
+  problem. The Reality-Check math is already written; what is missing is clean, provenance-confirmed
+  per-variant return arrays surfaced from the harness. STEP 1 and STEP 2 parallelize, but STEP 2 is
+  the long pole because it touches the metrics pipeline AND must respect the monthly carry-signal
+  cadence (block length / independent-N). Provenance (STEP 1) is fast given processed/ is already
+  range-verified; its only open item is the manifest + contamination grep.
+
+go-no-go: >
+  p<0.05 means: across the family of 6 correlated carry variants on the 6 JPY crosses, the BEST
+  observed OOS Sharpe is distinguishable from the WRC/SPA null distribution (no predictive content,
+  autocorrelation/window/best-of-N preserved). This is NECESSARY-BUT-NOT-SUFFICIENT for CONTINUE: it
+  only counts if the hypothesis was PRE-REGISTERED and frozen before the run; post-hoc variant/pair
+  selection invalidates the p-value at any magnitude. p>=0.05 means the carry program is
+  indistinguishable from chance at the class level -> WIND-DOWN, combined with Bet#1 re-adjudication;
+  if both fail, zero validated alpha is structural. THE PRE-REG HYPOTHESIS SHOULD ASSERT a single
+  joint claim: 'max OOS annualized Sharpe over {6 variants x 6 pairs}, computed on data/processed/ +
+  real rate_differentials, exceeds the WRC/SPA null at alpha=0.05.' A single isolated p<0.05 CELL does
+  NOT rescue the program — that is precisely the multiple-comparisons artifact R5 exists to catch. I
+  require the CLASS-level joint statistic to clear, not any individual variant/pair. If only a subset
+  survives, that is AMBIGUOUS and triggers a NEW pre-reg for confirmatory-only testing of the
+  survivor(s) — never a CONTINUE on the original family.
+
+honest-prior: >
+  Low expectation that R5 clears at the class level. Carry on the 6 JPY crosses 2010-2026 is the
+  most-studied, most-overfit idea in the firm; the rate signal is only MONTHLY so daily 'alpha' is
+  dominated by the price-return leg and effective-N is ~monthly (~180 OOS months at most, fewer per
+  the 36-month holdout -> ~36 monthly obs). With a true Sharpe near the academic ~0.3-0.5 carry
+  number and ~36 effective OOS observations, power to reject at the class level is marginal — this
+  risks being a THEATRICAL test (NHT's concern is real: it may fail to reject even genuine signal).
+  Despite the low prior, the build IS worth it BEFORE wind-down for two reasons: (1) the marginal cost
+  is small — the test math already exists; only STEP 1 provenance + STEP 2 plumbing remain — so the
+  ratio of decision-value to cost is high; (2) wind-down is a terminal, expensive firm decision and
+  must rest on a frozen, pre-registered class-level test on confirmed-real data, not on a prior. Run
+  R5 as the formal CONTINUE/WIND-DOWN pivot, but pre-commit (NHT) that an underpowered result reads
+  as WIND-DOWN, not as 'inconclusive, keep spending.'
+
+ranked-alternatives:
+  - "If R5 power is judged inadequate (NHT power analysis fails 80% @ Sharpe 0.3): do NOT build STEP 2 to run a theatrical test — go straight to formal WIND-DOWN of the carry program and redirect capacity to the contamination audit + a clean Bet#1 DSR re-adjudication."
+  - "Capacity priority 1: STEP 1 contamination audit (grep processed_synthetic_phase0 across scripts/results) — cheap, and it retroactively validates or voids every prior carry claim regardless of R5."
+  - "Capacity priority 2: monthly-frequency re-statement of carry returns (align test to the true monthly signal cadence) before any permutation, so R5 is not run at a fake daily resolution."
+  - "Do NOT open new trials (N frozen at 35) and do NOT design new carry variants — the question is whether the EXISTING family is real, not whether a 7th variant can be conjured."
+
+evidence:
+  - "Read processed/ parquets: USDJPY 75.82-161.71 n=4245 2010-2026; all 6 JPY crosses realistic — REAL."
+  - "Read processed_synthetic_phase0/: USDJPY 5.03-7.75, GBPJPY 1.54-2.28, CADJPY max 203.64 — 3 pairs corrupt (broader than the reported 1)."
+  - "rate_differentials.parquet: 2001-2026 n=6540, USDJPY_diff mean 1.54%, NZDJPY_diff 3.51% — real; raw/{USD,EUR,GBP,JPY}.csv are MONTHLY policy rates."
+  - "storage.py loads data_dir/'processed'/{PAIR}_{tf}.parquet — harness default is the REAL set."
+  - "src/forex_system/harness/reality_check.py (762 LoC) implements R5a circular-block bootstrap, R5b window placement, R5c Hansen SPA, B=10000, alpha=0.05; header states full-history per-pair return arrays 'are not currently surfaced by the harness metrics dict' — STEP-2 gap is data plumbing, not test math."
+  - "src/forex_system/strategies/: carry.py, carry_fred.py, fred_carry_stripped.py, vol_target_carry.py, vol_target_carry_no_vol_scaling.py, carry_momentum.py (6 files)."
+  - "config/carry_fred.yaml: OOS holdout 2023-04-25..2026-04-25 (~36 months)."
+  - "pm-acceptance-criteria.yaml CRIT-4/5/6/14/15/17/19."
+
+assumptions:
+  - "The 6 strategy files are the exhaustive carry family; no carry variant lives outside src/forex_system/strategies/ (grep should confirm in STEP 1)."
+  - "rate_differentials.parquet is the single signal source for all 6 variants (carry_fred maps PAIR->PAIR_diff; assume siblings inherit)."
+  - "OOS window is the carry_fred-documented 36 months unless the frozen pre-reg states otherwise."
+  - "Effective-N is governed by the monthly signal cadence, not the daily price bar count — to be confirmed by the Mathematician for block-length."
+  - "processed_synthetic_phase0 is NOT on any live loader path; contamination, if any, is confined to historical phase-0 scripts (to be confirmed by audit)."
+
+confidence: medium
+body: |
+  CARRY UNIVERSE. The class-level test must control over all 6 carry files x 6 JPY crosses. I include
+  every variant: dropping a sibling from a family-wise test is exactly the silent-exclusion failure
+  FWER control exists to prevent. But the honest framing is that these 6 are re-parameterizations and
+  ablations of ONE carry idea (signal ~ rate differential), not 6 independent bets: fred_carry_stripped
+  is carry_fred minus filters; vol_target_carry_no_vol_scaling is vol_target_carry minus scaling;
+  carry_momentum is carry plus an overlay. They share the rate feed and overlap in price returns, so
+  they are strongly positively correlated. The multiplicity UNIT is 6, but the EFFECTIVE number of
+  independent tests is ~1-2. This is the precise reason a joint WRC/SPA over the max statistic is the
+  right instrument: it accounts for the correlation a Bonferroni-over-6 would mishandle.
+
+  PROVENANCE — RESOLVED. data/processed/ is real (range-verified by reading the files, not the names).
+  rate_differentials is real but monthly. The synthetic_phase0 set is corrupt in 3 pairs (USDJPY,
+  GBPJPY, CADJPY) — broader than the 'USDJPY bug' label. Disposition: QUARANTINE synthetic_phase0,
+  purge only after the contamination audit. The canonical R5 dataset is processed/ + rate_differentials.
+  TWO checks remain genuinely open and I flag them rather than paper over: (1) a fetch manifest to
+  PROVE processed/ origin (data/raw is empty), and (2) a grep-based contamination audit to enumerate
+  which prior carry results touched the corrupt synthetic pairs. Until (2) is closed, no historical
+  carry Sharpe is a trustworthy CONTINUE input.
+
+  SEQUENCING + BOTTLENECK. The surprise on inspection: the R5 test math already exists in
+  reality_check.py. The blocking work is not 'implement permutation' but 'surface clean per-variant
+  per-pair full-history return arrays from the harness' (STEP 2), respecting the monthly carry cadence.
+  STEP 1 (provenance) and STEP 2 (plumbing) parallelize; STEP 3 (pre-reg, the NEXT deliverable) is
+  blocked on both; STEP 4 (run) is blocked on a frozen pre-reg. STEP 2 is the long pole.
+
+  GO/NO-GO. p<0.05 at the CLASS level, on a pre-registered frozen hypothesis, against confirmed-real
+  data, is necessary-but-not-sufficient for CONTINUE. A single surviving cell does not rescue the
+  program — that is the artifact R5 is built to catch. p>=0.05 -> WIND-DOWN combined with Bet#1.
+
+  PRIOR. Low. Most-overfit idea, monthly signal, ~36 OOS months -> marginal power and a real
+  theatrical-test risk. But the residual build cost is small (math done) and a wind-down this expensive
+  must rest on a frozen class-level test, not a hunch. Build the remaining plumbing, run it once, and
+  pre-commit that an underpowered null reads as WIND-DOWN — not as a license to keep spending.
+
+knowledge_gaps:
+  - "Fetch/manifest proving data/processed/ origin not yet located (data/raw empty)."
+  - "Contamination audit (which prior results used corrupt synthetic pairs) not yet run."
+  - "Effective OOS sample size under monthly signal cadence not yet quantified (Mathematician/NHT)."
+policy_violations_detected: []
+sources:
+  - "pm-acceptance-criteria.yaml (2026-06-02T-r5-scope)"
+  - "src/forex_system/harness/reality_check.py"
+  - "src/forex_system/data/storage.py"
+  - "src/forex_system/strategies/carry*.py, fred_carry_stripped.py, vol_target_carry*.py"
+  - "data/processed/*, data/processed_synthetic_phase0/*, data/rates/rate_differentials.parquet, data/rates/raw/*.csv"
+  - "config/carry_fred.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

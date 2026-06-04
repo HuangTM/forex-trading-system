@@ -1,0 +1,257 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-02T00:00:00Z"
+subtask_ref: r5-scope
+subtask_id: r5-scope-2026-06-02-wave1
+task-statement: >
+  Scope the R5 White Reality Check test on real carry data to frame the
+  carry program's CONTINUE/WIND-DOWN decision.
+deliverable-type: spec-completion
+deadline: "2026-06-04T23:59:00Z"
+instrument-universe: [USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY]
+
+hard-constraints:
+  - "design_only: true"
+  - "no_backtest_run_this_wave: true"
+  - "no_new_trial: true — org trial count frozen at 35; any increment = constraint violation"
+  - "no_capital: true"
+  - "real_data_provenance_must_be_resolved: true — data/processed/ vs data/processed_synthetic_phase0/ ambiguity is a blocking prerequisite; R5 must not be scoped against unverified inputs"
+  - "pre_registration_not_produced_this_wave: true — pre-reg is named as the NEXT deliverable, not part of this scope"
+  - "no_r5_implementation_this_wave: true — QD harness changes (permutation-emit) are named in prerequisites, not produced here"
+  - "no_r5_execution_this_wave: true — R5 has never been run; design precedes run"
+  - "carry_universe_must_be_exhaustive: true — class-level FWER control loses validity if variants are silently excluded"
+  - "nht_dissent_append_only_preserved: true — any NHT dissent produced by WAVE-2 roles is preserved verbatim and uneditable"
+
+criteria:
+  # DATA PROVENANCE (blocking prerequisite for all downstream scope decisions)
+  - "CRIT-1: Hard answer to 'Is data/processed/ real market data?' — not a belief, a provenance check with evidence:
+      price-range verification (EURUSD 0.96–1.48, USDJPY 76–162 over 2010–2026 are consistent with real markets;
+      processed_synthetic_phase0/USDJPY close 5.03–7.75 is confirmed corrupted/synthetic).
+      Verifying tool: read a sample of each parquet and confirm range; do NOT rely on file name alone."
+  - "CRIT-2: Clear disposition on data/processed_synthetic_phase0/: purge-or-quarantine decision made and rationale recorded.
+      R5 must run exclusively on data/processed/ (real) OR on a data set whose provenance is affirmatively confirmed.
+      Corrupted USDJPY from the synthetic set must be excluded from any R5 input."
+  - "CRIT-3: Rate differentials provenance confirmed: data/rates/rate_differentials.parquet (2001–2026) is verified
+      as a real feed (FRED or equivalent), not synthetic. Carry strategies consume this directly."
+
+  # CARRY-PROGRAM UNIVERSE (class-level test must be exhaustive and explicit)
+  - "CRIT-4: Explicit enumeration of every carry variant INCLUDED in the class-level R5 test.
+      Minimum list (verified from src/forex_system/strategies/): carry.py, carry_fred.py, carry_momentum.py,
+      vol_target_carry.py, vol_target_carry_no_vol_scaling.py, fred_carry_stripped.py (6 files confirmed present).
+      Any variant not included must have a written exclusion rationale (e.g., already-retired, OOS window incompatible)."
+  - "CRIT-5: For each variant in the universe, the pairs tested under R5 are listed: the 6 JPY-cross pairs
+      (AUDJPY, CADJPY, EURJPY, GBPJPY, NZDJPY, USDJPY) constitute the primary universe.
+      Any pair-level exclusion (e.g., for USDJPY if data remains contaminated after CRIT-2 purge) is documented."
+  - "CRIT-6: The USDJPY data-quality outlier bug (processed_synthetic_phase0/USDJPY absurd close range 5.03–7.75)
+      is explicitly listed as a prerequisite gate: R5 MUST NOT run against USDJPY inputs until the bug is
+      resolved and provenance confirmed. If USDJPY real-data is confirmed in data/processed/, that confirmation
+      is the gate. The scope document names the responsible role (QD/data) and expected resolution path."
+
+  # R5 TEST-DESIGN DECISION SPACE (Mathematician role)
+  - "CRIT-7: Decision made between Block Permutation Test, White's Reality Check (WRC), and Hansen's Superior
+      Predictive Ability (SPA) — or a justified hybrid. Each alternative is steelmanned (strongest case FOR it)
+      before selection. The selection records: (a) what property of the carry data makes one method superior
+      (autocorrelation structure, sample size, benchmark selection), (b) whether WRC or SPA is preferred for
+      FWER vs FDR control at the CLASS level."
+  - "CRIT-8: Test statistic specified: which Sharpe (OOS, annualized, which return series — daily, monthly?)
+      is the observed statistic; whether a t-stat or Sharpe is preferable given fat-tailed forex returns."
+  - "CRIT-9: Permutation/resampling unit specified: what IS being shuffled or resampled?
+      Three candidates with tradeoffs named: (a) feature-label shuffle (NHT R5 original spec — shuffles
+      carry signal labels; tests whether ordering matters), (b) stationary block bootstrap of returns
+      (preserves autocorrelation structure; White's original method), (c) walk-forward block bootstrap.
+      Selection rationale must cite autocorrelation structure of carry returns."
+  - "CRIT-10: Block length specification: how is block length for the stationary block bootstrap chosen?
+      Either (a) fixed (cite precedent and rule of thumb for daily forex) or (b) data-driven (e.g.,
+      Politis-Romano automatic bandwidth selection). The choice must be explicitly justified against
+      the autocorrelation horizon of carry returns."
+  - "CRIT-11: K (permutation count) confirmed or revised from the R5 original K=200.
+      If K=200, rationale: minimum K for p<0.05 at 5% resolution is K=20; K=200 gives 0.5% resolution;
+      adequate for 0.05 alpha. If a different K is chosen, runtime estimate provided."
+  - "CRIT-12: Null hypothesis stated precisely: e.g., 'No carry variant in the defined universe produces
+      an OOS Sharpe distinguishable from the distribution of OOS Sharpes obtained under the null of
+      no predictive content (i.e., permuted/resampled returns).' The null must be pre-registerable —
+      specific enough that a reader can determine whether it was rejected without judgment calls."
+  - "CRIT-13: Family-wise error rate (FWER) vs False Discovery Rate (FDR) control decision:
+      WRC/SPA control FWER; Benjamini-Hochberg controls FDR. The choice is made explicit with
+      rationale tied to the firm's decision context (CONTINUE/WIND-DOWN is a binary firm-level
+      decision, which favors FWER; FDR may be appropriate if the question is 'how many variants
+      survive'). Both positions steelmanned."
+
+  # PREREQUISITES AND SEQUENCING (HoQR role)
+  - "CRIT-14: Prerequisites enumerated with owning role and blocking/advisory classification:
+      (a) [BLOCKING] Data provenance confirmed and corrupted USDJPY purged/quarantined (QD/data — required
+          before any R5 input can be trusted).
+      (b) [BLOCKING] QD implements permutation-emit in the harness: the harness 'does NOT emit permutation
+          fields' per CONSENSUS_2026-05-01_phase2_falsification.md:R5-status-aspirational; R5 cannot run
+          without this implementation.
+      (c) [BLOCKING] R5 pre-registration drafted, filed, and frozen before R5 runs — scope produces the
+          pre-reg TEMPLATE (as the named NEXT deliverable); pre-reg is not part of this scope wave.
+      (d) [ADVISORY] USDJPY data-quality outlier bug fixed upstream (QD/data — advisory if USDJPY is
+          excluded from R5; blocking if USDJPY is included).
+      (e) [ADVISORY] Bet#1 (87fa1d23) equity parquet regeneration + DSR re-adjudication (parallel track;
+          does not block R5 scoping but may affect the go/no-go interpretation if Bet#1 is included
+          in the carry program universe)."
+  - "CRIT-15: Sequencing diagram (or ordered list) naming the four-step critical path:
+      STEP-1: data-provenance-confirmation + USDJPY purge/quarantine decision
+      STEP-2: QD permutation-emit harness implementation
+      STEP-3: pre-registration draft produced (NEXT deliverable after this scope)
+      STEP-4: R5 executed against confirmed-real carry data
+      Steps 1 and 2 are parallelizable. Step 3 is blocked on Steps 1+2 design decisions.
+      Step 4 is blocked on Step 3 (pre-reg must be filed and frozen before any run)."
+  - "CRIT-16: The scope document names the NEXT deliverable explicitly: a pre-registration document
+      specifying the exact null hypothesis, test statistic, carry variant universe, pair universe,
+      OOS window, block-length choice, K, alpha level, and go/no-go decision threshold.
+      The pre-reg must be filed and frozen before a single permutation is run."
+
+  # GO/NO-GO INTERPRETATION (HoQR, NHT roles)
+  - "CRIT-17: The CONTINUE/WIND-DOWN decision framework is stated verbatim and tied to R5 output:
+      CONTINUE (R5-path): R5 p < 0.05 on the pre-registered hypothesis surfaces at least one
+        carry variant as distinguishable from chance; firm has a defensible class-level candidate;
+        unfreeze N for confirmatory (not exploratory) trials only.
+      WIND-DOWN (R5-path): R5 p >= 0.05 across all carry variants in the universe; carry
+        program is indistinguishable from chance at the class level; combine with Bet#1
+        re-adjudication result; if both fail, zero validated alpha is structural.
+      AMBIGUOUS: R5 p < 0.05 for a subset of variants — the scope document pre-commits to
+        how partial results are handled (e.g., proceed with surviving variants only; new
+        pre-reg required for any follow-on)."
+  - "CRIT-18: NHT power analysis framing: the scope specifies whether K=200 and the
+      available OOS bar count (n_oos_bars for each carry variant) are sufficient to
+      reject H0 at 80% power if a true Sharpe of 0.30 (R1 threshold) exists.
+      If power is judged inadequate, the scope says so explicitly — a theatrical test
+      that cannot reject even real signal must be flagged, not silently run."
+  - "CRIT-19: The scope explicitly states that R5 at p<0.05 is a NECESSARY but not sufficient
+      condition for CONTINUE. The full CONTINUE trigger (per CONSENSUS_2026-06-01) requires
+      R5 p<0.05 on a PRE-REGISTERED hypothesis — post-hoc hypothesis selection invalidates
+      the p-value regardless of its magnitude."
+
+  # OUTPUT FORMAT AND COMPLETENESS
+  - "CRIT-20: The scope package is a SINGLE named document (or a small set of named YAML/MD files)
+      with clear section headers matching the five areas above: data-provenance, carry-universe,
+      test-design, prerequisites-and-sequencing, go/no-go-interpretation.
+      It must be self-contained: a reader who has not attended this session can understand
+      what R5 is, why it is being run, what the inputs are, and what CONTINUE/WIND-DOWN means."
+  - "CRIT-21: All role-produced artifacts (Mathematician test-design spec, HoQR universe/provenance/
+      sequencing, NHT power/non-theatrical design skepticism) are referenced or included.
+      No role's output is silently excluded from the scope package."
+
+out-of-scope:
+  - "Running R5 (no permutations are executed this wave)"
+  - "Implementing the permutation-emit harness code (QD deliverable; named prerequisite STEP-2)"
+  - "Writing the R5 pre-registration document (named as the NEXT deliverable after this scope wave)"
+  - "Regenerating Bet#1 equity parquet or re-adjudicating DSR (parallel track; not part of R5 scope)"
+  - "Fixing the USDJPY data-quality outlier bug in code (prerequisite for R5 execution, not R5 scoping)"
+  - "New-alpha production or any new trial (N frozen at 35)"
+  - "The observe-only momentum-EURUSD canary (separate operational track)"
+  - "Designing a new carry strategy or variant"
+  - "Any sizing, capital allocation, or paper-trading decision (no capital; observe-only canary is a separate track)"
+
+roles-staffed:
+  - "mathematician: R5 test-design spec — Reality-Check vs SPA decision, statistic selection, block-length, K, FWER/FDR control rationale; produces CRIT-7 through CRIT-13"
+  - "head-of-quant-research: carry-program universe (CRIT-4, CRIT-5) + data-provenance framing (CRIT-1, CRIT-2, CRIT-3, CRIT-6) + prerequisites/sequencing (CRIT-14, CRIT-15, CRIT-16) + go/no-go interpretation (CRIT-17, CRIT-19)"
+  - "null-hypothesis-tester: test power / non-theatrical design / data-integrity skepticism (CRIT-18); dissent if the proposed test design cannot reject even real signal at plausible carry Sharpe; dissent append-only verbatim"
+  - "pm: coordinator + consensus author; owns CRIT-20, CRIT-21; does NOT make test-design or data-provenance decisions"
+
+evidence:
+  - "R5 original specification: CONSENSUS_2026-05-01_phase2_falsification.md line ~81: 'status: aspirational; ASPIRATIONAL — harness does NOT emit permutation fields; QD must implement before R5 becomes a hard gate'"
+  - "CONSENSUS_2026-06-01 (paper_launch_acceleration) HoQR prioritization artifact: R5 ranked #2 'RUN R5 permutation/White Reality-Check on REAL carry data. SECOND: directly attacks the firm core open question — is carry alpha real or a multiple-comparisons artifact? Never run on real data. Bounds false-discovery risk across the whole carry program at once'"
+  - "Carry strategy files confirmed present (ls output): src/forex_system/strategies/carry.py, carry_fred.py, carry_momentum.py, vol_target_carry.py, vol_target_carry_no_vol_scaling.py, fred_carry_stripped.py (6 files)"
+  - "data/processed/ confirmed present with all 6 JPY-cross pairs as daily parquets (ls output): AUDJPY_daily.parquet, CADJPY_daily.parquet, EURJPY_daily.parquet, GBPJPY_daily.parquet, NZDJPY_daily.parquet, USDJPY_daily.parquet"
+  - "data/processed_synthetic_phase0/ also confirmed present with same file names (ls output) — the 'USDJPY data-quality bug' (absurd close 5.03–7.75) is in this parallel directory; provenance ambiguity between the two directories is a real unresolved issue"
+  - "data/rates/rate_differentials.parquet confirmed present (ls output)"
+  - "CONSENSUS_2026-06-01 HoQR retirement criteria: 'WIND-DOWN if R5 on real carry returns p>=0.05 ... CONTINUE if R5 on real carry returns p<0.05 with a pre-registered hypothesis'"
+  - "Trial count N=35 (wc -l .fintech-org/trials.jsonl) is the authoritative source; orchestrator-verified per PM task briefing"
+
+assumptions:
+  - "The CONTINUE/WIND-DOWN framework (HoQR retirement criteria from CONSENSUS_2026-06-01) is ratified firm policy for this wave — PM does not re-open it"
+  - "data/processed/ parquet files are the primary working data set; data/processed_synthetic_phase0/ is a parallel legacy set whose provenance is suspect. This assumption must be verified in CRIT-1; if wrong, R5 input selection changes materially"
+  - "The six carry strategy files listed are an exhaustive enumeration — verified by ls of src/forex_system/strategies/; no additional carry variants exist outside this directory (unverified; roles should confirm)"
+  - "K=200 is the currently specified permutation count per CONSENSUS_2026-05-01 R5 spec; this wave's roles may revise upward with rationale but may not reduce below K=200 without NHT sign-off"
+  - "The Mathematician role has access to the carry return series (daily OOS) needed to characterize autocorrelation structure for block-length selection — if not, CRIT-10 produces a conditional recommendation"
+  - "The rate differential data (data/rates/rate_differentials.parquet, 2001–2026) is the carry signal source for all six variants; roles must confirm this assumption and flag any variant that uses a different signal source"
+  - "Pre-registration for R5 is a NEXT deliverable, not in scope for this wave — PM will not accept a partial pre-reg as scope closure"
+
+confidence: high
+
+body: |
+  This acceptance criteria frames the WAVE-1 (PM-only) scoping deliverable for R5 on real carry
+  data. The task is design and framing only. No permutations are run. No harness code is written.
+  No pre-registration is filed. Those are named downstream deliverables.
+
+  WHY THIS SCOPE, WHY NOW:
+
+  R5 is pivotal. The 2026-06-01 consensus determined that the firm has zero validated OOS
+  survivors: Bet#1 was retired as falsified (corrected DSR 0.1296, per memory). The kill-criterion
+  is tripped on both conjuncts. The CONTINUE/WIND-DOWN framework (CONSENSUS_2026-06-01,
+  HoQR retirement criteria) is explicit: the firm CONTINUEs research ONLY IF (a) Bet#1 regenerated
+  equity survives corrected DSR/effective-N gate, OR (b) R5 on real carry data returns p<0.05 on
+  a pre-registered hypothesis. Without one of these, zero validated alpha is structural, not pending,
+  and the recommendation is formal wind-down. R5 is therefore the pivotal test — the class-level
+  answer to whether the carry program's apparent alpha is real or an artifact of running six
+  correlated variants on overlapping data and counting the best result.
+
+  THE DATA-PROVENANCE SURPRISE:
+
+  The orchestrator confirmed a fact that materially changes the R5 scoping question: real FX price
+  data EXISTS at data/processed/ (EURUSD 0.96–1.48; USDJPY 76–162 over 2010–2026 — consistent with
+  real market ranges). The "everything is synthetic" prior, which has been implicit in how R5 was
+  described as "never run on real data," is partly WRONG. The actual state is: two parallel processed
+  data directories exist — data/processed/ (apparently real; range-verified by orchestrator) and
+  data/processed_synthetic_phase0/ (confirmed to contain a corrupted USDJPY with close 5.03–7.75 —
+  absurd). The roles in WAVE-2 must resolve this definitively (CRIT-1 through CRIT-3). R5 running
+  on data/processed/ is legitimate IF provenance is confirmed. Running on processed_synthetic_phase0/
+  is prohibited; the USDJPY file there is corrupted.
+
+  The rate differential data (data/rates/rate_differentials.parquet, 2001–2026) adds a second
+  provenance question: this is the carry SIGNAL source, not price. Its provenance (FRED vs synthetic)
+  must be confirmed separately (CRIT-3). Carry strategies consuming a synthetic rate differential
+  would produce a synthetic Sharpe regardless of price data quality.
+
+  THE R5 DESIGN DECISION SPACE:
+
+  Three methods require a scoped decision (CRIT-7): block permutation (NHT's original R5 spec
+  — shuffles feature labels, tests whether signal ordering matters), White's Reality Check (WRC —
+  stationary block bootstrap of returns; controls FWER across multiple models; the "White-Reality-Check"
+  named in CONSENSUS_2026-06-01), and Hansen's SPA (improves WRC by removing underperforming models
+  from the benchmark; more power). The carry context (6 correlated variants, overlapping pairs,
+  daily autocorrelated returns) creates genuine tradeoffs that the Mathematician must resolve.
+  The NHT role must evaluate whether the chosen method can actually reject H0 given available
+  sample sizes — a theatrical test is worse than no test (CRIT-18).
+
+  SEQUENCING:
+
+  Four steps in order: (1) data-provenance confirmation + USDJPY purge decision (BLOCKING,
+  parallelizable with Step 2), (2) QD permutation-emit harness implementation (BLOCKING —
+  the harness currently does not emit permutation fields per CONSENSUS_2026-05-01:R5-aspirational),
+  (3) pre-registration filed and frozen (NEXT deliverable from this scope wave), (4) R5 executed.
+  Steps 1 and 2 are parallelizable. Steps 3 and 4 are strictly sequential after 1+2.
+
+  WHAT A COMPLETE SCOPE LOOKS LIKE:
+
+  The output of WAVE-2 role work is a scope package that answers every CRIT above — specifically:
+  which data, which variants, which pairs, which test method, which statistic, which block length,
+  which K, which null hypothesis, and what CONTINUE/WIND-DOWN means operationally. That scope
+  package feeds directly into the pre-registration (NEXT deliverable) and into QD's permutation-emit
+  implementation. No role in WAVE-2 may substitute one of those downstream deliverables for the
+  scope document itself.
+
+  PM DOES NOT DECIDE:
+
+  PM coordinates and defines what a complete scope looks like. PM does not choose between WRC and SPA,
+  does not select block length, does not adjudicate data provenance, and does not determine whether
+  K=200 provides adequate power. Those are Mathematician and NHT decisions. PM's job is to make
+  sure the scope package, when produced, answers every criterion above — no gap, no orphan item.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "CONSENSUS_2026-05-01_phase2_falsification.md (R5 original spec, aspirational status)"
+  - "CONSENSUS_2026-06-01_paper_launch_acceleration.md (HoQR prioritization, CONTINUE/WIND-DOWN framework)"
+  - ".fintech-org/artifacts/2026-06-01T-paper-launch-acceleration/hoqr-prioritization.yaml"
+  - "Memory: HONEST REVIEW 2026-05-31 — zero validated OOS alpha, kill-criterion tripped"
+  - "data/ directory structure verified by ls (data/processed/, data/processed_synthetic_phase0/, data/rates/)"
+  - "src/forex_system/strategies/ carry file list verified by ls"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

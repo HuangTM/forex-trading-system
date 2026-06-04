@@ -1,0 +1,202 @@
+role: principal-reviewer
+artifact_type: review-report
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+artifact-under-review:
+  - src/forex_system/harness/carry_universe_matrix.py
+  - tests/harness/test_carry_universe_matrix.py
+spec-context: STEP-2b carry-universe joint return matrix (R5 kill-test plumbing), CONSENSUS_2026-06-02_r5_scope.md
+decision: approve
+review-type: final-re-review (prior decision was REJECT on F1/F2 blocking)
+
+# ---------------------------------------------------------------------------
+# Independent runtime verification performed (RAN, not just read)
+# ---------------------------------------------------------------------------
+runtime-verification:
+  full_universe_build:
+    cmd: build_joint_return_matrix(list(CARRY_VARIANTS), list(CARRY_PAIRS), data_dir="data")
+    result: R.shape=(4186, 36); T=4186; k=36; index 2010-03-15 -> 2026-04-06
+    dropped: 0
+    variants_present: [carry, carry_fred, carry_momentum, fred_carry_stripped, vol_target_carry, vol_target_carry_no_vol_scaling]
+    all_finite: true
+    verdict: "36 cells, 0 dropped, ALL 6 variants present — F1/F2 CLOSED at the integration level"
+  config_fidelity_runtime:
+    carry_momentum.risk_per_trade: 0.007 (matches config/carry_momentum_portfolio.yaml backtest.position_sizing.risk_per_trade)
+    carry_momentum.stop_loss_atr_multiple: 2.0 (matches config)
+    vol_target_carry: leverage_cap=2.0, max_order_units=5000000, min_order_size=100 (all match config/vol_target_carry.yaml)
+    carry_fred.rebalance_threshold: 0.05 (matches config/carry_fred.yaml); vol_target threshold 0.2 (matches)
+    verdict: "C-1 CLOSED — _VARIANT_EXEC == committed YAML; config-match tests READ the YAML, not hardcoded expecteds"
+  f1_root_cause_confirmed:
+    fred_carry_stripped.required_indicators(): "[] (empty)"
+    note: "old unconditional dropna(subset=['atr_14']) would KeyError/empty-drop this variant; new code gates dropna on required → no drop. F1 root cause confirmed and fixed."
+  f4_fail_loud_runtime:
+    test: injected KeyError('injected_code_bug') into run_backtest for carry:USDJPY
+    result: "KeyError propagated out of build_joint_return_matrix (NOT swallowed into a DroppedCell)"
+    verdict: "F4 CLOSED — code errors fail-closed loud; only ValueError data-insufficiency drops"
+  test_suite:
+    cmd: pytest tests/harness/test_carry_universe_matrix.py tests/backtest/test_engine.py::test_no_lookahead -q -rs
+    result: "34 passed (33 in file + sacred no-lookahead), 0 unexpected skips"
+    integration_subset: "pytest -m integration → 4 passed, 0 skipped (real data present, skip-guards did not fire)"
+    sacred_no_lookahead: PASS
+    ruff: "All checks passed! (both files, exit 0)"
+  distinctness_check:
+    note: "All 36/4 columns distinct and non-degenerate; no two columns identical; inner-join intersects (carry:USDJPY n drops 4231->4186 under 36-cell join) — no fabricated returns."
+
+# ---------------------------------------------------------------------------
+# Per-prior-finding closure verdicts
+# ---------------------------------------------------------------------------
+findings:
+  - id: F1
+    severity: blocking
+    title: "fred_carry_stripped silently dropped (unconditional dropna on atr_14 + broad except)"
+    closure: CLOSED
+    evidence:
+      - "_build_cell lines 483-486: required = strategy.required_indicators(); dropna(subset=required) gated on `if required:`. fred_carry_stripped.required_indicators()==[] (verified at runtime) → no dropna, no KeyError."
+      - "Runtime full build: fred_carry_stripped present in all 6 JPY cells, 0 dropped."
+      - "Test test_fred_carry_stripped_builds_not_dropped asserts variant not in dropped AND k==2; integration test_all_6_variants_build_on_real_data asserts no variant wholly absent."
+
+  - id: F2
+    severity: blocking
+    title: "carry_momentum wrong mode (hardcoded discrete for all-but-vol_target_carry)"
+    closure: CLOSED
+    evidence:
+      - "Hardcoded if/else replaced by _VARIANT_EXEC table (lines 242-296). carry_momentum → rebalance_mode=continuous, sizer_type=continuous, ContinuousSizer(risk_per_trade=0.007)."
+      - "_build_cell sources mode/sizer from exec_cfg (lines 498-500); _build_sizer (lines 427-439) instantiates ContinuousSizer for continuous variants."
+      - "Runtime: carry_momentum exec mode=continuous, sizer=continuous. Test test_carry_momentum_cell_ok_log_shows_continuous asserts cell_ok log emits rebalance_mode=continuous + sizer_type=continuous."
+      - "Each variant's mode matches its committed config: vol_target_carry=continuous/vol_target, carry/carry_fred/fred_carry_stripped/vol_target_carry_no_vol_scaling=discrete/none — verified against YAML."
+
+  - id: F4
+    severity: major
+    title: "drop-reason taxonomy / fail-loud (code errors must RAISE, not silently drop)"
+    closure: CLOSED
+    evidence:
+      - "build_joint_return_matrix lines 700-715: except ValueError → DroppedCell(category='data-insufficiency'); except Exception → bare `raise` (fail-closed loud)."
+      - "Runtime injection of KeyError propagated out (not dropped). Test test_code_error_raises_not_silently_dropped asserts pytest.raises(KeyError)."
+      - "DroppedCell carries exc_type + category fields; integration test asserts zero category=='code-error' drops."
+
+  - id: F3
+    severity: major
+    title: "test coverage — all 6 variants exercised so a re-introduced F1/F2 would FAIL"
+    closure: CLOSED
+    evidence:
+      - "test_all_6_variants_build_1_pair (unit) + test_all_6_variants_build_on_real_data (integration) assert every CARRY_VARIANTS member is present (no whole-variant absence) and k==6."
+      - "F1-specific test_fred_carry_stripped_builds_not_dropped; F2-specific test_carry_momentum_cell_ok_log_shows_continuous + E-1 numeric mode test."
+      - "A re-introduced F1 (dropna on atr_14) would whole-variant-drop fred_carry_stripped → those tests fail. A re-introduced F2 (discrete carry_momentum) → cell_ok log + E-1 fail."
+
+  - id: C-1
+    severity: major
+    title: "config fidelity — carry_momentum risk_per_trade must be 0.007 (config) not 0.02 (runner script)"
+    closure: CLOSED
+    evidence:
+      - "_VARIANT_EXEC['carry_momentum'].risk_per_trade=0.007 (line 293). _build_sizer passes it to ContinuousSizer."
+      - "test_carry_momentum_risk_per_trade_matches_config READS config/carry_momentum_portfolio.yaml at runtime (raw['backtest']['position_sizing']['risk_per_trade']) and asserts equality — would FAIL on drift in either direction."
+      - "Companion config-match tests for stop_loss_atr_multiple, vol_target sizer params, and rebalance thresholds, all reading YAML."
+
+  - id: E-1
+    severity: major
+    title: "mode-fidelity — continuous vs discrete carry_momentum returns differ materially (numbers, not log)"
+    closure: CLOSED
+    evidence:
+      - "test_continuous_and_discrete_returns_differ_materially runs REAL run_backtest twice (continuous w/ ContinuousSizer vs discrete w/ sizer=None) on the same signals, asserts mean_normalized_diff > 0.05."
+      - "Guard asserts the signal is magnitude-bearing (non-{-1,0,1} values exist) so the test can actually distinguish the modes — not a vacuous pass."
+
+  - id: F5
+    severity: minor
+    title: "integration mark registered"
+    closure: CLOSED
+    evidence: "pyproject.toml line 38 registers the 'integration' marker; pytest --markers lists it; -m integration deselects/selects cleanly (4 selected, 29 deselected)."
+
+  - id: F6
+    severity: minor
+    title: "vacuous-pass guards removed"
+    closure: CLOSED
+    evidence:
+      - "test_real_data_returns_from_equity_curve asserts 'carry:USDJPY' in captured_equity and len(common)>0 before the allclose — a missed capture or empty intersection now fails loudly."
+      - "E-1 asserts non-binary signal values exist before comparing modes."
+
+# ---------------------------------------------------------------------------
+# NEW findings (this re-review)
+# ---------------------------------------------------------------------------
+new-findings:
+  - id: N1
+    label: issue
+    severity: non-blocking
+    rubric: execution-firewall-review (Section C — parameter sourcing)
+    location: src/forex_system/harness/carry_universe_matrix.py:419-421, 432-434
+    description: >
+      _build_sizer uses the `or` idiom for override resolution:
+      `variant_params.get("risk_per_trade") or exec_cfg.risk_per_trade`. A caller-supplied
+      override that is falsy (0.0) is silently discarded in favor of the config default.
+      For R5 default operation this NEVER fires (no overrides are passed; the full-universe
+      build uses _VARIANT_EXEC values directly) and 0.0 is not a meaningful sizing value, so
+      it is not blocking. But it is a latent firewall-drift vector: a future caller passing a
+      legitimate falsy override would silently get a different parameter than requested, with
+      no log of the substitution.
+    suggested-fix: >
+      Use explicit None-check: `v = variant_params.get("risk_per_trade"); risk = exec_cfg.risk_per_trade if v is None else v`.
+      Optionally emit a decision-trace log when an override replaces the config default (source=override vs source=config).
+    blocks-approval: false
+
+  - id: N2
+    label: observation
+    severity: non-blocking
+    rubric: probability-statistics (routed to NHT, not a plumbing defect)
+    location: runtime (carry_momentum return magnitude)
+    description: >
+      carry_momentum's per-bar return std is ~5e-6, four orders of magnitude smaller than the
+      other variants (~5e-3), because risk_per_trade=0.007 + continuous sizing. This is the
+      CORRECT, config-faithful behavior (precisely what C-1 demands) and NOT a plumbing defect.
+      However, it means carry_momentum contributes near-zero magnitude to the SPA max-statistic;
+      the variant is effectively a near-null column in the FWER family. This is a statistical-power
+      / scaling-normalization question for STEP-3 pre-registration and the NHT — flagging for
+      visibility, explicitly NOT a defect in this artifact and NOT grounds to withhold approval.
+    blocks-approval: false
+
+# ---------------------------------------------------------------------------
+# Previously-verified-correct items — regression re-check
+# ---------------------------------------------------------------------------
+non-regression:
+  no-lookahead:
+    verdict: NOT-REGRESSED
+    evidence: "_build_cell extracts ec.pct_change() of equity_curve only (lines 516-522); does NOT re-shift signals. run_backtest called with entry_delay_bars=1. Sacred test_no_lookahead PASSES."
+  inner-join-alignment:
+    verdict: NOT-REGRESSED
+    evidence: "lines 743-745 intersect cell indices; rectangular R built by reindex(common_index) with a fail-closed NaN guard (lines 792-801). Runtime: standalone carry n=4231 collapses to 4186 under the 36-cell join — genuine intersection, no fabricated returns."
+  net-of-cost-extraction:
+    verdict: NOT-REGRESSED
+    evidence: "RealisticCostModel(pair_configs={pair: pair_info}) passed to run_backtest (line 495); returns are pct_change of the post-cost equity_curve. test_returns_from_equity_curve_pct_change + integration equivalent assert allclose to equity_curve.pct_change()."
+
+# ---------------------------------------------------------------------------
+log-as-decision-trace-assessment:
+  verdict: adequate
+  notes: >
+    cell_start / cell_ok / cell_dropped / alignment / window_slice / matrix_built emit structured
+    JSON with named inputs (variant, pair, n, dates, rebalance_mode, sizer_type, dropped reason+exc_type+category).
+    Both branches (ok and dropped) are logged (item 6). config_source is cited in _VARIANT_EXEC for parameter
+    provenance. Only minor gap: N1's silent override-substitution is not logged (tied to N1).
+
+coverage-statement: >
+  Read both files in full (983 + 1367 lines). Independently RAN: (1) full 6x6 universe build on real
+  data/processed/ → 36 cells, 0 dropped, all 6 variants, all finite; (2) config-fidelity cross-check of
+  _VARIANT_EXEC vs all three committed YAMLs; (3) F4 fail-loud via injected KeyError → confirmed RAISES;
+  (4) full test suite + sacred no-lookahead → 34 passed, 0 unexpected skips; (5) integration-only subset →
+  4 passed 0 skipped; (6) ruff → clean; (7) column-distinctness/non-degeneracy + inner-join intersection check.
+  F1/F2 (blocking), F3/F4/C-1/E-1 (major), F5/F6 (minor) all verified CLOSED against code + runtime. Two new
+  non-blocking findings (N1 `or`-idiom override drift; N2 carry_momentum magnitude — a stats-power note for NHT).
+
+contamination-check:
+  stance-conveyed-in-prompt: none
+  verdict: clean
+  note: "Prompt conveyed prior findings (re-review contract) but NO approval/rejection stance on current code. No contamination-veto warranted. Decision reached independently from code + runtime."
+
+time-spent-reasoning: "~22 minutes (full read of both files, 7 runtime verifications, config cross-check, fail-loud injection, suite+lint)"
+
+approval-rationale: >
+  Approve. All four hard gates met: F1/F2/F4 CLOSED (verified at runtime, not just by reading);
+  all 6 variants build (36/36 cells, 0 dropped on real data); C-1 resolved to the committed config
+  value 0.007 with a YAML-reading config-match test that fails on drift. No new BLOCKING defect.
+  The two new findings (N1, N2) are non-blocking: N1 never fires in R5 default operation and N2 is a
+  config-faithful statistical-power note for the NHT/STEP-3, not a plumbing defect. Recommend N1 be
+  addressed opportunistically (explicit None-check + override-substitution log) before STEP-3 freeze.

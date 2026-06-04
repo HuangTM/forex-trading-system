@@ -1,0 +1,121 @@
+role: quant-developer
+artifact_type: implementation-report
+step: STEP-2b
+status: IN-PROGRESS
+timestamp: 2026-06-03T00:00:00Z
+subtask_ref: r5-scope-2026-06-02
+
+summary: >
+  Building carry_universe_matrix.py — the data-plumbing layer that surfaces the (T, ~36)
+  joint net-of-cost return matrix feeding r5c_hansen_spa / r5a_circular_block_bootstrap.
+  The test math (SPA, Politis-White, White RC) is already committed; the only gap is
+  constructing the aligned per-cell return series from equity_curve outputs.
+
+design-decisions:
+  return-type:
+    choice: simple-percentage-returns
+    formula: "f_{k,t} = equity_curve.pct_change().dropna()"
+    rationale: >
+      The Mathematician spec reads "per-bar benchmark-relative performance series f_{k,t}".
+      With benchmark=zero, f_{k,t} IS the strategy's per-bar return. Two candidates:
+        (A) Log-return: ln(E_t / E_{t-1})
+        (B) Simple return: (E_t - E_{t-1}) / E_{t-1} = pct_change()
+      calculate_metrics() in backtest/metrics.py uses pct_change() for Sharpe internally
+      (verified: metrics.py calls equity.pct_change()). The Mathematician spec test-statistic
+      says "annualised Sharpe" and _annualized_sharpe() in reality_check.py calls
+      np.mean(returns)/np.std(returns,ddof=1)*sqrt(252) — identical to calculate_metrics().
+      Using simple returns ensures consistent Sharpe computation between the per-cell
+      reporting and the bootstrap statistic. Log ≈ simple for small daily returns (<1%),
+      but we match the existing metrics convention exactly to avoid a hidden discrepancy.
+    audit: "Verified in src/forex_system/backtest/metrics.py — pct_change() confirmed"
+
+  alignment-rule:
+    choice: inner-join (intersection of all valid daily dates)
+    detail: >
+      After computing per-cell return Series (from pct_change().dropna()), take the
+      intersection of all non-NaN index values across all successfully-built cells.
+      This guarantees the output matrix R is rectangular with NO NaN values — a strict
+      prerequisite for the multivariate Politis-White block-length selection and the
+      joint bootstrap (which resamples ROWS, not columns independently). An outer join
+      would leave NaN in some cells on dates where a given variant-pair pair didn't trade,
+      corrupting the bootstrap's cross-correlation structure.
+    lookahead-risk: none — intersection discards LEADING and TRAILING bars where some
+      cells haven't started trading yet; does NOT look forward.
+    missing-value-policy: >
+      A cell that has NaN in the middle of its return series (not just leading/trailing)
+      triggers a DROPPED_CELL warning with reason="mid-series NaN in returns after pct_change".
+      Mid-series NaN indicates a data gap in the equity curve, which is abnormal and must
+      NOT be silently patched (no forward-fill on returns — that would introduce serial
+      correlation). The inner-join will automatically exclude the cell if its index span
+      doesn't overlap the common span, or fail-close if it produces a 0-row intersection.
+
+  window-parameter:
+    choice: optional (start, end) tuple, defaults to full common history
+    detail: >
+      build_joint_return_matrix accepts window: tuple[str,str]|None.
+      When None: the common index is the full intersection of all cells.
+      When provided: slice the final common index to [start, end] AFTER alignment.
+      This decouples the construction step (STEP 2b) from the pre-registration
+      (STEP 3) which will freeze the exact OOS window as a dated pair. STEP 4 passes
+      the frozen window to restrict to the OOS holdout.
+
+  dropped-cell-policy:
+    rule: >
+      ANY cell that fails to build (strategy not found for pair, data file missing,
+      backtest produces empty equity curve, or mid-series NaN) is:
+        1. Logged at WARNING with structured fields: variant, pair, reason, event=carry_matrix.cell_dropped
+        2. Excluded from the matrix
+        3. Recorded in the returned 'dropped' list of (label, reason) tuples
+      Silent exclusion is PROHIBITED — it voids the FWER guarantee (spec §Carry universe).
+      The caller (run_r5_on_carry_universe) re-logs the dropped list and raises ValueError
+      if the resulting k < 2 (degenerate: can't run SPA on a single cell or empty matrix).
+
+  per-cell-lookahead-assertion:
+    rule: >
+      Each cell's return series is derived from the equity_curve returned by run_backtest,
+      which already has entry_delay_bars=1 applied (sacred test_no_lookahead invariant).
+      The matrix builder does NOT re-shift or re-delay; it only extracts pct_change().
+      A per-cell log at DEBUG confirms entry_delay_bars at run time.
+
+  strategy-config-per-variant:
+    approach: >
+      Each variant is built from its own per-variant config dict (passed as part of
+      the VariantConfig dataclass). The carry_universe_matrix module does NOT hard-code
+      config paths — callers supply the full per-variant config or config-path, allowing
+      STEP 3 to freeze exact parameters. Default configs for the 6 consensus variants
+      are documented in _DEFAULT_VARIANT_CONFIGS but are research-read-only — the
+      production entry point (run_r5_on_carry_universe) requires explicit config.
+
+knowledge-gaps:
+  - >
+    KNOWLEDGE_GAP: vol_target_carry uses rebalance_mode="continuous" with a VolTargetSizer,
+    but the standard per-pair carry configs only define USDJPY. For the other 5 JPY crosses,
+    the per-pair spread/swap costs are not in any committed config. The matrix builder will
+    construct minimal PairInfo stubs from defaults (same as carry_fred.yaml uses for JPY
+    pairs). These stubs may under/over-estimate costs for the 5 non-USDJPY pairs under
+    vol_target_carry. Reported here as KNOWLEDGE_GAP rather than dropped, because the
+    return SERIES structure is valid; only absolute cost magnitudes may differ.
+    Resolution: STEP 3 pre-reg must confirm or override per-pair cost configs.
+  - >
+    KNOWLEDGE_GAP: carry_fred uses cross-sectional rank normalization over 12 pairs. When
+    restricted to the 6 JPY-cross universe in the R5 test, the z-score rank is computed
+    over 6 columns instead of 12. This changes the signal magnitudes. Reported for HoQR
+    review in STEP 3 pre-reg — not a build-blocker (the signal is still valid carry).
+  - >
+    KNOWLEDGE_GAP: carry_momentum requires sma_20 + sma_50 + atr_14 indicators. These are
+    computed by compute_indicators() from the OHLCV data — no issue expected, but the
+    indicator computation time adds overhead vs the pure-carry variants.
+
+files-produced:
+  - src/forex_system/harness/carry_universe_matrix.py
+  - tests/harness/test_carry_universe_matrix.py
+
+test-coverage:
+  - (a) matrix is rectangular with correct shape
+  - (b) labels match columns exactly
+  - (c) a known-droppable cell is logged + excluded with reason in dropped list
+  - (d) smoke run_r5_on_carry_universe on 2x2 subset returns valid p-values in [0,1]
+  - (e) returns are derived from equity_curve.pct_change() (net-of-cost, not gross)
+  - (f) integration test on real data/processed/ (small subset, fast)
+  - (g) window parameter slices correctly
+  - (h) empty matrix (k=0) raises ValueError

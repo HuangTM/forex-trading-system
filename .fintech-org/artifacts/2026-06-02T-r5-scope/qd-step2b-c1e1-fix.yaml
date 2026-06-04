@@ -1,0 +1,126 @@
+role: quant-developer
+artifact_type: implementation-report
+step: STEP-2b-C1E1
+status: COMPLETE
+timestamp: 2026-06-03T00:00:00Z
+subtask_ref: r5-scope-2026-06-02
+prior-review-ref: .fintech-org/artifacts/2026-06-02T-r5-scope/pr-step2b-review.yaml
+
+summary: >
+  Closed conditions C-1 (config fidelity — sizer params sourced from committed configs,
+  not runner scripts) and E-1 (mode-fidelity test with numeric evidence, not just a log
+  claim) from the PR's self-flagged conditions. F1 (silent drop) and F2 (wrong mode)
+  were already fixed and are NOT regressed. All 225 harness + sacred tests pass. Ruff
+  clean. 6 variants still build on real data/processed/ in the integration test.
+
+findings-addressed:
+  C-1:
+    condition: >
+      _VARIANT_EXEC hardcoded carry_momentum ContinuousSizer(risk_per_trade=0.02) from
+      scripts/run_carry_momentum.py (an exploratory parameter-grid sweep), but the
+      committed config carry_momentum_portfolio.yaml specifies risk_per_trade: 0.007.
+      VolTargetSizer params (max_order_units, min_order_size, leverage_cap) were also
+      hardcoded literals in _build_sizer, not traceable to the config at a glance.
+    fix-location:
+      - file: src/forex_system/harness/carry_universe_matrix.py
+        change: _VariantExecConfig dataclass extended with per-sizer-type param fields:
+          - risk_per_trade (float | None) — for ContinuousSizer variants
+          - stop_loss_atr_multiple (float | None) — for ContinuousSizer variants
+          - leverage_cap (float | None) — for VolTargetSizer variants
+          - max_order_units (float | None) — for VolTargetSizer variants
+          - min_order_size (float | None) — for VolTargetSizer variants
+          - config_source (str) — human-readable citation of the authority YAML
+        change: _VARIANT_EXEC carry_momentum entry updated:
+          risk_per_trade: 0.007     # carry_momentum_portfolio.yaml:backtest.position_sizing.risk_per_trade
+          stop_loss_atr_multiple: 2.0  # carry_momentum_portfolio.yaml:backtest.position_sizing.stop_loss_atr_multiple
+          config_source: config/carry_momentum_portfolio.yaml
+        change: _VARIANT_EXEC vol_target_carry entry updated:
+          leverage_cap: 2.0
+          max_order_units: 5_000_000.0
+          min_order_size: 100.0
+          config_source: config/vol_target_carry.yaml
+        change: _build_sizer() rewritten to source params from exec_cfg (which sources
+          from _VARIANT_EXEC / committed config) rather than variant_params.get(..., 0.02).
+          variant_params overrides are still accepted for caller flexibility, but the
+          config value is the default — not a magic literal baked into the function body.
+    carry-momentum-risk-per-trade-now-effective:
+      value: 0.007
+      source: carry_momentum_portfolio.yaml:backtest.position_sizing.risk_per_trade
+      note: >
+        Provisional until STEP 3 pre-registration freezes it. The runner script value
+        (0.02) was an exploratory sweep default, not a registered production parameter.
+    config-match-test:
+      location: tests/harness/test_carry_universe_matrix.py
+      class: TestVariantExecConfigMatchesCommittedConfig
+      tests:
+        - test_carry_momentum_risk_per_trade_matches_config
+          reads config/carry_momentum_portfolio.yaml and asserts
+          _VARIANT_EXEC['carry_momentum'].risk_per_trade == config value
+        - test_carry_momentum_stop_loss_atr_multiple_matches_config
+        - test_vol_target_carry_sizer_params_match_config
+          reads config/vol_target_carry.yaml; asserts leverage_cap, max_order_units,
+          min_order_size all match
+        - test_carry_fred_rebalance_threshold_matches_config
+        - test_vol_target_carry_rebalance_threshold_matches_config
+        - test_all_continuous_variants_have_sizer_params
+          structural guard — every sizer_type='continuous' must have non-None risk fields
+      mechanism: >
+        Tests READ the actual YAML files rather than using hardcoded expected values.
+        If carry_momentum_portfolio.yaml is updated and _VARIANT_EXEC is not, the test
+        fails — closing the drift vector that caused the C-1 finding.
+
+  E-1:
+    condition: >
+      The F2 fix (carry_momentum now runs continuous mode) was only verified by
+      inspecting a structured log field (rebalance_mode='continuous' in cell_ok).
+      No numeric test confirmed the return series actually differ between modes.
+    fix-location:
+      - file: tests/harness/test_carry_universe_matrix.py
+        class: TestCarryMomentumModeFidelityNumeric
+        test: test_continuous_and_discrete_returns_differ_materially
+    mechanism: >
+      Uses a REAL run_backtest call (not mocked) with the synthetic ohlcv and rate_data
+      fixtures but the actual strategy, cost model, and engine. Runs carry_momentum on
+      USDJPY in both continuous (ContinuousSizer, risk_per_trade=0.007) and discrete
+      (sizer=None, np.sign collapse) mode on the SAME input signals. Aligns the equity
+      curves, computes pct_change() returns for both, and asserts:
+        mean |rc - rd| / std(rd) > 0.05
+      Pre-check: asserts the raw signal contains non-binary values (i.e., is actually
+      magnitude-bearing on the synthetic data), so the test cannot vacuously pass on
+      a degenerate fixture. If continuous mode silently collapses to discrete (a future
+      regression), the return series will be nearly identical and the test fails.
+    result: PASS (mean_normalized_diff >> 0.05 on synthetic data)
+
+full-universe-build-result:
+  command: pytest tests/harness/test_carry_universe_matrix.py -k integration -v
+  result: 4 passed in 3.85s
+  variants-built: all 6 (carry, carry_fred, fred_carry_stripped, vol_target_carry,
+    vol_target_carry_no_vol_scaling, carry_momentum)
+  data-source: real data/processed/ (REAL Saxo data, not synthetic)
+  carry-momentum-mode-confirmed: continuous (cell_ok log + numeric E-1 test)
+  no-code-error-drops: confirmed (code_error category = 0 drops)
+
+test-counts:
+  total-harness-plus-sacred: 225 passed
+  new-tests-added: 7 (6 in TestVariantExecConfigMatchesCommittedConfig + 1 in TestCarryMomentumModeFidelityNumeric)
+  F1-regression: NOT triggered (fred_carry_stripped builds, k=2 for 1-variant unit test)
+  F2-regression: NOT triggered (carry_momentum shows rebalance_mode=continuous in log + E-1 numeric)
+  F4-regression: NOT triggered (KeyError raises, not swallowed)
+  sacred-test: test_no_lookahead PASSES
+
+ruff: clean (2 unused imports auto-removed by ruff --fix before final check)
+
+execution-firewall-review-result:
+  rubric-applied: execution-firewall-review
+  section-C: CLOSED — all numeric literals in _VARIANT_EXEC now cite their config authority
+    via config_source field and inline comments; _build_sizer sources from exec_cfg not
+    from "sensible defaults"
+  section-E: CLOSED — integration test (E-1) exercises the carry_momentum path end-to-end
+    and asserts numeric difference between modes
+  carry-momentum-risk-per-trade:
+    old-value: 0.02 (from scripts/run_carry_momentum.py exploratory sweep — WRONG)
+    new-value: 0.007 (from config/carry_momentum_portfolio.yaml — authority)
+    drift-vector-closed: yes (config-match test catches future mismatch)
+
+uncommitted: true
+commit-gate: PR review by principal-reviewer before merge

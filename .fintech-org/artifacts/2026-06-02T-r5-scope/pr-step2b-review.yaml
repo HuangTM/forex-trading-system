@@ -1,0 +1,284 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: 2026-06-03T13:30:00Z
+subtask_ref: r5-scope-step2b
+artifact-under-review:
+  - src/forex_system/harness/carry_universe_matrix.py
+  - tests/harness/test_carry_universe_matrix.py
+spec-version-reviewed-against:
+  - docs/decisions/CONSENSUS_2026-06-02_r5_scope.md
+  - .fintech-org/artifacts/2026-06-02T-r5-scope/mathematician-r5-spec.yaml (subtask_id r5-scope-2026-06-02-math)
+
+rubrics-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+
+summary: >
+  The data-plumbing skeleton is sound: inner-join alignment is correct and produces
+  a truly rectangular, NaN-free, identically-timestamped matrix from heterogeneous
+  cell coverage (verified empirically); net-of-cost returns are correctly extracted
+  from equity_curve.pct_change() (cost embedding confirmed in engine); no-lookahead
+  is preserved (sacred test_no_lookahead passes; builder does not re-shift). HOWEVER
+  the module ships TWO BLOCKING defects that corrupt the FWER family the whole R5
+  kill-test rests on: (1) every fred_carry_stripped cell (a full variant = 6 of 36
+  cells) is silently dropped due to an unconditional dropna(subset=["atr_14"]) that
+  KeyErrors for the one variant whose required_indicators() is empty — the universe
+  silently shrinks 36->30 with an uninterpretable drop reason "['atr_14']"; and
+  (2) carry_momentum is run in the WRONG execution mode (discrete/np.sign, sizer=None)
+  vs its registered/canonical continuous+ContinuousSizer config, collapsing its
+  magnitude-bearing signal to +/-1/0 and producing a wrong return series for all 6
+  carry_momentum cells. Both directly violate the Mathematician spec's load-bearing
+  assumptions (exhaustive frozen universe; per-cell return construction faithful to
+  each variant). The tests pass but do NOT cover either failure — the only two
+  variants exercised end-to-end are carry and vol_target_carry_no_vol_scaling, the
+  two that happen to work. Reject; route the two blockers back to quant-developer.
+
+findings:
+  - id: F1
+    severity: blocking
+    location: "carry_universe_matrix.py:293 (enriched.dropna(subset=['atr_14'])) interacting with fred_carry_stripped.required_indicators() == []"
+    category: fwer-silent-exclusion / firewall-A
+    observation: >
+      _build_cell unconditionally calls enriched.dropna(subset=["atr_14"]) for EVERY
+      variant. fred_carry_stripped.required_indicators() returns [] (verified at
+      runtime), so compute_indicators never adds an atr_14 column, and the dropna
+      raises KeyError(['atr_14']). build_joint_return_matrix's broad
+      `except Exception as exc: _drop_cell(..., str(exc))` (line 530-531) catches it
+      and drops the cell with reason == "['atr_14']".
+    inference: >
+      In the full 6x6 universe ALL 6 fred_carry_stripped cells drop for an
+      infrastructure bug, not a data reason. The FWER family the Mathematician spec
+      requires to be "EXHAUSTIVE and FROZEN (all 6 variants)" silently shrinks from
+      36 to 30. The spec is explicit (assumptions, last bullet): "silently dropping a
+      tested-but-bad variant from U ... re-introduces selection bias and voids the
+      FWER guarantee." The exclusion is technically logged + returned in `dropped`,
+      so it is not perfectly silent, but the reason string "['atr_14']" is an
+      uninterpretable KeyError repr that no auditor would recognize as "an entire
+      variant was excluded by a code bug" — it reads like a per-cell data gap. This
+      is the silent-exclusion failure the review was told to treat as blocking.
+    evidence: >
+      Reproduced: build_joint_return_matrix(variants=['carry','fred_carry_stripped'],
+      pairs=['USDJPY']) returns k=1, labels=['carry:USDJPY'], dropped=[
+      ('fred_carry_stripped:USDJPY', reason="['atr_14']")]. With only
+      fred_carry_stripped it raises k=0 ValueError. required_indicators() == [] and
+      compute_indicators([]) yields columns [open,high,low,close,volume]; dropna(
+      subset=['atr_14']) -> KeyError(['atr_14']).
+    recommended-action-class: fix-implementation
+    owning-role: quant-developer
+
+  - id: F2
+    severity: blocking
+    location: "carry_universe_matrix.py:304-316 (mode/sizer selection: `if variant in ('vol_target_carry',)`) and engine.py:_run_discrete (np.sign collapse)"
+    category: wrong-mode-cell / execution-firewall-A4
+    observation: >
+      The builder hardcodes rebalance_mode='discrete' and sizer=None for all variants
+      except vol_target_carry. carry_momentum emits a CONTINUOUS, magnitude-bearing
+      signal (combined = carry_w*carry + momentum_w*momentum, clipped to [-1,1]; e.g.
+      0.4*0.7+0.6*0.5=0.58 — verified in carry_momentum.py:71-77). Its registered
+      config (config/carry_momentum_portfolio.yaml: position_sizing method:
+      "continuous") and its canonical runner (scripts/run_carry_momentum.py:54,157-159)
+      run it with a ContinuousSizer. _run_discrete collapses the signal via
+      np.sign(delayed_signals) (engine.py:136), discarding the carry/momentum blend
+      magnitude entirely.
+    inference: >
+      All 6 carry_momentum cells produce a return series that does NOT correspond to
+      how carry_momentum is actually defined/run — a wrong-mode cell that corrupts
+      those columns of the joint matrix. This is precisely the execution-firewall
+      drift class (Section A4: a research-class mode decision made silently in
+      implementation) and violates the spec's per-cell faithfulness requirement
+      (test-statistic + knowledge_gaps: "Exact per-variant return construction
+      (sizing, vol-targeting, FRED conditioning) differs across the 6 files ... MUST
+      be recomputed on the actual frozen variant returns"). The canonical pattern
+      (run_trial.py:324 sources rebalance_mode and sizer FROM config, not from a
+      variant-name allowlist) is the correct reference; the builder reinvents
+      mode-selection and gets carry_momentum wrong.
+    evidence: >
+      carry_momentum.py:71 combined signal is continuous; engine _run_discrete does
+      positions = np.sign(delayed_signals). carry_momentum_portfolio.yaml line 57
+      method: "continuous"; run_carry_momentum.py instantiates ContinuousSizer and
+      passes it to run_backtest. Builder line 308 gates sizer/continuous ONLY on
+      vol_target_carry.
+    recommended-action-class: fix-implementation
+    owning-role: quant-developer
+
+  - id: F3
+    severity: major
+    location: "tests/harness/test_carry_universe_matrix.py — entire integration class + unit class"
+    category: test-inversion-gap
+    observation: >
+      No test exercises fred_carry_stripped or carry_momentum end-to-end. Unit tests
+      mock run_backtest (so mode-selection and the atr_14 path are never executed for
+      real strategies). The three integration tests use only variants
+      ['carry','vol_target_carry_no_vol_scaling'] (the two variants that happen to
+      work). Therefore F1 (whole-variant drop) and F2 (wrong-mode) both pass green.
+    inference: >
+      The test suite cannot catch a silently-dropped variant or a wrong-mode cell —
+      the two failure modes the reviewer was specifically asked to invert against.
+      A faithful suite must (a) build the FULL 6-variant universe on real data and
+      assert k == n_variants*n_pairs with an EXPLICIT assertion that NO variant is
+      wholly absent, and (b) assert per-variant that the chosen rebalance_mode/sizer
+      matches the variant's registered config (e.g. carry_momentum runs continuous).
+    evidence: >
+      Integration tests: lines 605, 687 use variants=['carry',
+      'vol_target_carry_no_vol_scaling']. No occurrence of 'fred_carry_stripped' or
+      'carry_momentum' anywhere in the test file. Full suite + sacred test:
+      16 passed, 1 warning (PytestUnknownMarkWarning: integration).
+    recommended-action-class: add-tests
+    owning-role: quant-developer
+
+  - id: F4
+    severity: major
+    location: "carry_universe_matrix.py:530-531 (broad `except Exception as exc: _drop_cell(..., str(exc))`)"
+    category: log-as-decision-trace / drop-reason-quality
+    observation: >
+      The cell-drop reason is the raw str(exc) of an arbitrary exception. For F1 this
+      yields "['atr_14']". The DroppedCell.reason — the single field an FWER auditor
+      reads to decide whether a drop is legitimate (genuine data gap) or a bug —
+      carries no event taxonomy, no exception type, no traceback hint, no distinction
+      between "data-coverage drop" and "code-error drop".
+    inference: >
+      Per log-as-decision-trace item 1/2: the drop OUTCOME is not named with an
+      enumerable token and the inputs that drove it are not legible. Because the FWER
+      guarantee depends on a human confirming every drop is benign, an uninterpretable
+      reason is a correctness-adjacent observability defect, not cosmetic. At minimum,
+      drops should distinguish exception-class (e.g. KeyError/DataError vs
+      insufficient-history) and surface the variant's full traceback at WARNING.
+    evidence: >
+      Line 531 `_drop_cell(dropped, label, variant, pair, str(exc))`. Reproduced
+      reason "['atr_14']" for fred_carry_stripped (F1 evidence).
+    recommended-action-class: fix-implementation
+    owning-role: quant-developer
+
+  - id: F5
+    severity: minor
+    location: "tests/harness/test_carry_universe_matrix.py:583 (@pytest.mark.integration) and pyproject.toml markers"
+    category: test-config
+    observation: >
+      pytest.mark.integration is unregistered (PytestUnknownMarkWarning). The
+      integration tests are NOT deselected by default — they RAN as part of the
+      16 passed (verified: 3 passed when run explicitly, real data present). They do
+      not silently skip here, but the intent ("integration tests use REAL data") is
+      not enforced by configuration, so on a machine missing data they pytest.skip
+      and the only real-data coverage vanishes with no failure.
+    inference: >
+      Register the marker in pyproject.toml [tool.pytest.ini_options] markers, and
+      decide explicitly whether integration runs in the default suite. Combined with
+      F3, the skip-on-missing-data pattern means the suite can go fully green having
+      verified nothing against real data.
+    evidence: >
+      Run output: "PytestUnknownMarkWarning: Unknown pytest.mark.integration".
+      Explicit run of integration class: 3 passed (data/processed/USDJPY_daily.parquet,
+      EURJPY_daily.parquet, data/rates/rate_differentials.parquet all present).
+    recommended-action-class: fix-tests
+    owning-role: quant-developer
+
+  - id: F6
+    severity: minor
+    location: "tests/harness/test_carry_universe_matrix.py:660-673 (test_real_data_returns_from_equity_curve)"
+    category: test-quality / conditional-assertion
+    observation: >
+      The core net-of-cost assertion is guarded by `if 'carry:USDJPY' in
+      captured_equity:` and `if len(common) > 0:`. If either is false the test passes
+      having asserted nothing about pct_change fidelity.
+    inference: >
+      A gross-return regression in the carry:USDJPY path could pass if the capture
+      key or common-index guard silently evaluates false. Make the guards hard
+      assertions (assert the key is present; assert len(common) > 0) so the net-of-cost
+      check cannot be vacuously satisfied.
+    evidence: "Lines 660, 665 conditional wrappers around np.testing.assert_allclose."
+    recommended-action-class: fix-tests
+    owning-role: quant-developer
+
+  - id: F7
+    severity: observation
+    location: "carry_universe_matrix.py:92-147 (_DEFAULT_PAIR_INFO) and :308-316 (vol_target sizer params)"
+    category: firewall-C / param-sourcing
+    observation: >
+      PairInfo cost params are COPIED into the module from carry_fred.yaml rather than
+      loaded from it. Verified they currently match carry_fred.yaml exactly (no
+      mismatch across all 6 JPY crosses, all 5 cost fields). vol_target_carry sizer
+      params (max_order_units=5_000_000, min_order_size=100) and signal defaults
+      (target_vol=0.10, vol_window=252 via strategy params .get defaults) also match
+      config/vol_target_carry.yaml.
+    inference: >
+      No drift today (firewall Section C satisfied: values trace to the versioned
+      config). But duplicated constants will silently diverge if carry_fred.yaml is
+      retuned. Prefer loading PairInfo from the YAML, or add a test asserting builder
+      defaults equal the config values. Not blocking — values are correct now.
+    evidence: >
+      /tmp comparison of _DEFAULT_PAIR_INFO vs yaml.safe_load(carry_fred.yaml)['pairs']
+      printed zero mismatches; vol_target_carry.yaml min_order_size 100,
+      max_order_units 5000000, target_vol 0.10, vol_window 252.
+    recommended-action-class: improve-maintainability
+    owning-role: quant-developer
+
+passes-verified:
+  - id: P1
+    location: "build_joint_return_matrix:540-614 inner-join + reindex"
+    statement: >
+      Cross-cell alignment is CORRECT. With two cells of different start/end coverage,
+      the common index equals the exact intersection of the cells' pct_change indices
+      (verified: T=76, start/end and membership match expected intersection exactly),
+      the matrix is rectangular (T,k), every column shares one identical DatetimeIndex,
+      np.all(np.isfinite(R)) holds, and no forward-fill fabricates returns across gaps.
+      The post-hoc NaN guard (line 593-601) is a correct fail-closed net. Spec
+      scrutiny-point 2 satisfied.
+  - id: P2
+    location: "_build_cell:332-348; engine.py:190-214,314-358"
+    statement: >
+      Returns are net-of-cost. Derived from bt_result.equity_curve.pct_change(); the
+      engine subtracts entry_cost and holding_cost/swap from equity (engine lines
+      190-191, 314-358), so equity_curve embeds costs. Benchmark=zero is the implicit
+      construction (no external subtraction, no double-count). Spec scrutiny-point 4
+      satisfied. test_returns_from_equity_curve_pct_change asserts exact pct_change
+      equality (rtol 1e-10).
+  - id: P3
+    location: "_build_cell:318-330; no re-shift in builder; tests/backtest/test_engine.py::test_no_lookahead"
+    statement: >
+      No-lookahead preserved. Builder passes entry_delay_bars through to run_backtest
+      and never re-shifts; window slicing is applied AFTER alignment over already-
+      delayed returns, so it cannot leak future data. Sacred test_no_lookahead PASSES.
+      Spec scrutiny-point 3 satisfied.
+  - id: P4
+    location: "_build_cell:304-316 for vol_target_carry and vol_target_carry_no_vol_scaling"
+    statement: >
+      vol_target_carry runs continuous + VolTargetSizer (correct: its signal encodes
+      target_vol/realized_vol and continuous mode + sizer translate it faithfully;
+      sizer params match config). vol_target_carry_no_vol_scaling runs discrete unit
+      (correct: its pre-reg specifies signal=1.0 constant unit-long, discrete sizing).
+      Mode is correct for these two variants. (carry, carry_fred discrete also matches
+      their configs; ONLY carry_momentum is wrong — see F2.)
+  - id: P5
+    location: "k<2 guard run_r5_on_carry_universe:700-705; r5c signature"
+    statement: >
+      r5c_hansen_spa is called with the correct signature (pair_returns, master_seed,
+      block_length, B — verified). The k<2 guard correctly raises before a degenerate
+      single-cell SPA. run_r5 does not register a trial or run the final kill-test
+      (matches STEP 2b scope). NOTE the k<2 guard does NOT protect against F1/F2: a
+      universe that drops to 30 cells (or runs 6 wrong-mode cells) still has k>=2 and
+      proceeds — the family is corrupted but the guard passes.
+
+coverage-statement: >
+  Read both files in full. Verified against runtime, not just by reading: reproduced
+  the fred_carry_stripped atr_14 KeyError-drop (F1) in isolation (k=0 raise) and in a
+  mixed universe (drop reason "['atr_14']"); confirmed carry_momentum emits a
+  continuous magnitude signal and that engine discrete mode np.sign-collapses it (F2);
+  ran the full test file + sacred test (16 passed) and the integration class alone
+  (3 passed, real data present, genuinely executed not skipped); empirically verified
+  inner-join alignment correctness on heterogeneous coverage (P1); confirmed cost
+  embedding in the engine and pct_change extraction (P2); confirmed r5c signature and
+  per-variant configs/canonical runners (run_trial.py, run_carry_momentum.py,
+  vol_target_carry.yaml, carry_fred.yaml, carry_momentum_portfolio.yaml). Did NOT
+  re-derive the SPA/RC bootstrap math (out of scope — r5c is already R-verified and
+  committed). Did NOT run the full 36-cell universe on real data (runtime; the
+  failure modes are proven on subsets).
+
+contamination-check: >
+  No approval/rejection stance was conveyed in the briefing. The task framed the
+  scrutiny points as load-bearing per the Mathematician spec but did not assert a
+  verdict. No contamination-veto warranted. Verdict reached independently against
+  code + runtime + spec.
+
+time-spent-reasoning: ~50 minutes (full read of both files + spec; 5 runtime reproductions; cross-check against 3 configs and 2 canonical runners).

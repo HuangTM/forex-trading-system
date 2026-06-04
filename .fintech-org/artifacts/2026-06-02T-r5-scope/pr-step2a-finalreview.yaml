@@ -1,0 +1,226 @@
+role: principal-reviewer
+artifact_type: review-report
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - probability-statistics (independent-oracle cross-validation)
+decision: approve
+timestamp: 2026-06-03T06:05:00Z
+subtask_ref: r5-scope
+subtask_id: r5-scope-2026-06-02-pr-step2a-finalreview
+
+artifact-under-review:
+  - src/forex_system/harness/reality_check.py  (politis_white_block_length, lines ~119-310)
+  - tests/harness/test_reality_check.py        (TestPolitisWhiteExactValues, lines 418-523)
+  spec-adjudicated-against: .fintech-org/artifacts/2026-06-02T-r5-scope/mathematician-pw-adjudication.yaml
+  canonical-source: blocklength::pwsd (Alec-Stashevsky), verbatim extracts in the adjudication
+
+# =====================================================================
+# CONTAMINATION CHECK
+# =====================================================================
+contamination-check:
+  stance-conveyed: false
+  reasoning: >
+    The review prompt conveyed (a) the prior PR findings PW-1..PW-4 + NEW-1, and (b) the AUTHORITATIVE
+    ALGORITHM SPEC (the Mathematician adjudication). It did NOT convey any approval/rejection stance on
+    the CURRENT code. The qd-step2a-pw-finalfix.yaml artifact carries `decision: approve-with-conditions`,
+    but that is the Quant Developer's OWN handoff self-assessment of their implementation (a standard
+    `decision` field in QD handoff artifacts), not a reviewer's code-approval stance injected into this
+    review. The prior PR reviews carry `reject` — those are the FINDINGS I was told to verify closed, not
+    a stance on the current code. No contamination-veto condition met. Verdict reached independently
+    against code + a from-scratch R-faithful port + runtime execution.
+  veto-emitted: false
+
+# =====================================================================
+# INDEPENDENT VERIFICATION (the crux — RAN, not read)
+# =====================================================================
+independent-verification:
+  arch-importability:
+    claim: "arch.bootstrap.optimal_block_length is NOT importable"
+    result: CONFIRMED — `import arch` raises ModuleNotFoundError on /opt/homebrew/bin/python3.
+    method: direct import attempt.
+  independent-oracle:
+    description: >
+      Built a from-scratch Python port (/tmp/pw_independent_oracle.py) transliterated DIRECTLY from the
+      verbatim R `blocklength::pwsd` extracts in the adjudication (rle-based, vectorized, scipy
+      qnorm(0.975)) — deliberately NOT copied from reality_check.py — and ran it on the EXACT test
+      series generators (_make_wn / _make_ar1 replicated). This is a genuine independent oracle, not the
+      impl's own output.
+    pinned-cross-validation:  # impl pin vs MY independent oracle, same numpy RNG
+      - "WN    T=500 s=42:  oracle L=2.392177  | pin 2.392177  | reldiff 1.4e-07  | m_hat=1 M=2"
+      - "AR0.5 T=500 s=42:  oracle L=7.164245  | pin 7.164245  | reldiff 5.5e-08  | m_hat=2 M=4"
+      - "AR0.9 T=500 s=42:  oracle L=19.962904 | pin 19.962904 | reldiff 1.9e-09  | m_hat=10 M=20"
+      - "AR0.97 T=500 s=123: oracle L=34.106116 | pin 34.106116 | reldiff 6.5e-09 | m_hat=28 M=28=M_max (cap binds)"
+    negative-control:
+      description: >
+        Re-ran the oracle with the OLD buggy rule m_hat=max(1, run_start) (no -1). If the pins were impl
+        self-snapshots of the old code they would match this; if they reflect the corrected canonical
+        rule they must DIVERGE from it.
+      result:
+        - "AR0.5 old-rule L=6.956 (m_hat=3) vs pin 7.164245 -> DIVERGES (pin is NOT an old-rule snapshot)"
+        - "AR0.9 old-rule L=20.104 (m_hat=11) vs pin 19.962904 -> DIVERGES"
+      interpretation: >
+        The pins reflect the CORRECTED max(1, run_start-1) rule (AR0.5 m_hat=2, AR0.9 m_hat=10), not the
+        superseded max(1, run_start) (m_hat=3, m_hat=11). NEW-1 satisfied: pins are genuine
+        independent-oracle cross-validation, not impl self-snapshots. (Old-rule AR0.5 L=6.956 also
+        matches the adjudication's pre-fix production note ~6.976.)
+    rng-caveat-stated: >
+      My oracle uses the same numpy RNG as the impl, so the ~1e-7 match validates the ALGORITHM under
+      numpy RNG. The R-ACTUAL oracle values (2.4016 / 7.1646 / ~19.94) differ from the pins at ~0.1-0.4%,
+      which is numpy-vs-R RNG noise on the same seed — NOT an algorithm divergence (the m_hat rule, M_max
+      cap, flat-top window, and D_SB factor-2 all agree structurally). The test docstrings disclose this
+      tolerance honestly.
+  near-white-regime:
+    claim: "near-white (R5 operating point) no longer collapses to L=1 and tracks the reference"
+    result: >
+      Ran impl AND my independent oracle on near-white MA(1) theta=-0.003 T=4000 across 7 seeds. Impl L
+      matches oracle L to ALL printed digits on every seed, including the seeds where L=1.0 (s7 ACF+0.003,
+      s1000 ACF+0.005, s1002 ACF-0.006) and where L>1 (s42 L=2.452, s1001 L=1.693, s1005 L=2.815,
+      s1008 L=3.072). CRITICAL DISTINCTION: the L=1.0 cases here are CANONICALLY CORRECT — m_hat=1, M=2
+      (NOT m_hat=0/M=0), and L=1 arises only when the autocovariance numerator is genuinely negligible
+      for that draw (the degenerate guard at g_hat<1e-28). This is the TRUE PW output, not the superseded
+      PR#2 "collapse" (which was m_hat=0 -> M=0 by construction for ALL near-white series). The impl
+      tracks the independent oracle perfectly, confirming it is NOT the collapsing interim.
+    plain-wn-T4000: "impl L=2.5903 (matches adjudication's reported 2.5903) — healthy, no collapse."
+  m_max-cap:
+    claim: "AR(0.97) T=500: M_max=ceil(sqrt(500))+K_N binds -> L≈34.1"
+    result: >
+      Independently computed M_max(T=500) = ceil(sqrt(500)) + K_N = 23 + 5 = 28 (matches the test's
+      assertion). My independent oracle on AR(0.97)/s123 gives m_hat=28, M=28 (==M_max, cap binds before
+      2*m_hat would), L=34.106116 (reldiff 6.5e-09 vs pin). b_max=68 does NOT bind (L<b_max), exactly as
+      the test docstring states. CONFIRMED independently.
+  test-suite:
+    command: "pytest tests/harness/test_reality_check.py tests/backtest/test_engine.py::test_no_lookahead -q"
+    result: "39 passed in 1.32s — includes the sacred test_no_lookahead (PASS) and all 4 re-pinned exact-value tests."
+  guards-fail-closed:
+    result: "NaN->ValueError, inf->ValueError, empty->ValueError, scalar(0-D)->ValueError, constant->1.0. All fail-closed."
+  determinism: "politis_white_block_length(wn) bit-identical on repeat (2.3921766551071535 == itself)."
+  ruff: "ruff check src/forex_system/harness/reality_check.py -> All checks passed."
+  white-rc-half:
+    result: >
+      White RC p-value path present and intact (recenter-by-sample-mean, non-studentized max, no omega;
+      reality_check.py:874-945). Its tests (TestWhiteRCPvalue, TestR5CombinedResultFields) are among the
+      39 passing. White-RC is in-scope only as "confirm unchanged behavior" — confirmed via passing tests.
+
+# =====================================================================
+# PER-PRIOR-FINDING CLOSURE VERDICTS
+# =====================================================================
+findings:
+  - id: PW-1
+    title: "flat-top window / M=2*m_hat / D_SB factor-2"
+    closure: CLOSED
+    evidence: >
+      reality_check.py:253-280 — _flat_top is exactly lambda(u)=1 for |u|<0.5, 2(1-|u|) for 0.5<=|u|<=1,
+      0 else (matches R lambda verbatim). M = min(2*m_hat, M_max, max_lag) (line 251). D_SB = 2*sum^2
+      (line 280, factor-2 present). Independent oracle reproduces all pins using this exact spectral
+      machinery. PW-1 remains intact post-QD-fix.
+    severity: none
+
+  - id: PW-2
+    title: "K_N = max(5, ceil(log10 T))"
+    closure: CLOSED
+    evidence: "reality_check.py:216 — K_N = max(5, math.ceil(math.log10(T))). Exact match to R extract. Independently used in oracle (K_N=5 for T=500), pins match."
+    severity: none
+
+  - id: PW-3
+    title: "b_max = ceil(min(3*sqrt T, T/3)) cap"
+    closure: CLOSED
+    evidence: "reality_check.py:290 — b_max = math.ceil(min(3.0*math.sqrt(T), T/3.0)). Exact match. Independently b_max(500)=68 (test asserts 68). Cap enforced at line 291."
+    severity: none
+
+  - id: PW-4
+    title: "m_hat rule now max(1, run_start - 1)"
+    closure: CLOSED
+    evidence: >
+      reality_check.py:240 — `m_hat = max(1, run_start - 1) if run_start is not None else 1`. Both arms
+      of the canonical R if/else are present: run_start==1 -> max(1,0)=1 (floor); run_start>1 ->
+      run_start-1 (lag before the run). Independent oracle confirms behavior: WN->1, AR0.5->2, AR0.9->10,
+      AR0.97->28(M_max-bound). The negative control proves the impl is NOT the old max(1, run_start)
+      (which would give 3/11). Off-by-one HIGH defect from the prior chain is CLOSED.
+    severity: none
+
+  - id: NEW-1
+    title: "test pins must be GENUINE R cross-validation, not impl self-snapshots"
+    closure: CLOSED
+    pins-match-my-independent-oracle: true
+    explicit-statement: >
+      YES — all four re-pinned values (WN 2.392177, AR0.5 7.164245, AR0.9 19.962904, AR0.97 34.106116)
+      match a from-scratch R-faithful Python port (built from the canonical R extracts, NOT from the
+      impl) to reldiff <= 1.4e-07. The negative control (old buggy m_hat rule) DIVERGES from every pin,
+      proving the pins encode the corrected canonical algorithm rather than a snapshot of either the old
+      or current impl's accidental output. The pins are therefore genuine independent-oracle
+      cross-validation. The docstrings honestly disclose that the absolute R-actual values (2.40/7.16/
+      19.94) differ at ~0.1-0.4% due to numpy-vs-R RNG, and pin against the numpy-RNG algorithm value
+      with the R-actual as the cross-check — an acceptable and transparent practice.
+    severity: none
+
+new-findings:
+  - id: N-OBS-1
+    title: "Decision-trace logging on the PW estimator is exemplary"
+    label: praise
+    severity: non-blocking
+    rubric: log-as-decision-trace
+    evidence: >
+      reality_check.py:294-309 emits one structured JSON entry per runtime outcome
+      (politis_white.block_length) carrying T, m_hat, M, threshold, K_N, g_hat, d_hat, L_opt, b_max,
+      cap_binds, L_final — every input that drove the L decision is queryable. The constant-series
+      short-circuit (line 198) and the cap-binds boolean are both logged (skipped/degenerate paths
+      covered). Passes log-as-decision-trace items 1,2,6,8,9,10. No correlation-ID, but this is a pure
+      numeric function not an order-path decision, so item 5 is N/A. No finding.
+
+  - id: N-FW-1
+    title: "Execution-firewall: estimator constants traceable to the adjudicated spec"
+    label: note
+    severity: non-blocking
+    rubric: execution-firewall-review
+    evidence: >
+      Every numeric literal in the PW estimator is sourced: c=1.959963984540054 (Section C: from R
+      blocklength::pwsd default / adjudication), K_N/M_max/b_max formulas (from R extracts), D_SB factor-2
+      (PW2004). No silent winsorize/fillna/clip on the input series — the only data-conditioning is the
+      explicit de-mean (PW2004 Step 1) and fail-closed NaN/Inf rejection. No regime branching, no
+      undocumented signal transformation. Section A clean. The estimator is infrastructure (block-length
+      selection), not a research-class threshold; the one research-class knob (c) is sourced to the
+      adjudicated spec. No firewall finding.
+
+# =====================================================================
+# REVIEW-PLAN DIMENSION SCORES
+# =====================================================================
+rubrics-applied:
+  review-plan-dimensions:
+    correctness: PASS  # impl matches canonical R algorithm verbatim; independent oracle reproduces all 4 pins to <=1.4e-7
+    design: PASS       # transliterates R blocklength::pwsd faithfully; degenerate guards explicit; no over-abstraction
+    security: N/A      # pure numeric function, no untrusted I/O, no secrets, no PII
+    completeness: PASS # all 4 prior findings + NEW-1 closed; guards/determinism/cap/White-RC covered
+    testing: PASS      # 4 exact-value pins cross-validated; guard tests (NaN/inf/empty/scalar/constant); multivariate; sacred no-lookahead passes
+    clarity: PASS      # docstrings cite R source + adjudication, disclose RNG tolerance honestly, both if/else arms documented
+    risk: PASS         # block-length precision is decision-inert for R5 (adjudication: 0/10 verdict flips L=1 vs L=3); estimator correct on FUTURE autocorrelated series
+    performance: N/A   # O(M_max * T) per call; M_max=ceil(sqrt T)+K_N; not a hot path
+
+coverage-statement: >
+  Verified: (1) all four PR findings PW-1..PW-4 CLOSED against code + an independently-built R-faithful
+  port; (2) NEW-1 CLOSED — the four re-pinned test values match my from-scratch oracle to <=1.4e-7, and a
+  negative control (old m_hat rule) diverges from every pin, proving the pins are not self-snapshots;
+  (3) near-white regime tracks the oracle exactly across 7 seeds (the residual L=1 cases are canonically
+  correct, NOT the superseded collapse); (4) M_max=28 cap value computed independently and confirmed to
+  bind on AR(0.97); (5) full test suite 39/39 PASS including sacred test_no_lookahead; (6) guards
+  fail-closed, determinism holds, ruff clean, White-RC half intact. NOT independently re-derived: the
+  R-ACTUAL (R-interpreter) numeric outputs — I relied on the adjudication's R-port values (2.40/7.16/
+  19.94) as the cross-check anchor and reproduced the ALGORITHM via numpy; the ~0.1-0.4% gap is RNG, and
+  the docstrings disclose it. Out of scope (not reviewed for correctness): the r5a/r5b/r5c bootstrap
+  bodies beyond confirming the block-length wiring and that White-RC tests pass.
+
+verdict-rationale: >
+  APPROVE. PW-1..PW-4 are all CLOSED and the m_hat fix (the one substantive change) makes the estimator
+  match the canonical R blocklength::pwsd algorithm in both arms. NEW-1 — the key risk — is genuinely
+  closed: the pins reproduce an independent from-scratch R-faithful oracle to 1e-7 and provably diverge
+  from the old buggy rule, so they are real cross-validation rather than impl self-snapshots. No new
+  blocking defect: logging, firewall, guards, determinism, ruff, and the sacred no-lookahead test all
+  pass. The near-white L=1 cases are canonically correct, not a regression. Per the adjudication, the
+  block-length precision is decision-inert for the R5 kill-test, so even residual RNG-level differences
+  carry no decision risk. All conditions for approval met.
+
+contamination-veto: false
+time-spent-reasoning: ~22 minutes (skill load + spec/code read + independent oracle build & runtime cross-validation + test/guard/ruff execution)
+confidence: high
+no-code-modified: true   # review-only; analysis scripts in /tmp only (Execution-Researcher Firewall preserved)

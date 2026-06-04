@@ -1,0 +1,302 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+artifact-under-review:
+  - src/forex_system/harness/reality_check.py  # STEP-2a additions (uncommitted)
+  - tests/harness/test_reality_check.py          # new test file
+spec-version-reviewed-against: .fintech-org/artifacts/2026-06-02T-r5-scope/mathematician-r5-spec.yaml
+review-context: >
+  STEP-2a adds Politis-White (2004)+PPW(2009) automatic block-length selection
+  (politis_white_block_length / _multivariate) and a White (2000) Reality Check
+  p-value (white_rc_pvalue) computed off the same stationary-bootstrap draws as
+  Hansen SPA, plus block_length=None auto-wiring in r5a/r5c. Reviewed cold against
+  the source papers and the reference implementation (R `blocklength::pwsd`,
+  Alec-Stashevsky, which implements PW2004+PPW2009). Ran behavioral checks and the
+  full harness/backtest suite.
+
+rubrics-applied:
+  - rubric: review-plan / code-correctness (math machinery)
+    applied: true
+  - rubric: execution-firewall-review
+    applied: true
+    note: >
+      This is pure statistical machinery (block-length selection, bootstrap
+      p-values) with NO research/strategy parameters. Sections A (research
+      artifacts in impl), B (spec completeness), C (parameter sourcing) reviewed:
+      the numeric constants here are STATISTICAL constants traceable to PW2004 —
+      they are not strategy thresholds, so the firewall's "magic number" concern
+      maps instead to "paper-sourced constant" verification (see findings PW-1..PW-4).
+      Section D (observability) and E (integration tests) reviewed.
+  - rubric: log-as-decision-trace
+    applied: true
+  - rubric: probability-statistics
+    applied: true
+    note: skill could not be Skill-loaded (disable-model-invocation); applied from knowledge + paper/reference verification.
+  - rubric: clock-and-ordering
+    applied: false
+    skip-reason: no time-series joins across clock sources, no now()/timestamp logic in the diff.
+  - rubric: kill-switch-design
+    applied: false
+    skip-reason: no kill-switch / order-routing surface in this diff.
+
+findings:
+
+  - id: PW-1
+    severity: blocking
+    location: src/forex_system/harness/reality_check.py:235-241
+    category: formula-correctness
+    observation: >
+      The g_hat / d_hat autocovariance sums omit the FLAT-TOP LAG WINDOW and the
+      M = 2*m_hat band that define the PW(2004) spectral-density plug-in. The
+      reference implementation (R blocklength::pwsd, verbatim) computes:
+        lambda(t) = 1 for |t|<0.5; 2*(1-|t|) for 0.5<=|t|<=1; 0 otherwise
+        M = min(2*m_hat, M_max)
+        G_hat   = sum_{k=-M..M} lambda(k/M) * |k| * R(k)
+        D_SB    = 2 * ( sum_{k=-M..M} lambda(k/M) * R(k) )^2
+      The code instead sums UNWEIGHTED autocovariances only out to m_hat (not 2*m_hat),
+      and computes d_hat = ( sum R(k) )^2 WITHOUT the factor of 2 that PW2004's
+      stationary-bootstrap D_SB carries. Three deviations compound: (a) no flat-top
+      taper, (b) band is m_hat not 2*m_hat, (c) missing factor-2 in D_SB.
+    inference: >
+      The implemented estimator is NOT the Politis-White estimator; it is a related
+      but distinct plug-in. The docstring (lines 96-108, 227-229) cites PW2004 eq. 9/10/14
+      and the M=2*m_hat band, but the code does not implement them — code/doc disagree,
+      and the code loses.
+    evidence: >
+      Reference R source (Alec-Stashevsky/blocklength R/pwsd.R) fetched verbatim:
+        lambda <- function(t) (abs(t)>=0)*(abs(t)<0.5) + 2*(1-abs(t))*(abs(t)>=0.5)*(abs(t)<=1)
+        M <- ifelse(2*m_hat > M_max, M_max, 2*m_hat)
+        G_hat <- sum(lambda(k_seq/M) * abs(k_seq) * R.k)
+        D_SB_hat <- 2 * sum(lambda(k_seq/M) * R.k)^2
+      Independent reimplementation of the reference vs. the code under review (seed=42):
+        WN     T=500 : code L=3.0140  reference L=2.3922  (+26%)
+        AR0.5  T=500 : code L=9.3921  reference L=7.1642  (+31%)
+        AR0.9  T=500 : code L=23.4385 reference L=19.7032 (+19%)
+      Code is systematically biased HIGH by ~20-30% across regimes.
+    recommended-action-class: formula-fix
+    contract-a-fix-must-satisfy: >
+      Apply the flat-top kernel lambda(k/M) to BOTH the |k|*R(k) sum (G_hat) and the
+      R(k) sum (inside D_SB); widen the band to M=min(2*m_hat, M_max); include the
+      factor-2 in D_SB per PW2004 stationary-bootstrap form. Re-derive the regression
+      pins (PW-7) from the corrected estimator and cross-check at least one input
+      against R blocklength::pwsd to within float tolerance.
+    owning-role: quant-developer  # implementation of a spec already pinned by the Mathematician
+
+  - id: PW-2
+    severity: blocking
+    location: src/forex_system/harness/reality_check.py:210
+    category: formula-correctness
+    observation: >
+      K_N is computed as max(5, int(sqrt(log10(T)))). PW2004 (footnote c) and the
+      reference implementation specify K_N = max(5, ceil(log10(T))). The code took
+      the SQUARE ROOT of log10(T) and floored it via int(); the paper takes the
+      CEILING of log10(T) with no square root.
+    inference: >
+      For the carry T_oos sizes (~120-500) both happen to floor to 5, masking the bug,
+      but the formula is wrong and diverges for larger T: e.g. T=1e6 → correct
+      K_N=ceil(6)=6, code → max(5,int(sqrt(6)))=5. K_N controls the m_hat truncation
+      sensitivity; a wrong K_N is an undetected correctness defect that the current
+      tests cannot catch because they only exercise T<=2000.
+    evidence: >
+      Reference R: if (is.null(K_N)) K_N <- max(5, ceiling(log10(n)))
+      Web-confirmed (R blocklength docs): "K_N = max(5, ceil(log10(N))) per Politis and White (2004)".
+    recommended-action-class: formula-fix
+    contract-a-fix-must-satisfy: K_N = max(5, math.ceil(math.log10(T))); no sqrt, ceil not floor.
+    owning-role: quant-developer
+
+  - id: PW-3
+    severity: blocking
+    location: src/forex_system/harness/reality_check.py:243-252
+    category: formula-correctness / fail-open-guard
+    observation: >
+      The PW2004 upper bound b_max = ceil(min(3*sqrt(T), T/3)) is NOT applied. The
+      code returns max(L_opt, 1.0) with no upper clamp. The docstring at line 75-80
+      implies a default upper bound exists ("fixed defaults retained") but the PW
+      function has none.
+    inference: >
+      The missing cap BINDS in practice. For AR(0.95) T=500 the code returns L=107.67
+      while PW's cap is 68 (58% over). For a stationary bootstrap, an over-long block
+      over-smooths the resample and produces an OVER-CONSERVATIVE (anti-powered)
+      p-value. For an R5 carry kill-test the spec itself flags as UNDERPOWERED, an
+      uncapped L silently erodes power further — a fail-toward-false-PASS direction
+      on the conservative side, but more importantly an undocumented departure from
+      the cited algorithm. This is the fail-open class: an unbounded statistical
+      parameter feeding the decision statistic.
+    evidence: >
+      Reference R: b_SB_star <- ifelse(b_SB_star > b_max, b_max, b_SB_star),
+      with b_max = ceiling(min(3*sqrt(n), n/3)).
+      Runtime: AR(0.95) T=500 → code L=107.67 vs b_max=68; T=252 → code L=31.15 vs b_max=48 (cap not binding there).
+    recommended-action-class: formula-fix
+    contract-a-fix-must-satisfy: >
+      L = min(L_opt, ceil(min(3*sqrt(T), T/3))) then max(.,1.0). Log when the cap binds
+      (decision-trace), since a bound that activates changes the p-value.
+    owning-role: quant-developer
+
+  - id: PW-4
+    severity: major
+    location: src/forex_system/harness/reality_check.py:219-221
+    category: formula-correctness / off-by-one
+    observation: >
+      m_hat selection sets m_hat = k - K_N + 1 (the lag where the K_N-run STARTED).
+      PW2004 defines m_hat as the smallest m such that lags m+1..m+K_N are all
+      insignificant, i.e. m_hat = run_start_lag - 1. The code's m_hat is one larger
+      than the paper convention.
+    inference: >
+      Off-by-one in m_hat propagates into the band and the autocov sums. On its own
+      it is a small bias; combined with PW-1 (which already mis-specifies the band as
+      m_hat rather than 2*m_hat) it is one more reason the absolute L is wrong. Lower
+      severity than PW-1..PW-3 only because the band itself is already being rebuilt.
+    evidence: >
+      Reference: "m_hat is the smallest integer after which the correlogram appears
+      negligible for K_N lags" — i.e. the lag BEFORE the insignificant run, not the
+      run's first lag.
+    recommended-action-class: formula-fix
+    contract-a-fix-must-satisfy: m_hat = (first lag where the K_N-run completes) - K_N; verify against reference on AR(0.9).
+    owning-role: quant-developer
+
+  - id: PW-7
+    severity: major
+    location: tests/harness/test_reality_check.py:433-459
+    category: test-pins-wrong-values
+    observation: >
+      The exact-value regression pins (WN L≈3.014, AR(0.9) L≈23.44) pin the OUTPUT OF
+      THE BUGGY FORMULA, not paper-correct values. The correct reference values are
+      ~2.39 and ~19.70 respectively.
+    inference: >
+      These pins will FIGHT the fix: a correct PW implementation breaks them, so a
+      future engineer is incentivised to "preserve" the wrong number. Regression pins
+      must pin a value cross-validated against the reference (R blocklength::pwsd or a
+      hand-derivation), not a self-consistent smoke-test snapshot. As written they
+      lock in the defect.
+    evidence: code L=3.014/23.44 vs independent reference reimplementation 2.39/19.70 (seed=42).
+    recommended-action-class: test-fix (after PW-1..PW-4)
+    contract-a-fix-must-satisfy: re-pin to corrected values cross-checked against an independent PW implementation.
+    owning-role: quant-developer
+
+  - id: TEST-INV-1
+    severity: major
+    location: tests/harness/test_reality_check.py:56-159, 167-230
+    category: test-inversion-weakness
+    observation: >
+      The behavioral tests assert only ORDERING and loose RANGES (WN L in [1,8];
+      AR0.9 L>5; AR0.9>WN). A formula that is biased high/low by 20-30% (exactly the
+      PW-1/PW-3 defect) passes all of them. No test compares against an independent
+      PW reference value; the only exact pins (PW-7) pin the wrong number.
+    inference: >
+      The test suite cannot detect the formula errors found in PW-1..PW-4. A flipped
+      flat-top weight, the missing factor-2, the sqrt-vs-ceil K_N, and the missing
+      b_max all slip through. The guard tests (NaN/Inf/empty/constant/2-D) ARE strong
+      and correctly assert fail-closed — those are good.
+    evidence: all 36 new tests pass against the buggy formula; full harness/backtest suite 214 passed.
+    recommended-action-class: test-strengthening
+    contract-a-fix-must-satisfy: >
+      Add at least one test asserting L within float tolerance of an independent PW
+      reference value for a known input (e.g. arch.bootstrap.optimal_block_length or
+      R blocklength), so any future formula drift is caught numerically, not just by ordering.
+    owning-role: quant-developer
+
+  - id: RC-DOC-1
+    severity: minor
+    location: src/forex_system/harness/reality_check.py:663-689, 731-732, 838-841
+    category: doc-code-inconsistency
+    observation: >
+      Multiple docstrings state White RC uses "no recentering" / "null = all d_k=0"
+      (lines 665-668, 688-689, 731-732, 772-773), but the implementation correctly
+      recenters the bootstrap means by the SAMPLE MEAN at line 902
+      (boot - means[np.newaxis,:]) — which IS the correct White(2000) stationary-
+      bootstrap RC construction (eq. 3.7), and the inline comment at 899-901 even says so.
+    inference: >
+      The CODE is correct (sample-mean recentering of the bootstrap null is required;
+      "no recentering" would make the RC null mis-located and the p-value meaningless).
+      The attribute/summary docstrings are internally contradictory and will mislead a
+      future reader into thinking the null is un-recentered. Documentation defect, not
+      a math defect — RC p-value computation itself is faithful and shares draws with SPA.
+    evidence: >
+      Line 902: boot_means_rc = np.mean(boot - means[np.newaxis, :], axis=0); recenter by sample mean.
+      Confirmed RC and SPA use the SAME `boot` per iteration (single draw at line 877 feeds all four
+      statistics) — the "same draws" claim is TRUE.
+      Behavioral: poor-model-dominated test (5 weak + 1 winner, B=2000) passes RC_p >= SPA_p.
+    recommended-action-class: doc-fix
+    contract-a-fix-must-satisfy: reword the "no recentering" docstrings to "sample-mean recentering of the bootstrap null (White 2000 eq. 3.7); no studentisation".
+    owning-role: quant-developer
+
+  - id: OBS-1
+    severity: observation
+    location: src/forex_system/harness/reality_check.py:331-374, 846-854
+    category: performance (non-blocking)
+    observation: >
+      Both block bootstraps build resamples with Python-level append loops over B
+      (10000) x T x blocks. With B=10000 and the new joint k-dim resampling this is
+      O(B*T*k) pure-Python. Not a correctness issue and out of scope, but for the full
+      R5 run it may dominate wall-clock.
+    inference: non-blocking; flagged for the owning role's awareness only.
+    evidence: visual; not benchmarked.
+    recommended-action-class: none (informational)
+    owning-role: quant-developer
+
+  - id: BWC-1
+    severity: observation
+    location: src/forex_system/harness/reality_check.py:421,466-472,720,793-799
+    category: backward-compatibility (verified-clean)
+    observation: >
+      block_length=None correctly routes to auto-select; explicit int preserves the
+      old fixed behaviour; block_length_auto flag set accordingly. r5c docstring notes
+      passing block_length=10 reproduces the prior default. _default_block_length and
+      fixed _SENSITIVITY_BLOCK_LENGTHS retained.
+    inference: backward-compat intent is met. NO finding — recorded as positive evidence.
+    evidence: >
+      Full harness + backtest suite: 214 passed. New file: 36 passed. The only suite
+      failure (tests/governance/test_policy_violations_canary.py) is PRE-EXISTING and
+      unrelated — it asserts on a JSONL data file's `action` field; reality_check.py
+      is the only file in this diff.
+    recommended-action-class: none
+    owning-role: n/a
+
+coverage-statement: >
+  Reviewed the full git diff of reality_check.py and the entire new test file.
+  Independently verified the Politis-White formula against (a) PW2004 abstract +
+  PPW2009 correction, (b) the canonical reference implementation R blocklength::pwsd
+  (source fetched verbatim from GitHub), and (c) a from-scratch Python reimplementation
+  of the reference, comparing L on WN / AR(0.5) / AR(0.9) / AR(0.95) at T in {252,500,2000}.
+  Ran behavioral sanity (short L on noise, larger on AR1, multivariate max, fail-closed
+  guards) — guards PASS, ordering PASSES, absolute magnitude FAILS (~20-30% high).
+  Verified the White-RC construction shares draws with SPA (single per-iteration draw),
+  recenters by sample mean (correct), and the poor-model RC_p>=SPA_p ordering holds.
+  Ran the new tests (36 pass) and the harness+backtest suite (214 pass); the one
+  suite-wide failure is pre-existing governance data, not this diff.
+  NOT independently re-derived: Hansen SPA consistent/lower/upper recentering internals
+  beyond confirming the mu_bar=max(0,mean) threshold and that RC shares the draws — the
+  SPA machinery is pre-existing and not the focus of STEP-2a. The joint (T,~36)
+  return-matrix plumbing is explicitly out of scope this increment.
+
+contamination-check:
+  other-role-stance-conveyed: false
+  author-self-review-read: false
+  note: >
+    Did NOT open .fintech-org/artifacts/2026-06-02T-r5-scope/qd-step2a-block-length-whiterc.yaml
+    (the Quant Developer's own handoff) to avoid importing the author's self-assessment.
+    Verdict derived solely from the code, the source papers, the R reference
+    implementation, and runtime checks. No approval/rejection stance was present in the
+    review prompt. No contamination detected.
+
+decision-rationale: >
+  REJECT. Three independent BLOCKING formula defects (PW-1 missing flat-top window +
+  M=2*m_hat band + D_SB factor-2; PW-2 wrong K_N formula; PW-3 missing b_max clamp that
+  demonstrably binds) mean the function does not compute the Politis-White block length
+  it claims to — it is biased ~20-30% high and uncapped. The change is internally
+  consistent and passes its own tests, but the tests pin the wrong values (PW-7) and
+  only check ordering (TEST-INV-1), so they certify a defect. The White-RC half is
+  essentially correct (shares draws, correct sample-mean recentering) with only a
+  docstring inconsistency (RC-DOC-1) — that half would pass on its own. Because the
+  auto-selected L feeds directly into the R5 kill-test bootstrap p-values, shipping a
+  mis-specified block length silently distorts every R5a/R5c verdict. Route the
+  block-length defects to the Quant Developer for a formula fix cross-validated against
+  the reference implementation; the Mathematician's spec already pins the intended
+  algorithm, so this is implementation drift from a correct spec, not a spec gap.
+
+route-to: quant-developer
+escalation: >
+  If the Quant Developer disputes the reference (R blocklength::pwsd) as authoritative,
+  escalate the formula adjudication to the Mathematician, who owns mathematician-r5-spec.yaml.
+
+time-spent-reasoning: ~35 minutes (read diff + tests; web-verified PW2004/PPW2009 against R reference; reimplemented reference; ran behavioral + full suite)

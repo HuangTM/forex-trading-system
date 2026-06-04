@@ -1,0 +1,208 @@
+schema: review-report
+role: principal-reviewer
+artifact_type: code-review
+rubric-applied:
+  - review-plan
+  - execution-firewall-review
+  - log-as-decision-trace
+  - probability-statistics (knowledge applied; skill not loadable in this harness)
+
+decision: reject
+
+artifact-under-review:
+  - path: src/forex_system/harness/reality_check.py
+    functions: [politis_white_block_length, politis_white_block_length_multivariate]
+    state: uncommitted (git diff)
+  - path: tests/harness/test_reality_check.py
+    state: uncommitted (untracked)
+  - canonical-reference: "R blocklength::pwsd (Alec-Stashevsky), Politis-White 2004 / Patton-Politis-White 2009"
+  - oracle-availability: "arch.bootstrap.optimal_block_length NOT importable (ModuleNotFoundError confirmed — matches first review). R-faithful Python port built by reviewer and used as oracle."
+
+# =====================================================================
+# CENTRAL VERDICT ON THE WHITE / NEAR-WHITE REGIME QUESTION
+# =====================================================================
+near-white-regime-verdict:
+  question: "Is L=1.0 on white / near-white correct per the canonical algorithm, or a divergence?"
+  answer: "DIVERGENCE — BLOCKING. L=1.0 on near-white is NOT canonical behaviour."
+  operating-point: "R5 carry strategy-returns are NEAR-WHITE (Mathematician spec: ACF lag-1 = -0.003). This is exactly where R5 lives."
+  evidence:
+    method: "Built a faithful Python port of R blocklength::pwsd (implied_hypothesis rle rule, M=min(2*m_hat, M_max), flat-top lambda, D_SB = 2*(sum)^2, b_max). Port reproduces the R oracle EXACTLY: WN/T500/s42 L=2.3922, AR0.5 L=7.1642 (both match the test's cited R values at float precision)."
+    impl-vs-reference-near-white-T4000:
+      - "phi=0.00 s2: REF L=1.70  impl L=1.00  DIVERGE"
+      - "phi=0.00 s3: REF L=1.84  impl L=1.00  DIVERGE"
+      - "phi=0.00 s42: REF L=2.59  impl L=1.00  DIVERGE"
+      - "phi=0.03 s1: REF L=2.15  impl L=1.00  DIVERGE"
+      - "phi=0.03 s3: REF L=3.21  impl L=1.00  DIVERGE"
+      - "phi=0.03 s7: REF L=2.63  impl L=1.00  DIVERGE"
+      - "phi=0.05 s1: REF L=3.05  impl L=1.00  DIVERGE"
+      - "phi=0.05 s2: REF L=2.49  impl L=1.00  DIVERGE"
+      - "phi=-0.003 s2: REF L=1.90 impl L=1.00 DIVERGE"
+      - "phi=-0.003 s42: REF L=2.45 impl L=1.00 DIVERGE"
+      - "(cases where impl m_hat happened to be >=1, e.g. phi=0.03/s42 and phi=0.05/s42, DO match — confirming the collapse is m_hat-driven, not random)"
+    conclusion: >
+      The implementation SYSTEMATICALLY collapses to L=1.0 in the near-white regime
+      where the canonical reference gives L≈1.7–3.2. This is not a finite-sample ±1
+      difference on pure WN (which would be acceptable); it is a structural off-by-one
+      that fires at R5's stated operating point. Block length L=1 = i.i.d. bootstrap,
+      which DESTROYS the autocorrelation-falsification power R5a is supposed to provide.
+      An L too short understates dependence and makes the bootstrap p-value
+      anti-conservative (too easy to reject H0 / pass). Wrong direction for a falsifier.
+
+# =====================================================================
+# PER-PRIOR-FINDING CLOSURE VERDICTS
+# =====================================================================
+prior-findings:
+  - id: PW-1
+    title: "flat-top window lambda(k/M), band M=2*m_hat, factor-2 in D_SB"
+    verdict: CLOSED
+    evidence:
+      - "reality_check.py:233-240 _flat_top(u) = 1 for |u|<0.5; 2*(1-|u|) for 0.5<=|u|<=1; 0 else — matches R lambda() verbatim."
+      - "reality_check.py:231 M = min(2*m_hat, max_lag) — factor-2 present."
+      - "reality_check.py:260 d_hat = 2.0 * sum_for_d**2 — factor-2 present, matches R D_SB_hat = 2*(...)^2."
+      - "Independent check: AR(0.5)/T500/s42 impl L=7.1642 == R-ref 7.1642 at float precision — the G_hat/D_SB machinery is correct once m_hat agrees."
+    note: "The window/band/factor-2 mechanics are genuinely fixed. The residual error is upstream (m_hat), not here."
+
+  - id: PW-2
+    title: "K_N = max(5, ceil(log10 T))"
+    verdict: CLOSED
+    evidence:
+      - "reality_check.py:206 K_N = max(5, math.ceil(math.log10(T))) — matches R K_N <- max(5, ceiling(log10(n))). No sqrt, ceil not floor."
+
+  - id: PW-3
+    title: "b_max = ceil(min(3*sqrt(T), T/3)); L_final = min(max(L_opt,1), b_max); must bind on near-unit-root"
+    verdict: CLOSED
+    evidence:
+      - "reality_check.py:270-271 b_max = ceil(min(3*sqrt(T), T/3)); L_clamped = min(max(L_opt,1.0), b_max)."
+      - "Runtime: AR(0.97)/T500/s123 -> impl L=68.0 == b_max=68 (cap binds). test_bmax_cap_binds_near_unit_root pins this."
+
+  - id: PW-4
+    title: "m_hat off-by-one (run-start - 1)"
+    verdict: NOT-CLOSED
+    severity: blocking
+    evidence:
+      - "reality_check.py:208-227 sets m_hat = run_start - 1 universally when a K_N-run is found."
+      - "R blocklength::pwsd implied_hypothesis (fetched source): when the FIRST qualifying insignificant run is at POSITION 1 (run starts at lag 1), m_hat <- 1 (NOT 0). Only when the run is NOT first does it use sum-of-preceding-run-lengths. R also floors m_hat at 1 in all branches."
+      - "The remediation over-corrected: 'run_start - 1' produces m_hat=0 for the position-1 case, where R produces m_hat=1. m_hat=0 -> M=0 -> empty G_hat sum -> degenerate guard -> L=1.0."
+      - "Direct m_hat comparison: WN/s42 impl m_hat=0 vs R m_hat=1; near phi=0.03/s1/T4000 impl m_hat=0 vs R m_hat=1; AR0.9/s42 impl m_hat=9 vs R m_hat=10 (off-by-one throughout, but harmless when m_hat is large)."
+      - "Controlled test: re-running the R implied_hypothesis rule with the IMPL's own c=2.0 threshold STILL yields m_hat=1 -> L=2.39 for WN. So the L=1 collapse is the m_hat rule, NOT the threshold constant."
+    required-fix: "Replace 'run_start - 1' with R's implied_hypothesis semantics: m_hat = max(1, <sum of run-lengths preceding the first qualifying run>); when the qualifying run is first, m_hat = 1. Floor m_hat at 1, never 0."
+
+# =====================================================================
+# NEW FINDINGS
+# =====================================================================
+new-findings:
+  - id: NEW-1
+    severity: blocking
+    label: issue
+    dimension: correctness / testing
+    title: "AR(0.9) test pin labelled 'R reference 19.7032' is actually a snapshot of the impl's own off-by-one output, not the R oracle"
+    location: tests/harness/test_reality_check.py:431,456,461
+    evidence:
+      - "Test docstring: 'AR0.9 T=500 seed=42: R reference L=19.7032'. The TRUE R-faithful oracle value is 19.9629 (m_hat=10)."
+      - "The impl outputs exactly 19.7032 (m_hat=9, off-by-one). So the value pinned and labelled as the R oracle equals the implementation's OWN buggy output."
+      - "This is a self-consistent snapshot of a still-wrong formula masquerading as cross-validation — exactly the failure mode the re-review contract asked to rule out. (AR0.5=7.1642 IS a genuine match; WN and AR0.9 are not.)"
+    fix: "Re-derive the AR(0.9) pin from the corrected m_hat formula and label snapshot pins as 'impl regression snapshot', reserving 'R reference' for values actually equal to the R oracle."
+
+  - id: NEW-2
+    severity: non-blocking
+    label: issue
+    dimension: correctness
+    title: "Threshold constant c=2.0 vs R's qnorm(0.975)=1.959964"
+    location: reality_check.py:203
+    evidence:
+      - "Impl threshold = 2.0*sqrt(log10(T)/T). R uses c=qnorm(0.975)~=1.96. PW2004 text uses c=2 as a round approximation, so 2.0 is defensible, but it is a small, documented divergence from the named R oracle the tests claim to validate against."
+    note: "NOT the cause of the L=1 collapse (controlled test above). Flag for consistency only; acceptable if the spec pins c=2."
+
+  - id: NEW-3
+    severity: non-blocking
+    label: suggestion
+    dimension: correctness
+    title: "Band cap uses M=min(2*m_hat, T-1) instead of R's M=min(2*m_hat, ceil(sqrt(T))+K_N)"
+    location: reality_check.py:231
+    evidence:
+      - "R caps M at M_max = ceil(sqrt(n))+K_N. Impl caps at T-1 (much larger). For the corrected-m_hat AR/near-white range this rarely binds, so impact is small, but it is a divergence from the oracle and can matter for very persistent series after PW-4 is fixed."
+    fix: "Consider M_max = ceil(sqrt(T)) + K_N to match the reference exactly."
+
+# =====================================================================
+# BACKWARD-COMPAT / REGRESSION / GUARDS / LOGGING
+# =====================================================================
+backward-compat:
+  verdict: PASS
+  evidence:
+    - "pytest tests/harness tests/backtest/test_engine.py::test_no_lookahead -> 192 passed."
+    - "r5a_circular_block_bootstrap: block_length=None -> auto (politis_white_block_length on de-meaned series, reality_check.py:485-488); fixed-int path preserved (line 490). r5c block_length_auto field tests pass."
+    - "No-lookahead sacred test PASSES — engine signal handling untouched."
+white-rc-half:
+  verdict: PASS
+  evidence:
+    - "reality_check.py:918 boot_means_rc = mean(boot - means) — recenter by sample mean, logic unchanged."
+    - "Docstrings/comments corrected to cite White 2000 eq (3.7), no studentisation, no poor-model recentering (lines 682-699, 790-791, 916-918). No logic regression."
+guards:
+  verdict: PASS
+  evidence:
+    - "NaN/Inf -> ValueError (lines 173-176); len<2 -> ValueError (169-172); 2-D -> ValueError (167-168); constant series R0<1e-14 -> L=1.0 (191-199). All exercised by passing guard tests."
+determinism:
+  verdict: PASS
+  evidence: "test_deterministic_for_same_input passes; function has no RNG; reviewer re-ran twice, identical outputs."
+logging:
+  verdict: PASS-with-note
+  evidence:
+    - "politis_white.block_length entry emits T, m_hat, M, threshold, K_N, g_hat, d_hat, L_opt, b_max, cap_binds, L_final — decision boundary (block-length selection) is replayable from logs alone. Good per log-as-decision-trace items 1,2,3."
+    - "Entries are hand-built JSON via %-format string interpolation rather than a structured logger kwarg; acceptable in this codebase's convention (matches surrounding r5.* events). Not a blocker."
+  note: "constant_series guard and the degenerate L=1 path both log; the m_hat=0->L=1 collapse IS visible in logs (m_hat=0, M=0) — which is how a future operator would catch NEW-finding behaviour. Observability is adequate; the defect is in the value, not the trace."
+
+# =====================================================================
+firewall-review:
+  verdict: not-the-binding-lens
+  note: >
+    This PR is a math-correctness remediation of a researcher-spec'd estimator, not a
+    spec-to-execution translation of a TradeIntent. Sections A-E of execution-firewall-review
+    do not surface findings here (no hardcoded thresholds beyond the spec, no silent data
+    cleaning beyond fail-closed guards, no regime branching, no signal transforms). The
+    binding lens is statistical correctness vs the canonical reference, which is adjudicated
+    above. No firewall finding.
+
+coverage-statement: >
+  Read both block-length functions in full and their call sites (r5a block_length=None path,
+  r5c auto path). Read the full test file's block-length sections (TestPolitisWhiteUnivariate,
+  TestPolitisWhiteMultivariate, TestPolitisWhiteExactValues) and the White-RC section.
+  Fetched and quoted the R blocklength::pwsd source (pwsd.R + implied_hypothesis verbatim).
+  Built a faithful R-port oracle and ran it against the impl on WN, AR(0.5/0.9/0.97), and a
+  near-white T=4000 sweep (phi in {0.0, 0.03, 0.05, -0.003}, 5 seeds each). Confirmed arch
+  not importable. Ran pytest (harness + no-lookahead, 192 pass) and ruff (clean). Did NOT
+  re-audit the SPA/HAC internals beyond the White-RC recentering line (out of scope; unchanged).
+
+contamination-check:
+  status: clean
+  detail: >
+    The directory contains a prior first-review artifact (pr-step2a-review.yaml) and the
+    QD remediation artifacts. I did NOT open pr-step2a-review.yaml to avoid ingesting any
+    prior approve/reject STANCE (per the contamination contract). I verified solely against
+    the code, the fetched R canonical source, and reviewer-run runtime checks. No approval
+    stance was conveyed to me; no contamination-veto required.
+
+self-verification:
+  - "Re-verified PW-4 blocking claim by quoting R's implied_hypothesis verbatim AND by direct m_hat instrumentation of the impl (WN impl m_hat=0 vs R m_hat=1). Confirmed."
+  - "Ruled out the alternative hypothesis that the L=1 collapse is the c=2.0 threshold: re-ran R's m_hat rule with c=2.0 and still got m_hat=1 -> L=2.39. The m_hat rule is the cause."
+  - "Confirmed the divergence is at R5's operating point (near-white, ACF lag-1=-0.003 per spec), not a corner case — making it blocking, not a nit."
+  - "Confirmed PW-1/PW-2/PW-3 are genuinely closed (AR0.5 exact match, cap binds at 68) so the verdict is targeted at PW-4 + the WN pin, not a blanket rejection."
+
+decision-rationale: >
+  PW-1, PW-2, PW-3 are CLOSED. But PW-4 is NOT closed: the m_hat fix over-corrected
+  ('run_start - 1' -> m_hat=0 where the canonical R rule gives m_hat=1), causing a
+  SYSTEMATIC collapse to L=1.0 across the near-white regime that is R5's actual operating
+  point. L=1 is the i.i.d. bootstrap, which removes the autocorrelation-falsification power
+  R5a exists to provide and biases the test anti-conservative. Additionally NEW-1: one
+  'R reference' test pin (AR0.9=19.7032) is a mislabelled snapshot of the impl's own
+  off-by-one output, not the true R oracle (19.9629), so the pins are partly self-validating
+  rather than cross-validated. Per the re-review approval gate (approve ONLY if PW-1..PW-4
+  CLOSED and near-white matches the canonical reference), this fails. Decision: reject.
+
+routed-to: quant-developer
+conditions-for-approval:
+  - "Fix PW-4: implement R's implied_hypothesis semantics (m_hat = sum of preceding-run lengths; m_hat=1 when the qualifying run is first; floor at 1, never 0). Verify impl m_hat matches R m_hat on WN(=1), AR0.5(=2), AR0.9(=10)."
+  - "After the fix, WN/T500/s42 must yield L≈2.39 (R oracle) and the near-white T=4000 sweep must track the reference (L≈1.7–3.2), not collapse to 1.0."
+  - "Re-derive AR(0.9) pin; the test must equal the TRUE R oracle (19.9629) or be explicitly labelled an impl snapshot, not 'R reference'. Cross-validate every 'R reference' pin against the actual oracle."
+  - "Optional (non-blocking): align c to qnorm(0.975) and M_max to ceil(sqrt(T))+K_N for exact-oracle parity (NEW-2, NEW-3)."
+
+time-spent-reasoning: "~38 minutes (code read, R source fetch x2, oracle port + 3 runtime sweeps, root-cause isolation, pytest/ruff, report)."

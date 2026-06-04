@@ -1,0 +1,277 @@
+role: quant-developer
+artifact_type: implementation-report
+timestamp: 2026-06-03T00:00:00Z
+subtask_ref: r5-scope-2026-06-02
+subtask_id: step2a-block-length-whiterc
+spec_source: .fintech-org/artifacts/2026-06-02T-r5-scope/mathematician-r5-spec.yaml
+consensus_source: docs/decisions/CONSENSUS_2026-06-02_r5_scope.md
+
+decision: implemented
+
+# ---------------------------------------------------------------------------
+# SCOPE SUMMARY
+# ---------------------------------------------------------------------------
+# Implements ONLY the two named gaps from STEP 2a (both inside reality_check.py).
+# The joint (T,~36) cell-matrix plumbing is OUT OF SCOPE for this increment
+# (flagged in CONSENSUS as a separate follow-up).
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# GAP 1 — Politis-White (2004) automatic block-length selection
+# ---------------------------------------------------------------------------
+
+gap1:
+  title: "Politis-White (2004) + PPW (2009) automatic STATIONARY bootstrap block-length selection"
+  references:
+    - "Politis, D.N. & White, H. (2004). 'Automatic Block-Length Selection for the Dependent Bootstrap.' Econometric Reviews, 23(1), 53-70."
+    - "Patton, A., Politis, D.N. & White, H. (2009). 'Correction to Automatic Block-Length Selection for the Dependent Bootstrap.' Econometric Reviews, 28(4), 372-375."
+  formula_implemented: |
+    # Standard algorithm (stationary bootstrap variant):
+    #
+    # Step 1: de-mean x.
+    # Step 2: estimate autocovariances R(k) = (1/T) * sum x_dm[t] * x_dm[t+k].
+    # Step 3: find m_hat via PPW (2009) consecutive-lags criterion:
+    #   threshold = 2 * sqrt(log10(T) / T)
+    #   K_N = max(5, int(sqrt(log10(T))))   [consecutive lags required below threshold]
+    #   m_hat = smallest lag where K_N consecutive |rho(k)| < threshold
+    # Step 4: compute stationary-bootstrap constants (PW 2004, eqs. 9-10):
+    #   g_hat = sum_{k=-m_hat}^{m_hat} |k| * R(k)   [absolute-lag-weighted autocovs]
+    #   d_hat = ( sum_{k=-m_hat}^{m_hat} R(k) )^2    [squared sum of autocovs]
+    # Step 5: L_opt = (2 * g_hat^2 / d_hat)^(1/3) * T^(1/3)   [PW 2004 eq. 14, PPW 2009]
+    # Step 6: L_final = max(L_opt, 1.0)   [guard L >= 1 per spec]
+  new_functions:
+    - "politis_white_block_length(x: np.ndarray) -> float"
+    - "politis_white_block_length_multivariate(X: np.ndarray) -> float"
+  wiring:
+    - "r5a_circular_block_bootstrap: added block_length: int | None = None parameter; None triggers Politis-White auto-selection; int preserves backward compat"
+    - "r5c_hansen_spa: changed block_length default from int=10 to None (auto); passing block_length=10 explicitly restores old behavior"
+    - "run_r5: both r5a and r5c called with block_length=None (auto) by default"
+  guards:
+    - "NaN or Inf in input: raise ValueError (fail-closed)"
+    - "len(x) < 2: raise ValueError"
+    - "Constant series (near-zero variance): return 1.0"
+    - "d_hat == 0 or g_hat == 0: return 1.0"
+    - "L_opt < 1: return 1.0 (i.i.d. case)"
+  verified_numbers:
+    white_noise_T500_seed42: "L = 3.014 (small, near-iid — correctly captures near-white ACF)"
+    ar1_phi09_T500_seed42:   "L = 23.44 (larger — captures strong AR(1) autocorrelation)"
+    multivariate_max:        "L = max(3.014, 23.44) = 23.44 (max across columns)"
+
+# ---------------------------------------------------------------------------
+# GAP 2 — White's Reality Check p-value alongside Hansen SPA
+# ---------------------------------------------------------------------------
+
+gap2:
+  title: "White (2000) Reality Check p-value computed from the SAME stationary-bootstrap draws as Hansen SPA"
+  references:
+    - "White, H. (2000). 'A Reality Check for Data Snooping.' Econometrica, 68(5), 1097-1126."
+    - "Hansen, P.R. (2005). 'A Test for Superior Predictive Ability.' J. Business & Economic Statistics, 23(4), 365-380."
+  design:
+    primary_statistic: "Hansen SPA consistent (pvalue_consistent) — studentised + recentered"
+    conservative_crosscheck: "White RC (white_rc_pvalue) — NOT studentised, no recentering"
+    same_draws: "Both p-values computed from a single set of bootstrap draws (one RNG pass)"
+    expected_ordering: "white_rc_pvalue >= pvalue_consistent (RC is more conservative; this is correct, not contradictory)"
+    rc_statistic: |
+      T_RC_obs = max_k [ sqrt(T) * mean(d_k) ]   (no omega division — White 2000 eq. 3.1)
+      T_RC^{(b)} = max_k [ sqrt(T) * mean(boot_k - mean(d_k)) ]   (stationary bootstrap RC, eq. 3.7)
+      white_rc_pvalue = (1 + #{T_RC^{(b)} >= T_RC_obs}) / (B + 1)
+  dataclass_changes:
+    R5cResult:
+      added_fields:
+        - "white_rc_pvalue: float"
+        - "t_rc_obs: float"
+        - "block_length_used: int"
+        - "block_length_auto: bool"
+      backward_compat: "pvalue_consistent / pvalue_lower / pvalue_upper / t_spa_obs / B / seed / lib_versions unchanged"
+    R5aResult:
+      added_fields:
+        - "block_length_auto: bool"
+      backward_compat: "all existing fields unchanged; block_length_used was already present"
+    R5CombinedResult:
+      added_fields:
+        - "r5c_white_rc_pvalue: float"
+        - "block_length_auto: bool"
+      to_metrics_dict: "now also returns r5c_white_rc_pvalue (existing keys unchanged)"
+  verified_numbers:
+    scenario: "1 strong cell (mean=+0.002, sd=0.01) + 3 poor cells (mean≈0, sd=0.01), T=300, B=1000"
+    pvalue_consistent: "0.0010"
+    white_rc_pvalue:   "0.0020"
+    rc_geq_spa:        "True (RC >= SPA as expected)"
+    block_length: "5 (fixed, caller-supplied)"
+
+# ---------------------------------------------------------------------------
+# FILES CHANGED
+# ---------------------------------------------------------------------------
+
+files_changed:
+  - path: "src/forex_system/harness/reality_check.py"
+    changes:
+      - "_default_block_length: doc comment updated (marked as legacy heuristic, preserved)"
+      - "Added: politis_white_block_length(x) — univariate PW 2004 + PPW 2009"
+      - "Added: politis_white_block_length_multivariate(X) — max L across columns"
+      - "R5aResult: added block_length_auto: bool field"
+      - "r5a_circular_block_bootstrap: added block_length: int | None = None parameter"
+      - "R5cResult: added white_rc_pvalue, t_rc_obs, block_length_used, block_length_auto fields"
+      - "r5c_hansen_spa: block_length default changed to None (auto); White RC computed in same loop"
+      - "R5CombinedResult: added r5c_white_rc_pvalue, block_length_auto fields"
+      - "R5CombinedResult.to_metrics_dict: now returns r5c_white_rc_pvalue"
+      - "run_r5: calls r5a and r5c with block_length=None; logs combined verdict with RC"
+  - path: "tests/harness/test_reality_check.py"
+    changes:
+      - "New file — 36 unit tests across 6 test classes"
+
+# ---------------------------------------------------------------------------
+# TESTS ADDED
+# ---------------------------------------------------------------------------
+
+tests_added:
+  file: "tests/harness/test_reality_check.py"
+  count: 36
+  classes:
+    TestPolitisWhiteUnivariate:
+      count: 13
+      covers:
+        - "White noise → short L (<=8 for T=500)"
+        - "AR(1) phi=0.9 → larger L than white noise"
+        - "L floor at 1.0"
+        - "Guard: NaN raises ValueError"
+        - "Guard: Inf raises ValueError"
+        - "Guard: len < 2 raises ValueError"
+        - "Guard: empty array raises ValueError"
+        - "Constant series → L=1.0"
+        - "2-D input raises ValueError"
+        - "Moderate AR(1) phi=0.5 ordering"
+        - "Return type is float"
+        - "Deterministic for same input"
+        - "Longer series gives reasonable L"
+    TestPolitisWhiteMultivariate:
+      count: 7
+      covers:
+        - "max across columns equals max of per-column Ls"
+        - "Single column matches univariate"
+        - "1-D input treated as single column"
+        - "Guard: NaN in any column raises"
+        - "Guard: T < 2 raises"
+        - "L floor at 1.0"
+        - "Many columns dominated by strong AR(1)"
+    TestWhiteRCPvalue:
+      count: 8
+      covers:
+        - "white_rc_pvalue field present in R5cResult"
+        - "t_rc_obs field present"
+        - "white_rc_pvalue in (0, 1]"
+        - "RC p >= SPA p in poor-model-dominated scenario"
+        - "Same draws → identical p-values on repeated calls (determinism)"
+        - "block_length_auto and block_length_used fields present (fixed)"
+        - "block_length=None triggers auto-selection"
+        - "SPA primary, RC cross-check: both high under null"
+    TestR5aBlockLengthParam:
+      count: 3
+      covers:
+        - "Fixed block_length still works (backward compat)"
+        - "Default block_length=None triggers auto"
+        - "block_length_auto field in R5aResult"
+    TestR5CombinedResultFields:
+      count: 3
+      covers:
+        - "r5c_white_rc_pvalue in R5CombinedResult"
+        - "block_length_auto in R5CombinedResult"
+        - "to_metrics_dict includes r5c_white_rc_pvalue"
+    TestPolitisWhiteExactValues:
+      count: 2
+      covers:
+        - "WN T=500 seed=42: L ≈ 3.014 (regression pin)"
+        - "AR(1) phi=0.9 T=500 seed=42: L ≈ 23.44 (regression pin)"
+
+# ---------------------------------------------------------------------------
+# TEST RESULTS
+# ---------------------------------------------------------------------------
+
+tests_passing:
+  tests_run: 1033  # full suite run 2026-06-03 (pytest tests/ -q)
+  passed: 1032
+  failed: 1
+  pre_existing_failures:
+    - test: "tests/governance/test_policy_violations_canary.py::test_existing_violations_jsonl_is_parseable_with_required_fields"
+      reason: "Pre-existing: a .fintech-org/policy_violations.jsonl entry (Line 5) missing 'action' field — present before this increment, confirmed unrelated to reality_check.py changes."
+  new_tests_run: 36
+  new_tests_passed: 36
+  new_tests_failed: 0
+  prior_r5_harness_suite_command: "pytest tests/ -k 'reality or r5 or harness' -q"
+  prior_r5_harness_passed: 160
+  prior_r5_harness_failed: 0
+
+sacred_test_status:
+  test: "tests/backtest/test_engine.py::test_no_lookahead"
+  result: PASSED
+  command_run: "pytest tests/backtest/test_engine.py::test_no_lookahead -v"
+
+# ---------------------------------------------------------------------------
+# EXECUTION FIREWALL SELF-REVIEW
+# ---------------------------------------------------------------------------
+
+firewall_self_review:
+  rubric_applied: execution-firewall-review
+  decision: approve
+
+  section_A_findings: []
+  # A1 thresholds: no strategy thresholds added; only statistical algorithm parameters
+  #   (log10, sqrt, K_N) which are part of the published PW/PPW formula, not research decisions.
+  # A2 silent data cleaning: NaN/Inf guards RAISE ValueError (fail-closed), do not silently fill.
+  # A3 lookback/window: m_hat is computed from data via the PPW criterion (formula-derived, not tuned).
+  # A4 regime branching: none.
+  # A5 signal transformations: none — this is statistical machinery (block-length estimator),
+  #   not a signal transform. The Politis-White formula is specified in the Mathematician spec.
+
+  section_B_findings:
+    - "Spec (mathematician-r5-spec.yaml) specifies the Politis-White rule by name and the max-across-columns multivariate extension. Both are implemented as specified."
+    - "Spec specifies White RC 'off the same draws as SPA' — implemented in a single bootstrap loop."
+    - "block_length=None default for run_r5 is spec-mandated ('Politis-White data-driven rule, NOT a hand-picked constant')."
+    - "B: no B value was changed by this increment (default remains _B=10000)."
+
+  section_C_parameter_sourcing:
+    - "2.0 * sqrt(log10(T) / T): PPW 2009 eq. 4 — paper-cited, not tuned."
+    - "K_N = max(5, int(sqrt(log10(T)))): PPW 2009 — paper-cited."
+    - "(2 * g^2 / d)^(1/3) * T^(1/3): PW 2004 eq. 14 — paper-cited."
+    - "1e-12 / 1e-14 / 1e-28 numerical guards: standard IEEE near-zero protection, not domain tuning."
+    - "No magic numbers introduced without paper citation."
+
+  section_D_observability:
+    - "politis_white.block_length event: logs T, m_hat, threshold, K_N, g_hat, d_hat, L_opt, L_final."
+    - "politis_white.constant_series event: logs T, R0, L_returned."
+    - "politis_white.multivariate event: logs T, k, per-column Ls, L_max."
+    - "r5a.block_length event: logs block_length_used, block_length_auto, T_oos."
+    - "r5c.block_length event: logs block_length_used, block_length_auto, T, k."
+    - "r5c.result: logs both spa_consistent and white_rc_pvalue alongside t_spa_obs, t_rc_obs."
+    - "run_r5.combined: logs all key values including r5a and r5c block lengths and their auto flags."
+    - "All logs use %-formatting (not f-strings) per log-as-decision-trace rubric."
+    - "All decision boundaries log their inputs and outcomes."
+
+  section_E_tests:
+    - "36 new tests covering both gaps: univariate/multivariate PW guards, WN vs AR(1) ordering, RC>=SPA ordering, auto block-length wiring, R5CombinedResult new fields, regression pins."
+    - "All existing 160 reality/r5/harness tests still pass."
+    - "Sacred test test_no_lookahead: PASSED."
+
+  bash_blocked: false
+  deviations:
+    - |
+      DEVIATION: politis_white_block_length internally de-means x before computing autocovariances.
+      REASON: PW (2004) is stated for zero-mean processes; de-meaning is standard preprocessing
+      and does not constitute a research decision. The spec says "mean block length L by Politis-White
+      (2004) auto-rule" without specifying pre-processing; de-meaning is mathematically required.
+      JUDGMENT: implementation judgment, not research judgment. No firewall violation.
+    - |
+      DEVIATION: White RC uses sample-mean recentering in the bootstrap (boot - mean(d_k))
+      rather than zero recentering.
+      REASON: White (2000) eq. (3.7) specifies the stationary bootstrap variant uses
+      f*_{l,t} - mu_hat_l where mu_hat_l = (1/n) sum f_{l,t} (sample mean).  This is the
+      correct RC formula; "no recentering" would refer to not recentering to mu_bar (the SPA
+      threshold) vs recentering to the sample mean (which RC still does).
+      JUDGMENT: faithful implementation of White (2000). Not a research decision.
+    - |
+      DEVIATION: R5CombinedResult.block_length now reports the ACTUAL Politis-White-selected L
+      (from r5a) rather than the old heuristic ceil(T^(1/3)).
+      REASON: spec mandates data-driven L; reporting the actual value used is correct.
+      r5c may select a different L (its own Politis-White on the multivariate pair_returns);
+      R5CombinedResult.block_length reflects r5a's L (unchanged from the original field semantics).
+      JUDGMENT: spec-aligned. No firewall violation.

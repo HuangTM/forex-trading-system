@@ -1,0 +1,442 @@
+---
+# Slice-B alpha hypothesis portfolio — event/calendar/macro-conditioning + alternative feed uses
+# Quant Researcher B | new-alpha-kickoff 2026-06-06
+role: quant-researcher
+artifact_type: hypothesis-portfolio
+decision: approve
+timestamp: "2026-06-06T06:40:00Z"
+subtask_ref: new-alpha-qr-slice-b
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"  # orchestrator-mechanical: proposal-only wave
+slice: B
+
+no-capital-instruction: true
+# Paper hypotheses only. No backtests run, no performance data touched, no trial
+# counter increment. Data inventory was schema/structure only (no return peeks).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EVIDENCE — schema/structure facts verified by direct parquet inspection
+# ──────────────────────────────────────────────────────────────────────────────
+evidence:
+  - path: "data/rates/rate_differentials.parquet"
+    facts: >
+      shape (6540, 12); DatetimeIndex 'date' 2001-03-14 → 2026-04-07 (daily forward-fill).
+      Columns = {PAIR}_diff for all 12 daily pairs (rate differential LEVELS, in decimal,
+      e.g. EURUSD_diff = -0.0106). VERIFIED the series is monthly-stepped/forward-filled:
+      EURUSD_diff has only 197 nonzero day-over-day CHANGES across 6540 rows (157 unique
+      levels), changes span 2001-03-14 → 2026-01-01, recent change magnitudes are bp-scale
+      (e.g. -0.25, +0.11, +0.13, +0.37, +0.08 in pct-point terms). The LEVEL is the dead
+      carry family; the CHANGE event series (197 discrete steps) is a distinct, sparse,
+      genuinely-new transform.
+  - path: "data/spreads/{PAIR}_daily_spreads.parquet"
+    facts: >
+      15 files (12 daily + 3 four-hour: EURUSD/GBPUSD/USDJPY). Daily shape (4237, 3);
+      cols = [spread_pips, hour, day_of_week]; DatetimeIndex 'datetime' tz=UTC
+      2010-01-04 → 2026-04-06; day_of_week ∈ {0..4}. spread_pips is a REAL time-varying
+      series: EURUSD daily median 2.20, max 36.6, std 3.20; fraction of days with
+      spread > 2× median: EURUSD 0.159, GBPUSD 0.146, USDJPY 0.168, AUDJPY 0.130.
+  - path: "data/spreads/{PAIR}_4h_spreads.parquet"
+    facts: >
+      4h shape (25457, 3); same cols. VERIFIED strong intraday liquidity-hole structure:
+      EURUSD 4h spread mean by UTC hour ≈ 2.0 for hours 1/5/9/13/21, but JUMPS to mean
+      4.15 (std 4.15) at hour 17 and 3.97 (std 3.82) at hour 18 — the 17:00 ET (≈21–22 UTC
+      depending on DST; here the 16–18 UTC bucket) rollover/NY-afternoon liquidity hole.
+      Spread is a usable liquidity-regime state variable at both cadences.
+  - path: "data/trades/executions.parquet"
+    facts: >
+      shape (34, 16); RangeIndex; cols include timestamp, pair, direction, size,
+      fill_price, slippage_pips, spread_at_fill, success, signal, strategy, source.
+      VERIFIED UNUSABLE AS A SIGNAL FEED: only 34 rows, all 2026-04-16 → 2026-04-22,
+      4 pairs (USDJPY/GBPJPY/CADJPY/GBPUSD), strategies all carry-family
+      (carry_momentum/multi/vol_target_carry), slippage_pips==0 for every row,
+      30 successful / 4 failed (broker-API 400 errors). This is a paper-execution audit log,
+      not a tradeable alternative-data source. Inventory-only — no proposal relies on it.
+  - path: "data/predictions/2026-04.parquet"
+    facts: >
+      shape (106, 6); cols [timestamp, pair, strategy, signal, params_hash, source].
+      VERIFIED: 7 distinct dates 2026-04-09 → 2026-04-23, 4 pairs, strategies are all
+      carry-family (carry_momentum/vol_target_carry/_monitor), source=paper. This is the
+      firm's OWN archived carry signal log, not an external feed and not a novel source.
+      Inventory-only — no proposal relies on it.
+  - path: "data/processed/{PAIR}_{daily,4h}.parquet"
+    facts: >
+      OHLCV [open,high,low,close,volume]; daily (4237,5) 2010-01-04 → 2026-04-06,
+      4h (25457,5) 2010-06-17 → 2026-04-06; tz-aware UTC DatetimeIndex; volume==0
+      throughout (no usable volume). 12 daily + 3 4h pairs. Timestamps carry the UTC
+      hour and weekday needed for session/calendar conditioning WITHOUT tick data.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PROPOSALS
+# ──────────────────────────────────────────────────────────────────────────────
+proposals:
+
+  - id: QRB-1
+    name: "Rate-differential SHOCK reaction (the surprise event, not the level)"
+    hypothesis: >
+      In the 1–10 trading days following a discrete CHANGE in a pair's rate differential
+      (a central-bank policy step landing in the data), the pair drifts in the direction
+      of the differential CHANGE — i.e. a positive Δ(rate-diff) predicts base-currency
+      appreciation — and this drift is distinct from (orthogonal to) the static carry level.
+    information_source: >
+      data/rates/rate_differentials.parquet, used as a CHANGE/event series (Δ of the level),
+      NOT as the level. Verified: 197 discrete change events over 25y.
+    why_not_in_archive: >
+      The archived carry family conditions on the rate-differential LEVEL/SIGN (calendar-
+      locked). This conditions on the FIRST DIFFERENCE around the ~197 discrete policy steps —
+      a sparse event series the carry family never touches. PM brief explicitly permits
+      "rate-differential CHANGES/surprises (not levels)" as genuinely new.
+    structure: >
+      For each pair, define event days t* where Δ(rate_diff) ≠ 0. Signal = sign(Δ rate_diff)
+      held for a fixed post-event window (e.g. 5 trading days), zero otherwise. Cross-sectional
+      version: rank the 12 pairs by Δ rate_diff on each event and go long top / short bottom.
+    why_not_arbed: >
+      The differential is monthly-stale/forward-filled in this dataset, so the data lags the
+      true policy event by up to a month — any edge here is a SLOW post-decision drift, not a
+      jump-capture race institutions win. Slow drift around policy is plausibly under-arbed at
+      this sampling latency precisely because the fast move is already gone.
+    falsification_sketch: >
+      Metric: mean cumulative pair return over the 5-day post-event window, conditioned on
+      sign(Δ rate_diff), with sign-aligned returns. Threshold: KILL if mean directional return
+      per event ≤ 0 OR ≤ realistic round-trip cost, OR if a White/Politis-White block-bootstrap
+      reality-check p-value (block length on the event series) is ≥ 0.10. Window discipline:
+      event days are pre-defined by Δ≠0; entry strictly the bar AFTER the change is observable
+      (respect entry_delay_bars=1); no peeking at the realized level. Hard power floor: only
+      ~197 events total pooled across 12 pairs — pre-register pooled cross-sectional test (not
+      per-pair) to retain power; if pooled N < ~120 usable post-2010 events, declare UNDERPOWERED.
+    data_availability:
+      available_now: true
+      detail: >
+        rate_differentials.parquet (Δ computed in-spec, not a level) + processed OHLCV for
+        forward returns. Note: rate data starts 2001 but OHLCV starts 2010, so usable events
+        are post-2010 (~fewer than 197 — power risk flagged above).
+    cost_survival: >
+      MARGINAL. A 5-day directional drift on majors must clear ~2–5 pip round-trip (spread+
+      slippage+commission) plus 5 nights of swap. On a pair moving ~50–70 pips over 5 days a
+      few-pip cost is survivable IF the directional edge is real, but the small event count
+      makes the edge estimate fragile. Honest read: plausible mechanism, thin sample.
+    regime_dependence: >
+      Concentrated in hiking/cutting cycles (clusters of changes 2004–06, 2015–19, 2022–24);
+      near-zero signal in flat-rate regimes. Edge is episodic, not continuous.
+    novelty_check:
+      vs_carry: "Carry = level/sign held continuously. This = first-difference, event-gated, sparse. Orthogonal by construction."
+      vs_momentum: "Not price momentum — the trigger is an exogenous rate change, not past return."
+      vs_ma_crossover_bollinger_orb: "No price-MA or band trigger; trigger is macro event."
+    confidence: medium-low
+
+  - id: QRB-2
+    name: "Spread-blowout liquidity-regime gate (spread as a risk-off state variable)"
+    hypothesis: >
+      Days/bars on which the bid-ask spread blows out well above its trailing median mark a
+      liquidity/stress regime in which short-horizon FX returns behave differently (elevated
+      reversal and vol) than in calm-spread regimes — so spread state is a conditioning gate
+      that improves any directional sub-signal, and a stand-alone "stand-aside or fade" rule.
+    information_source: >
+      data/spreads/{PAIR}_{daily,4h}_spreads.parquet — spread_pips as a regime state variable.
+      Verified time-varying (EURUSD daily median 2.20, max 36.6; 13–17% of days > 2× median).
+    why_not_in_archive: >
+      No archived family uses the firm's spread feed as a signal at all — every archived
+      strategy treats spread only as a cost. Using spread_pips as a STATE variable (liquidity
+      regime) is a structurally new information source. PM brief sub-domain (iii).
+    structure: >
+      Define spread_z = (spread_pips − trailing_median_N) / trailing_MAD_N, computed only on
+      past data. Two declarative uses: (a) GATE — suppress (set to 0) any directional signal
+      when spread_z > threshold (the cost is not worth it AND the regime is unstable);
+      (b) STANDALONE — in high-spread-z bars, fade the immediately-preceding move (liquidity
+      stress → mean reversion). Entry the bar after the spread state is observable.
+    why_not_arbed: >
+      Spread widening is a cost-deterrent: most participants AVOID trading then, so any
+      reversion is under-exploited precisely because acting in it is expensive. The edge (if
+      any) lives in the regime classification, not in a crowded directional view.
+    falsification_sketch: >
+      Metric for the GATE: net Sharpe / cost-adjusted return of a baseline directional signal
+      WITH vs WITHOUT the spread-z gate; KILL the gate if it does not improve cost-adjusted
+      return by a pre-registered margin (≥10% relative) out-of-sample. Metric for STANDALONE
+      fade: mean next-bar reversal return conditioned on spread_z > threshold, net of the
+      (wide) spread paid; KILL if ≤ 0 after the elevated cost, or block-bootstrap p ≥ 0.10.
+      Window discipline: spread_z uses only trailing data; threshold pre-registered, not tuned.
+    data_availability:
+      available_now: true
+      detail: >
+        All 15 spread files + matching OHLCV. 4h spreads (EURUSD/GBPUSD/USDJPY) give the
+        finer regime resolution; daily spreads cover all 12 pairs.
+    cost_survival: >
+      THE CENTRAL TENSION. The standalone-fade variant trades EXACTLY when spreads are
+      widest (often 2–10× median), so it must overcome a large round-trip cost from a single
+      next-bar reversion — honestly a high bar; likely fails as a standalone. The GATE variant
+      is far more cost-favorable: it REMOVES expensive trades, so it can only improve net cost.
+      Recommended emphasis: the gate, not the fade.
+    regime_dependence: >
+      By construction this IS a regime signal; concentrated in stress episodes (2011, 2015 CHF,
+      2020, 2022). Sparse but high-information when it fires.
+    novelty_check:
+      vs_bollinger_rsi: "BB/RSI gate on PRICE bands/oscillators. This gates on the SPREAD feed — a different data source entirely."
+      vs_carry_momentum_ma_orb: "None use spread as state; all treat it as cost only."
+    confidence: medium
+
+  - id: QRB-3
+    name: "Turn-of-month rebalancing flow (calendar-mechanical, equity-conditioned)"
+    hypothesis: >
+      Mechanical month-end portfolio-rebalancing/hedging flows produce a predictable
+      directional bias in major pairs over the last ~1–3 trading days of the month into the
+      first ~1–2 of the next, with the sign conditioned on the prior month's relative equity
+      performance proxy (hedgers buy/sell the funding currency to re-hedge a now-larger book).
+    information_source: >
+      data/processed OHLCV timestamps (UTC date → identify month-turn windows). The
+      conditioning equity-performance proxy is the cross-pair structure ALREADY in our FX data
+      (USD-bloc vs JPY-bloc month return) — no equity feed strictly required for a first cut;
+      a true equity index would be an acquisition upgrade (see QRB-6).
+    why_not_in_archive: >
+      Pure calendar-time mechanical flow effect (Melvin & Prins 2015; documented WMR-fix
+      rebalancing literature). No archived family conditions on the day-of-month at all.
+    structure: >
+      Define the turn-of-month window W = {last 2 trading days, first 1 trading day}. Baseline
+      v1: fixed long-USD bias in W (the documented mechanical default when equities rose).
+      Conditioned v2: sign = f(prior-month FX-bloc return as equity proxy) — if risk assets
+      (proxied) rose, expect month-end USD demand from hedgers, and vice versa. Flat outside W.
+    why_not_arbed: >
+      The flow is price-insensitive (mechanical hedging/index tracking), so it is NOT arbitraged
+      to zero — desks lean against it but the residual mechanical pressure persists. This is the
+      textbook "non-information-based flow" that survives because the counterparties must trade.
+    falsification_sketch: >
+      Metric: mean sign-aligned return over window W across months, net of round-trip cost.
+      Threshold: KILL if mean per-month window return ≤ realistic cost, OR if the effect is not
+      stable across two disjoint halves of 2010–2026 (sign flips → mechanical claim falsified),
+      OR White reality-check p ≥ 0.10. Window discipline: W defined purely from the calendar
+      ex-ante; conditioning proxy uses only prior-month (closed) data; ~190 month-turns 2010–26
+      gives adequate power. Multiple-testing note: test ONE pre-registered window definition.
+    data_availability:
+      available_now: true
+      detail: >
+        OHLCV timestamps fully specify month-turn windows. v1 needs nothing else. v2's equity
+        proxy is derivable from existing FX blocs; a real equity index is an optional upgrade.
+    cost_survival: >
+      PLAUSIBLE on majors. Documented month-end fix moves are tens of bp; on EURUSD/USDJPY a
+      ~2–3 pip round-trip is a small fraction of a multi-tens-of-pip 2–3 day window move IF
+      the directional bias is real. One trade per month per pair → low turnover, low cost drag.
+      The honest risk is effect-size shrinkage out-of-sample, not cost.
+    regime_dependence: >
+      Strength scales with the magnitude of the prior month's asset move (bigger moves → bigger
+      re-hedge). Weak in flat months. Conditioned v2 should dominate fixed v1.
+    novelty_check:
+      vs_momentum: "Not trailing-return momentum; trigger is the calendar date, conditioning is a one-month relative proxy, mechanism is forced flow."
+      vs_carry_ma_bollinger_orb: "No rate level, no MA/band, no session-boundary range; pure month-turn calendar flow."
+    confidence: medium
+
+  - id: QRB-4
+    name: "Intraday liquidity-hole avoidance / fade at the NY-afternoon rollover (4h)"
+    hypothesis: >
+      The 4h bars spanning the late-NY / rollover liquidity hole (UTC hours where verified
+      spread mean jumps ~2× with high variance) exhibit distinct return behaviour — thin-book
+      overshoots that partially revert — so (a) signals entered into that bar should be
+      suppressed, and (b) an overshoot into the hole tends to reverse on the next bar.
+    information_source: >
+      data/spreads/{EURUSD,GBPUSD,USDJPY}_4h_spreads.parquet (verified hour-17/18 UTC spread
+      mean 4.15/3.97 vs ~2.0 elsewhere) + matching 4h OHLCV. The hour column is the gate key.
+    why_not_in_archive: >
+      Session/liquidity microstructure at 4h resolution. The archived ORB family triggered on
+      session-OPEN range breakouts; this triggers on the low-liquidity CLOSE/rollover window and
+      uses the spread feed to define it — different time-of-day, different mechanism, opposite
+      sign (fade overshoot vs breakout continuation).
+    structure: >
+      Identify the rollover-hole 4h bucket per pair from the spread-by-hour profile (verified,
+      stable). Rule (a) GATE: zero out any entry whose execution bar is the hole bar. Rule (b)
+      FADE: if the hole bar's move exceeds k×ATR, take the opposite position on the next
+      (normal-liquidity) 4h bar, exit one bar later. Available on EURUSD/GBPUSD/USDJPY only.
+    why_not_arbed: >
+      The reversion lives inside the widest-spread bar, so capturing it requires either trading
+      in the hole (expensive) or on the next bar (where the edge may be gone). The cost moat is
+      exactly why a thin-book overshoot can persist un-arbed.
+    falsification_sketch: >
+      Metric for FADE: mean next-bar return after a hole-bar overshoot > k×ATR, sign = opposite
+      the overshoot, NET of the normal-bar spread on entry. KILL if ≤ 0 net, or block-bootstrap
+      p ≥ 0.10, or if the effect is confined to pre-2015 (structural-decay falsification).
+      Metric for GATE: cost-adjusted Sharpe of a baseline 4h signal with vs without the hole-bar
+      suppression; KILL if no improvement. Window discipline: hole-hour bucket fixed ex-ante from
+      the spread profile; ATR trailing-only; DST shift in the UTC hour handled by re-deriving the
+      bucket per-era, not hard-coding one hour (clock discipline).
+    data_availability:
+      available_now: true
+      detail: "3× 4h OHLCV + 3× 4h spread files. Only the three 4h pairs — coverage limited."
+    cost_survival: >
+      HARDEST cost case of the portfolio for the fade variant — overshoots happen in the
+      thinnest book. Entering on the NEXT (normal-spread ~2 pip) bar mitigates this, but the
+      reversion must exceed that. Likely marginal as a fade; clearly positive-EV as a GATE
+      (removing the most-slippage-prone entries). Emphasis: gate first, fade only if it clears.
+    regime_dependence: >
+      Tied to the rollover microstructure (stable across the sample per the spread profile) and
+      amplified in high-vol periods. Robust time-of-day anchor, not a fragile regime.
+    novelty_check:
+      vs_orb: "ORB = session-OPEN breakout (continuation). This = session-CLOSE/rollover liquidity hole (fade/gate). Opposite time and sign."
+      vs_bollinger_rsi: "No bands/oscillator; trigger is time-of-day + spread state + ATR overshoot."
+    confidence: medium-low
+
+  - id: QRB-5
+    name: "Weekday / day-of-week seasonal bias conditioned on liquidity state"
+    hypothesis: >
+      FX majors carry a small but persistent day-of-week return seasonality (e.g. Monday
+      gap-and-go vs Friday position-squaring) that is detectable at daily frequency and is
+      sharpened when conditioned on the prevailing spread/liquidity regime (the seasonal is
+      stronger in normal-liquidity weeks, washed out in stress weeks).
+    information_source: >
+      data/processed OHLCV (UTC weekday from index) + data/spreads day_of_week / spread_pips
+      for the liquidity conditioner. day_of_week ∈ {0..4} verified present in both feeds.
+    why_not_in_archive: >
+      Calendar-seasonality on the weekday axis, conditioned on the spread feed. No archived
+      family conditions on day-of-week. PM brief sub-domain (ii).
+    structure: >
+      Estimate per-weekday mean return per pair on a rolling expanding window (no future data);
+      take a position in the direction of the historically-significant weekday bias, scaled
+      down when current spread_z is high. Flat on weekdays with no stable bias.
+    why_not_arbed: >
+      Weekday effects are individually tiny (sub-pip to low-pip) — below most desks' cost
+      threshold to trade in isolation, so they can persist. The edge, if real, is a low-turnover
+      tilt, not a standalone money-maker; honesty about size is essential.
+    falsification_sketch: >
+      Metric: out-of-sample mean return of the weekday-tilt vs a no-tilt control, net of cost,
+      with a Bonferroni/White correction for testing 5 weekdays × 12 pairs (60 hypotheses — high
+      multiple-testing burden, explicitly pre-registered). KILL if no weekday survives the
+      family-wise-error-corrected threshold, OR if the surviving weekday's effect < cost, OR if
+      it flips sign across sample halves. Window discipline: expanding-window estimate, entry next
+      bar, FWER correction mandatory given 60 tests.
+    data_availability:
+      available_now: true
+      detail: "All 12 daily OHLCV + 12 daily spread files (day_of_week column present)."
+    cost_survival: >
+      WEAKEST of the portfolio on cost grounds — weekday effects are typically < 1–2 pips, the
+      same order as the round-trip cost. Honestly likely to fail cost survival as a standalone;
+      its realistic value is as a small tilt overlay, and even then the multiple-testing risk is
+      severe. Included for completeness of the calendar sub-domain; low conviction.
+    regime_dependence: >
+      Expected to weaken over time as it becomes known; conditioning on liquidity is the only
+      thing that might keep it alive. Decay-prone.
+    novelty_check:
+      vs_momentum_carry_ma_bollinger_orb: "None condition on weekday; trigger is purely the calendar weekday axis."
+    confidence: low
+
+  - id: QRB-6
+    name: "[ACQUISITION] Central-bank decision-calendar event study (pre/post-decision drift)"
+    acquisition_required: true
+    hypothesis: >
+      In the scheduled-decision windows of the 8 majors' central banks (Fed/ECB/BOJ/BOE/RBA/
+      BOC/SNB/RBNZ), the relevant pair exhibits a pre-decision drift and a partial post-decision
+      reversal (documented in the pre-FOMC-drift / FX-announcement literature: equity pre-drift
+      ~50bp, with ~65% of the FX pre-drift reversing post-announcement) — tradeable at 4h/daily
+      around KNOWN scheduled dates without tick data.
+    information_source: >
+      A central-bank scheduled-decision CALENDAR (dates only — public, low-cost). NOT in our
+      data: our rate feed is monthly-stale forward-fill and does NOT carry decision timestamps
+      or scheduled-vs-unscheduled flags. This is the genuinely-new ingredient requiring acquisition.
+    why_not_in_archive: >
+      Event-window structure around SCHEDULED announcements (calendar-time), distinct from the
+      carry LEVEL and from QRB-1's data-lagged rate-CHANGE series — here the trigger is the
+      announcement DATE/window, capturing the documented pre-drift + reversal, which the stale
+      monthly rate feed cannot time.
+    structure: >
+      Tag each scheduled decision date d per central bank → map to its pair(s). Pre-window:
+      long the currency expected to drift (sign from forward-guidance proxy / prior trend) over
+      the N days into d. Post-window: fade a pre-defined fraction of the pre-move after d.
+      All windows defined ex-ante from the calendar; entry respects entry_delay_bars.
+    why_not_arbed: >
+      The pre-FOMC drift has survived publication (Lucca-Moench 2015) for a decade — a rare
+      documented, persistent, hard-to-arb anomaly (risk-compensation / uncertainty-resolution
+      interpretations). Persistence post-publication is itself evidence of a structural, not
+      purely informational, driver.
+    falsification_sketch: >
+      Metric: mean sign-aligned pair return over the pre-window across scheduled decisions, net
+      of cost; and the realized post-window reversal fraction vs the literature's ~65%. KILL if
+      pre-window mean ≤ cost, OR if reversal fraction is statistically indistinguishable from 0
+      OR from 100% (no exploitable asymmetry), OR White reality-check p ≥ 0.10. Window discipline:
+      ONLY scheduled (not emergency) decisions; dates locked before any return is examined; ~8
+      banks × ~8 meetings/yr × ~14 yr (2010–24) ≈ 900 events pooled → well-powered. CRITICAL:
+      pre-registered window length; no scanning over N.
+    data_availability:
+      available_now: false
+      detail: >
+        REQUIRES ACQUISITION: a scheduled central-bank decision-date calendar for the 8 majors,
+        2010–2026. Effort: LOW — these dates are public and free (central-bank sites, ForexFactory,
+        investing.com); the cost is curation/normalisation to UTC + scheduled/emergency flagging,
+        not a data purchase. CEO authorization still required per wave rule; ineligible for the
+        recommended-first-candidate slot.
+    cost_survival: >
+      PLAUSIBLE-TO-FAVOURABLE. The documented pre-drift (tens of bp in equities; FX comparable)
+      dwarfs a ~2–3 pip major round-trip, and the strategy trades only ~8×8 times/yr per bank
+      (very low turnover → minimal cost drag). The honest risk is the FX pre-drift being smaller
+      / noisier than equities, and the post-reversal eating the entry.
+    regime_dependence: >
+      Strongest in high-policy-uncertainty regimes (hiking/cutting cycles, QE on/off); muted in
+      stable-policy periods. Persistent anchor (the scheduled calendar) rather than a fragile fit.
+    novelty_check:
+      vs_carry: "Carry = continuous rate level. This = discrete scheduled-announcement windows; orthogonal."
+      vs_qrb_1: "QRB-1 uses the data-LAGGED realized rate change (slow drift); QRB-6 times the SCHEDULED announcement itself (pre-drift + reversal). Different trigger, different data, different sign structure."
+      vs_orb_momentum: "No session range, no price-trailing trigger; event-calendar driven."
+    confidence: medium
+
+# ──────────────────────────────────────────────────────────────────────────────
+assumptions:
+  - "rate_differentials.parquet stores LEVELS (decimal); CHANGES are derived in-spec (verified 197 nonzero Δ for EURUSD). No level/sign signal is proposed — only first-difference/event structure."
+  - "spread_pips is the realized bid-ask spread the firm models as cost; using it as a STATE variable does not double-count cost (the gate REMOVES costly trades; the backtest still charges the cost on trades taken)."
+  - "volume==0 across all OHLCV — no proposal relies on volume."
+  - "4h liquidity-hole hour bucket is DST-sensitive; proposals require re-deriving the UTC hole bucket per era rather than hard-coding (clock-and-ordering discipline)."
+  - "data/trades and data/predictions are inventory-only (carry-family logs, tiny, stale) — explicitly NOT used as signal sources, per verified row counts/contents."
+  - "Pooled cross-sectional / multiple-testing corrections are mandatory wherever event counts are small (QRB-1) or test families are large (QRB-5)."
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+confidence: medium
+# Portfolio spans 3 required sub-domains (rate-diff CHANGES as conditioner QRB-1/6,
+# calendar/session effects QRB-3/4/5, spread-as-signal QRB-2/4) + 1 acquisition idea
+# (QRB-6). All 6 are available-now except QRB-6 (flagged acquisition_required, ineligible
+# for first-candidate slot). Honest cost-survival posture: QRB-3 and QRB-6 strongest on
+# cost; QRB-2 strong as a GATE; QRB-1 sample-limited; QRB-4 fade marginal/gate sound;
+# QRB-5 weakest (likely fails cost as standalone). No backtests run.
+
+body: |
+  ## Slice-B generation summary
+
+  Six proposals, spanning the required sub-domains:
+    - Rate-differential CHANGES as a conditioner/event (QRB-1 slow data-lagged drift; QRB-6
+      scheduled-announcement timing) — NOT the dead carry level.
+    - Calendar/session effects (QRB-3 turn-of-month flow; QRB-4 intraday rollover hole;
+      QRB-5 weekday seasonality).
+    - Spread feed as a signal/state variable (QRB-2 liquidity-regime gate; QRB-4 hole def).
+
+  ## Honest data-inventory conclusions that shaped the portfolio
+
+  Two of the brief's candidate feeds were verified UNUSABLE as signal sources and are
+  inventory-only:
+    - data/trades/executions.parquet: 34 rows, one week (2026-04), all carry-family, slippage
+      all zero, 4 failed broker-API calls. A paper-execution audit log, not alternative data.
+    - data/predictions/2026-04.parquet: 106 rows, 7 dates, all carry-family — the firm's own
+      archived carry signal, not an external feed.
+  The genuinely informative non-OHLCV feeds are the SPREAD files (real intraday liquidity-hole
+  structure at hour 17–18 UTC; 13–17% of days >2× median spread) and the rate-differential
+  CHANGE series (197 discrete steps). The portfolio is built around those two plus pure
+  calendar-time structure.
+
+  ## Recommended-first-candidate posture (for HoQR)
+
+  Among AVAILABLE-NOW proposals, QRB-3 (turn-of-month flow) has the cleanest cost-survival case
+  and best power (~190 month-turns), and QRB-2 (spread GATE) is a low-risk net-cost improver.
+  QRB-6 is the highest-prior mechanism but is acquisition_required (calendar dates) and thus
+  INELIGIBLE for the first-candidate slot unless the CEO authorizes the (low-effort, free)
+  calendar acquisition. Final ranking is HoQR's call.
+
+sources:
+  - "data/rates/rate_differentials.parquet (schema + Δ-frequency verified)"
+  - "data/spreads/*.parquet (schema + intraday/daily spread structure verified)"
+  - "data/trades/executions.parquet (schema + content verified — inventory only)"
+  - "data/predictions/2026-04.parquet (schema + content verified — inventory only)"
+  - "data/processed/*.parquet (schema verified)"
+  - "Lucca & Moench, 'The Pre-FOMC Announcement Drift', NY Fed Staff Report 512 (via WebSearch summary; equity pre-drift ~50bp)"
+  - "Melvin & Prins (2015), month-end equity-hedging rebalancing flows / WMR-fix literature (via WebSearch summary)"
+  - "'Jumps and Post-FOMC Announcement Returns in Currency Markets' (via WebSearch summary; ~65% post-announcement FX reversal)"
+
+web_research_conducted: true
+websearch_used: 2
+webfetch_used: 3
+# WebSearch (2) returned grounded mechanism facts. WebFetch (3) all failed (2 PDF binary /
+# 403, 1 ResearchGate 403, 1 NY Fed 403) — proposal numbers sourced from the WebSearch
+# result summaries, which carried specific figures (~50bp pre-drift, ~65% FX reversal,
+# month-end last-trading-day concentration). Flagged honestly rather than fabricated.

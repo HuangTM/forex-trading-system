@@ -1,0 +1,377 @@
+---
+role: quant-researcher
+artifact_type: hypothesis-portfolio
+decision: approve
+timestamp: "2026-06-06T06:05:00Z"
+subtask_ref: new-alpha-qr-slice-a
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"  # orchestrator-mechanical: proposal-only wave, no counter line by design
+slice: A
+
+# Slice A: price / volatility / cross-sectional structure on the AVAILABLE OHLCV.
+# No backtests, no performance peeks. Structural data facts only.
+# WRITTEN INCREMENTALLY — proposals appended as drafted.
+
+evidence:
+  - "data/processed/ — 12 daily OHLCV parquet (2010-01-04 -> 2026-04-06, 4237 rows each, weekday-only Mon-Fri) + 3 four-hour (EURUSD_4h/GBPUSD_4h/USDJPY_4h, ~25,457 rows, 2010-06-17 -> 2026-04-06). Columns: open,high,low,close,volume. Verified via pandas read_parquet."
+  - "VOLUME IS UNIFORMLY ZERO in every processed file (daily and 4h): (df['volume']==0).mean()==1.0. NO volume-based signal is testable — OBV, volume-profile, VWAP, volume-confirmation ideas are all DEAD on this data. Verified."
+  - "4h bar grid = 21:00, 01:00, 05:00, 09:00, 13:00, 17:00 UTC (6 bars/day on 3269 of ~4200 days). Maps to sessions: 21:00 Sydney/Tokyo-open, 01:00 Tokyo, 05:00 pre-London, 09:00 London, 13:00 London-NY overlap (peak vol), 17:00 NY-afternoon. Sunday partial-open bars (17/18/20/22 UTC) + DST artifacts present. Verified via index.hour distribution by year."
+  - "Daily bars timestamped 00:00 UTC, weekday-only (dayofweek {0..4}); 4h spans weekends with Sunday-open bars (1632 Sun bars). Verified."
+  - "data/spreads/ — per-pair spread_pips + hour + day_of_week, same cadence/rows as OHLCV (daily 4237, 4h 25457). EURUSD daily spread ~2.0-2.1 pips sample. Available for cost-floor sanity, not used as Slice-A signal (that is Slice B)."
+  - "data/rates/rate_differentials.parquet — 12 *_diff columns, 6540 rows, 2001-03-14 -> 2026-04-07, monthly-stale. NOT used here (rate-diff = archived carry family; Slice B owns conditioning use)."
+
+assumptions:
+  - "OHLC are tradeable prices (mid). With volume==0, all volume/microstructure-via-volume mechanisms are excluded a priori — I do NOT propose any."
+  - "The realistic per-pair cost model (spread+slippage+commission+swap) applies; EURUSD daily spread ~2 pips is the cheapest, JPY-cross daily spreads larger. Any daily-bar strategy trading more than ~weekly faces a hard cost floor."
+  - "12-pair daily panel is contemporaneous (all 00:00 UTC, same calendar) — cross-sectional ops on the daily panel are time-aligned. 4h panel limited to EURUSD/GBPUSD/USDJPY only."
+  - "No-lookahead: every signal is formed on bar N close and executed bar N+1 per engine convention; falsification sketches respect this."
+
+confidence: medium
+
+# ── PROPOSALS ───────────────────────────────────────────────────────────────
+proposals:
+
+  - id: QRA-1
+    name: "Triangular no-arbitrage residual mean-reversion (EUR/GBP/USD ring)"
+    hypothesis: >
+      The implied EURGBP cross computed from EURUSD/GBPUSD diverges transiently from
+      the directly-quoted EURGBP close because the three pairs are quoted/closed by
+      different liquidity pools at the 00:00 UTC daily stamp; the residual mean-reverts
+      as the cross re-coheres, giving a relative-value signal independent of any
+      directional view on the three currencies.
+    information_source: >
+      The DAILY-CLOSE consistency residual r = ln(EURGBP_close) - [ln(EURUSD_close) -
+      ln(GBPUSD_close)] across three SIMULTANEOUS daily bars. This is a cross-pair
+      structural constraint (a near-identity that should hold to within cost), NOT a
+      price-trend or rate-differential feature. No archived family uses a triangular/
+      no-arb residual — carry uses rate diffs, momentum/MA/BB use single-series price.
+      The alpha claim lives entirely in the residual, a new information source.
+    structure: >
+      Form r_t daily from the three closes. Standardize r_t by its trailing N-day
+      rolling stdev (expanding-mean to avoid lookahead). Signal: when z(r_t) > +k,
+      the implied-vs-direct cross is rich -> short the spread (short EURGBP synthetic
+      rich leg / long cheap leg via the EURGBP direct vs EURUSD-GBPUSD basket);
+      when z(r_t) < -k, reverse. Flat in the |z|<k band. Position is a 3-leg
+      relative-value basket with net-zero directional currency exposure by construction.
+    why_not_arbed: >
+      True intraday triangular arb (sub-second) is fully harvested by HFT and is NOT
+      the claim here. The claim is a DAILY-CLOSE stamping artifact: the three pairs'
+      00:00 UTC closes are recorded from venues that thin out at that hour, so the
+      recorded residual carries stale-quote noise that a daily trader (not an HFT) can
+      fade. The other side is end-of-day mark-to-market flow and retail that quote each
+      pair independently. Persistence: the inefficiency is in the DATA STAMP, not the
+      live market — it survives precisely because nobody trades the daily-close residual.
+    falsification_sketch: >
+      Backtest the 3-leg basket 2010-2026, walk-forward (engine default windows),
+      entry_delay 1 bar. KILL if net-of-cost Sharpe < 0.3 OOS, OR if the residual's
+      half-life of mean-reversion (Ornstein-Uhlenbeck fit on r_t) exceeds the holding
+      window such that >70% of gross edge is consumed by the 3-leg round-trip cost
+      (3x spread+slippage+commission). Also KILL if z-entry signals are <10/yr (too rare
+      to be a strategy) or if the residual is non-stationary (ADF fails to reject unit
+      root) — a non-mean-reverting residual has no edge.
+    data_availability: "available-now: data/processed/{EURUSD,GBPUSD,EURGBP}_daily.parquet close column. All three confirmed present, 4237 aligned daily rows 2010-2026."
+    cost_survival: >
+      Holding period: days (until z reverts inside band), est. 20-60 trades/yr.
+      HONEST: this is a 3-LEG basket, so round-trip cost ~3x a single pair. EURGBP+EURUSD+
+      GBPUSD daily spreads sum to ~5-6 pips round-trip plus slippage. The residual must
+      exceed that on average to clear. Marginal — likely survives only if residual std
+      is large enough that z>2 moves are multi-pip. This is the central risk; the
+      falsification sketch's cost-consumption threshold directly tests it.
+    regime_dependence: >
+      Fails when the three venues' closing liquidity is uniform (low residual noise),
+      i.e., calm low-vol regimes. Also fails during EUR or GBP regime breaks (Brexit
+      vote, SNB-style shocks) where the residual gaps and does not revert. Best in
+      moderate-vol normal regimes.
+    novelty_check: >
+      vs carry: uses ZERO rate-differential info, net-zero directional exposure — not carry.
+      vs momentum/Bet#1: no trend/return-continuation; signal is a cross-pair identity residual.
+      vs MA-crossover / Bollinger-RSI: not a single-series MA/band — it is a 3-pair no-arb basket.
+      vs tas_ceiling_4h ORB: no opening range, no breakout, daily not session.
+    confidence: medium
+
+  - id: QRA-2
+    name: "Overnight-gap continuation/fade asymmetry on the daily open-to-close"
+    hypothesis: >
+      The daily bar's open differs from the prior close (a weekend or thin-hours gap at
+      00:00 UTC); the SIGN and SIZE of this gap conditions the subsequent same-day
+      open-to-close return differently for JPY-crosses (risk-sentiment gaps that
+      continue) vs USD-majors (liquidity gaps that fade), an asymmetry rooted in WHO
+      gaps the price (Asian risk repricing vs thin-book noise).
+    information_source: >
+      The daily GAP feature g_t = ln(open_t) - ln(close_{t-1}), a discontinuity measure
+      between consecutive daily bars, and its interaction with pair-class (JPY-cross vs
+      USD-major). Gap/discontinuity behavior is explicitly a NEW information source
+      (open-vs-prior-close), absent from all archived families which act on close-to-close
+      series only. The conditioning on pair-class co-movement structure is the novel part.
+    structure: >
+      Daily: compute g_t per pair. Classify pairs into {JPY-cross: AUDJPY,CADJPY,EURJPY,
+      GBPJPY,NZDJPY,USDJPY} and {USD-major: AUDUSD,EURUSD,GBPUSD,NZDUSD,USDCAD,EURGBP}.
+      Hypothesis: for JPY-crosses, large |g_t| predicts SAME-sign open-to-close return
+      (continuation); for USD-majors, large |g_t| predicts OPPOSITE-sign (fade). Signal
+      on bar N open is +sign(g) for JPY class, -sign(g) for major class, scaled by |g|
+      relative to trailing ATR; exit at close (intraday daily hold). Flat when |g| < gate.
+    why_not_arbed: >
+      Gap behavior is well-studied in equities but the JPY-vs-major DIRECTIONAL ASYMMETRY
+      on the 00:00-UTC daily stamp is an FX-stamping-specific claim. The other side is
+      overnight risk-rebalancing flow (unleveraged institutional flow repricing JPY on Asian risk) vs thin-book
+      mean-reverting noise on USD majors. Persists because the edge is conditional and
+      small per-trade — institutions don't run a daily-gap book on the 00:00 UTC mark.
+    falsification_sketch: >
+      Backtest both classes 2010-2026 walk-forward. KILL if the directional asymmetry is
+      not present (i.e., both classes show same-sign coefficient, or neither is
+      significant) — specifically KILL if the JPY-class continuation and major-class fade
+      do NOT BOTH yield net-of-cost positive expectancy OOS with combined Sharpe < 0.3.
+      The asymmetry claim is the falsifiable core: if a single rule (all-continuation or
+      all-fade) beats the split rule OOS, the conditioning adds nothing -> KILL.
+    data_availability: "available-now: all 12 daily parquet, open + close columns; gap = open_t vs close_{t-1} within each series. Confirmed schema."
+    cost_survival: >
+      Holding period: intraday (open-to-close, 1 day), ~one trade per gated day per pair.
+      Trades/yr potentially high (gating to large gaps reduces to ~30-80/yr/pair). HONEST:
+      open-to-close daily moves on majors avg tens of pips; gap-gated subset should be
+      larger-move days, so gross edge per trade is plausibly multi-pip > ~2-3 pip cost.
+      JPY-crosses have wider spreads — survival there is the marginal case. Gating to
+      large gaps is what gives cost headroom.
+    regime_dependence: >
+      JPY-continuation fails in BOJ-intervention / yield-curve-control regimes where gaps
+      are policy-driven and reverse. Major-fade fails in trending macro regimes (gap is
+      the start of a real move, not noise). Both degrade if 00:00 UTC stamping changes
+      (broker feed change).
+    novelty_check: >
+      vs carry: no rate diff. vs momentum/Bet#1: gap is a discontinuity feature, not
+      trailing-return momentum; and the structure is intraday open-to-close, not
+      close-to-close trend. vs MA/BB: no MA/band. vs ORB: gap is between daily bars, not
+      an intraday opening-range over 4h session bars.
+    confidence: medium
+
+  - id: QRA-3
+    name: "Volatility term-structure slope (4h-realized vs daily-range) as a directional regime gate"
+    hypothesis: >
+      The ratio of short-horizon realized volatility (aggregated from the six intraday
+      4h Garman-Klass range estimates within a day) to the single daily-bar range
+      encodes a volatility TERM-STRUCTURE slope; when intraday vol is rich relative to
+      the daily envelope (steep slope) the market is in a choppy/reverting state, and
+      when flat the market is in a clean directional state — so the slope conditions
+      whether a simple trend-follow or fade should be applied to the NEXT day.
+    information_source: >
+      A vol-term-structure feature: TS_t = (sum of 4h Garman-Klass variances over day t)
+      / (daily-bar Parkinson variance for day t), for the 3 pairs with 4h data
+      (EURUSD, GBPUSD, USDJPY). This is a 4h-vs-daily vol-surface PROXY — a brand-new
+      information source (intraday-to-daily vol structure) not present in any archived
+      family. The novelty/alpha claim is in TS_t as a REGIME CLASSIFIER, not in the
+      base trend signal it gates.
+    structure: >
+      Daily for {EURUSD,GBPUSD,USDJPY}: compute the six 4h GK variances within day t and
+      the daily Parkinson variance; form TS_t. Standardize via expanding quantiles.
+      When TS_t is HIGH (intraday chop dominates) -> apply a 1-day fade of yesterday's
+      close-to-close move; when TS_t is LOW (smooth term structure) -> apply a 1-day
+      continuation. Signal magnitude proportional to |yesterday return| / ATR. The
+      regime gate flips the sign; without the gate the base rule is null by construction.
+    why_not_arbed: >
+      Intraday-vs-daily vol ratios are computed by vol desks for OPTION pricing, not as a
+      spot DIRECTIONAL regime gate — the cross-over from vol-surface shape to spot
+      direction is the un-harvested link. The other side: option market-makers care about
+      the vol level, not the next-day spot drift conditional on the slope. Persists
+      because it requires joining two data cadences (4h + daily) and the payoff is a
+      conditional, modest directional tilt that no vol desk monetizes in spot.
+    falsification_sketch: >
+      Backtest the gated rule on the 3 pairs 2010-2026 walk-forward. KILL if the
+      gate adds no value: specifically, if the TS-gated rule does NOT beat BOTH the
+      always-continuation and always-fade baselines OOS, the term-structure conditioning
+      is spurious -> KILL. Also KILL if net-of-cost Sharpe < 0.3 OOS, or if TS_t has no
+      autocorrelation (a non-persistent regime variable cannot gate tomorrow). Window:
+      walk-forward, entry_delay 1, daily rebalance.
+    data_availability: >
+      available-now: data/processed/{EURUSD,GBPUSD,USDJPY}_4h.parquet (OHLC, ~25,457 rows)
+      for intraday GK; same pairs' _daily.parquet for the daily Parkinson range. All 6
+      files confirmed present, overlapping 2010-06 -> 2026-04. NOTE: 4h bars are not
+      always exactly 6/day (829 days have 5) — TS_t must normalize by realized bar count.
+    cost_survival: >
+      Holding period: 1 day (daily rebalance on 3 pairs). Trades/yr ~150-250/pair if it
+      flips often. HONEST: this is the WORST cost profile in my set — daily rebalancing on
+      3 liquid majors at ~1-2 pip spread each. Only survives if the per-day directional
+      edge materially exceeds ~2 pip + slippage. Gating should REDUCE turnover (flat when
+      base move is small); if it does not reduce trades it will likely die to cost. The
+      falsification sketch's Sharpe-after-cost threshold is the hard test.
+    regime_dependence: >
+      Fails in transition periods where the vol term structure inverts faster than daily
+      rebalancing can react (vol spikes — 2015 CHF, 2020 COVID). Fails if the
+      continuation/fade mapping is itself regime-dependent (then it needs a meta-gate,
+      which is over-fitting risk). Best in stable-vol trending or stable-vol ranging eras.
+    novelty_check: >
+      vs carry: no rate diff. vs momentum/Bet#1: momentum is the GATED base signal, but
+      the alpha claim is the vol-term-structure gate (new info source), not the trend;
+      ungated it is null. vs MA/BB: no MA/band. vs ORB: uses intraday vol AGGREGATE, not
+      an opening-range breakout level. (NHT should scrutinize the momentum-adjacency: the
+      claim explicitly does NOT rest on trend continuation alone.)
+    confidence: low
+
+  - id: QRA-4
+    name: "Cross-sectional return dispersion as a panel-wide mean-reversion regime switch"
+    hypothesis: >
+      When the 12-pair daily panel's cross-sectional return DISPERSION (the spread of
+      one-day returns across pairs) spikes, currencies have repriced idiosyncratically
+      and tend to partially RE-CONVERGE the next day (cross-sectional mean reversion);
+      when dispersion is compressed, co-movement dominates and the same signal has no
+      edge — so dispersion is a regime switch for a cross-sectional reversion book.
+    information_source: >
+      Cross-sectional dispersion D_t = stdev across the 12 pairs of their day-t returns
+      (USD-normalized to a common numeraire to avoid double-counting USD), and each
+      pair's cross-sectional rank/demeaned return. This is PANEL dispersion structure —
+      a 12-pair cross-section, not a per-pair time-series. No archived family uses the
+      cross-sectional moment of the panel; carry ranks by rate-diff, momentum ranks by
+      own trailing return. Dispersion-as-regime is a new conditioning variable.
+    structure: >
+      Daily: convert the 12 pairs to a common base (e.g., all vs USD where derivable;
+      JPY-crosses decomposed) to get comparable currency returns, compute cross-sectional
+      mean and D_t. Demean each currency's return cross-sectionally -> r_i_demeaned.
+      Signal: when D_t > high-quantile (dispersion spike), take a cross-sectional
+      reversion position: short the top-decile demeaned movers, long the bottom-decile,
+      dollar-neutral across the basket; expect partial convergence next day. When D_t is
+      below the gate, stay FLAT (no reversion edge). Hold 1-3 days to convergence.
+    why_not_arbed: >
+      Cross-sectional reversion is harvested in EQUITY stat-arb at scale, but the FX
+      12-pair cross-section is small (effectively ~8 currencies) and the dispersion-gated
+      version is not a standard FX product — most FX RV desks run cointegration PAIRS, not
+      a dispersion-gated panel reversion. The other side is the idiosyncratic repricing
+      flow (a single-currency news shock) that over-shoots and partially retraces.
+      Persists because FX panel breadth is too small for big stat-arb shops to bother and
+      retail trades single pairs.
+    falsification_sketch: >
+      Backtest the dollar-neutral basket 2010-2026 walk-forward, entry_delay 1. KILL if
+      the dispersion gate does not improve on an always-on reversion basket OOS (gate is
+      spurious), OR if net-of-cost Sharpe < 0.3 OOS, OR if the converging leg's holding
+      period exceeds the half-life such that cost (multi-leg basket, ~8-12 legs) eats
+      >70% of gross. CRITICAL kill: if the "reversion" is actually slow MOMENTUM
+      (top movers keep moving), the sign is wrong and edge is negative -> KILL immediately.
+    data_availability: >
+      available-now: all 12 daily parquet, close column, aligned 00:00 UTC 4237 rows.
+      Currency decomposition (pair returns -> per-currency factor) is a pure linear
+      transform of the available closes; no external data. JPY-cross + USD-major coverage
+      gives ~8 distinct currencies (USD,EUR,GBP,JPY,AUD,NZD,CAD + crosses).
+    cost_survival: >
+      Holding period: 1-3 days. Trades/yr depends on dispersion-spike frequency (~gate to
+      ~30-60 rebalances/yr). HONEST: this is a MULTI-LEG basket (8-12 legs), so cost is the
+      dominant risk — every leg pays spread+slippage. Dollar-neutral helps net exposure but
+      not cost. Survives only if the convergence move per leg clears its own round-trip
+      cost; gating to large-dispersion days (bigger expected convergence) is the only
+      cost-headroom lever. Honestly marginal; falsification cost-threshold tests it.
+    regime_dependence: >
+      Fails in trending USD regimes where dispersion reflects a real persistent factor
+      (e.g., broad USD strength) that does NOT revert — the reversion sign inverts and the
+      book bleeds. Fails when a single currency dominates dispersion (then it is a
+      single-name bet, not diversified). Best in choppy, no-clear-factor environments.
+    novelty_check: >
+      vs carry: ranks/positions by cross-sectional return moment, not rate diff —
+      orthogonal. vs momentum/Bet#1: this is cross-sectional REVERSION (opposite sign to
+      momentum) AND gated by panel dispersion, not own trailing return. vs MA/BB: no
+      single-series MA/band. vs ORB: no opening range, daily panel cross-section.
+    confidence: medium
+
+  - id: QRA-5
+    name: "Intraday range-position reversion within the London-NY 4h session block"
+    hypothesis: >
+      Within the high-liquidity London-NY overlap 4h bar (13:00 UTC), price that closes
+      near the EXTREME of that bar's high-low range (close-location-value at the tails)
+      tends to mean-revert into the subsequent 17:00 (NY-afternoon) bar, because the
+      overlap-bar extreme is driven by transient order-flow imbalance that the thinner
+      NY-afternoon book retraces — a within-day session-structure reversion, not a
+      breakout.
+    information_source: >
+      The close-location-value CLV = (close - low)/(high - low) of the SPECIFIC 13:00 UTC
+      4h session bar (London-NY overlap), used to predict the SIGN of the next (17:00)
+      4h bar return. This is intraday SESSION-STRUCTURE in the 4h bars that is explicitly
+      NOT opening-range-breakout (it is an end-of-overlap reversion off the range extreme,
+      opposite logic to ORB). New information source: a named-session CLV feature.
+    structure: >
+      For {EURUSD,GBPUSD,USDJPY} 4h series, isolate the 13:00 UTC bar each day. Compute
+      CLV_overlap. Signal at the 13:00 close, executed at the 17:00 bar open
+      (entry_delay 1 in 4h terms): if CLV >= 0.85 (closed near high) -> SHORT into the
+      17:00 bar (fade the up-extreme); if CLV <= 0.15 -> LONG; flat otherwise. Exit at
+      the 17:00 bar close (single 4h hold). Gate by requiring the 13:00 bar's range to
+      exceed its trailing median (only fade meaningful extremes).
+    why_not_arbed: >
+      The overlap-bar extreme reversion is a microstructure-adjacent effect: the 13:00
+      overlap concentrates flow, and the close-at-extreme reflects last-minute imbalance
+      that the lighter NY-afternoon book cannot sustain. The other side is the
+      liquidity-providing flow that fades the late-overlap push. Persists because it is a
+      small, session-specific, single-bar effect — too small for institutions, and retail
+      tends to CHASE the overlap extreme (momentum), taking the losing side, which is the
+      behavioral source of the edge.
+    falsification_sketch: >
+      Backtest the single-bar fade on 3 pairs 2010-2026 walk-forward (4h bars), entry at
+      17:00 open after 13:00 close — explicitly NO LOOKAHEAD (must pass the sacred
+      test discipline). KILL if net-of-cost Sharpe < 0.3 OOS, OR if the CLV>=0.85 subset
+      shows CONTINUATION (next-bar same-sign) rather than reversion (then it is a
+      breakout, already archived as ORB-family in spirit — and a re-skin -> auto-kill),
+      OR if the gated signal fires <20 times/yr/pair. Window discipline: walk-forward,
+      no peeking at the 17:00 bar when forming the 13:00 CLV.
+    data_availability: >
+      available-now: data/processed/{EURUSD,GBPUSD,USDJPY}_4h.parquet, OHLC of the 13:00
+      and 17:00 UTC bars. Confirmed: 13:00 bar present on ~all weekdays (4237-day span);
+      17:00 bar present (it is the NY-afternoon grid slot). CLV needs high!=low (degenerate
+      flat bars excluded).
+    cost_survival: >
+      Holding period: one 4h bar (~4 hours). Trades/yr ~150-250/pair before gating, ~60-120
+      after the range gate. HONEST: this trades INTRADAY and frequently — the per-trade
+      move must clear ~1-2 pip spread + slippage on each of entry and exit. A single 4h
+      reversion on EURUSD is typically tens of pips of range, of which the fade captures a
+      fraction; gating to large-range overlap bars is what creates the gross-vs-cost margin.
+      This is the second-highest cost risk after QRA-3; honestly it may not clear cost on
+      USDJPY (wider relative). Falsification Sharpe-after-cost is the gate.
+    regime_dependence: >
+      Fails on high-impact-news overlap days (FOMC, NFP at 12:30/14:00 UTC) where the
+      overlap extreme is the START of a trend, not noise — the fade gets run over. Needs a
+      news-day exclusion or it bleeds on exactly the biggest-range days. Best on normal
+      liquidity days with no scheduled US data.
+    novelty_check: >
+      vs ORB/tas_ceiling_4h: OPPOSITE structure — ORB buys the breakout of a session
+      range; this FADES the close-at-extreme of the overlap bar (reversion). The
+      falsification sketch auto-kills it if it behaves like continuation, guaranteeing it
+      is not a disguised ORB. vs carry: no rate diff. vs momentum/Bet#1: single-bar
+      reversion, not trailing-return trend. vs Bollinger-RSI: no band/RSI; CLV is a
+      within-bar range-position statistic, structurally different from a 20-period band.
+    confidence: medium
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "https://ryanoconnellfinance.com/historical-volatility-estimators/ — Parkinson/Garman-Klass/Rogers-Satchell range-vol estimator definitions (confirmed GK uses full OHLC, ~7.4x efficiency; assumes zero drift, misses gaps). Used to ground QRA-3 vol-term-structure construction and its drift/gap caveats."
+  - "https://www.sciencedirect.com/science/article/abs/pii/S0304405X20302385 — 'The cross-section of currency volatility premia' (JFE). Confirms cross-sectional currency vol/value/momentum are studied; the dispersion-as-regime-GATE angle in QRA-4 is not the standard product (standard FX RV = cointegration pairs), supporting novelty."
+web_research_conducted: true
+websearch_used: 2
+webfetch_used: 0
+no-capital-instruction: true
+
+body: |
+  Slice-A portfolio (price/vol/cross-sectional structure on available OHLCV).
+  Key data fact driving the set: VOLUME IS ZERO everywhere — every proposal is
+  built from OHLC geometry, cross-pair structure, or session-block timing only.
+  Sub-domain coverage: cross-pair relative value (QRA-1), gap/discontinuity (QRA-2),
+  intraday-to-daily vol surface proxy (QRA-3), cross-sectional panel dispersion (QRA-4),
+  4h session microstructure (QRA-5) — all three required sub-domains covered.
+
+  Two-line summaries:
+  - QRA-1 Triangular no-arb residual reversion: fade the EURGBP-vs-(EURUSD/GBPUSD)
+    daily-close consistency residual; alpha = stale-stamp residual mean-reversion,
+    net-zero directional exposure. Risk: 3-leg cost. confidence med.
+  - QRA-2 Overnight-gap asymmetry: JPY-crosses CONTINUE the daily open-gap, USD-majors
+    FADE it; alpha = the directional asymmetry conditioned on pair-class. Intraday
+    open-to-close hold, gated to large gaps for cost headroom. confidence med.
+  - QRA-3 Vol term-structure gate: ratio of intraday 4h GK-vol to daily Parkinson range
+    classifies chop-vs-trend regime and flips a 1-day continuation/fade. Worst cost
+    profile (daily rebalance, 3 majors); gate must reduce turnover. confidence low.
+  - QRA-4 Cross-sectional dispersion regime: on panel-dispersion spikes, run a
+    dollar-neutral cross-sectional reversion basket (short top movers / long bottom);
+    flat when dispersion compressed. Risk: multi-leg cost + reversion-vs-momentum sign.
+    confidence med.
+  - QRA-5 Overlap-bar CLV reversion: fade the 13:00 UTC London-NY overlap 4h bar when it
+    closes at a range extreme, into the 17:00 NY-afternoon bar. Explicitly the OPPOSITE
+    of ORB (reversion not breakout); auto-kills if it behaves like continuation.
+    Intraday, news-day exclusion required. confidence med.
+
+  RECOMMENDATION (my view, HoQR adjudicates): QRA-1 is the strongest a-priori candidate
+  — it is the most genuinely orthogonal (net-zero directional, a no-arb identity residual
+  with no archived-family overlap), data is available now, and the falsification sketch
+  is sharp (OU half-life vs holding cost, ADF stationarity). Its only real risk is the
+  3-leg cost floor, which the sketch tests directly. QRA-3 is the weakest (daily-rebalance
+  cost, momentum-adjacency) — I flag it for NHT scrutiny myself.

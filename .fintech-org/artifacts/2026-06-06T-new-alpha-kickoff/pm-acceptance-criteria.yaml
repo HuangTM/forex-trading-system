@@ -1,0 +1,399 @@
+---
+# PM Acceptance Criteria — New-Alpha Kickoff 2026-06-06
+# role: pm | artifact_type: acceptance-criteria
+# Produced by: PM / Chief of Staff (wave-1 only; no domain adjudication)
+
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+
+timestamp: "2026-06-06T05:18:27Z"
+
+subtask_ref: new-alpha-kickoff
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+
+task-statement: >
+  Generate, adversarially screen, and rank a portfolio of genuinely new alpha
+  hypotheses; deliver a ranked shortlist with one recommended first candidate
+  for full pre-registration in a follow-on track.
+
+deliverable-type: strategy-design
+
+deadline: "2026-06-06T23:59:00Z"
+
+instrument-universe:
+  daily_pairs:
+    - AUDJPY
+    - AUDUSD
+    - CADJPY
+    - EURGBP
+    - EURJPY
+    - EURUSD
+    - GBPJPY
+    - GBPUSD
+    - NZDJPY
+    - NZDUSD
+    - USDCAD
+    - USDJPY
+  four_hour_pairs:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+
+# ── Hard constraints (machine-checkable strings) ──────────────────────────────
+hard-constraints:
+  - "no_backtest_in_wave: true — this wave produces paper proposals only; no return-performance data is touched, no backtests are executed"
+  - "no_trial_increment: true — the org trial counter (currently 40 in .fintech-org/trials.jsonl) must NOT increment in this wave; a trial burns only when a chosen candidate receives a full pre-registration + backtest in a follow-on track"
+  - "no_live_capital: true — backtest-only firm; no paper trading, no live orders at any stage"
+  - "no_archived_family_reskins: true — hypotheses that are re-parameterizations of archived families (carry, momentum/Bet#1, ma_crossover, bollinger_rsi, tas_ceiling_4h) are auto-killed; NHT holds the archive-dedup veto"
+  - "falsification_sketch_required_per_proposal: true — every proposal must include a clearly stated falsification sketch (what specific result kills this hypothesis and is checkable in backtest)"
+  - "data_availability_stated_per_proposal: true — every proposal must declare whether required data is available now (in the verified data inventory) or requires acquisition; acquisition decisions are CEO-only and out of scope for this wave"
+  - "cost_survival_sanity_required: true — every proposal must include an honest qualitative note on whether the alpha mechanism plausibly generates signal large enough to survive the realistic per-pair cost model (spread + slippage + commission + swap)"
+  - "min_proposals_per_researcher: 4 — each QR slice (A and B) must produce at least 4 proposals"
+  - "max_proposals_per_researcher: 7 — each QR slice (A and B) must produce at most 7 proposals"
+  - "no_ml_model_strategies: true — hypotheses requiring ML model training are out of scope; route to ml-researcher in a future dedicated track"
+  - "no_code_in_wave: true — no implementation code, no scripts, no backtests; proposals are mechanism + falsification sketch + data req + capacity sanity only"
+  - "no_data_purchases_in_wave: true — data acquisition requires a separate CEO decision; proposals may flag a data-acquisition requirement but cannot presuppose it"
+
+# ── Criteria (one per role deliverable; done_when predicates are machine-checkable) ─
+criteria:
+
+  - id: GEN-slice-A
+    description: >
+      Quant Researcher A generates 4–7 genuinely new alpha hypotheses drawn from
+      SLICE A: price, volatility, and cross-sectional structure sourced exclusively
+      from the available OHLCV data. Coverage must span at least two of the following
+      sub-domains: (i) 4h microstructure-adjacent patterns (EURUSD, GBPUSD, USDJPY),
+      (ii) cross-pair relative value (spreads between pairs, ratio series, PCA-based
+      structure), (iii) intraday-to-daily vol surface proxies derivable from OHLCV
+      (e.g., high-low range ratios, Parkinson estimator, overnight gaps). No archived
+      family re-skins. Each proposal must include: mechanism statement (why it works),
+      falsification sketch (what kills it), data availability assertion (all three
+      4h series confirmed present in data/processed/), and a cost-survival sanity note.
+    owner: quant-researcher-A
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-a-proposals.yaml
+      exists with 4–7 proposal entries, each containing non-empty fields for:
+      hypothesis_name, mechanism, falsification_sketch, data_available (boolean + source),
+      cost_survival_sanity, and archived_family_overlap: none.
+      Proposals with archived_family_overlap not equal to "none" are counted as
+      auto-killed and do NOT count toward the 4–7 minimum.
+
+  - id: GEN-slice-B
+    description: >
+      Quant Researcher B generates 4–7 genuinely new alpha hypotheses drawn from
+      SLICE B: event/calendar/macro-conditioning and alternative signal sources.
+      Coverage must span at least two of the following sub-domains:
+      (i) rate differentials used as conditioning variable (NOT as the carry signal itself,
+          which is archived — e.g., rate-differential regime conditioning for a different
+          structural hypothesis),
+      (ii) calendar/session effects (Tokyo, London, New York session open/close,
+           weekday effects, month-turn effects) derivable from available OHLCV timestamps,
+      (iii) spread data from data/spreads/ as a signal (e.g., spread widening as a
+           volatility/liquidity proxy for conditioning),
+      (iv) trade execution data from data/trades/executions.parquet as a signal,
+      (v) data-acquisition-worthy ideas (clearly flagged as requiring external data;
+          CEO decision required before any trial can proceed).
+      Each proposal must include: mechanism statement, falsification sketch, data
+      availability assertion, and cost-survival sanity note.
+    owner: quant-researcher-B
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml
+      exists with 4–7 proposal entries, each containing non-empty fields for:
+      hypothesis_name, mechanism, falsification_sketch, data_available (boolean + source
+      path or acquisition_required: true), cost_survival_sanity, and
+      archived_family_overlap: none.
+      Proposals requiring data acquisition are counted toward the minimum but must be
+      flagged acquisition_required: true and are NOT eligible for the recommended-first-
+      candidate slot unless the CEO separately authorizes the data purchase.
+
+  - id: HOQR-rubric-and-ranking
+    description: >
+      Head of Quant Research (HoQR) produces: (a) a ranking rubric applied uniformly
+      to all proposals from both slices, and (b) the final ranked portfolio.
+      The rubric must score each proposal on at minimum: mechanism novelty (not a
+      re-parameterization), theoretical prior (why this pair/timeframe should have this
+      edge), falsifiability quality (is the kill criterion specific and checkable),
+      cost-survival plausibility (can the mechanism plausibly clear the cost model),
+      and data-availability tier (available now vs acquisition-required).
+      The HoQR provides a direction view: which sub-domain has the strongest a-priori
+      case given the firm's data inventory and the archived-family exclusion set.
+      HoQR does NOT run any backtests; ranking is based on mechanism quality only.
+    owner: head-of-quant-research
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml
+      exists containing: rubric (named criteria with weights or ordinal priority),
+      direction_view (narrative ≤ 200 words), ranked_proposals (ordered list of all
+      surviving proposals with rubric scores), and explicit_kill_list (NHT-screened-out
+      proposals with reasons, populated after NHT-screen criterion is satisfied).
+      The ranked list must identify exactly ONE recommended first candidate for
+      pre-registration in the follow-on track.
+
+  - id: NHT-screen
+    description: >
+      Null-Hypothesis Tester conducts adversarial screening of ALL proposals from both
+      slices before the HoQR produces its final ranking. Three mandatory screens:
+      (1) Archive-dedup veto: any proposal that is a re-skin of carry, momentum,
+          ma_crossover, bollinger_rsi, or tas_ceiling_4h families is auto-killed;
+          NHT states the specific mechanism overlap.
+      (2) Base-rate prior: NHT applies a base-rate adjustment — given honest-N ≈ 11
+          validated hypotheses in forex (across the known quant literature) and the
+          firm's trial counter at 40 with zero validated OOS alpha, NHT notes for each
+          proposal whether the base-rate prior is favorable, neutral, or unfavorable
+          (with brief rationale), and flags any proposal where the mechanism is
+          well-known and likely already discovered.
+      (3) Untestability screen: any proposal that cannot be falsified with the
+          available data (or the proposed acquirable data) within a single well-powered
+          backtest is flagged untestable and removed from the survivor pool.
+      NHT dissent is append-only per firm rule 6: objections are recorded verbatim
+      and cannot be paraphrased or overridden by subsequent consensus.
+    owner: null-hypothesis-tester
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml
+      exists with: for each proposal — nht_verdict (survive | auto-kill | flagged),
+      archive_dedup_result (clean | killed: <reason>), base_rate_prior
+      (favorable | neutral | unfavorable | unknown: <rationale>), and
+      testability_verdict (testable | untestable: <reason>).
+      Any auto-kill includes the specific mechanism overlap with the archived family.
+      NHT dissent on any survivor is recorded verbatim in a nht_dissents list.
+
+  - id: PR-review
+    description: >
+      Principal Reviewer conducts an independent wave review of the ranked portfolio
+      and the NHT screen after both are assembled. The PR checks:
+      (a) That the NHT archive-dedup veto was applied to ALL proposals (not just
+          a subset), with no proposals slipping through that share mechanism with
+          archived families.
+      (b) That the HoQR ranking rubric was applied consistently — each proposal
+          in the ranked list has rubric scores, and the recommended first candidate
+          is the top-ranked survivor by the stated rubric.
+      (c) That every surviving proposal has all three required elements:
+          falsification sketch, data availability statement, and cost-survival note.
+      (d) That no backtest results, no return-performance data, and no trial counter
+          increments appear anywhere in the wave artifacts.
+      The PR may flag proposals for re-review but does NOT run backtests or
+      alter the NHT dissent record.
+    owner: principal-reviewer
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pr-review.yaml
+      exists with: decision (approve | needs-work | reject), findings list (each with
+      id, severity: blocking | non-blocking, and description), and a confirmation that
+      all four checks (a)–(d) above were performed. A needs-work or reject verdict
+      requires the identified roles to revise before CONSENSUS-shortlist is signed.
+
+  - id: CONSENSUS-shortlist
+    description: >
+      Terminal deliverable. PM assembles the ranked shortlist into a CONSENSUS document
+      after: GEN-slice-A, GEN-slice-B, NHT-screen, HOQR-rubric-and-ranking, and
+      PR-review are all complete and the PR-review decision is "approve."
+      The CONSENSUS document must contain:
+      (a) A ranked shortlist of 3–5 surviving proposals (in ranked order), each with a
+          one-paragraph mechanism summary, NHT verdict, rubric score, and data tier.
+      (b) ONE explicitly recommended first candidate for pre-registration in the
+          follow-on track, with a rationale statement (≤ 100 words).
+      (c) An explicit kill-list of all screened-out proposals with the reason for
+          each kill (archived-family overlap, untestable, failed cost-survival,
+          acquisition-required-and-CEO-not-yet-consulted, or HoQR bottom-ranked).
+      (d) A statement that the org trial counter was NOT incremented in this wave
+          and the verified count (40) at wave close.
+      (e) All role signatures: quant-researcher-A, quant-researcher-B, HoQR, NHT,
+          principal-reviewer, PM.
+    owner: pm
+    done_when: >
+      A CONSENSUS_2026-06-06_new_alpha_kickoff.md file is committed to docs/decisions/
+      containing all five elements (a)–(e). The shortlist has 3–5 entries. Exactly one
+      recommended first candidate is named. The kill-list is non-empty (given the NHT
+      screen, some proposals will be killed). All six role signatures are present.
+      PM must confirm PR-review decision was "approve" before signing the consensus.
+
+# ── Out of scope ──────────────────────────────────────────────────────────────
+out-of-scope:
+  - "Backtests of any kind — no return-performance data is touched in this wave"
+  - "Pre-registrations — these occur in a dedicated follow-on track for the chosen candidate only"
+  - "Code of any kind — no scripts, no indicator implementations, no notebooks"
+  - "Data purchases or external data acquisition — flagging is permitted; authorization is CEO-only and out of scope"
+  - "Carry family re-skins — all carry variants are archived and calendar-locked until 2028-10-06 per trial f2fb41fd confirmatory freeze"
+  - "Momentum re-skins — Bet#1 retired, corrected DSR 0.13, archived"
+  - "MA-crossover, Bollinger-RSI, TAS-ceiling-4h re-skins — all archived"
+  - "ORB (Opening Range Breakout) variants — archived family, blocked"
+  - "ML-model strategies (any hypothesis requiring a trained ML model) — route to ml-researcher in a dedicated future track if proposed; out of scope here"
+  - "Live capital, paper trading, or any capital-at-risk action"
+  - "Trial counter increment — zero trials are registered in this wave"
+  - "Strategy parameter search or optimization of any kind"
+  - "The R5 confirmatory carry-universe kill test (tracked separately in 2026-06-06T-r5-confirmatory)"
+  - "Any re-adjudication of NHT dissents already recorded as append-only in prior CONSENSUS docs"
+
+# ── Roles staffed ────────────────────────────────────────────────────────────
+roles-staffed:
+  - role: pm
+    rationale: >
+      Produces this acceptance-criteria artifact (wave 1); collects role artifacts
+      and assembles the terminal CONSENSUS-shortlist document (wave-5). Makes no
+      domain or statistical adjudications. Routes knowledge gaps per pm.md discipline.
+
+  - role: head-of-quant-research
+    rationale: >
+      Owns the ranking rubric and direction view — the only role with authority to
+      produce the final ranked order of proposals and name the recommended first
+      candidate. Also holds the archive-dedup coordination responsibility (working
+      alongside NHT). Must ensure the direction view is calibrated to the firm's
+      honest-N ≈ 11 and zero validated OOS alpha posture.
+
+  - role: quant-researcher-A
+    rationale: >
+      Slice A generation — price, volatility, cross-sectional OHLCV structure,
+      4h microstructure-adjacent, cross-pair relative value. Disjoint from slice B
+      to maximize coverage; the two researchers MUST NOT duplicate sub-domains.
+      Produces qr-a-proposals.yaml.
+
+  - role: quant-researcher-B
+    rationale: >
+      Slice B generation — event/calendar/macro-conditioning, alternative uses of
+      existing feeds (rate differentials as conditioner not signal, spread data,
+      trade execution data, session effects), plus data-acquisition-worthy ideas
+      (flagged acquisition_required: true). Produces qr-b-proposals.yaml.
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Adversarial screening of ALL proposals before ranking is finalized. Three
+      mandatory screens: archive-dedup veto (structural blocker), base-rate prior
+      adjustment (given honest-N ≈ 11 and trial counter at 40), and untestability
+      check. NHT dissent is append-only per firm rule 6. Produces nht-screen.yaml.
+
+  - role: principal-reviewer
+    rationale: >
+      Independent review wave after all role artifacts are assembled. Checks rubric
+      consistency, NHT coverage completeness, proposal element completeness, and
+      no-backtest compliance. Produces pr-review.yaml; PR approval is a gate on
+      the terminal CONSENSUS-shortlist.
+
+wraps_invocation_of: []
+
+# ── Evidence (facts verified before writing this artifact) ────────────────────
+evidence:
+  - path: ".fintech-org/trials.jsonl"
+    note: >
+      Verified wc -l = 40 lines (trial counter at 40). This wave does not increment.
+  - path: "data/processed/"
+    note: >
+      Directory listing confirmed: 15 processed OHLCV parquet files — 12 daily pairs
+      (AUDJPY, AUDUSD, CADJPY, EURGBP, EURJPY, EURUSD, GBPUSD, GBPJPY, NZDJPY,
+      NZDUSD, USDCAD, USDJPY) + 3 four-hour pairs (EURUSD_4h, GBPUSD_4h, USDJPY_4h).
+  - path: "data/rates/rate_differentials.parquet"
+    note: >
+      File confirmed present. Monthly-stale, 2001–2026 as stated in brief.
+  - path: "data/spreads/"
+    note: >
+      Directory listing confirmed: 15 spread parquet files matching the 12 daily +
+      3 four-hour pairs. These are available to QR-B for the spread-as-signal sub-domain.
+  - path: "data/trades/executions.parquet"
+    note: >
+      File confirmed present. Available to QR-B for the trade-execution sub-domain.
+  - path: "data/predictions/2026-04.parquet"
+    note: >
+      Predictions directory contains one file (2026-04.parquet). Contents and schema
+      not inventoried in this wave — QR-B should inspect before relying on it.
+
+assumptions:
+  - >
+    The 12 daily and 3 four-hour OHLCV pairs listed in data/processed/ are the
+    complete and verified REAL data inventory; no additional undiscovered pairs exist
+    (verified by direct directory listing).
+  - >
+    The falsification archive (carry family, momentum/Bet#1, ma_crossover,
+    bollinger_rsi, tas_ceiling_4h, ORB) is the complete killed-hypothesis set as of
+    this wave. NHT will apply the dedup veto against this set.
+  - >
+    honest-N ≈ 11 is the figure from the firm's honest review (2026-05-31 reset).
+    NHT uses this figure for base-rate calibration; it is not recomputed in this wave.
+  - >
+    The predictions/2026-04.parquet file's schema and contents are NOT yet inventoried;
+    QR-B must inspect before proposing any hypothesis that relies on it.
+  - >
+    data/spreads/ spread parquet files contain per-pair bid-ask spread data at the
+    daily and 4h cadence (schema assumed from directory naming; QR-B verifies before
+    relying on).
+  - >
+    "No live capital" is an absolute firm constraint that does not require further
+    ratification. The no-capital-instruction field is the machine-checkable record.
+
+confidence: high
+# All evidence claims backed by direct directory listings and file checks run
+# before writing this artifact. The trial counter (40), data inventory (15 files),
+# and the falsfication archive families are all tool-verified, not assumed from memory.
+
+body: |
+  ## Purpose and scope rationale
+
+  This wave is the firm's first systematic NEW-alpha hypothesis generation since
+  the 2026-05-31 Honest Review reset. The reset established: zero validated OOS
+  alpha; the carry family is calendar-locked (confirmatory freeze, trial f2fb41fd)
+  until 2028-10-06 and permanently closed to re-parameterization; and the org has
+  accumulated 40 trials with the following archived families: carry (all variants),
+  momentum/Bet#1 (corrected DSR 0.13), ma_crossover, bollinger_rsi, tas_ceiling_4h.
+
+  Given this context, the firm's current alpha gap is structural: no direction has
+  been validated and the easy parameterization space of known-literature strategies
+  has been exhausted. A genuinely new kickoff wave requires:
+    (a) Mechanism novelty — information sources or structural hypotheses not present
+        in any archived family.
+    (b) Honest Bayesian posture — the base-rate of finding tradeable forex alpha is
+        low; proposals must acknowledge this explicitly in the cost-survival note.
+    (c) No premature trial expenditure — this wave produces paper artifacts only;
+        the trial counter burns only when a candidate enters a full pre-registration
+        + backtest in a follow-on track.
+
+  ## Role sequencing
+
+  Wave 1 (PM): this artifact.
+  Wave 2 (QR-A + QR-B, parallel): slice-A and slice-B generation, independent.
+  Wave 3 (NHT): adversarial screen of all proposals from both slices.
+  Wave 4 (HoQR): applies rubric, produces direction view, generates final ranking
+    incorporating NHT verdicts.
+  Wave 5 (Principal Reviewer): review wave on the ranked portfolio and NHT screen.
+  Wave 6 (PM): assembles CONSENSUS-shortlist after PR approval.
+
+  The sequencing ensures NHT sees all proposals before HoQR finalizes ranking
+  (preventing HoQR from ranking a proposal that NHT would auto-kill). QR-A and
+  QR-B run in parallel on disjoint slices to maximize coverage without duplication.
+
+  ## Terminal deliverable
+
+  A ranked shortlist of 3–5 surviving proposals + ONE recommended first candidate
+  for full pre-registration in a dedicated follow-on track. The recommended candidate
+  must have: data available now (no acquisition required), a specific falsification
+  sketch checkable with the existing backtest infrastructure, an honest cost-survival
+  note, and NHT verdict = survive.
+
+  ## What this wave does NOT do
+
+  It does not produce: backtests, code, pre-registrations, trial counter increments,
+  or any output touching live or paper capital. The org trial counter remains at 40
+  at wave close, and this is verified in the CONSENSUS-shortlist terminal artifact.
+
+knowledge_gaps: []
+# No knowledge gaps identified that block wave execution. The data/predictions/2026-04.parquet
+# schema is uncharacterized but its inventory is QR-B's responsibility, not a PM blocker.
+
+policy_violations_detected: []
+
+sources: []
+# All context sourced from:
+#   .fintech-org/trials.jsonl (wc -l = 40, verified)
+#   data/processed/ directory listing (15 files, verified)
+#   data/rates/ directory listing (rate_differentials.parquet, verified)
+#   data/spreads/ directory listing (15 spread files, verified)
+#   data/trades/ directory listing (executions.parquet, verified)
+#   data/predictions/ directory listing (2026-04.parquet, verified)
+#   CEO task brief (new-alpha-kickoff-2026-06-06, verbatim constraints)
+# No external URLs cited.
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true
+# This wave produces paper hypothesis artifacts only. No trading recommendations,
+# no capital-at-risk actions, no paper trading, no live orders at any stage.
+# The firm remains backtest-only. This constraint cannot be waived by any role
+# in this wave including the PM.

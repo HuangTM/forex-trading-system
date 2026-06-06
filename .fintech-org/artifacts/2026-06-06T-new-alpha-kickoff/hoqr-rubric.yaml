@@ -1,0 +1,423 @@
+---
+# HoQR Ranking Rubric + Direction View — New-Alpha Kickoff 2026-06-06
+# Frozen BEFORE any proposal is seen (wave 2b). Ranking pass is wave 2c, separate.
+# This artifact delivers the RUBRIC half of HOQR-rubric-and-ranking.
+
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve
+
+timestamp: "2026-06-06T06:05:00Z"
+
+subtask_ref: new-alpha-hoqr-rubric
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"  # orchestrator-mechanical: proposal-only wave, no counter line by design
+
+no-capital-instruction: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# 1. THE FROZEN RUBRIC
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Design intent: this rubric must make ONE candidate obviously-defensible as the
+# first (and possibly only) trial spend. Research bandwidth is the scarcest
+# resource — a full pre-registration burns a trial (counter now at 40) and weeks
+# of calendar. The rubric therefore weights MECHANISM (who-loses-money) and
+# NOVELTY (is-it-already-in-the-archive-graveyard) hardest, and treats statistical
+# tractability and cost-survival as HARD GATES, not just scored dimensions —
+# because the firm's entire history of failure is "looked plausible, died to
+# costs or to insufficient power." A high mechanism score cannot rescue a
+# proposal the data cannot test or the spread will eat.
+
+rubric:
+
+  scoring_scale: "1–5 integer per dimension, anchored. Higher is better."
+
+  dimensions:
+
+    - id: mechanism_quality
+      weight: 0.28
+      question: >
+        WHO loses money to this trade, and WHY do they persist in losing?
+        Flows, constraints, mandates, behavioral biases — NOT a price pattern.
+        A pattern is 'X tends to follow Y'; a mechanism names the counterparty
+        and the structural reason they cannot or will not stop.
+      anchors:
+        "1": >
+          Pure pattern. No counterparty named. "Prices mean-revert after a gap"
+          with no account of who supplies the liquidity or why. Indistinguishable
+          from data-mining a chart.
+        "2": >
+          A plausible-sounding story but the loser is hand-waved ("the market
+          overreacts"). No structural reason the edge survives being known.
+        "3": >
+          A named counterparty class (e.g., month-end rebalancers, retail
+          stop-clusters, hedgers indifferent to price) but the persistence
+          argument is weak — could be arbitraged away.
+        "4": >
+          Named counterparty + a CONSTRAINT that forces them to keep losing
+          (a mandate, a regulatory cadence, an inelastic hedging need, a
+          structurally price-insensitive flow). Edge survives being known
+          because the loser is not optimizing P&L.
+        "5": >
+          As 4, plus the constraint is documented/observable AND the firm
+          cannot itself be on the losing side. The persistence is mechanical,
+          not a behavioral hope. Rare; reserve for genuinely structural flows.
+
+    - id: novelty_vs_archive
+      weight: 0.20
+      hard_gate: true
+      question: >
+        Is the MECHANISM (not the indicator) distinct from every archived family:
+        carry (all variants — calendar-locked to 2028-10-06), momentum/Bet#1,
+        ma_crossover, bollinger_rsi, tas_ceiling_4h, ORB? Hard gate at level 1.
+      anchors:
+        "1": >
+          HARD-GATE FAIL → score zeroed. A re-skin of an archived family: the
+          mechanism is the same flow/behavior with a new indicator name. Includes
+          ANY trade whose signal is a monotone function of the rate differential
+          (that is carry wearing a hat), or trend-following on a longer/shorter MA,
+          or band-touch mean-reversion. NHT holds the dedup veto; this dimension
+          mirrors it.
+        "2": >
+          Adjacent to an archived family — a different trigger but the SAME
+          economic edge being harvested. Survives the hard gate only if NHT
+          clears it; otherwise zeroed.
+        "3": >
+          Distinct mechanism, but well-known in the public literature and likely
+          already arbitraged. Novelty to THIS firm, not to the world.
+        "4": >
+          Distinct mechanism, sparsely covered in literature, no archived-family
+          overlap. A non-obvious flow or structure.
+        "5": >
+          Distinct mechanism the firm has a specific data/structural reason to
+          test that most public actors cannot easily replicate at daily/4h cadence.
+
+    - id: falsifiability_sharpness
+      weight: 0.16
+      question: >
+        How cheaply and cleanly does ONE backtest kill this? A sharp hypothesis
+        names the specific result (sign, magnitude, on which pairs) that
+        falsifies it, with a pre-committed threshold — not "we'll see if it's
+        profitable."
+      anchors:
+        "1": >
+          No kill criterion. "Backtest it and look at Sharpe." Unfalsifiable in
+          practice — any result can be rationalized.
+        "2": >
+          Vague direction ("expect positive returns") with no magnitude or
+          pre-committed threshold.
+        "3": >
+          A threshold stated but it is post-hoc-movable, or requires many
+          sub-tests that invite multiple-comparisons fishing.
+        "4": >
+          One pre-committed, sign-and-magnitude-specific kill criterion checkable
+          in a single backtest on a named pair set. Clean.
+        "5": >
+          As 4, plus a built-in placebo/negative control that the SAME backtest
+          produces (e.g., the effect must vanish in a shuffled or off-mechanism
+          condition), so a spurious pass is itself caught cheaply.
+
+    - id: cost_survival_plausibility
+      weight: 0.16
+      hard_gate: true
+      question: >
+        Does the signal plausibly exceed realistic friction? Verified cost model:
+        ~1.5 pips round-trip on majors (0.5 spread + 0.5 slippage + 0.5
+        commission), wider on crosses (~1.9 pips on JPY crosses), plus swap of
+        ~0.8–1.5 pips/day carried overnight. Daily-bar frequent trading is a
+        KNOWN killer here. Hard gate at level 1.
+      anchors:
+        "1": >
+          HARD-GATE FAIL → score zeroed. Implied edge per trade is below the
+          ~1.5-pip round-trip floor, OR turnover is so high that cumulative
+          friction obviously exceeds any plausible signal. Cost-blind intraday
+          ideas land here.
+        "2": >
+          Edge is of the same order as friction (within ~2x) — survives only if
+          everything else is perfect; net-of-cost margin is wishful.
+        "3": >
+          Edge is a few-x friction on the modeled pairs, but turnover-sensitive;
+          plausible but margin-thin.
+        "4": >
+          Edge comfortably exceeds friction (≥5x round-trip) AND turnover is low
+          enough that swap/spread accumulation does not erode it. Low trade count
+          per year is a positive here, not a negative.
+        "5": >
+          As 4, and the mechanism is INHERENTLY low-turnover (holds across the
+          friction by design — e.g., infrequent, large, structurally-timed moves),
+          so cost is a rounding error on the gross edge.
+
+    - id: statistical_tractability
+      weight: 0.12
+      hard_gate: true
+      question: >
+        Can the AVAILABLE data deliver enough EFFECTIVE sample size to reject the
+        null at this firm's DSR-gated bar? Be explicit about what caps power:
+        monthly-stale feeds (rate_differentials is monthly → ~300 independent
+        points over 25y), rare events (a per-event sample, not per-bar), and
+        autocorrelation (overlapping windows inflate naive N). Hard gate at level 1.
+      anchors:
+        "1": >
+          HARD-GATE FAIL → score zeroed. Effective N is too small to ever clear
+          a DSR gate — an untestably-rare event (a handful of occurrences), or a
+          signal that only exists at the monthly cadence with <~50 independent
+          observations. No backtest can be well-powered.
+        "2": >
+          Effective N marginal (~50–150 independent obs after de-overlapping);
+          power is low; a null result would be uninformative (could not
+          distinguish "no edge" from "underpowered").
+        "3": >
+          Adequate effective N on a single pair (~150–400 independent obs), but
+          thin once split into OOS, or reliant on one pair's history.
+        "4": >
+          Good effective N — cross-sectional pooling across the 12 daily pairs or
+          dense 4h bars gives hundreds-to-thousands of independent observations,
+          enough to power an OOS test honestly.
+        "5": >
+          Abundant effective N AND the cross-section provides independent replicas
+          (the same mechanism tested across uncorrelated pairs), so a pass is
+          itself a robustness check.
+
+    - id: data_readiness
+      weight: 0.05
+      hard_gate: "soft — see first_candidate_bar; acquisition_required cannot be the recommended first candidate"
+      question: >
+        Is every input in the VERIFIED inventory now, or does it need acquisition
+        (CEO-only, out of scope this wave)?
+      anchors:
+        "1": >
+          Requires data not in inventory and not acquirable cheaply (e.g., tick
+          order-flow, proprietary positioning). Speculative.
+        "2": >
+          Requires external acquisition that is feasible but CEO-gated; cannot be
+          the first candidate this wave.
+        "3": >
+          Available now but in an UNCHARACTERIZED file (e.g., predictions/2026-04
+          schema not yet inventoried) — needs a verification step first.
+        "4": >
+          Fully available now: OHLCV (12 daily + 3×4h), spreads, executions, or
+          rate_differentials, all verified present. No acquisition.
+        "5": >
+          Available now AND already clean/validated in the pipeline (processed
+          parquet), zero ingestion risk.
+
+    - id: capacity_robustness
+      weight: 0.03
+      question: >
+        Does the edge survive small perturbations (pair set, lookback, threshold)
+        and is it not single-pair-fragile or single-regime-fragile?
+      anchors:
+        "1": "Edge lives in one pair / one regime / one magic parameter. Fragile."
+        "2": "Survives on 2 pairs but parameter-sensitive."
+        "3": "Survives across several pairs; moderate parameter sensitivity."
+        "4": "Robust across the cross-section and a parameter neighborhood."
+        "5": "Mechanism predicts WHICH pairs it should and should not work on, and the data agrees — robustness is a prediction, not a hope."
+
+  # ── Aggregation rule ───────────────────────────────────────────────────────
+  aggregation:
+    rule: >
+      Weighted sum of the seven dimension scores (weights sum to 1.00), producing
+      a score in [1.0, 5.0]. BUT the four HARD GATES are applied FIRST: if any of
+      novelty_vs_archive, cost_survival_plausibility, or statistical_tractability
+      scores 1, the proposal's TOTAL is set to 0 (killed) regardless of other
+      dimensions. data_readiness is a SOFT gate — it does not zero the total, but
+      a proposal scoring 1–2 on data_readiness is INELIGIBLE for the recommended-
+      first-candidate slot (it may still rank as a future candidate).
+    weights_sum_check: "0.28 + 0.20 + 0.16 + 0.16 + 0.12 + 0.05 + 0.03 = 1.00"
+    why_gates_not_just_weights: >
+      The firm's failure history is not "low-scoring ideas got through" — it is
+      "high-mechanism ideas died to costs or were underpowered." A weighted sum
+      alone lets a brilliant mechanism (5) average over a fatal cost flaw (1).
+      Gates encode the lesson that those three dimensions are necessary, not
+      tradeable.
+
+  hard_gates:
+    - "novelty_vs_archive == 1  → TOTAL = 0 (archived-family re-skin; NHT veto mirror)"
+    - "cost_survival_plausibility == 1  → TOTAL = 0 (edge below ~1.5pip round-trip floor or turnover-dominated)"
+    - "statistical_tractability == 1  → TOTAL = 0 (effective N cannot power a DSR-gated OOS test)"
+    - "data_readiness <= 2  → NOT zeroed, but INELIGIBLE as recommended first candidate (acquisition is CEO-only this wave)"
+
+  tie_break:
+    order:
+      - "1. Higher mechanism_quality (the scarcest, least-fakeable virtue)."
+      - "2. Higher statistical_tractability (a more-powered test is a better trial spend)."
+      - "3. Lower turnover / higher cost_survival_plausibility (durability under friction)."
+      - "4. Higher data_readiness (already-clean beats needs-verification)."
+      - "5. If still tied, HoQR judgment call recorded with rationale in the ranking artifact."
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2. DIRECTION VIEW  (independent, written before seeing proposals)
+# ════════════════════════════════════════════════════════════════════════════
+direction_view: |
+  WHERE I THINK DURABLE FX ALPHA PLAUSIBLY LIVES (backtest-only, daily/4h, 2026)
+
+  The firm has falsified the entire "predict the next return from past returns/
+  indicators" playbook. That is the correct lesson: on liquid majors at daily/4h
+  cadence, directional return-prediction is efficiently priced and dies to ~1.5pip
+  friction. The surviving hypothesis space is NOT "a better predictor" — it is
+  STRUCTURAL FLOWS where a price-insensitive counterparty is forced to transact.
+
+  My ranked priors for where edge could still hide:
+
+  1. STRUCTURAL REBALANCING / CALENDAR FLOWS (strongest prior). Month-end and
+     quarter-end FX rebalancing by passive equity/bond funds is a mandated,
+     price-insensitive flow — they MUST buy/sell currency to hedge benchmark
+     weights regardless of price. This is the textbook "who-loses-money": funds
+     indifferent to a few pips of FX slippage because their mandate is index
+     tracking. It is low-turnover (≤12–24 events/year), which is exactly what
+     survives friction. Testable on existing daily OHLCV via timestamp alone.
+     CAVEAT: well-known → expect a modest, decaying edge, not a goldmine.
+
+  2. VOLATILITY / RANGE STRUCTURE, not direction. OHLCV gives Parkinson/
+     Garman-Klass range estimators and overnight-gap vs intraday-range
+     decompositions. The tradeable angle is conditioning (sizing/gating other
+     trades on vol regime), or relative-vol cross-sectional structure — NOT a
+     standalone vol "signal." Lower prior as a primary alpha; higher as a
+     conditioner that improves something else's cost-survival.
+
+  3. CROSS-SECTIONAL RELATIVE VALUE among the 12 pairs (triangular/cointegration
+     residuals, e.g., EURUSD·USDJPY vs EURJPY). The mechanism must be a genuine
+     no-arbitrage tether with a NAMED reason the basis persists at daily cadence
+     (settlement frictions, cross liquidity). Medium prior; high statistical
+     tractability (cross-section pools N) but easy to fool yourself with
+     cointegration that is really disguised mean-reversion.
+
+  4. LIQUIDITY-REGIME / SPREAD-as-signal. data/spreads/ lets us see spread
+     widening as a liquidity-stress proxy. Plausible as a CONDITIONER (stand
+     aside / fade in stress), weak as standalone alpha.
+
+  THE 2–3 TRAPS I EXPECT THE RESEARCHERS TO FALL INTO:
+  (a) DISGUISED MOMENTUM — any signal that is secretly "buy what went up" with a
+      new label (breakout, regime-persistence, vol-adjusted trend). Auto-kill via
+      novelty gate.
+  (b) CONDITIONING ON THE DEAD CARRY SIGNAL — using rate_differentials as the
+      trade direction is carry wearing a hat (calendar-locked). It is only
+      legitimate as a regime CONDITIONER for a structurally-different hypothesis,
+      and even then NHT must confirm the edge is not just carry leaking through.
+  (c) UNTESTABLY-RARE EVENTS + COST-BLIND INTRADAY — pinning alpha on a handful
+      of historical events (intervention, crisis) that give effective-N of ~10
+      (fails statistical gate), OR a 4h/intraday idea that ignores that ~1.5pip
+      round-trip × high turnover is fatal (fails cost gate). Both are the firm's
+      classic graves.
+
+# ════════════════════════════════════════════════════════════════════════════
+# 3. THE FIRST-CANDIDATE BAR  (explicit minimum profile to be RECOMMENDED)
+# ════════════════════════════════════════════════════════════════════════════
+first_candidate_bar:
+  statement: >
+    To be the ONE recommended first candidate for full pre-registration, a
+    proposal must clear ALL of the following — not "score well on average."
+  requirements:
+    - "No dimension scores below 3 (no soft spots a trial would expose)."
+    - "mechanism_quality >= 4 (a named, constrained, price-insensitive counterparty — not a pattern)."
+    - "novelty_vs_archive >= 4 (distinct mechanism; NHT dedup-clean; not carry/momentum/MA/BB/TAS/ORB in disguise)."
+    - "cost_survival_plausibility >= 4 (edge >= ~5x the ~1.5pip round-trip floor AND low turnover; survives swap accumulation)."
+    - "statistical_tractability >= 4 (effective N — via cross-section pooling or dense bars — can power an honest OOS DSR test; rare-event ideas excluded)."
+    - "falsifiability_sharpness >= 3 (a pre-committed, single-backtest kill criterion)."
+    - "data_readiness == 4 or 5 (available NOW in the verified inventory; acquisition_required proposals are INELIGIBLE this wave — CEO-only)."
+    - "NHT verdict == survive (archive-dedup clean, base-rate not unfavorable-fatal, testable)."
+  rationale: >
+    The bar is deliberately high because the cost of a wrong first spend is a
+    burned trial + weeks of calendar against a firm with zero validated OOS alpha
+    and honest-N ≈ 11. If NO proposal clears this bar, the defensible recommendation
+    is to recommend the closest-clearing proposal explicitly flagged as
+    below-bar, OR to recommend NO spend this wave — a non-spend is a valid,
+    bandwidth-preserving outcome and is preferable to forcing a weak trial.
+
+# ════════════════════════════════════════════════════════════════════════════
+ranked-alternatives: []   # populated in wave 2c after proposals + NHT screen seen
+
+retirement-criteria:
+  - "This rubric is RETIRED and must be re-frozen if the data inventory materially changes (new feed acquired, a pair's history extended) before ranking — anchors reference the current verified inventory."
+  - "Retire/revise if the verified cost model changes (the ~1.5pip round-trip floor and ~0.8–1.5pip/day swap are load-bearing anchors for the cost gate)."
+  - "Retire if the archived-family set changes (NHT adds a newly-falsified family) — the novelty gate must mirror the current archive."
+  - "Single-use freeze: this rubric governs ONLY the 2026-06-06 new-alpha-kickoff ranking; a future wave re-freezes its own rubric before seeing proposals."
+
+evidence:
+  - path: ".fintech-org/trials.jsonl"
+    note: "wc -l = 40 (trial counter). grep of family strings: carry x34+ (dominant archived family), momentum x8, ma_crossover x5, bollinger_rsi x6, orbs x2, tas_ceiling x1 — grounds the novelty hard-gate's archived-family list."
+  - path: "config/default.yaml"
+    note: "Verified cost model: spread 0.5 / slippage 0.5 / commission 0.5 pips (~1.5pip round-trip) on majors; 0.8 spread on a wider pair; swap_long/short ~0.8–1.5 pips/day. Grounds the cost_survival hard-gate floor."
+  - path: "data/processed/"
+    note: "15 OHLCV parquet files verified: 12 daily pairs + 3 four-hour (EURUSD/GBPUSD/USDJPY). Grounds data_readiness anchors and statistical-tractability cross-section pooling argument."
+  - path: "data/spreads/"
+    note: "15 spread parquet files verified (per-pair daily + 4h). Grounds the liquidity-regime / spread-as-signal direction-view item and data_readiness."
+  - path: "data/rates/rate_differentials.parquet"
+    note: "Present, monthly-stale per brief. Grounds the statistical_tractability cap (monthly cadence → ~300 independent points/25y) and the carry-conditioning trap."
+  - path: "data/trades/executions.parquet"
+    note: "Present. Available-now feed for slice-B execution-as-signal."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pm-acceptance-criteria.yaml"
+    note: "Owns HOQR-rubric-and-ranking; defines required rubric dimensions, honest-N≈11, hard constraints, and that this rubric must be uniform across both slices."
+
+assumptions:
+  - "The archived-family set (carry, momentum/Bet#1, ma_crossover, bollinger_rsi, tas_ceiling_4h, ORB) is complete as of this wave; NHT holds the authoritative dedup veto and this rubric's novelty gate mirrors it."
+  - "honest-N ≈ 11 validated forex hypotheses and trial-counter 40 with zero validated OOS alpha (from the 2026-05-31 honest review); the high first-candidate bar is calibrated to this low base rate."
+  - "The ~1.5pip round-trip + ~1pip/day swap cost figures from config/default.yaml are representative of the realistic per-pair cost model the backtest will apply."
+  - "rate_differentials is monthly-stale; any daily/4h hypothesis using it as a conditioner inherits the monthly effective-N cap unless paired with a higher-frequency signal."
+  - "This rubric is frozen before any proposal is seen; the wave-2c ranking pass applies it mechanically without re-tuning weights or anchors to fit specific proposals."
+
+confidence: high
+# Rubric structure, weights, anchors, gates, and direction view are all grounded
+# in tool-verified facts (cost config, data inventory, archive family counts) and
+# in the firm's documented honest-review posture. The judgment calls (weight
+# values, the >=4 thresholds in the first-candidate bar) are calibrated to the
+# stated scarcity-of-bandwidth and zero-validated-alpha reality, not to any
+# specific idea — the rubric was written before proposals exist.
+
+body: |
+  ## Why mechanism + two gates carry the weight
+
+  The firm's edge so far is its KILL machinery, not its alpha. The rubric is built
+  to be the same kind of machine applied at hypothesis-selection time: it is
+  engineered to KILL cheaply and let exactly one defensible candidate survive,
+  rather than to flatter a portfolio of plausible ideas.
+
+  Three lessons from 40 trials with zero validated OOS alpha are encoded as
+  structure, not preference:
+
+  1. PATTERNS ARE FREE; MECHANISMS ARE SCARCE. Every falsified family was, in
+     hindsight, a pattern with a story bolted on. mechanism_quality (0.28, the
+     top weight) and its anchors force the question "who is the price-insensitive
+     loser and why can't they stop" — the one question a pattern cannot answer.
+
+  2. PLAUSIBLE-BUT-FATAL IDEAS MUST DIE BEFORE RANKING. A weighted sum lets a
+     5-mechanism average over a 1-cost or 1-power flaw. The three hard gates
+     (novelty, cost-survival, statistical-tractability) encode that those are
+     NECESSARY conditions, not tradeable virtues. This is the same logic as the
+     DSR gate: a beautiful Sharpe under insufficient effective-N is not evidence.
+
+  3. A BURNED TRIAL IS EXPENSIVE. The first_candidate_bar is intentionally hard
+     (no dim < 3, three dims ≥ 4, data available-now mandatory). Recommending NO
+     spend is an explicitly valid outcome — preserving bandwidth beats forcing a
+     weak first pre-registration.
+
+  ## Relationship to NHT
+
+  The novelty_vs_archive hard gate MIRRORS the NHT archive-dedup veto; it does not
+  replace it. NHT runs first (wave 3) and is authoritative on dedup, base-rate,
+  and testability. This rubric's gates are the HoQR's independent confirmation
+  applied during ranking — a proposal NHT auto-kills cannot score above 0 here,
+  and a proposal NHT flags unfavorable on base-rate will struggle to clear the
+  high first-candidate bar even if not formally killed.
+
+  ## Calibration note on the direction view
+
+  The direction view is independent of the rubric and was written to NOT
+  pre-judge specific proposals — it states WHERE alpha could structurally live
+  and which traps to expect, so that when the ranking pass runs, a proposal that
+  lands in trap (a)/(b)/(c) is recognizable as such. It deliberately keeps modest
+  priors: even the strongest call (structural rebalancing flows) is flagged as
+  well-known and likely-decaying, consistent with honest-N ≈ 11.
+
+knowledge_gaps:
+  - "predictions/2026-04.parquet schema is uncharacterized (per PM evidence) — a proposal relying on it scores data_readiness 3 (needs verification), not 4."
+  - "Exact realized-spread distribution per pair (the spread parquet contents) not inventoried by HoQR this wave — cost-survival anchors use the config model figures; a proposal claiming tighter realized spreads must show the data."
+  - "Whether month-end rebalancing flow is detectable at daily resolution with sufficient effective-N is a direction-view prior, not a verified result — the ranking pass treats it as a hypothesis to be scored, not a fact."
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

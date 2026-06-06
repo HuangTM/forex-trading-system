@@ -65,12 +65,21 @@ class TestComputeHonestN:
     # ------------------------------------------------------------------
 
     def test_sacred_n_honest_value(self):
-        """SACRED TEST: compute_honest_n on the real trials.jsonl yields N_honest=10.
+        """SACRED TEST: compute_honest_n on the real trials.jsonl yields N_honest=11.
 
         This is the primary invariant for the HoQR de-duplication rule.
-        Expected ≈ 9 per spec; actual derived from the programme's trials is 10
-        (momentum has both a pre_reg path variant and a bare strategy-family variant
-        as a separate rejected run without pre_reg, so they map to 2 distinct keys).
+        N_honest history:
+          N=10 before commit 1c533e8 (r5-step4 2026-06-06): trial 576746aa added
+                with pre_reg_path='references/pre-registrations/r5_carry_universe_kill_test.md',
+                which became a new distinct hypothesis key.
+          N=11 from commit 1c533e8 onward: 576746aa pre_reg_path adds the R5 key.
+        The 11 keys are: bollinger_rsi, carry, carry_momentum, fred_carry, ma_crossover,
+        momentum, references/pre-registrations/momentum.md,
+        references/pre-registrations/r5_carry_universe_kill_test.md,
+        references/pre-registrations/vol_target_carry.md, tas_ceiling, vol_target_carry.
+        Note: trial f2fb41fd (confirmatory, spawned=True, status=unknown) does NOT
+        contribute to N_honest — it is neither retained nor excluded (unknown status
+        falls through the filter without being counted).
         """
         trials_path = Path(".fintech-org/trials.jsonl")
         if not trials_path.exists():
@@ -78,9 +87,9 @@ class TestComputeHonestN:
 
         n_honest, retained_keys, excluded_counts = compute_honest_n(trials_path)
 
-        # Sacred assertion: N_honest must be 10 for the current programme registry.
-        assert n_honest == 10, (
-            f"N_honest must be 10 for current programme registry; got {n_honest}. "
+        # Sacred assertion: N_honest must be 11 for the current programme registry.
+        assert n_honest == 11, (
+            f"N_honest must be 11 for current programme registry; got {n_honest}. "
             f"retained_keys={sorted(retained_keys)}"
         )
         # All retained keys are non-empty strings.

@@ -1,0 +1,346 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: survives
+timestamp: "2026-06-06T06:30:00Z"
+subtask_ref: r5-confirmatory-nht-audit
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+claimed_domains:
+  - null-hypothesis-construction
+  - p-hacking-and-data-snooping-detection
+  - replication-protocol-design
+  - structural-skepticism-on-any-claim
+
+claim-tested: >
+  "The assembled confirmatory pre-registration at
+  references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md (477 lines) is an honest,
+  binding, confirmatory-ONLY test of the single pre-specified structure vol_target_carry:USDJPY on
+  genuinely unsnooped post-2026-04-06 data: the R5 36-cell selection burden is correctly absorbed
+  (N_conf=6, SR0_ann=0.554361, kill_switch_threshold=1.2906); the two-look Lan-DeMets OBF schedule
+  (z1=2.537988 at 2028-10-06, terminal z2=1.662107 at 2031-04-06, joint alpha exactly 0.05) is correctly
+  constructed and TERMINAL; no branch permits 'keep waiting/spending past the final look'; the interim
+  monitoring state cannot leak verdicts; and no degree of freedom survives the freeze."
+
+tests-requested: []   # numerical confirmation already exists: qd-constants-confirmation.yaml (scipy triple-verified)
+
+tests-results: >
+  No new numerical tests requested. The constants under audit were independently re-derived by QD via
+  scipy with triple verification (qd-constants-confirmation.yaml): bracket(N=6)=1.300141, SR0_ann=0.554361,
+  SR0_pp=0.034921, z1=2.537988, z2=1.662107 (joint alpha=0.050000 confirmed three ways: scipy
+  multivariate_normal.cdf, dblquad=0.95000004, 5M-sample MC rejection rate 0.050055), and
+  kill_switch_threshold=1.290641 (DSR-at-kill=0.950000 exact). I reproduced the monotonicity/polarity
+  reasoning by hand from the frozen scalars (R5 N=3 SR0_ann=0.363623 vs conf N=6 SR0_ann=0.554361, +52%)
+  and confirmed the sfLDOF construction against the canonical Lan-DeMets formula via one WebSearch (the
+  spending function f(t;a)=2-2*Phi(Phi^-1(1-a/2)/t^(rho/2)), rho=1, and Cov(Z1,Z2)=sqrt(I1/I2)=sqrt(0.5)
+  both match the pre-reg verbatim). All values in the claim are confirmed.
+
+matched-benchmark-sharpe: "n/a (pre-run audit)"
+permutation-results: "n/a"
+
+dsr-assessment: >
+  THE N_conf=6 / SR0 / threshold audit — the load-bearing freeze and the axis flagged for my adjudication.
+
+  POLARITY (verified, and it is the OPPOSITE of the R5 problem I caught). BLdP SR0 is strictly INCREASING
+  in N (R5 N=3 -> SR0_ann=0.363623; conf N=6 -> SR0_ann=0.554361). In R5 I flagged N=2-at-the-FLOOR as
+  ANTI-conservative (a lower N gives a lower bar, biasing toward false CONTINUE). Here the Mathematician
+  elected N_conf at the CEILING (6) of the admissible band [2,6]. Ceiling = highest SR0 = STRICTEST,
+  most-skeptical gate = the safe-if-wrong direction for a KILL test. The polarity flip is correct and the
+  point chosen is honest: an N_conf error in the only direction the firm could plausibly be accused of
+  (charging too little) is structurally ruled out by sitting at the ceiling. I cannot construct an
+  exploit where a HIGHER N_conf produces a false PASS — higher N only makes PASS harder.
+
+  NO-DOUBLE-COUNT (sound, with one residual). The construction N_conf = R5-effective-selection-dim-upper
+  (NHT's own 4) + prior-carry-honest-N (3) - 1 overlap = 6 is principled: it charges BOTH the
+  best-of-36-correlated-cells selection event AND the prior carry-family multiplicity, while removing the
+  one-look double-count of the shared rate-differential idea (the exact double-count R5 7.2 warned against).
+  The "-1 overlap" is a judgement, not a derivation, but it is disclosed as such and it errs toward MORE
+  charge (6 > both 4 and 3 individually), so any residual error is conservative. I accept it. The
+  dispersion sqrt(Var[SR_n])=0.426385 is carried FROZEN from R5 (sample-/-1 over the two observed
+  look-Sharpes {0.80, 0.197}); N_conf enters ONLY the expected-max bracket axis, never the dispersion —
+  this is the same two-axis discipline I verified in R5, applied correctly. The dispersion's own
+  2-observation fragility is inherited from R5 unchanged (assumption, not a new defect here).
+
+  CLEAN HOLD-OUT vs SELECTION CHARGE — no double-charge, no under-charge (correct adjudication). The
+  Mathematician's resolution is right and is the crux: the clean post-2026-04-06 hold-out removes the
+  IN-SAMPLE OVERFIT of the point estimate, but it does NOT remove the MULTIPLICITY of the selection EVENT
+  (had a different cell won the R5 argmax, a different hypothesis would be frozen now). So the selection
+  charge lands in the DSR SR0 benchmark (N_conf=6), and the bootstrap-t p is the clean-data evidence —
+  TWO DISTINCT hurdles, both required for PASS (decision-map outcome 1 AND-gates them). This is not
+  double-charging: the bootstrap p is NOT itself deflated by N (it is a single-series honest p on unseen
+  data), and the DSR gate is NOT applied to in-sample data. The selection is charged exactly once, in the
+  right place. The rejected "no charge, data is unsnooped" alternative is correctly steelmanned and
+  correctly refused: the family-wise error rate of declaring a winner from the best-of-36 survivor exceeds
+  0.05 even on fresh data, because the candidate was pre-filtered for apparent strength.
+
+  KILL-SWITCH THRESHOLD (1.2906, correct and correctly STRICTER than R5). Two compounding levers, both in
+  the skeptical direction: (i) N_conf=6 raises SR0 vs R5 N=3; (ii) T_holdout~1260 << R5 T=4186, so the
+  sqrt(T-1) lever is weaker and a higher Sharpe is needed for the same DSR. brentq-exact 1.290641,
+  DSR-at-kill=0.950000. The threshold demands a ~1.29 realized ann Sharpe on 5yr of clean data to PASS —
+  far above the snooped in-sample 0.767. This is honest and hard, exactly as a confirmatory kill test
+  should be. The threshold is NOT copied from R5 (it is derived).
+
+audit-findings:
+  - id: F-1
+    severity: material
+    finding: >
+      RUNNER DOES NOT EXIST AND THE EXISTING DSR CODE HARDCODES THE WRONG SR0. r5_decision.compute_dsr_gate
+      pins SR0_PP = 0.022906 as a FROZEN LITERAL (r5_decision.py:188-189) — that is the R5 N=3 value, NOT
+      the confirmatory SR0_pp_conf=0.034921 (N_conf=6). The confirmatory test CANNOT reuse
+      compute_dsr_gate as-is without computing the wrong (too-lenient) DSR. Separately, the canonical
+      dsr.py:171-177 carries a scipy-ImportError math.erf APPROXIMATION FALLBACK, which the pre-reg's
+      "scipy REQUIRED, no approximation" pin (PART II 1.4 / 5) forbids; the no-fallback enforcement lives
+      only in r5_decision.py:22-30, not in dsr.py. A confirmatory runner that imports compute_dsr from
+      dsr.py rather than the r5_decision path would silently violate the scipy pin.
+    exploit-path: >
+      At look time (2028/2031) a runner is built that (a) reuses compute_dsr_gate's hardcoded 0.022906,
+      under-deflating and making a false PASS easier; or (b) imports raw dsr.py and silently falls back to
+      the erf approximation if scipy is missing, certifying on a forbidden approximation. NON-BLOCKING
+      because: the pre-reg FREEZES the correct value (SR0_pp_conf=0.034921) in the document text and the
+      kill_switch_threshold (1.2906) verbatim; VOID-on-freeze-mismatch + VOID-on-parameter-drift +
+      refuse-without-receipt + behavior-equivalence pin (Section 2.3) all attach at the freeze-receipt; and
+      the runner must be separately code-pinned and behavior-verified at look time under a fresh receipt.
+      The hole is a FUTURE implementation risk, not a defect in the frozen spec. REQUIRED FIX (recommended,
+      not blocking the freeze): the freeze-receipt MUST pin SR0_pp_conf=0.034921 as the literal the runner
+      injects (NOT compute_dsr_gate's 0.022906), and MUST state the runner uses the r5_decision scipy-hard
+      path (no dsr.py erf fallback). The math contract already implies this; pin it explicitly NOW so the
+      look-time QD cannot reach for the R5 literal.
+  - id: F-2
+    severity: minor
+    finding: >
+      z2 CONVENTION IS A DEFENSIBLE ELECTION, NOT THE ONLY ADMISSIBLE ONE. z2=1.662107 solves the
+      bivariate-joint-OR criterion P(Z1>=z1 OR Z2>=z2)=0.05 exactly (triple-verified). But the canonical
+      gsDesign sfLDOF *incremental-spend* convention yields a DIFFERENT terminal nominal boundary
+      (conditional boundary 1.701 per QD). Both control type-I at 0.05; the joint-OR election (z2=1.662 <
+      1.701) is slightly LESS conservative and gives marginally higher power (0.340 vs ~0.33). The
+      Mathematician chose the joint-OR because it is the unique derivable root of the stated criterion and
+      rejected the opaque hand value 1.687 (which under-spent to alpha~0.0477 with no provenance).
+    exploit-path: >
+      None material. The joint-OR is the MORE alpha-spending (less conservative) of the two admissible
+      conventions, so it is the anti-conservative-leaning choice on the multiplicity axis — but the gap is
+      ~0.04 in z and the design is dominated by the DSR gate (1.2906), not the bootstrap-p boundary. A PASS
+      requires BOTH; the DSR gate is the binding hurdle, so the z2 convention choice cannot manufacture a
+      false PASS. Note only.
+  - id: F-3
+    severity: note
+    finding: >
+      FUTILITY IS ADVISORY, NOT BINDING — and that is the correct choice, closing my own prior class of
+      objection. Section 3.4 freezes a NON-binding futility advisory (interim negative point-Sharpe MAY
+      early-KILL, firm retains discretion). An advisory futility leaks NO optionality in the dangerous
+      direction: it cannot CONTINUE a test that should stop, it can only stop one early; it recovers no
+      alpha; and the terminal look remains the sole BINDING decision. The asymmetry (advisory-down,
+      binding-terminal) is exactly what avoids the error-inflation a non-symmetric binding futility would
+      cause. Correct.
+    exploit-path: >
+      None. The only discretion an advisory futility grants is "stop early when already negative," which
+      strictly cannot produce a false PASS.
+  - id: F-4
+    severity: note
+    finding: >
+      LOOK GOVERNANCE / NO-PEEK IS MECHANICALLY CREDIBLE. The interim monitoring state (Section 5) runs
+      ONLY the data/storage.py provenance check (_assert_price_range, USDJPY bounds [20.0,245.0],
+      real-directory loader) and logs DATA health — it never instantiates the strategy return series,
+      Sharpe, P&L, or any statistic. This is mechanically separable: the provenance check reads raw price
+      bars and bounds-checks them; it does not call carry_universe_matrix or reality_check. Enforcement is
+      the refuse-without-receipt runner (runs ONLY at the two frozen look dates) + VOID-on-early-peek
+      (any strategy-performance computation on a post-2026-04-06 bar with timestamp < frozen_look_date is
+      VOID). The terminal look is genuinely terminal: no decision branch maps to "inconclusive, keep
+      waiting/spending past the final look" (outcome 2 is FORCED at look 2 at any power level; outcome 4
+      CONTINUE is explicitly unavailable at the final look). The pass-at-look destination is an
+      observe-only paper canary under a FRESH ratification with NO capital and a NEW trial_id — it is NOT
+      a disguised CONTINUE on the carry family (the 36-cell family is not re-opened; no capital; new
+      pre-reg required). I searched for an "extend the test / one more look / re-parameterize after a
+      near-miss" path and found none.
+    exploit-path: >
+      Residual: the no-peek guarantee is procedural (the runner is built later). It is enforced at
+      look-time by the same receipt interlock as F-1, not by code that exists today. Same containment as
+      F-1; note only.
+  - id: F-5
+    severity: note
+    finding: >
+      POWER HONESTY IS COHERENT AND THE FRAMING IS CARRIED CORRECTLY. Planning at SR_plan=SR0_ann_conf=0.554
+      (the selection-deflated benchmark) rather than the snooped 0.767 is the conservative, correct choice
+      — planning at 0.767 would OVERSTATE sensitivity. Two-look power ~0.34 is LOW and is disclosed as such
+      (and disclosed as an UPPER bound, since monthly-stale signal autocorrelation will further shrink
+      effective n). Critically, the low power is bound to KILL-with-caveat, NOT to a third door: a
+      non-rejection at the terminal look is a KILL at ANY power level, with the honest acknowledgment that
+      low power makes the non-rejection uninformative as evidence-of-no-edge but does NOT license continued
+      spend. This matches the R5 discipline I signed and the "expected outcome = wind-down" framing is
+      carried honestly. The base-rate honesty (1.2 preamble: "wind-down remains the most-likely terminal
+      state") is explicit.
+  - id: F-6
+    severity: note
+    finding: >
+      UNFROZEN-DOF SWEEP comes back clean at the SPEC level. Seed rule frozen (master_seed=924289, derived
+      by a stated deterministic rule from stem f2fb41fd; the rule is documented and reproducible). Bootstrap
+      K=10000 frozen (tightens MC-SE vs R5's 5000). Estimator conventions pinned verbatim to R5 A-5
+      (skew bias=True, kurtosis fisher=True bias=True, Sharpe ddof=1, periods_per_year=252, HAC NW
+      Bartlett bandwidth=max(L-1,1), Politis-White auto L with L>=1 guard). var_term reference convention
+      is the self-consistent brentq fixed point (var_term=1.001053 at the kill threshold), NOT an assumed
+      var_term=1 — QD confirmed the two-pass and brentq converge to the same point. The ONLY genuine
+      unfrozen DOF is the runner code itself (F-1), and the freeze-receipt + behavior-equivalence pin
+      (Section 2.3, byte-identical return series on a shared sub-window) converts "new code" into
+      "hash-pinned code" at look time. The seed-derivation prose in Section 5 is slightly garbled
+      (a false-start sentence "R5 took the first 6 hex... no —") but the FROZEN rule and value (924289)
+      are unambiguous; cosmetic.
+
+dissent-statement: |
+  NHT POSITION ON THE R5-CONFIRMATORY PRE-REGISTRATION (append-only; preserve verbatim in CONSENSUS):
+
+  The confirmatory pre-reg SURVIVES my audit and is freezable as-is. It is an honest, binding,
+  confirmatory-ONLY test of the single pre-specified structure vol_target_carry:USDJPY on genuinely
+  unsnoopable post-2026-04-06 data, and it honors every condition the frozen R5 map (§5 outcome 4 /
+  §7.3.6 RULE 4) attaches to a confirmatory spawn: a NEW trial_id (f2fb41fd, registered, never reusing
+  576746aa), the R5 36-cell selection burden ABSORBED into the confirmatory honest-N, and NO capital /
+  NO family re-open / NO exploration.
+
+  On the axis the Mathematician flagged for MY adjudication — the N_conf=6 selection charge — the
+  polarity is the OPPOSITE of the R5 problem I caught and the point chosen is honest. BLdP SR0 is
+  strictly increasing in N (R5 N=3 -> SR0_ann=0.363623; conf N=6 -> 0.554361, +52%). In R5 I flagged
+  N=2-at-the-FLOOR as anti-conservative; here the Mathematician elected the CEILING (6) of the [2,6]
+  band — the STRICTEST, most-skeptical gate, the safe-if-wrong direction for a kill test. The
+  no-double-count construction (effective-selection-dim 4 + prior-honest-N 3 − 1 shared-idea overlap = 6)
+  is a disclosed judgement that errs toward MORE charge; I accept it. I cannot build an exploit where a
+  higher N_conf yields a false PASS — higher N only makes PASS harder.
+
+  The clean-hold-out-vs-selection adjudication is correct and is the crux: clean future data removes the
+  in-sample point-estimate overfit but NOT the multiplicity of the selection EVENT, so the selection is
+  charged exactly once, in the right place (the DSR SR0 benchmark), while the bootstrap-t p carries the
+  clean-data evidence. Two distinct AND-gated hurdles for PASS; no double-charge, no under-charge. The
+  z2=1.662107 joint-OR boundary is scipy-exact and triple-verified (joint alpha=0.050000); the
+  kill_switch_threshold=1.2906 is correctly STRICTER than R5 for two compounding reasons (higher N_conf,
+  smaller T_holdout) and is NOT copied from R5. The two-look OBF schedule is canonical Lan-DeMets sfLDOF
+  (I confirmed the spending-function form and the sqrt(0.5) increment correlation against the source).
+  The final look is genuinely TERMINAL: I searched for "extend / one more look / re-parameterize after a
+  near-miss" and found NO such branch — outcome 2 (KILL) is forced at look 2 at any power level, outcome 4
+  (CONTINUE) is explicitly unavailable at the final look, and the pass destination is an observe-only
+  paper canary under a fresh ratification with NO capital and a NEW trial_id, which is NOT a disguised
+  CONTINUE. The advisory (non-binding) futility leaks no optionality in the dangerous direction. The
+  no-peek interim state is mechanically credible (raw-price provenance check only; never instantiates the
+  return series or any statistic). Power ~0.34 is LOW, honestly disclosed as an upper bound, and correctly
+  bound to KILL-with-caveat rather than a third door — the expected terminal state is wind-down.
+
+  I record ONE material and five lesser findings, NONE of which block the freeze:
+
+  (F-1, MATERIAL) The look-time RUNNER DOES NOT YET EXIST, and the existing DSR code is a trap for it:
+  r5_decision.compute_dsr_gate hardcodes SR0_PP=0.022906 (the R5 N=3 value) as a FROZEN LITERAL, not the
+  confirmatory 0.034921; and the canonical dsr.py carries a scipy-ImportError erf approximation fallback
+  that the pre-reg's "scipy REQUIRED, no approximation" pin forbids. A look-time runner that reuses
+  compute_dsr_gate would under-deflate (R5's lower SR0), and one that imports raw dsr.py could silently
+  approximate. This is a FUTURE implementation risk, not a defect in the frozen spec — the document
+  freezes the CORRECT SR0_pp_conf=0.034921 and kill_switch_threshold=1.2906 verbatim, and
+  VOID-on-mismatch + VOID-on-drift + refuse-without-receipt + the behavior-equivalence pin all attach at
+  the receipt. I REQUIRE (as a recommendation that does not block the freeze) that the freeze-receipt pin,
+  NOW, the literal SR0_pp_conf=0.034921 the runner must inject (explicitly NOT compute_dsr_gate's 0.022906)
+  and state the runner uses the r5_decision scipy-hard path (no dsr.py erf fallback). Pin it now so the
+  look-time QD in 2028 cannot reach for the R5 literal.
+
+  (F-2..F-6, minor/note) The z2 joint-OR convention is a defensible election (the more-spending of two
+  admissible conventions, but dominated by the binding DSR gate, so no false-PASS path); advisory futility
+  is correct; no-peek is mechanically credible; power honesty is coherent; the unfrozen-DOF sweep is clean
+  at the spec level (seed/K/estimators all pinned; the only true unfrozen DOF is the runner, F-1). One
+  cosmetic: the Section 5 seed-derivation prose has a garbled false-start sentence, but the frozen rule and
+  value (924289) are unambiguous.
+
+  CALIBRATION: I REJECTED any instinct to escalate F-1 to material_concern+. My binding rule is that
+  material_concern+ applies ONLY if the document must NOT freeze as-is — and F-1 is a look-time
+  implementation hole fully contained by the receipt interlock that attaches AT freeze, not a defect in
+  the frozen text. The spec is internally consistent, the selection charge is honest and conservative, the
+  terminal look is binding, the no-peek is credible, and the expected outcome remains wind-down. Over-
+  rejecting a spec this disciplined would itself be a calibration failure. I sign as SURVIVES, severity
+  =material_concern is NOT warranted; I record severity=concern with the single one-sentence freeze-receipt
+  pin (F-1) recommended at or before the receipt cut.
+
+severity: concern   # NOT material_concern: the doc freezes as-is; F-1 is a receipt-pin recommendation, fully contained, not a spec defect
+
+contamination-check: >
+  Standard contract honored. The prompt contained the artifact under audit, raw references (R5 frozen map,
+  R5 result, QD constants confirmation, z2 election, my own lineage), and the change-facts framed as
+  claims-to-verify — NO approval stances, NO edge-is-real narrative. I detected no contamination: the
+  Mathematician explicitly flagged the N_conf axis FOR my adjudication rather than asserting it resolved,
+  and the QD confirmation flags its own z2 divergence for adjudication rather than burying it. I verified
+  the load-bearing constants against independent QD scipy output and one external source (Lan-DeMets), and
+  reasoned the polarity by hand from the frozen scalars rather than accepting the document's framing. No
+  contamination-veto.
+
+evidence:
+  - "r5_confirmatory_vol_target_carry_usdjpy.md:1-477 — full artifact under audit (read in entirety)"
+  - "r5_confirmatory_...md:320-348 — N_conf=6 election, derivation (4+3-1 overlap), SR0_ann=0.554361, SR0_pp=0.034921"
+  - "r5_confirmatory_...md:140-152 — decision map: terminal look forced KILL (outcome 2), CONTINUE unavailable at final look (outcome 4), pass=observe-only paper canary NO capital"
+  - "r5_confirmatory_...md:160-168 — interim monitoring: provenance check only, never instantiates strategy P&L/Sharpe/statistic"
+  - "r5_confirmatory_...md:397-414 — advisory (non-binding) futility; two-look power 0.340; planning at SR_plan=0.554 disclosed as upper bound"
+  - "r5_confirmatory_...md:418-448 — kill_switch_threshold=1.2906 derivation (N_conf=6, T_holdout=1260, brentq-exact 1.290641)"
+  - "qd-constants-confirmation.yaml:17-48 — scipy triple-verified constants: bracket_6=1.300141, sr0_ann=0.554361, z1=2.537988, z2=1.662107 (joint alpha=0.050000 via CDF+dblquad+5M MC), kill_switch=1.290641, power_two_look=0.340233"
+  - "mathematician-z2-election.yaml:15-38 — z2=1.662107 elected as unique root of joint-OR criterion; 1.687 rejected (no provenance, under-spends to alpha~0.0477)"
+  - "r5_carry_universe_kill_test.md:343,350,362,365,385 — frozen BINDING confirmatory counter-discipline: NEW trial_id + absorb 36-cell selection; omitting either VOIDS"
+  - "r5_carry_universe_kill_test.md:215,288-320 — R5 effective independent dim 1-2 HoQR / 2-4 NHT; dispersion 0.426385 over {0.80,0.197}; SR0(N=3)=0.363623"
+  - "r5_carry_universe_kill_test.STEP4-RESULT.yaml:1-13 — AMBIGUOUS_GATE_FAIL; p_spa=0.0162, p_rc=0.0588, dsr=0.9503; k*=vol_target_carry:USDJPY idx18; SR_ann=0.7672"
+  - "src/forex_system/harness/r5_decision.py:122-194 — compute_dsr_gate hardcodes SR0_PP=0.022906 (R5 N=3 literal); scipy-hard at :22-30"
+  - "src/forex_system/harness/dsr.py:171-177 — scipy-ImportError math.erf approximation FALLBACK in canonical compute_dsr"
+  - "trials.jsonl:37-39 — 576746aa spawned/complete; f2fb41fd spawned as NEW confirmatory trial (counter incremented)"
+  - "WebSearch (Lan-DeMets / gsDesign sfLDOF) — confirmed spending fn f(t;a)=2-2Phi(Phi^-1(1-a/2)/t^(rho/2)) rho=1 and Cov(Z1,Z2)=sqrt(I1/I2) match the pre-reg verbatim"
+
+assumptions:
+  - "I accept the R5-frozen dispersion 0.426385 (2-observation, sample-/-1) as carried unchanged; its own fragility is an inherited R5 property, not a new confirmatory defect. An error in it propagates to SR0 and kill_switch in both directions (per QD assumption 3)."
+  - "The hold-out data (post-2026-04-06) does not yet exist; the unsnoopability claim is structural (future bars) and cannot be empirically falsified at audit time — I take it on construction, which is the strongest possible form."
+  - "The 252 trading-days/year annualization and t1=0.5 information fraction are exact as stated; rho=sqrt(0.5) follows."
+  - "F-1's containment depends on the freeze-receipt + behavior-equivalence pin being actually cut and verified at look time; I audit the SPEC's adequacy to force that, not the future receipt itself."
+
+confidence: high
+
+body: |
+  AUDIT SCOPE. I audited the 477-line assembled confirmatory pre-reg against the six stress axes in my
+  mandate, the frozen R5 map (§5 outcome 4 / §7.3.6 RULE 4), the R5 result, the QD scipy constants
+  confirmation, the Mathematician's z2 election, and the implementation pins (dsr.py, r5_decision.py).
+  I read the full artifact, reasoned the N_conf polarity by hand from the frozen scalars, and confirmed
+  the Lan-DeMets construction against an external source. READ-only; one numerical confirmation already
+  existed (QD triple-verify) so I requested no new tests.
+
+  VERDICT: SURVIVES, severity=concern. The spec is freezable as-is. It is an honest, binding,
+  confirmatory-ONLY test that satisfies every clause of the frozen R5 confirmatory gate.
+
+  THE SIX AXES.
+  (1) Selection-absorption (flagged for my adjudication): SOUND. Polarity is the OPPOSITE of R5's N=2-floor
+  problem — SR0 increases in N, so the ceiling N_conf=6 is the strictest/most-skeptical gate, the
+  safe-if-wrong direction for a kill test. The no-double-count construction (4+3-1) is a disclosed
+  judgement erring toward MORE charge. No exploit exists where higher N_conf yields a false PASS.
+  (2) Clean hold-out + selection charge: NEITHER double-charges NOR under-charges. Clean data removes
+  in-sample overfit; the DSR SR0 (N_conf=6) charges the selection-event multiplicity exactly once; the
+  bootstrap-t p is the clean-data evidence. Two AND-gated hurdles. The Mathematician's resolution is right.
+  (3) Look governance / no-peek: MECHANICALLY CREDIBLE. The interim state runs only the raw-price
+  provenance check, never the return series or any statistic; enforced by refuse-without-receipt +
+  VOID-on-early-peek. The advisory futility leaks no dangerous optionality (can only stop early, never
+  CONTINUE; recovers no alpha).
+  (4) Terminal-look bindingness: BINDING. No "extend / one more look / re-parameterize" path exists.
+  Outcome 2 KILL is forced at look 2 at any power; outcome 4 CONTINUE is unavailable at the final look.
+  The pass destination (observe-only paper canary, fresh ratification, NO capital, new trial_id) is NOT
+  a disguised CONTINUE — the 36-cell family is not re-opened and no capital is authorized.
+  (5) Power honesty: COHERENT. Planning at the deflated SR_plan=0.554 (not the snooped 0.767) is correct;
+  ~0.34 power is disclosed as LOW and as an upper bound; bound to KILL-with-caveat, not a third door;
+  expected terminal state is wind-down. Carried honestly.
+  (6) Unfrozen-DOF sweep: CLEAN at the spec level except the runner (F-1). Seed rule, K=10000,
+  estimator conventions, var_term self-consistent fixed point — all pinned. The runner is the one true
+  unfrozen DOF; the receipt + behavior-equivalence pin converts it to hash-pinned code at look time.
+
+  THE ONE MATERIAL FINDING (F-1) and why it does not block. The look-time runner does not exist yet, and
+  the existing DSR code is a trap: r5_decision.compute_dsr_gate hardcodes the R5 N=3 SR0_PP=0.022906 as a
+  literal (NOT the confirmatory 0.034921), and dsr.py carries a forbidden scipy-erf fallback. A careless
+  look-time runner could under-deflate or silently approximate. This is contained: the document freezes
+  the correct SR0_pp_conf and kill_switch verbatim, and VOID-on-mismatch + refuse-without-receipt +
+  behavior-equivalence all attach at the receipt. I recommend (do not require, do not block) that the
+  freeze-receipt explicitly pin SR0_pp_conf=0.034921 as the runner's injected literal and the
+  r5_decision scipy-hard path, so the 2028 QD cannot reach for the R5 0.022906.
+
+  CALIBRATION. I rejected escalation. severity=material_concern applies only if the doc must NOT freeze
+  as-is; F-1 is a contained look-time pin recommendation, not a spec defect. Every prior R5-track loophole
+  I cared about is closed: the confirmatory counter-discipline I demanded in my 2026-06-05 reservation A-4
+  is now the live, satisfied spec; the N-axis polarity I flagged in A-2 is here resolved in the
+  conservative direction by construction. I sign SURVIVES at severity=concern.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "https://search.r-project.org/CRAN/refmans/gsDesign/html/sfLDOF.html — Lan-DeMets sfLDOF spending function (canonical form confirmed)"
+  - "https://eclass.uoa.gr/modules/document/file.php/MATH301/PracticalSession3/LanDeMets.pdf — Lan-DeMets interim-analysis alpha-spending overview (joint bivariate Z, Cov=sqrt(I1/I2))"
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 0
+no-capital-instruction: true

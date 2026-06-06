@@ -1,0 +1,272 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: r5-confirmatory
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+task-statement: >-
+  Author and crypto-freeze a confirmatory-only pre-registration for vol_target_carry:USDJPY
+  (k* from R5) on post-2026-04-06 data, absorbing R5 36-cell selection burden.
+deliverable-type: spec-completion
+deadline: 2026-06-06T23:59:00Z
+instrument-universe:
+  - USDJPY
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "confirmatory_only: true — no exploration, no re-parameterization, no family re-open"
+  - "new_trial_id_required: true — never reuses 576746aa; org-wide counter must increment"
+  - "r5_selection_absorbed_in_honest_n: true — omitting VOIDS (frozen R5 SS5 outcome 4)"
+  - "holdout_starts_after: 2026-04-06 — only data generated after the R5 common index terminus (2010-03-15 → 2026-04-06, T=4186)"
+  - "no_evaluation_before_frozen_dates: true — the test runs only at the pre-registered look dates"
+  - "r5_freeze_immutable: true — this track never edits the R5 doc or receipt; new document only"
+  - "no_pair_or_variant_search: true — single structure locked: vol_target_carry:USDJPY (k* argmax of R5 family max-statistic T_SPA)"
+  - "no_new_code_unless_runner_required: true — quant-developer is CONDITIONAL; only engaged if the evaluation design requires new runner code"
+  - "no_capital_in_interim: true — carry family in monitoring/observe-only state between freeze and evaluation date(s)"
+  - "preregistration_precedes_evaluation: true — freeze-receipt committed before any hold-out data is touched or any metric computed"
+  - "alpha_spending_required_if_interim_looks: true — any interim look must be governed by a pre-registered alpha-spending function (e.g. O'Brien-Fleming); no unplanned peeks"
+  - "kill_branch_mandatory_in_decision_map: true — confirmatory pre-reg must include a named kill action for every outcome; no 'keep spending' branch"
+  - "r5_discordance_condition_documented: true — pre-reg must acknowledge that White-RC was discordant in R5 (p_rc=0.0588 > 0.05) and state how the confirmatory test handles concordance/discordance"
+
+criteria:
+  - id: CONF-structure
+    description: >-
+      The exact strategy structure, pair, and parameter configuration is pinned. Specifically:
+      variant = vol_target_carry, pair = USDJPY, all config parameters identical to the R5 frozen
+      run (entry_delay_bars=1, RealisticCostModel, same config/default.yaml risk/cost params).
+      No re-parameterization, no variant substitution. The structure is the one that produced
+      k* = vol_target_carry:USDJPY at annualized Sharpe 0.767 (skew 0.196, excess kurtosis 8.28,
+      T=4186) in the R5 STEP4-RESULT.
+    owner: head-of-quant-research
+    done_when: >-
+      Pre-reg document explicitly names vol_target_carry:USDJPY with verbatim config pin and
+      cites r5_carry_universe_kill_test.STEP4-RESULT.yaml as the source of k* selection.
+      HoQR signs the structure section.
+
+  - id: CONF-holdout
+    description: >-
+      The hold-out window rule is specified as a RULE, not a single date. The window begins
+      strictly after 2026-04-06 (the R5 common index end; no overlap with any R5 bar).
+      Evaluation date(s) are frozen in the pre-reg before any hold-out data is accessed.
+      The pre-reg states minimum bar-count requirements for the block bootstrap to be valid.
+    owner: head-of-quant-research + mathematician (co-sign)
+    done_when: >-
+      Pre-reg contains a frozen date-rule specifying (a) hold-out start > 2026-04-06, (b) the
+      named evaluation date(s) or interim-look schedule, (c) minimum T_holdout for bootstrap
+      validity, and (d) HoQR + Math co-signatures on this section.
+
+  - id: CONF-statistic
+    description: >-
+      The confirmatory test uses a single-series test (not the 36-cell SPA family — the family
+      is closed). The test statistic and null hypothesis are frozen: H0: E[d_k*] <= 0 for the
+      single cell k* = vol_target_carry:USDJPY. The selection-absorption mechanism is specified:
+      the confirmatory pre-reg's honest-N and SR0 deflation inputs must carry forward the R5
+      36-cell selection burden (selecting k* from a 36-cell argmax is a spent look that is part
+      of the confirmatory multiplicity). The Mathematician freezes the exact DSR formula inputs
+      for the confirmatory cell, with k* statistics (SR_ann=0.767, skew=0.196, xkurt=8.28)
+      used as prior-look anchors only; the confirmatory run uses the hold-out cell's own metrics.
+    owner: mathematician
+    done_when: >-
+      Pre-reg contains (a) frozen null hypothesis for single-series confirmatory test,
+      (b) the selection-absorption mechanism described and justified (how the 36-cell argmax
+      is charged as a spent look in the confirmatory honest-N and SR0 computation),
+      (c) the exact test statistic and method (e.g. single-series t-test or SPA on one cell),
+      (d) Mathematician signature on this section.
+
+  - id: CONF-interim
+    description: >-
+      If the design includes interim looks (recommended given ~4.6yr required for 50% power at
+      SR=0.77 on a monthly-effective signal), an alpha-spending function is specified (e.g.
+      O'Brien-Fleming or Pocock), the look schedule is frozen, and the power curve is provided
+      at minimum at the planned look dates. If no interim looks: the Mathematician explicitly
+      justifies the single-look design given the power reality (single look at ~4.6yr for 50%
+      power, ~10yr for 80%). The rate signal is monthly-stale (~1 effective obs/month), so
+      calendar-time requirements are converted to effective-observations.
+    owner: mathematician
+    done_when: >-
+      Pre-reg contains either (a) a frozen alpha-spending function, look schedule, and power
+      curve at each planned look, or (b) a Mathematician-signed explicit justification for the
+      single-look design acknowledging the power reality and committing to a specific evaluation
+      date. Either path requires the Mathematician's sign-off. NHT reviews the power statements.
+
+  - id: CONF-decision-map
+    description: >-
+      Every outcome of the confirmatory test maps to a named firm action. Required branches
+      at minimum: (1) reject and DSR/concordance gates cleared → named next action (e.g.
+      paper-trading authorization with new pre-reg, or direct capital consideration per
+      governance — not a free exploration license); (2) fail to reject, powered → kill the
+      carry program (no further carry research spend); (3) fail to reject, underpowered →
+      kill (same, with the honest acknowledgment that low power makes the non-rejection
+      uninformative as evidence of no edge, but does not license continued spend);
+      (4) boundary straddle or discordant gates → named action (no CONTINUE default);
+      (5) technical failure → halt, re-freeze, re-run (trial counter not incremented).
+      There is NO "inconclusive, keep spending" branch.
+    owner: head-of-quant-research
+    done_when: >-
+      Pre-reg's decision map lists all five outcome categories, each with a named firm action.
+      The kill action for outcomes 2 and 3 is explicit and binding. HoQR signs the decision map.
+
+  - id: CONF-monitoring
+    description: >-
+      The interim observe-only state of the carry family (between freeze date and the first
+      evaluation date) is specified. Concretely: no new research spend on the carry family
+      during the interim; no new variant, parameter, or pair search; observe-only status is
+      logged. Active research capacity redirected to new alpha hypotheses (out of scope for
+      this track, but the pre-reg must note the redirect and confirm it requires separate
+      fresh pre-registrations of its own).
+    owner: head-of-quant-research
+    done_when: >-
+      Pre-reg contains an interim monitoring-state section: (a) observe-only definition,
+      (b) no-research-spend commitment, (c) new-capacity redirect acknowledgment.
+      HoQR signs.
+
+  - id: CONF-kill-switch-threshold
+    description: >-
+      The pre-reg must contain a verbatim kill_switch_threshold field (required by the repo
+      pre-commit hook on any new pre-reg file). The threshold must be mechanically derived
+      from the frozen single-series DSR formula inputs for the confirmatory test, not copied
+      from the R5 threshold (0.767), since the confirmatory test has different honest-N and
+      SR0 values (the R5 selection is absorbed). The threshold is the minimum annualized
+      Sharpe of vol_target_carry:USDJPY on the hold-out that would clear DSR >= 0.95 at the
+      confirmatory test's frozen SR0_pp.
+    owner: mathematician
+    done_when: >-
+      Pre-reg YAML or structured section contains `kill_switch_threshold: <value>` derived
+      from the confirmatory DSR formula (not reused from R5). Mathematician signs the derivation.
+
+  - id: CONF-freeze
+    description: >-
+      The pre-reg is frozen via an external write-once freeze-receipt using the same pattern
+      as `scripts/cut_freeze_receipt.py`. The receipt records: (a) SHA-256 of the confirmatory
+      pre-reg file as committed, (b) the code commit hash pinning vol_target_carry runner
+      and any new evaluation script, (c) the new trial_id (org-counter increment), (d) the
+      frozen evaluation date(s). The freeze receipt is committed before any hold-out data
+      is accessed or any metric computed on post-2026-04-06 data. The pre-reg itself does NOT
+      embed its own hash (F-003 pattern; embedding makes verification circular).
+      Quant-developer role is CONDITIONAL: engaged only if the evaluation design requires new
+      runner code; if the existing harness covers the confirmatory run, QD is not needed and
+      this criterion is satisfied by HoQR+Math sign-off alone.
+    owner: quant-developer (conditional) or head-of-quant-research + mathematician
+    done_when: >-
+      A freeze-receipt YAML exists at the agreed path under references/pre-registrations/,
+      is write-once (refuses overwrite), records SHA-256 of the confirmatory pre-reg and the
+      pinned code commit, and is committed to git before any evaluation data is accessed.
+
+  - id: NHT-audit
+    description: >-
+      The null-hypothesis tester performs an adversarial audit of the confirmatory pre-reg,
+      specifically checking: (a) that the R5 36-cell selection burden is correctly charged in
+      the honest-N (not omitted, not double-counted relative to the SPA family multiplicity
+      already controlled in R5); (b) that the hold-out is genuinely post-2026-04-06 and there
+      is no snooping path on the confirmatory window; (c) that the alpha-spending function (if
+      used) is correctly specified and the look schedule does not allow early stopping for
+      futility without a pre-registered futility boundary; (d) that there is no hidden "keep
+      spending" escape path in the decision map. NHT dissent is append-only (agent-accountability
+      dissent primitive), never erased by subsequent consensus.
+    owner: null-hypothesis-tester
+    done_when: >-
+      NHT audit artifact is written to .agent-accountability/dissents/ under the confirmatory
+      track id. Severity is recorded (informational / concern / strong_objection / block-threshold).
+      If block-threshold: the pre-reg is revised before the principal-reviewer sees it.
+
+  - id: PR-review
+    description: >-
+      The principal reviewer performs a full review of the complete confirmatory pre-reg
+      (all sections: structure, holdout, statistic, interim/power, decision map, monitoring,
+      kill-switch, freeze mechanics). Review follows the review-plan skill rubric: every verdict
+      cites specific text, no rubber-stamping. All blocking issues must be resolved before
+      CONSENSUS-signed is reached.
+    owner: principal-reviewer
+    done_when: >-
+      Principal reviewer emits a APPROVED / NEEDS WORK / REJECTED verdict with dimension
+      scores and issue list. If APPROVED: proceeds to CONSENSUS. If NEEDS WORK: HoQR/Math
+      revise and PR re-reviews. No cap on rounds — but each round is a bounded re-work loop
+      per agent-accountability gap primitive (budget=3 rounds before gap artifact fires).
+
+  - id: CONSENSUS-signed
+    description: >-
+      A CONSENSUS artifact is produced (analogous to CONSENSUS_2026-06-05_r5_step3_prereg.md
+      pattern), co-signed by HoQR, Mathematician, NHT, and principal-reviewer. CEO ratification
+      is required before the freeze-receipt is committed (freeze-receipt is the irreversible step;
+      CEO sign-off precedes it). The consensus artifact records: (a) the new trial_id issued by
+      the org counter, (b) the frozen evaluation date(s), (c) all role sign-offs and any
+      surviving NHT reservations verbatim.
+    owner: pm (orchestrates); all roles co-sign
+    done_when: >-
+      CONSENSUS YAML or MD exists in .fintech-org/artifacts/2026-06-06T-r5-confirmatory/,
+      lists all co-signers, records the new trial_id and evaluation schedule, and the
+      agent-accountability ratification record is written to .agent-accountability/ratifications/
+      under the confirmatory track id before the freeze-receipt is cut.
+
+out-of-scope:
+  - "Running the confirmatory evaluation (happens at frozen future dates, not in this track)"
+  - "New alpha hypothesis generation (separate capacity redirect, separate tracks with own pre-regs)"
+  - "Any edit to the frozen R5 documents (r5_carry_universe_kill_test.md, FREEZE-RECEIPT.yaml, STEP4-RESULT.yaml)"
+  - "Live or paper trading actions; any capital deployment"
+  - "Re-opening the 36-cell R5 family for further research"
+  - "Re-running the R5 SPA/White-RC test on any window"
+
+roles-staffed:
+  - head-of-quant-research (opus): Authors the confirmatory pre-reg — exact structure under test, hold-out rule, evaluation date(s), monitoring-state spec, and outcome-action map including kill branch. Co-signs holdout and decision-map sections.
+  - mathematician (opus): Freezes the single-series test statistic, selection-absorption mechanism (honest-N + SR0 derivation absorbing R5 36-cell selection), interim look design (alpha-spending function + power curve), kill_switch_threshold derivation, and the DSR formula inputs. Co-signs holdout and power sections.
+  - null-hypothesis-tester (opus): Adversarial audit — verifies selection-absorption is correct, holdout is unsnooped, alpha-spending is valid, no hidden escape paths in decision map. Dissent is append-only.
+  - principal-reviewer (opus): Full review of the complete confirmatory pre-reg using review-plan rubric; blocks on any unresolved finding before CONSENSUS.
+  - quant-developer (sonnet): CONDITIONAL — engaged only if the confirmatory evaluation design requires new runner code not covered by the existing harness. Flag explicitly when spawning if needed.
+  - pm (this role): Writes acceptance criteria (this document), orchestrates wave sequence, produces CONSENSUS artifact, coordinates CEO ratification before freeze-receipt is cut.
+
+wraps_invocation_of: []
+
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:1-13 — R5 verdict AMBIGUOUS_GATE_FAIL, k*=vol_target_carry:USDJPY, SR_ann=0.767, p_SPA=0.0162, DSR=0.9503, p_RC=0.0588"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:§4 decision rules + §5 outcome 4 + §6 retirement criteria — frozen binding rule: AMBIGUOUS maps to confirmatory-only pre-reg gate, new trial_id required, R5 36-cell selection must be absorbed"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:§6 kill-switch — 0.767 is the R5 kill threshold; confirmatory pre-reg must derive its own threshold at the higher honest-N"
+  - ".fintech-org/trials.jsonl:last line — trial_id=576746aa verdict=AMBIGUOUS_GATE_FAIL frozen_action=SS5 outcome 4 confirmatory-only; n_trials_at_spawn=37 (new confirmatory trial will be #38)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:§3.2 + §3.4 — Method B operative; N=3 elected; SR0_ann=0.363623, SR0_pp=0.022906; DSR threshold >= 0.95"
+  - "scripts/cut_freeze_receipt.py — write-once freeze-receipt pattern reused for confirmatory pre-reg"
+
+assumptions:
+  - "Post-2026-04-06 USDJPY daily price data will be available via the existing data pipeline at evaluation time — if the pipeline has gaps this is a technical blocker for the Quant Developer (conditional) to resolve before freeze."
+  - "The existing vol_target_carry harness (carry_universe_matrix.py + reality_check.py) covers the single-series confirmatory run without new code — if new runner code is needed, Quant Developer is activated and CONF-freeze scope expands."
+  - "The org trial counter (trials.jsonl) is the single source of truth for new trial_id assignment; the orchestrator (HoQR at spawn) registers the new trial_id and records it in the CONSENSUS artifact."
+  - "Power reality is approximately correct as stated in the R5 pre-reg §6: ~4.6yr for 50% power at true SR~0.77 on the hold-out, ~10yr for 80%, with the rate signal being monthly-stale (~1 effective obs/month). The Mathematician refines and freezes the power curve — this assumption is input to the power criterion, not a constraint on it."
+  - "CEO ratification is required before the freeze-receipt is committed (as per R5 pattern); this track does not have authority to cut the freeze-receipt autonomously."
+
+confidence: high
+
+body: |
+  This acceptance-criteria document governs Wave 1 of track r5-confirmatory-2026-06-06.
+
+  The R5 one-shot kill test ran 2026-06-06 and produced AMBIGUOUS_GATE_FAIL: p_SPA=0.0162
+  (class-level rejection), DSR=0.9503 (passed by +0.0003), White-RC p_RC=0.0588 (discordant).
+  Per the frozen R5 decision functional (SS7.3.6 RULE 4), this maps to SS5 outcome 4:
+  confirmatory-only pre-reg gate. It does NOT authorize CONTINUE on the family or any capital.
+
+  The single surviving structure is k* = vol_target_carry:USDJPY (argmax of the 36-cell SPA
+  family max-statistic, annualized Sharpe 0.767). This is the ONLY structure the confirmatory
+  pre-reg may test. No pair search, no variant substitution, no re-parameterization.
+
+  The critical constraint is selection-absorption: selecting k* after seeing R5's 36-cell
+  results is a spent look. The confirmatory pre-reg's honest-N and SR0 deflation inputs MUST
+  carry this forward — a confirmatory test that does not charge the R5 36-cell argmax selection
+  in its own multiplicity is a garden-of-forking-paths violation and its p is not face-valid.
+
+  The carry family enters monitoring/observe-only in the interim. No new research spend on
+  carry is authorized while the confirmatory pre-reg is being authored or during the hold-out
+  period. Active research capacity is redirected to genuinely new alpha hypotheses (separate
+  tracks, each requiring fresh pre-registration).
+
+  Wave 1 deliverable: a complete, frozen, CEO-ratified confirmatory pre-reg. Wave 2 (if any)
+  would be the evaluation run at the frozen future date(s), out of scope for this track.
+
+knowledge_gaps:
+  - "Exact honest-N value for the confirmatory test (after absorbing the R5 36-cell selection burden) — the Mathematician must derive this; the PM cannot pre-compute it."
+  - "Whether the existing vol_target_carry harness covers the single-series confirmatory run — a Quant Developer assessment is conditional on HoQR/Math determining the evaluation design needs new runner code."
+  - "The alpha-spending function choice and look schedule are to be determined by the Mathematician given the ~4.6yr/~10yr power reality — these inputs are frozen by the Mathematician, not pre-determined here."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

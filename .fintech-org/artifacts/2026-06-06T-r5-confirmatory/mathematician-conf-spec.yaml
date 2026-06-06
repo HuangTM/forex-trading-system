@@ -1,0 +1,112 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound-with-caveats
+timestamp: "2026-06-05T00:00:00Z"
+subtask_ref: r5-confirmatory-math-spec
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+
+claimed_domains:
+  - formal-modeling-and-derivations
+  - numerical-method-selection-and-stability
+  - convergence-and-error-analysis
+
+assumptions:
+  - "Information fraction is proportional to elapsed hold-out calendar time / daily bar count (t1 = 2.5/5.0 = 0.5); standard for a single accumulating return series."
+  - "The hold-out vol_target_carry:USDJPY series is approximately stationary over the 5yr window (required for stationary block bootstrap validity and Politis-White block-length estimation)."
+  - "Daily-bar power calc uses the annualized-Sharpe horizon law lambda = SR_true * sqrt(Y); treats bars as the effective sample. Monthly-stale signal autocorrelation makes this an UPPER bound on realized power."
+  - "BLdP SR0 dispersion plug-in sqrt(Var[SR_n]) = 0.426385 (the R5-frozen sample-of-2 estimator over {0.80, 0.197}) is carried unchanged; N_conf enters ONLY the expected-max bracket axis (R5 two-axis convention)."
+  - "scipy is available at run time (A-5 pin); no approximation fallback is permitted for norm.cdf / norm.ppf."
+  - "252 trading days/year for annualization and for converting +2.5yr/+5yr to bar counts (n approx 630 / 1260)."
+
+assumptions-identified:
+  - "Selection charge is paid through the DSR benchmark N (multiplicity on the SR0 bar), not through inflating the bootstrap p — the bootstrap p is the clean-data evidence; DSR is the additional selection hurdle."
+  - "N_conf=6 elected at the conservative ceiling of the admissible [2,6] band because BLdP SR0 increases in N and this is a KILL test (over-deflation is safe-if-wrong)."
+  - "OBF (sfLDOF) over Pocock: spend near-zero alpha early to preserve terminal-look power."
+  - "Futility frozen as NON-binding advisory to avoid asymmetric-spend error inflation (NHT-anticipating)."
+  - "kill_switch_threshold is technically a function of the (unknown) hold-out higher moments; frozen as a scalar by plugging the only pre-registered moment anchors (R5 skew 0.196, xkurt 8.28); runner recomputes var_term on hold-out moments at evaluation."
+
+failure-regimes:
+  - "n at interim < 504 bars (data-pipeline shortfall): interim SKIPPED, alpha rolled to terminal via Lan-DeMets; below 756 at terminal => TECHNICAL_FAILURE, re-freeze."
+  - "var_term <= 0 in DSR (extreme negative skew x large SR): DSR=0 (gate FAIL, not technical failure) — degenerate pin carried from dsr.py."
+  - "Constant / near-iid hold-out series: Politis-White returns L=1, bandwidth max(L-1,1)=1; HAC SE reduces toward the iid SE; guarded, not degenerate."
+  - "High signal autocorrelation (monthly-stale): large L => few effective blocks => wider HAC SE => realized power BELOW the ~33% iid-daily upper bound; disclosed."
+  - "Negative hold-out Sharpe at any look: DSR=0 (sr_ann<=0 pin) => automatic gate FAIL => KILL branch."
+  - "Bootstrap MC-SE at K=10000: approx sqrt(0.05*0.95/10001) approx 0.0022 around a p near 0.05 — non-trivial near the boundary; the DSR gate (not the boundary p alone) is the binding hurdle, mitigating boundary MC noise."
+
+alternative-methods:
+  - "REJECTED — no-charge plain single-series t/bootstrap (data is unsnooped): rejected because the HYPOTHESIS is selected (best-of-36 on correlated cells); family-wise type-I exceeds 0.05; clean data removes point-estimate overfit but not selection multiplicity. R5 SS4/SS5 makes absorbing the charge BINDING (VOID otherwise)."
+  - "REJECTED — asymptotic-normal p-value: anti-conservative at n in hundreds with xkurt 8.28 and serial dependence; stationary block bootstrap elected for tail/autocorrelation fidelity and R5 consistency."
+  - "REJECTED — Pocock alpha-spending: spends too much alpha early, erodes terminal-look power; OBF elected."
+  - "REJECTED — binding futility boundary: asymmetric-spend error-inflation risk; frozen as non-binding advisory instead."
+  - "REJECTED — N_conf=37 or N=36 (raw cell count): double-counts the shared rate-differential idea (R5 SS7.2 warning); the cells are NOT independent (effective dim 1-4). N_conf=6 charges effective selection dim + prior honest-N minus the one-look overlap."
+  - "CONSIDERED — James-Stein / posterior shrinkage of 0.767 toward 0 for the planning SR: lands in a similar 0.5-0.6 band; rejected as the FROZEN value to avoid a second free parameter — SR0_conf=0.554 is the single auditable pre-registered planning SR."
+
+proof-sketch-or-reference:
+  - "BLdP SR0: SR0_ann = sqrt(Var[SR_n]) * [(1-g)Z^-1(1-1/N) + g Z^-1(1-1/(N e))]; N_conf=6 => bracket=0.4227843*0.967422 + 0.5772157*1.542968 = 0.409013+0.890636 = 1.299649; SR0_ann=0.426385*1.299649=0.554150; SR0_pp=0.554150/sqrt(252)=0.034908. (Bailey & Lopez de Prado 2014; dsr.py docstring.)"
+  - "Lan-DeMets sfLDOF (OBF-type), one-sided alpha=0.05, t=(0.5,1.0): alpha*(t)=2(1-Phi(1.959964/sqrt(t))); alpha*(0.5)=0.005578, alpha*(1.0)=0.05 => incremental 0.00558 / 0.04442; nominal one-sided boundaries z1=Phi^-1(0.99442)=2.539, z2 approx 1.687 (sequential-adjusted). (Lan & DeMets 1983; gsDesign sfLDOF.)"
+  - "Power at terminal (Y=5, SR_plan=0.554): lambda=0.554*sqrt(5)=1.238826; power=Phi(lambda - z2)=Phi(1.238826-1.687)=Phi(-0.448)=0.327. Cross-check anchors: Y50=(z_a/SR)^2, Y80=((z_a+0.8416)/SR)^2; at SR=0.554, Y50=8.82yr, Y80=20.1yr — confirms 5yr is underpowered (~33%)."
+  - "kill_switch_threshold: solve (SR_pp - 0.034908) sqrt(T-1)/sqrt(var_term)=1.644854 at T=1260; two-pass (var_term: skew 0.196, xkurt 8.28) => SR_pp=0.081289 => SR_ann=0.081289*sqrt(252)=1.2906 => 1.291."
+
+numerical-question-routed: "Confirm via scipy.stats.norm: (a) Z^-1(0.833333)=0.967422, Z^-1(0.938687)=1.542968 => bracket(N=6)=1.299649, SR0_ann_conf=0.554150, SR0_pp_conf=0.034908; (b) one-sided Lan-DeMets sfLDOF two-look boundaries at t=(0.5,1.0), alpha=0.05 (expect z1 approx 2.54, z2 approx 1.687, incremental spends approx 0.0056/0.0444) reproduced exactly via gsDesign or equivalent; (c) two-pass DSR solve giving kill_switch_threshold ann Sharpe = 1.291 at SR0_pp_conf=0.034908, T=1260, skew=0.196, xkurt=8.28. Report any divergence > 0.5%."
+
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:1-19 — k*=vol_target_carry:USDJPY, idx 18, SR_ann 0.7672287, skew 0.1962855, xkurt 8.2782585, T=4186, p_spa 0.0161968, p_rc 0.0587882, dsr 0.9502875, SR0_PP 0.022906, master_seed 576746"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:288-320 — frozen dispersion sqrt(Var)=0.426385 over {0.80,0.197}; bracket(N=3)=0.852804; SR0(N=3)=0.363623/0.022906; N enters only bracket axis"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:343,365,385 — BINDING: confirmatory test must absorb R5 36-cell selection in own honest-N/SR0 (VOID otherwise)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:215 — effective independent dimension of the 36-cell family approx 1-2 (HoQR)/2-4 (NHT)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:399-406 — R5 kill_switch_threshold 0.767 = ann Sharpe for DSR>=0.95 at N=3, T=4186"
+  - "src/forex_system/harness/dsr.py:179-207 — DSR conventions: SR_pp=SR_ann/sqrt(252); var_term=1-skew*SR_pp+((xk+2)/4)SR_pp^2; z=(SR_pp-SR0)*sqrt(T-1)/sqrt(var); Phi clip"
+  - "src/forex_system/harness/r5_decision.py:122-194 — compute_dsr_gate frozen form; degenerate pins; scipy required (22-30)"
+  - "src/forex_system/harness/reality_check.py:58-88 — hac_se_nw Bartlett kernel, bandwidth max(L-1,1), 1e-12 floor"
+  - "src/forex_system/harness/reality_check.py:152-343 — politis_white_block_length, L clamped [1,b_max], L=1 on constant/iid"
+  - "src/forex_system/harness/reality_check.py:489-557 — r5a stationary circular block bootstrap, de-mean H0, p=(1+#)/( B+1), child seed = master_seed"
+
+confidence: high
+
+body: |
+  Mathematician freeze of the four owned sections of the R5 confirmatory pre-registration
+  (CONF-statistic, CONF-interim, kill_switch_threshold, co-sign CONF-holdout) plus run mechanics.
+  Full prose in conf-sections-mathematician.md (same directory).
+
+  HEADLINE FREEZES:
+    - Statistic: single-series studentized mean t = sqrt(n)*mean(r)/omega_hat, HAC SE (Newey-West,
+      Politis-White auto L, L>=1 guard) on the hold-out only. p via stationary circular block
+      bootstrap (NOT asymptotic normal), K=10000, de-mean H0, p=(1+#{t* >= t_obs})/(K+1).
+      H0: E[r] <= 0, one-sided alpha=0.05.
+    - Selection absorption: paid through a BLdP DSR gate (DSR>=0.95) on the hold-out Sharpe with
+      N_conf = 6 (elected at the conservative ceiling of the [2,6] admissible band: R5 effective
+      selection dim up to 4 + prior honest-N 3 - one-look overlap). Dispersion 0.426385 carried
+      from R5 unchanged; N enters only the expected-max bracket. => SR0_ann_conf=0.554150,
+      SR0_pp_conf=0.034908.
+    - Planning SR (shrinkage freeze): SR_plan = SR0_ann_conf = 0.554 (NOT the snooped 0.767).
+    - Looks: 2 looks, OBF (Lan-DeMets sfLDOF) one-sided, t=(0.5,1.0); hold-out starts 2026-04-07;
+      look1 2028-10-06 (+2.5yr, n approx 630), look2 2031-04-06 (+5yr, n approx 1260, TERMINAL).
+      Boundaries z1=2.539 (spend approx 0.0056), z2 approx 1.687 (spend approx 0.0444). Non-binding
+      futility advisory (negative interim Sharpe => MAY early-KILL).
+    - Terminal-look power approx 0.33 at SR_plan=0.554 (UPPER bound; disclosed underpowered; non-
+      rejection => KILL, uninformative-as-evidence-of-no-edge but does not license spend).
+    - kill_switch_threshold = 1.291 (ann hold-out Sharpe to clear DSR>=0.95 at SR0_pp_conf=0.034908,
+      N_conf=6, T=1260; two-pass solve at anchor moments). Stricter than R5's 0.767 (higher N AND
+      smaller T). NOT copied from R5.
+
+  decision = sound-with-caveats. Caveats: (1) terminal-look power is low (~33%) and the realized
+  power may be lower under signal autocorrelation — the design is a near-certain wind-down, which
+  is the honest expected outcome of a confirmatory kill test on zero validated alpha; (2) the exact
+  one-sided sfLDOF final boundary and the two quantiles/DSR-solve are routed to QD for scipy/gsDesign
+  confirmation (hand-work shown to 3-6 dp; expected divergence < 0.5%); (3) N_conf=6 is an election
+  within an admissible band, defended on the kill-test conservative direction, not a unique derivation
+  — NHT should adjudicate whether the absorption is correctly NOT double-counted.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "Bailey & Lopez de Prado (2014), The Deflated Sharpe Ratio (SR0 / DSR formulae; dsr.py docstring)"
+  - "Lan & DeMets (1983), Discrete sequential boundaries for clinical trials, Biometrika 70(3):659-663"
+  - "gsDesign vignette, Lan-DeMets sfLDOF (O'Brien-Fleming-type) spending function — https://cran.r-project.org/web/packages/gsDesign/vignettes/GentleIntroductionToGSD.html"
+  - "MetricGate O'Brien-Fleming boundary calculator — https://metricgate.com/docs/obrien-fleming-boundary/"
+  - "Politis & White (2004) + Patton-Politis-White (2009), automatic block-length selection (reality_check.py)"
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 2
+no-capital-instruction: true

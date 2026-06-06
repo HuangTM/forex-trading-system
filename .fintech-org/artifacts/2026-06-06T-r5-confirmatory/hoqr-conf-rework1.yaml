@@ -1,0 +1,228 @@
+role: head-of-quant-research
+artifact_type: research-approval
+decision: approve
+timestamp: 2026-06-06T00:00:00Z
+subtask_ref: r5-confirmatory-hoqr-rework1
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - strategy-kill-decisions
+
+no-capital-instruction: true
+
+# ---------------------------------------------------------------------------
+# F-001 deliverable: row-by-row AS-EXECUTED provenance of the R5 k* cell
+# (vol_target_carry:USDJPY). "as_executed" = what the R5 STEP4 builder ACTUALLY
+# constructed at commit 350cbd4, NOT what config/vol_target_carry.yaml says.
+# Provenance class:
+#   config_via_variant_exec  = sourced from config, threaded by a _VariantExecConfig field
+#   strategy_default         = NOT a _VariantExecConfig field; builder passed no variant_params,
+#                              so VolTargetCarryStrategy used params.get(..., default)
+#   passed_explicit          = passed directly in params/build call
+#   builder_default          = _DEFAULT_PAIR_INFO / _build_cell default (no override supplied)
+# ---------------------------------------------------------------------------
+as_executed_param_table:
+  - param: variant
+    as_executed_value: vol_target_carry
+    provenance: passed_explicit
+    config_value: vol_target_carry
+    config_in_effect: true
+    note: "selector key into _VARIANT_EXEC (carry_universe_matrix.py:266)"
+  - param: pair
+    as_executed_value: USDJPY
+    provenance: passed_explicit
+    config_value: USDJPY
+    config_in_effect: true
+    note: "params={'pair': pair, **variant_params} (carry_universe_matrix.py:483)"
+  - param: target_vol
+    as_executed_value: 0.10
+    provenance: strategy_default
+    config_value: 0.10
+    config_in_effect: false
+    note: "NOT a _VariantExecConfig field; builder passes no variant_params; params.get('target_vol', 0.10) (vol_target_carry.py:57). Default coincides with config but config was NOT sourced."
+  - param: vol_window
+    as_executed_value: 252
+    provenance: strategy_default
+    config_value: 252
+    config_in_effect: false
+    note: "params.get('vol_window', 252) (vol_target_carry.py:58). Default coincides with config; config NOT sourced."
+  - param: leverage_cap_signal_clip
+    as_executed_value: 2.0
+    provenance: strategy_default
+    config_value: 2.0
+    config_in_effect: false
+    note: "signal-generator normalization: params.get('leverage_cap', 2.0) (vol_target_carry.py:59). Default coincides with config; config NOT sourced."
+  - param: min_carry
+    as_executed_value: -inf
+    provenance: strategy_default
+    config_value: -0.10
+    config_in_effect: false
+    discrepant: true
+    note: "MATERIAL DISCREPANCY. params.get('min_carry', -np.inf) (vol_target_carry.py:60); carry filter runs ONLY if min_carry > -np.inf (vol_target_carry.py:72), so with -inf the filter was a NO-OP. The R5 k* cell traded the vol-targeted signal UNCONDITIONALLY. Config's -0.10 was NOT in effect. Original draft mis-pinned this to -0.10."
+  - param: leverage_cap_sizer
+    as_executed_value: 2.0
+    provenance: config_via_variant_exec
+    config_value: 2.0
+    config_in_effect: true
+    note: "_VARIANT_EXEC['vol_target_carry'].leverage_cap=2.0 (carry_universe_matrix.py:271) -> _build_sizer -> VolTargetSizer (carry_universe_matrix.py:418-432). Genuinely config-sourced."
+  - param: rebalance_threshold
+    as_executed_value: 0.20
+    provenance: config_via_variant_exec
+    config_value: 0.20
+    config_in_effect: true
+    note: "_VARIANT_EXEC[...].rebalance_threshold=0.20 (carry_universe_matrix.py:268), via exec_cfg.rebalance_threshold (:506)."
+  - param: rebalance_mode
+    as_executed_value: continuous
+    provenance: config_via_variant_exec
+    config_value: continuous
+    config_in_effect: true
+    note: "_VARIANT_EXEC[...].rebalance_mode='continuous' (carry_universe_matrix.py:267), via exec_cfg.rebalance_mode (:505)."
+  - param: sizer
+    as_executed_value: VolTargetSizer
+    provenance: config_via_variant_exec
+    config_value: vol_target
+    config_in_effect: true
+    note: "sizer_type='vol_target' (carry_universe_matrix.py:269) -> _build_sizer returns VolTargetSizer (:418-432)."
+  - param: max_order_units
+    as_executed_value: 5000000.0
+    provenance: config_via_variant_exec
+    config_value: 5000000.0
+    config_in_effect: true
+    note: "_VARIANT_EXEC[...].max_order_units (carry_universe_matrix.py:272) -> VolTargetSizer (:430)."
+  - param: min_order_size
+    as_executed_value: 100.0
+    provenance: config_via_variant_exec
+    config_value: 100.0
+    config_in_effect: true
+    note: "_VARIANT_EXEC[...].min_order_size (carry_universe_matrix.py:273) -> VolTargetSizer (:431)."
+  - param: entry_delay_bars
+    as_executed_value: 1
+    provenance: passed_explicit
+    config_value: 1
+    config_in_effect: true
+    note: "threaded into _build_cell (carry_universe_matrix.py:457,508); no-lookahead sacred invariant."
+  - param: cost_model_pairinfo
+    as_executed_value: "RealisticCostModel USDJPY spread1.0/slip0.5/comm0.5/swapL0.8/swapS-1.5"
+    provenance: builder_default
+    config_value: "matches config 21-26"
+    config_in_effect: true
+    note: "_DEFAULT_PAIR_INFO['USDJPY'] (carry_universe_matrix.py:108-116); R5 passed no pair_infos override."
+  - param: initial_capital
+    as_executed_value: 1000000.0
+    provenance: builder_default
+    config_value: 1000000.0
+    config_in_effect: true
+    note: "_build_cell default; coincides with config."
+  - param: return_convention
+    as_executed_value: "equity_curve.pct_change() net-of-cost simple returns"
+    provenance: builder_default
+    config_value: n/a
+    config_in_effect: true
+    note: "carry_universe_matrix.py:522-528."
+
+as_executed_discrepancy_summary:
+  materially_discrepant_params:
+    - min_carry  # config -0.10 NOT in effect; ran at strategy default -inf (no carry filter)
+  provenance_misstated_but_value_coincides:
+    - target_vol            # pinned to config but actually strategy-default (0.10 == config 0.10)
+    - vol_window            # pinned to config but actually strategy-default (252 == config 252)
+    - leverage_cap_signal_clip  # pinned to config but actually strategy-default (2.0 == config 2.0)
+  genuinely_config_sourced:
+    - leverage_cap_sizer
+    - rebalance_threshold
+    - rebalance_mode
+    - sizer
+    - max_order_units
+    - min_order_size
+  net_effect_on_executed_structure: >
+    Only min_carry changes the structure relative to the original (wrong) pin: the survivor ran
+    with NO carry filter (-inf), not the -0.10 filter the config implies. The other three
+    mis-attributed params coincide with config so the executed structure is unchanged; only the
+    provenance claim was wrong. The confirmatory runner MUST pass no variant_params (exactly as
+    scripts/run_r5_step4.py:312-316 did) so min_carry stays -inf.
+
+f004_disposition:
+  shape: provenance-bound-adjudication
+  trigger: "USDJPY hold-out close breaches [20.0, 245.0] at or before a look date"
+  no_peek_preserving: true
+  steps:
+    - "Two-source verification of the breaching price against two named independent rate sources (price/rate data ONLY; no strategy return/Sharpe/PnL/statistic computed)"
+    - "If both confirm legitimate: logged pre-specified provenance amendment updates ONLY the storage.py USDJPY upper bound; touches NO strategy logic/param/sizer/cost/§2.2 pin; does NOT void the look; look PROCEEDS"
+    - "If non-confirmable (disagreement/glitch/scale corruption): TECHNICAL FAILURE (§4 outcome 5: HALT/root-cause/re-freeze/re-run); NOT a confirmatory fail"
+  rationale: "Bound 245.0 = ceil(real_max 161.71 x 1.5) calibrated through ~2026 (storage.py:51-54); hold-out runs to 2031; a legitimate >245 JPY-depreciation level must not be auto-read as a data fault, and a genuine fault must not be read as a strategy verdict."
+  frozen_pre_data: true
+
+f005_disposition:
+  shape: supplementary-write-once-runner-receipt
+  file: r5_confirmatory_vol_target_carry_usdjpy.RUNNER-RECEIPT.yaml
+  contains:
+    - successor_runner_commit_hash
+    - equivalence_verification_evidence  # fixed shared sub-window, byte-identical return series vs commit 350cbd4 reference
+    - back_reference_sha256_of_original_freeze_receipt
+  quorum_gated: true
+  signers: [head-of-quant-research, mathematician]
+  dissent_allowed: [null-hypothesis-tester]
+  timing: "MUST be cut and committed BEFORE the first look date (2028-10-06)"
+  unused_if: "run executes commit 350cbd4 directly (path a) — then no runner-receipt is cut"
+
+ranked-alternatives: []
+retirement-criteria: []
+
+evidence:
+  - claim: "min_carry strategy default is -inf and config's -0.10 was NOT in effect"
+    file: src/forex_system/strategies/vol_target_carry.py
+    lines: "41 (docstring 'default -inf = always'), 60 (params.get('min_carry', -np.inf)), 72 (filter applies only if min_carry > -np.inf)"
+  - claim: "min_carry is NOT a _VariantExecConfig field"
+    file: src/forex_system/harness/carry_universe_matrix.py
+    lines: "229-239 (field list: no min_carry); 266-274 (_VARIANT_EXEC['vol_target_carry']: no min_carry)"
+  - claim: "builder passes only {'pair': pair, **variant_params} to the strategy"
+    file: src/forex_system/harness/carry_universe_matrix.py
+    lines: "483-484 (params construction + create_strategy); 652 (_variant_params = variant_params or {}); 658 (extra_params = _variant_params.get(variant, {}))"
+  - claim: "R5 STEP4 runner passed NO variant_params, so variant_params={} for every cell"
+    file: scripts/run_r5_step4.py
+    lines: "312-316 (build_joint_return_matrix(variants=..., pairs=...) — no variant_params arg)"
+  - claim: "sizer leverage_cap/max_order_units/min_order_size flow from _VARIANT_EXEC via _build_sizer (genuinely config-sourced)"
+    file: src/forex_system/harness/carry_universe_matrix.py
+    lines: "271-273 (_VARIANT_EXEC values); 418-432 (_build_sizer -> VolTargetSizer); 504-506 (sizer + rebalance_mode/threshold from exec_cfg)"
+  - claim: "USDJPY bound 245.0 = ceil(real_max 161.71 x 1.5), calibrated through ~2026"
+    file: src/forex_system/data/storage.py
+    lines: "49-54 (_PAIR_CLOSE_BOUNDS USDJPY (20.0, 245.0); 'real max 161.71 -> 1.5x'); 40-44 (defence-in-depth limitation note)"
+  - claim: "freeze-receipt is write-once (refuses overwrite); look-runner does not exist at freeze"
+    file: scripts/cut_freeze_receipt.py
+    lines: "10-11 (write-once doc), 106-110 (ERROR: already exists / do NOT overwrite), 77-152 (single-shot main)"
+
+assumptions:
+  - "The confirmatory run will, like R5 STEP4, invoke the matrix builder WITHOUT a variant_params override for vol_target_carry (so min_carry stays -inf). If a future runner supplies variant_params, that is structure drift / VOID per the patched §1.3 condition 1."
+  - "The two named independent rate sources for the F-004 adjudication will be selected and recorded in the freeze-receipt at freeze time (a central-bank reference rate + a second commercial vendor are the intended shape)."
+  - "Timestamp normalized to date 2026-06-06; clock-of-record is the org session date."
+
+confidence: high
+
+body: >
+  Six ANCHOR/REPLACEMENT patches against the ASSEMBLED v1 confirmatory pre-reg, all anchors
+  verified present verbatim via grep. F-001 (BLOCKING) is the load-bearing fix: the original
+  §2.2 claimed config and _VARIANT_EXEC were 'consistent; both pinned' for vol_target_carry:USDJPY,
+  but source verification proves the R5 k* survivor executed min_carry=-inf (strategy default,
+  no carry filter), NOT the config's -0.10 — because min_carry is not a _VariantExecConfig field
+  and run_r5_step4.py passed no variant_params. PATCH 1 re-pins min_carry=-inf AS EXECUTED and
+  replaces the pin table with a row-by-row provenance table classifying each parameter as
+  config-via-_VARIANT_EXEC, strategy-default, passed-explicit, or builder-default; it discloses
+  that target_vol/vol_window/signal-leverage_cap were ALSO mis-attributed to config (they are
+  strategy-defaults that merely coincide with config), and that only min_carry is materially
+  discrepant. PATCH 2 rewrites VOID condition 1 to bind the AS-EXECUTED pin and to forbid any
+  variant_params override (including one 'restoring' min_carry=-0.10, which would impose a carry
+  filter the survivor never ran). PATCH 5/6 add the F-004 no-peek provenance-bound adjudication
+  (two-source price verification -> logged bound-only amendment that does not void the look, OR
+  TECHNICAL FAILURE) at the look gate and the interim integrity check. PATCH 3/4 add the F-005
+  supplementary write-once RUNNER-RECEIPT mechanism (quorum-gated HoQR+Math, NHT-may-dissent,
+  cut before the first look date) and forward-point the original freeze-receipt and FREEZE BLOCK
+  to it. Decision: approve the rework patches; the confirmatory contract is now honest about what
+  the survivor executed.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: false
+webfetch_used: false

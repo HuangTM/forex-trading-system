@@ -11,6 +11,16 @@ compute_dsr is used ONLY as a conventions reference (§1.3, §7.3.3, §7.3.4).
 
 scipy is REQUIRED (§7.3.4 A-5 pin).  If scipy is absent, TECHNICAL FAILURE
 is raised immediately; approximation fallbacks are forbidden.
+
+CROSS-TRIAL CONSTANT WARNING — DO NOT REUSE SR0_PP FOR THE CONFIRMATORY TEST:
+The SR0_PP constant below (0.022906) is R5-ONLY (elected N=3, trial 576746aa).
+The r5-confirmatory test (trial f2fb41fd) uses a DIFFERENT SR0_pp=0.034921
+(N_conf=6, absorbing the R5 36-cell selection charge) sourced from its own
+FREEZE-RECEIPT at:
+  references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+A look-runner for the confirmatory test MUST read sr0_pp from that receipt and
+MUST NOT import or reuse SR0_PP from this module.  Doing so silently uses the
+wrong (too-lenient) benchmark and would produce an invalid confirmatory p-value.
 """
 
 from __future__ import annotations
@@ -38,7 +48,8 @@ except ImportError as _scipy_err:
 #   per-obs SR0_pp = 0.363623 / sqrt(252) = 0.022906."
 # This literal is injected directly as the frozen benchmark; compute_dsr's internal
 # expected_max_sr is NOT the execution path (§7.3.3, §7.3.4, §1.3 item 2).
-SR0_PP: float = 0.022906  # per-obs benchmark; = 0.363623 / sqrt(252); elected N=3
+SR0_PP: float = 0.022906  # R5-ONLY constant (N=3). The r5-confirmatory test (trial f2fb41fd)
+# uses SR0_pp=0.034921 (N_conf=6) from its own FREEZE-RECEIPT — do NOT reuse this literal.
 
 # DSR threshold: §7.3.5 — "FROZEN: the DSR gate is cleared iff DSR >= 0.95"
 DSR_THRESHOLD: float = 0.95
@@ -112,9 +123,7 @@ def select_k_star_studentized(
     # Annualized Sharpe of k* (the DSR gate input — §7.3.4)
     std_kstar = float(np.std(R[:, k_star_idx], ddof=1))
     sr_ann_kstar = (
-        float(means[k_star_idx]) / std_kstar * math.sqrt(252.0)
-        if std_kstar > 0.0
-        else 0.0
+        float(means[k_star_idx]) / std_kstar * math.sqrt(252.0) if std_kstar > 0.0 else 0.0
     )
     return k_star_idx, t_k_star, sr_ann_kstar
 
@@ -176,7 +185,7 @@ def compute_dsr_gate(
     # Kurtosis coefficient: (excess_kurtosis+2)/4 — the corrected BLP(2014) form (dsr.py:184)
     # NOT (+3)/4, NOT (+1)/4 — derivation: V[SR] ∝ gamma4_nonexcess-1)/4 = (excess+3-1)/4
     kurtosis_coeff = (excess_kurtosis + 2.0) / 4.0
-    var_term = 1.0 - skew * sr_pp + kurtosis_coeff * sr_pp ** 2
+    var_term = 1.0 - skew * sr_pp + kurtosis_coeff * sr_pp**2
 
     # Degenerate pin 2: cannot certify when variance term is non-positive.
     # Reference: dsr.py:187-195 ("return 0.0 and emit structured warning")

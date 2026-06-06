@@ -1,0 +1,353 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-05T00:00:00Z"
+subtask_ref: r5-confirmatory-pr-review
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection
+artifact-under-review: references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md
+
+rubrics-applied:
+  - id: R1-spec-vs-source-pins
+    applied: true
+    note: >
+      Re-derived every file/line/constant the doc cites. Config/_VARIANT_EXEC pin checked against
+      the cell that actually ran in the R5 STEP-4 runner. Found one structure-drift (min_carry) and
+      one block-length-method overstatement. Provenance-gate bounds and dsr.py conventions verified.
+  - id: R2-constants
+    applied: true
+    note: >
+      Spot-verified the full frozen set with scipy (Python3, no market data). All reproduce exactly:
+      bracket(6)=1.300141, SR0_ann=0.554361, SR0_pp=0.034921, z1=2.537988, z2=1.662107 (joint OR-alpha
+      verified =0.05), kill_switch_threshold=1.290634 (4dp 1.2906), two-look power=0.340233.
+  - id: R3-decision-map-completeness
+    applied: true
+    note: >
+      Every (look, outcome) pair lands in exactly one named action; terminal look is terminal; VOID
+      conditions enumerated and machine-checkable in Section 7; kill_switch_threshold field parses as a
+      bare YAML scalar (1.2906) for the pre-commit hook. One ambiguity in the bootstrap-p vs joint-z
+      boundary equivalence (see F-002).
+  - id: R4-freeze-mechanics
+    applied: true
+    note: >
+      cut_freeze_receipt.py is hardcoded to R5 paths/constants and cannot produce the confirmatory
+      receipt; the look-runner does not exist at freeze time. Gaps partially acknowledged by the doc but
+      not fully resolved (F-003, F-005).
+  - id: R5-calendar-date-arithmetic
+    applied: true
+    note: >
+      Verified: 2026-04-07 + 2.5yr = 2028-10-06 (913 cal days, ~630 bars), +5yr = 2031-04-06 (1825 cal
+      days, ~1259 bars), info fraction t1 = 913/1825 = 0.5003 ~ 0.50. Terminal n labelled 1260 vs derived
+      1259 (off-by-one, immaterial). Consistent.
+  - id: R6-test-inversion-on-governance
+    applied: true
+    note: >
+      Several implementation/process actions can slip past the VOID conditions (F-001 min_carry drift,
+      F-004 provenance upper-bound blocking a legitimate future bar, F-006 DSR N=6 plumbing).
+  - id: R7-statistic-soundness
+    applied: true
+    note: >
+      Null/statistic/bootstrap mechanism mirror r5a/r5c (HAC SE convention, de-mean H0, (1+sum)/(B+1) p,
+      child_seed=master_seed) — verified against reality_check.py. Selection-absorption mechanism (N_conf)
+      satisfies the R5 binding rule. N_conf=6 election is a defensible-but-post-hoc judgment call (F-007).
+  - id: R8-inversion-premortem-absent-evidence
+    applied: true
+    note: >
+      Pre-mortem and absent-evidence pass run; main absent-evidence item is the non-existent look-runner
+      and its freeze pinning (F-005). No rollback needed (no capital, no live path).
+
+findings:
+  - id: F-001
+    severity: blocking
+    location: "Section 2.2 (config pin table, min_carry row); cross-ref src/forex_system/strategies/vol_target_carry.py:60, scripts/run_r5_step4.py (no variant_params), carry_universe_matrix.py:652,658"
+    category: spec-vs-implementation-drift
+    observation: >
+      Section 2.2 pins min_carry = -0.10 sourced from config/vol_target_carry.yaml:36 and asserts
+      "config/vol_target_carry.yaml ... and ... _VARIANT_EXEC ... The two are consistent; both are pinned"
+      and "The structure is tested AS-IS." But the k* cell that actually WON the R5 argmax did NOT run with
+      min_carry=-0.10. The R5 STEP-4 runner (scripts/run_r5_step4.py) calls build_joint_return_matrix with
+      NO variant_params (grep returns zero hits); build_joint_return_matrix defaults variant_params to {}
+      (carry_universe_matrix.py:652) and extra_params to {} per variant (line 658). min_carry is NOT a field
+      of _VARIANT_EXEC["vol_target_carry"] (carry_universe_matrix.py:266-274) — it is read by the strategy
+      via self.params.get("min_carry", -np.inf) (vol_target_carry.py:60). With no variant_params, the cell
+      ran with min_carry = -np.inf (carry filter NEVER active, vol_target_carry.py:72), NOT -0.10.
+    inference: >
+      The confirmatory doc pins a config value the surviving structure did not use. target_vol (0.10) and
+      vol_window (252) happen to coincide with the strategy defaults, so those are safe; but min_carry does
+      NOT. If the confirmatory look-runner reads min_carry=-0.10 from the config (as Section 2.2 instructs),
+      it tests a DIFFERENT structure than the one that survived R5 — and VOID condition 1 (parameter drift)
+      will NOT fire, because the runner is faithfully executing the (mis-stated) frozen pin. For USDJPY the
+      rate differential is almost always > -0.10 so the two series are likely near-identical in practice, but
+      "near-identical" is not "byte-identical AS-IS," and the doc's own §2.3(b) equivalence test demands a
+      byte-identical return series on a shared sub-window. The drift is masked, not caught.
+    evidence:
+      - "scripts/run_r5_step4.py: build_joint_return_matrix(variants=..., pairs=...) at L312-315, no variant_params; grep variant_params returns nothing"
+      - "carry_universe_matrix.py:652 `_variant_params = variant_params or {}`; L658 `extra_params = _variant_params.get(variant, {})`"
+      - "carry_universe_matrix.py:266-274 _VARIANT_EXEC['vol_target_carry'] has leverage_cap/max_order_units/min_order_size only — NO min_carry/target_vol/vol_window"
+      - "src/forex_system/strategies/vol_target_carry.py:60 `min_carry = self.params.get('min_carry', -np.inf)`; L72 gate active only if min_carry > -inf"
+      - "config/vol_target_carry.yaml:36 `min_carry: -0.10`"
+    recommended-action-class: spec-correction-required
+    owning-role: head-of-quant-research
+  - id: F-002
+    severity: major
+    location: "PART II Section 3.3 (alpha-spending boundaries; 'bootstrap p is the operative test; z-boundaries are the equivalent reference')"
+    category: statistical-method-consistency
+    observation: >
+      The look-level decision rule is stated two ways that are NOT generally equivalent: (a) the OPERATIVE
+      rule rejects at look j iff the look-j stationary-bootstrap p <= the INCREMENTAL spend (spend1=0.005575,
+      spend2=0.044425); (b) the z-boundary z2=1.662107 was solved from the JOINT bivariate OR-criterion
+      P(Z1>=z1 OR Z2>=z2|H0)=0.05 with correlated increments rho=sqrt(0.5). Comparing each look's marginal
+      bootstrap-p to its incremental spend is an independent-increment / per-look construction; it reproduces
+      the joint boundary z2 only if the two look statistics are jointly normal with exactly that rho. The
+      look-2 bootstrap-t is computed on the full +5yr series (which CONTAINS the look-1 +2.5yr series), so the
+      two are strongly positively correlated by construction — precisely the joint structure z2 assumes, but
+      the bootstrap-p-vs-incremental-spend rule does not encode that correlation.
+    inference: >
+      In a region where look-1 was a near-miss, rule (a) and rule (b) can disagree on the look-2 reject/accept
+      decision. The doc asserts equivalence ("the z-boundaries are the equivalent reference") without proving
+      the bootstrap-p scale realizes the rho=sqrt(0.5) joint design. Since the bootstrap is declared the
+      operative test, the frozen z-boundaries may be decorative rather than equivalent, and the actual
+      family-wise alpha control of the operative rule is unverified. For a confirmatory kill test whose whole
+      value is a clean family-wise alpha, this gap must be closed before freeze.
+    evidence:
+      - "Section 3.3: 'reject at look j iff the look-j bootstrap p <= the incremental spend'"
+      - "Section 3.3 / mathematician-z2-election.yaml proof-sketch: z2 is the unique root of Phi2(z1,z2;rho=sqrt(0.5))=0.95 — a JOINT criterion"
+      - "Section 1.4: look-j bootstrap t* recomputed per resample; no joint look-1/look-2 resampling stated"
+    recommended-action-class: derivation-or-proof-required
+    owning-role: mathematician
+  - id: F-003
+    severity: major
+    location: "FREEZE BLOCK (Part I); PART II Section 5 (Evaluation command contract); scripts/cut_freeze_receipt.py:37-50,104-114"
+    category: freeze-mechanics
+    observation: >
+      The doc says the confirmatory receipt follows 'the pattern of scripts/cut_freeze_receipt.py'. That
+      script is HARDCODED to R5: _PREREG_PATH and _RECEIPT_PATH point at the R5 files (L37-42), and the frozen
+      fields are R5's literals (_MASTER_SEED=576746, _K=5000, _SR0_PP=0.022906, _N_ELECTED=3; L45-48). Run
+      as-is it would hash the R5 doc, refuse to overwrite the existing R5 receipt (L104-114), and embed R5's
+      seed/N/SR0/B. It has no field for the confirmatory master_seed=924289, N_conf=6, the look schedule, or a
+      separate look-runner commit. The tool to cut the confirmatory receipt does not exist yet.
+    inference: >
+      'Pattern of' is honest wording (it does not claim the script is reused), but a frozen pre-registration
+      that depends on an EXTERNAL write-once receipt must name a receipt-cutting mechanism that can actually
+      produce the confirmatory receipt with the confirmatory constants. As written, the freeze step is not
+      executable. No path collision (a new filename is implied), but a new/parameterized script is a
+      precondition for freeze and is not specified.
+    evidence:
+      - "scripts/cut_freeze_receipt.py:37-42 R5 hardcoded paths; L45-48 R5 constants; L104-114 refuse-overwrite"
+      - "Section 5: receipt must record master_seed=924289, look schedule, and 'any new evaluation/look runner' commit — none are receipt-script fields"
+    recommended-action-class: implementation-precondition-required
+    owning-role: quant-developer
+  - id: F-004
+    severity: major
+    location: "Section 3.4 + Section 7 (provenance gate, USDJPY bounds [20.0, 245.0]); src/forex_system/data/storage.py:54"
+    category: forward-data-robustness
+    observation: >
+      The provenance gate USDJPY upper bound is 245.0, calibrated as ceil(real_max 161.71 * 1.5) on data
+      through 2026-06-03 (storage.py:54 comment). The hold-out runs 2026-04-07 -> 2031-04-06. A legitimate
+      real USDJPY close above 245 at a look date would FAIL _assert_price_range, routing the look to
+      TECHNICAL_FAILURE -> HALT/re-freeze (Section 4 outcome 5 / Section 7).
+    inference: >
+      245 is not a structural impossibility over a 5-year forward window given recent yen weakness toward 160;
+      a real bar > 245 is a legitimate datum, not a corruption, yet the frozen gate would treat it as a fault
+      and block/defer the look. Test-inversion: a true regime move (exactly the signal the test wants to
+      observe) could trip the integrity gate and stall the confirmatory decision. The bound was set for
+      backward contamination detection, not forward range. Worth an explicit pre-registered note that an
+      upper-bound breach at a look is to be adjudicated (real move vs corruption) rather than auto-HALTing.
+    evidence:
+      - "storage.py:54 'USDJPY': (20.0, 245.0),   # real max 161.71 -> 1.5x ~ 242.6 -> 245"
+      - "storage.py:40-44 LIMITATION note: gate is defence-in-depth; cannot catch within-band corruption"
+      - "Section 7: 'holdout fails storage.py bounds [20.0,245.0] -> HALT'"
+    recommended-action-class: spec-clarification-recommended
+    owning-role: head-of-quant-research
+  - id: F-005
+    severity: minor
+    location: "Section 2.3(b) + FREEZE BLOCK (successor-commit equivalence recorded in the receipt)"
+    category: freeze-immutability
+    observation: >
+      Section 2.3(b) permits a 'future-frozen successor commit verified behavior-equivalent ... demonstrated
+      and recorded in the freeze-receipt'. The look-runner does not exist at freeze time, so its commit and
+      the equivalence demonstration would be written to the receipt AFTER the initial freeze.
+    inference: >
+      Writing the look-runner commit + equivalence proof into the receipt after the receipt is cut is in
+      tension with both 'EXTERNAL write-once' and the r5_freeze_immutable hard-constraint. The doc handles the
+      runner-does-not-exist gap honestly by allowing option (a) (run at R5 commit 350cbd4 directly), which
+      avoids the post-freeze write entirely — so this is not blocking IF option (a) is the elected path. The
+      doc should state which option is the default and forbid post-freeze receipt mutation under option (b)
+      (require a fresh receipt instead).
+    evidence:
+      - "Section 2.3: option (a) commit 350cbd4 OR option (b) successor commit recorded in receipt"
+      - "Hard-constraint r5_freeze_immutable; FREEZE BLOCK 'EXTERNAL write-once file'"
+    recommended-action-class: spec-clarification-recommended
+    owning-role: head-of-quant-research
+  - id: F-006
+    severity: minor
+    location: "PART II Section 2.3 / Section 5 (DSR conventions pinned to dsr.py:179-207 AND r5_decision.py:172-193)"
+    category: implementation-feasibility
+    observation: >
+      The confirmatory DSR needs SR0_pp_conf=0.034921 (N_conf=6). r5_decision.deflated_sharpe_ratio hardcodes
+      SR0_PP=0.022906 (R5 N=3) as a module literal (r5_decision.py: 'SR0_pp = 0.022906 is the frozen literal')
+      and is the path with the scipy-required guard. dsr.py is parameterized (takes n_trials) but carries a
+      math.erf approximation fallback (dsr.py:175-177) that the doc explicitly forbids ('scipy REQUIRED — no
+      approximation fallback').
+    inference: >
+      Neither pinned function is drop-in for the confirmatory gate: r5_decision has the right scipy guard but
+      the wrong (frozen) SR0; dsr.py has the right parameterization but the wrong (permitted) fallback. The
+      confirmatory runner must compute DSR with N_conf=6 / SR0_pp_conf=0.034921 AND enforce scipy-required.
+      This is an implementation note, not a spec defect — the doc routes implementation to QD — but the
+      'conventions verbatim' pin should name which function provides which property to avoid the runner silently
+      using dsr.py's erf fallback.
+    evidence:
+      - "r5_decision.py:22-30 scipy-required ImportError raise; DSR uses module literal SR0_PP=0.022906"
+      - "dsr.py:171-177 try scipy.stats.norm.cdf except ImportError -> math.erf fallback"
+    recommended-action-class: implementation-note
+    owning-role: quant-developer
+  - id: F-007
+    severity: observation
+    location: "PART II Section 2.4 (N_conf=6 election; derivation 4+3-1=6)"
+    category: statistical-judgment
+    observation: >
+      N_conf=6 is elected as the ceiling of the admissible band [2,6] via the heuristic
+      max(effective_selection_dim_upper=4, prior_honest_N=3) framing reduced to 4+3-1=6. The doc itself flags
+      this as bordering on 'arithmetic theater' and that the 4 (R5 effective dimension) and 3 (R5 prior
+      honest-N) both describe the SAME carry family's multiplicity (partial double-count). BLdP SR0 is strictly
+      increasing in N, so the ceiling is the strictest/safest direction for a kill test.
+    inference: >
+      Defensible for a kill test (over-deflation is safe-if-wrong), and the choice is disclosed honestly. Not
+      a defect — but the '+3 minus overlap 1' is post-hoc; the auditable justification is really 'pick the
+      ceiling of the admissible band because stricter is safer for a kill', which the doc could state plainly
+      instead of dressing it as a derived sum.
+    evidence:
+      - "Section 2.4: 'I avoid arithmetic theater ... N_conf = 6 ... 4+3-1=6'; 'N_conf in [2,6] is the admissible band ... I freeze the ceiling (6)'"
+      - "r5_carry_universe_kill_test.md:215 effective independent dimension ~1-2 (HoQR)/2-4 (NHT)"
+    recommended-action-class: none-acceptable-as-is
+    owning-role: mathematician
+  - id: F-008
+    severity: observation
+    location: "PART II Section 1.3 ('mirrors the R5 SPA studentization bit-for-bit'); Section 1.4 ('same null-generation mechanism R5 used')"
+    category: spec-vs-implementation-drift
+    observation: >
+      The confirmatory elects UNIVARIATE Politis-White (politis_white_block_length on the single hold-out
+      series). R5 STEP-4 actually used MULTIVARIATE PW (politis_white_block_length_multivariate on the 36-col
+      matrix, run_r5_step4.py:366), and the frozen R5 block_length was 21 with B=5000 (STEP4-RESULT.yaml).
+      The confirmatory uses K=10000 and a single-series auto block length.
+    inference: >
+      The single-series test MUST use a single-series block length and the larger K is a legitimate
+      improvement (cheaper test, tighter MC-SE) — both are correct choices. But the phrases 'bit-for-bit' and
+      'the same null-generation mechanism R5 used' overstate the identity: the studentization convention is
+      shared, the block-length-selection method and B/K are not. Cosmetic; recommend softening to 'the same
+      HAC-studentized stationary-bootstrap family, with a single-series block length' to avoid an auditor
+      reading 'bit-for-bit' literally.
+    evidence:
+      - "scripts/run_r5_step4.py:366 politis_white_block_length_multivariate; STEP4-RESULT block_length_used=21, B=5000"
+      - "Section 1.4: K=10000; Section 1.3 'mirrors ... bit-for-bit'"
+    recommended-action-class: wording-softening-recommended
+    owning-role: mathematician
+
+coverage-statement: >
+  Read the 477-line artifact in full and re-derived from source: config/vol_target_carry.yaml (line-exact),
+  _VARIANT_EXEC and _build_cell/_build_sizer/build_joint_return_matrix in carry_universe_matrix.py, the R5
+  STEP-4 runner scripts/run_r5_step4.py, vol_target_carry.py strategy defaults, r5_carry_universe_kill_test
+  STEP4-RESULT.yaml and the R5 immutable doc (selection-absorption binding rule, outcome-4, N=3 SR0
+  derivation, kill-switch 0.767), src/forex_system/data/storage.py provenance bounds, dsr.py and
+  r5_decision.py DSR conventions, reality_check.py (hac_se_nw, politis_white_block_length[_multivariate],
+  r5a/r5c, _B, p-value convention, seed convention), and scripts/cut_freeze_receipt.py. All eight numeric
+  constants were independently recomputed with scipy (no market data, no backtest). All 8 rubrics applied.
+  Not exercised: a live run of the (non-existent) look-runner; the actual post-2026-04-06 hold-out data (does
+  not exist by design); the gsDesign sfLDOF reference (verified the joint-z2 derivation directly instead).
+
+contamination-check: >
+  PASS — no veto. This prompt does not state that any other role approved or rejected the artifact under
+  review. The two provenance files (qd-constants-confirmation.yaml, mathematician-z2-election.yaml) carry
+  decision/body fields (e.g. 'implemented-and-verified', 'sound') but the prompt explicitly designates these
+  as constants-provenance inputs ('numbers only; treat decision/body fields as redacted'). I used only their
+  numeric content and ignored their stance fields. No stance about THIS artifact's acceptance was injected
+  into the prompt.
+
+time-spent-reasoning: ~45 minutes (read 3 skills + 477-line artifact + 2 provenance files + 8 source files; scipy re-derivation of 8 constants; spec-vs-source drift trace)
+
+evidence:
+  - "scipy re-derivation reproduced bracket(6)=1.300141, SR0_ann=0.554361, SR0_pp=0.034921, z1=2.537988, z2=1.662107 (P(OR)=0.05 exact), kill=1.290634, power_two_look=0.340233"
+  - "scripts/run_r5_step4.py passes NO variant_params -> k* cell ran min_carry=-inf, not config's -0.10 (F-001)"
+  - "carry_universe_matrix.py:266-274 _VARIANT_EXEC['vol_target_carry'] lacks min_carry/target_vol/vol_window fields"
+  - "vol_target_carry.py:60 default min_carry=-np.inf; L72 gate inactive at -inf"
+  - "STEP4-RESULT.yaml: k_star_idx=18, vol_target_carry:USDJPY, block_length_used=21, B=5000, code_commit=350cbd4..."
+  - "storage.py:54 USDJPY bounds (20.0, 245.0); calibrated to historical max 161.71 (F-004)"
+  - "cut_freeze_receipt.py:37-48 hardcoded to R5 paths+constants (F-003)"
+  - "dsr.py:171-177 scipy->erf fallback; r5_decision.py:22-30 scipy-required + module literal SR0_PP=0.022906 (F-006)"
+  - "calendar: 2026-04-07->2028-10-06=913d(~630 bars), ->2031-04-06=1825d(~1259), t1=0.5003 (R5)"
+  - "reality_check.py: hac_se_nw h=max(bw,1); _B=10000; r5a child_seed=master_seed; (1+sum)/(B+1) p; de-mean H0 — all match doc pins"
+
+assumptions:
+  - "min_carry for USDJPY rarely binds in practice (rate diff > -10% almost always), so the F-001 drift likely produces a near-identical but NOT provably byte-identical series; I did not run the backtest on both settings (no market data per instruction) — the drift is in the SPEC CLAIM regardless of empirical magnitude."
+  - "The look-runner's elected path is option (a) (commit 350cbd4 directly) unless the doc later states otherwise; if option (b) is elected, F-005 escalates."
+  - "I treated the qd/mathematician provenance YAMLs as numbers-only inputs per the prompt; their decision fields are redacted by instruction and not relied upon."
+  - "Information fraction proportional to bar count/calendar time (doc's stated convention); the rho=sqrt(t1/t2) used for z2 assumes Brownian-information increments."
+
+confidence: high
+
+body: |
+  VERDICT: approve-with-conditions. The statistical core is sound and independently reproduces to the digit:
+  every frozen constant (bracket, SR0, z1, the contested z2=1.662107 joint-alpha boundary, kill_switch
+  threshold, power) recomputes exactly under scipy, the bootstrap/HAC/seed/p-value machinery faithfully
+  mirrors the pinned reality_check.py r5a/r5c paths, the selection-absorption mechanism satisfies the R5
+  BINDING forking-paths rule, the decision map is complete and terminal with machine-checkable VOID
+  conditions, the kill_switch_threshold field parses for the pre-commit hook, and the calendar arithmetic is
+  consistent. The honest disclosure of ~34% terminal power and most-likely wind-down is exactly the posture a
+  confirmatory kill test should take. The no-capital constraint is respected throughout.
+
+  Three conditions block freeze:
+
+  (1) F-001 (blocking) — the central spec-vs-source drift. Section 2.2 pins min_carry=-0.10 from the config and
+  claims the structure is tested AS-IS, but the k* cell that WON the R5 argmax ran with min_carry=-inf,
+  because the R5 STEP-4 runner passed no variant_params and min_carry is not a _VARIANT_EXEC field — the
+  strategy default (-inf) governed. target_vol and vol_window coincide with defaults and are safe; min_carry
+  does not. A confirmatory runner that reads -0.10 from the config tests a (marginally) different structure
+  than the survivor, and VOID condition 1 cannot catch it because the runner is faithfully executing the
+  mis-stated pin. Fix the pin to record the EFFECTIVE config the k* cell actually ran (min_carry=-inf, or
+  prove byte-identical series on a shared sub-window per Section 2.3(b)).
+
+  (2) F-002 (major) — the operative look rule (bootstrap-p <= incremental-spend, per look) is asserted
+  'equivalent' to the joint bivariate z-boundary z2=1.662107, but the two coincide only if the bootstrap look
+  statistics realize the rho=sqrt(0.5) joint design; the look-2 series contains the look-1 series, so the
+  correlation exists but the bootstrap-p-vs-incremental-spend construction does not encode it. The
+  family-wise alpha control of the OPERATIVE rule is therefore unproven. Close with a short derivation or
+  re-state z2 as the operative boundary.
+
+  (3) F-003 (major) — cut_freeze_receipt.py is hardcoded to R5 (paths, seed, N, SR0, B) and cannot produce the
+  confirmatory receipt; the look-runner does not exist yet. The freeze step is not executable as written. A
+  new/parameterized receipt-cutting mechanism (with master_seed=924289, N_conf=6, look schedule fields) is a
+  precondition for freeze.
+
+  Major F-004 (forward provenance upper-bound 245 can HALT a legitimate future bar) and minor F-005/F-006
+  (post-freeze receipt-write tension; DSR N=6 plumbing) should be addressed before freeze but do not, alone,
+  block. F-007 (N_conf=6 election) and F-008 ('bit-for-bit' overstatement) are acceptable as-is / cosmetic.
+
+  This is a high-quality, internally-honest pre-registration with one real structure-drift, one unproven
+  equivalence claim, and one non-executable freeze tool. None require rethinking the design; all are
+  correctable. Route F-001/F-004/F-005 to HoQR, F-002/F-007/F-008 to the Mathematician, F-003/F-006 to QD.
+  Re-review the corrected Section 2.2 pin and the F-002 derivation before consensus + freeze.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md"
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md"
+  - "config/vol_target_carry.yaml"
+  - "src/forex_system/harness/carry_universe_matrix.py"
+  - "src/forex_system/harness/reality_check.py"
+  - "src/forex_system/harness/r5_decision.py"
+  - "src/forex_system/harness/dsr.py"
+  - "src/forex_system/data/storage.py"
+  - "src/forex_system/strategies/vol_target_carry.py"
+  - "scripts/run_r5_step4.py"
+  - "scripts/cut_freeze_receipt.py"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/qd-constants-confirmation.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/mathematician-z2-election.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

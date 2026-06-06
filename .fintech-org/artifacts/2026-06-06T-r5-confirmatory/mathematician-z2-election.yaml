@@ -1,0 +1,261 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: r5-confirmatory-z2-election
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+claimed_domains:
+  - formal-modeling-and-derivations
+  - convergence-and-error-analysis
+
+# ══════════════════════════════════════════════════════════════
+# THE ONE ELECTION
+# ══════════════════════════════════════════════════════════════
+z2_elected: 1.662107
+
+election_basis: >
+  Option A (z2 = 1.662107) is elected on four interlocking grounds.
+  First, the stated criterion is P(Z1 ≥ z1 OR Z2 ≥ z2 | H0) = 0.05 exactly — a bivariate
+  joint condition with corr = sqrt(0.5); Option A is the unique root of that equation
+  (triple-verified: scipy bivariate CDF, independent dblquad quadrature, and 5 M-sample MC).
+  Option B (1.687) achieves only joint α ≈ 0.0477, under-spending the declared budget by
+  ~2.3 percentage points while having no derivable provenance — it is neither the conditional
+  (nominal Lan-DeMets) boundary (1.701) nor the marginal boundary (1.644), and QD's analysis
+  cannot reconstruct it from any defensible parameterization.
+  Second, a frozen pre-registration must be internally consistent: an undecorated constant
+  that cannot be derived from the frozen criterion is inadmissible in a document the firm may
+  be held against; "conservatism" requires a stated derivation, not an opaque table-lookup,
+  and Option B was never declared conservative — it was presented as the exact boundary.
+  Third, the design is already underpowered (~34%); gratuitous alpha-budget waste (Option B
+  recovers none of that lost power, it simply mis-spends) is not a safety feature here, it
+  is a precision defect — lower alpha-spend tightens the critical region for no declared
+  benefit and makes an already near-certain wind-down outcome marginally more certain through
+  arithmetic accident rather than principled conservatism.
+  Fourth, the R5 precedent this firm followed throughout was to freeze scipy-exact constants
+  and correct hand-drift via the QD routing mechanism — Option A is that exact correction,
+  consistent with the R5 machinery and signed consensus.
+  Option B is explicitly rejected and documented in alternative-methods.
+
+# ══════════════════════════════════════════════════════════════
+# FROZEN CONSTANTS (final, all scipy-exact via QD triple-verify)
+# ══════════════════════════════════════════════════════════════
+frozen_constants_final:
+  bracket_6: 1.300141           # scipy: (1−γ)·Φ⁻¹(5/6) + γ·Φ⁻¹(1−1/(6e)); hand was 1.299649 (+0.000492)
+  sr0_ann: 0.554361             # scipy: 0.426385 · bracket_6; hand was 0.554150 (+0.000211)
+  sr0_pp: 0.034921              # scipy: sr0_ann / sqrt(252); hand was 0.034908 (+0.000013)
+  z1: 2.537988                  # scipy: Φ⁻¹(1 − spend₁) = Φ⁻¹(1 − 0.005575); hand was 2.539 (−0.001012)
+  z2: 1.662107                  # ELECTED (Option A): bivariate joint solve; hand was 1.687 (−0.024893, 1.48%)
+  kill_switch_threshold: 1.2906 # scipy brentq exact: 1.290641 (6dp), 1.2906 (4dp); hand was 1.291 (−0.000359)
+  power_two_look: 0.340233      # scipy bivariate at exact z2=1.662107; was 0.327 at hand z2=1.687 (upstream)
+
+# ══════════════════════════════════════════════════════════════
+# ASSUMPTIONS
+# ══════════════════════════════════════════════════════════════
+assumptions:
+  - "Information fraction t₁ = 2.5/5.0 = 0.5 exactly; rho = sqrt(t₁/t₂) = sqrt(0.5) = 0.707107 exactly."
+  - "Spending function is Lan-DeMets sfLDOF one-sided α=0.05; spend₁ = 2·(1−Φ(1.959964/√0.5)) = 0.005575."
+  - "The bivariate joint criterion P(Z1≥z1 OR Z2≥z2|H0) = 0.05 uses the standard non-central bivariate
+     normal CDF via scipy.stats.multivariate_normal with corr matrix [[1,rho],[rho,1]], rho=sqrt(0.5),
+     zero mean under H0. This is the canonical group-sequential closed-testing formulation."
+  - "scipy.stats.multivariate_normal.cdf uses the Genz algorithm — no table-lookup approximation."
+  - "var_term = 1 at reference for kill_switch_threshold read-out (first pass only); brentq converges to
+     exact fixed point var_term=1.001053, self-consistent. Two-pass solve in the spec converges to same."
+  - "Dispersion sqrt(Var[SR_n]) = 0.426385 carried FROZEN from R5; N_conf enters only the bracket axis.
+     Any error in this dispersion estimate propagates directly to SR0 constants."
+  - "252 trading days/year for all annualization; T_holdout = 1260 for terminal look at +5yr."
+
+assumptions-identified:
+  - "Option A (z2=1.662107) is the UNIQUE solution to the stated bivariate joint criterion — there is
+     no free-parameter election here; the election is between 'spend the declared α correctly' (A)
+     versus 'use a constant of unclear provenance that under-spends' (B)."
+  - "The pre-registered boundary must be derivable from frozen criterion; an underivable conservative
+     constant violates the internal consistency requirement of a locked pre-registration."
+  - "Power gain from A over B is +3.9% relative (0.340 vs 0.327) — modest but not gratuitous; neither
+     choice produces an adequately powered test at ~34%."
+
+failure-regimes:
+  - "scipy unavailable at the z2-solve step: TECHNICAL_FAILURE — never fall back to table lookup or
+     hand approximation for z2 (the existing A-5 pin already covers this)."
+  - "If a future QD re-verification of z2 via an independent solver yields a value outside
+     [1.6620, 1.6622], re-freeze is mandatory; the brentq xtol=1e-12 leaves no meaningful numerical
+     ambiguity at 4dp."
+  - "Rho mis-specified (e.g. t1 ≠ 0.5 at runtime due to calendar irregularity): z2 is sensitive to
+     rho; a ±0.05 change in t1 would shift z2 by ~0.01. Runner must verify that actual bar-count
+     information fraction matches t1=0.5 before applying the frozen z2."
+
+alternative-methods:
+  - "REJECTED — Option B, z2=1.687 (hand value):
+     Achieves joint α≈0.0477, under-spending the declared 0.05 budget by ~2.3pp. QD analysis shows
+     it is not the conditional (nominal) Lan-DeMets terminal boundary (1.701), not the marginal OBF
+     boundary (1.644), and not reconstructible from any documented parameterization. A pre-registered
+     boundary must be derivable or must carry a named derivation; 'conservative' requires a stated
+     basis, not an opaque table-lookup. Additionally, the power loss (0.327 vs 0.340) has no offsetting
+     benefit: the design passes the kill-test gate at BOTH z2 values — Option B does not make a false
+     pass less likely because the DSR gate (not z2 alone) is the binding hurdle. The under-spend is
+     pure precision defect."
+
+proof-sketch-or-reference:
+  - "Group-sequential bivariate boundary: for a two-look design with independent increments (canonical
+     Brownian information model), the joint type-I criterion P(Z1≥z1 OR Z2≥z2|H0)=α is equivalent to
+     P(Z1<z1 AND Z2<z2|H0)=1−α, which is the bivariate normal CDF evaluated at (z1,z2) with
+     corr=sqrt(t1/t2)=sqrt(0.5) under H0 (mean=(0,0)). z2 is the unique root of
+     Φ₂(z1,z2;ρ)=0.95 where z1=2.537988 and ρ=0.707107. scipy.optimize.brentq on this objective
+     with xtol=1e-12 gives z2=1.662107."
+  - "Lan & DeMets (1983), Biometrika 70(3):659-663 — spending function framework; z2 is determined
+     by the bivariate CDF, not by the spending function alone. The sfLDOF spending function sets
+     spend₁=0.005575 and spend₂=0.044425 (incremental); the nominal conditional boundary
+     Φ⁻¹(1−spend₂)=1.701 is a DIFFERENT object (conditional on not crossing z1) and is NOT the
+     bivariate-joint z2."
+  - "Bailey & Lopez de Prado (2014) SR0/DSR formulae — all bracket and DSR constants derivable from
+     scipy.stats.norm.ppf and scipy.optimize.brentq; no table lookup; pinned in dsr.py:179-207."
+  - "Triple verification independence: (1) scipy.stats.multivariate_normal.cdf(Genz), (2)
+     scipy.integrate.dblquad (independent quadrature, result 0.95000004), (3) 5M-sample MC
+     (result 0.050055, within 0.6σ of target 0.05 at σ_MC≈0.00010). All three confirm z2=1.662107."
+
+numerical-question-routed: ""
+
+evidence:
+  - "qd-constants-confirmation.yaml:31 — z2: 1.662107 (bivariate joint solve, QD scipy)"
+  - "qd-constants-confirmation.yaml:33 — total_alpha_achieved: 0.050000 (verified scipy CDF + dblquad + 5M MC)"
+  - "qd-constants-confirmation.yaml:73-95 — DIVERGENCE note for z2: hand 1.687 achieves α≈0.0477 (MC: 0.047669), not 0.050; exact value 1.662107 achieves 0.050000 exactly"
+  - "qd-constants-confirmation.yaml:17-22 — bracket_6, sr0_ann, sr0_pp exact values and hand-deltas"
+  - "qd-constants-confirmation.yaml:30 — z1: 2.537988 (hand was 2.539, Δ=−0.001012, 0.040%)"
+  - "qd-constants-confirmation.yaml:36-40 — kill_switch_threshold_exact: 1.290641, 4dp: 1.2906"
+  - "qd-constants-confirmation.yaml:47-48 — power_terminal_single_look: 0.336323; power_two_look_joint: 0.340233"
+  - "conf-sections-mathematician.md:119-131 — hand arithmetic for bracket(N=6) and SR0 derivation (corrected by QD)"
+  - "conf-sections-mathematician.md:163-179 — alpha-spending table showing z2=1.687 (to be corrected to 1.662107)"
+  - "conf-sections-mathematician.md:190-195 — power calculation using z2=1.687 (to be corrected)"
+  - "conf-sections-mathematician.md:207-231 — kill_switch_threshold two-pass derivation (to be corrected to 1.2906)"
+
+confidence: high
+
+# ══════════════════════════════════════════════════════════════
+# BODY + SUBSTITUTION LIST
+# ══════════════════════════════════════════════════════════════
+body: |
+  The QD triple-verified confirmation returned unambiguous results: all constants are within
+  0.06% of hand-work EXCEPT z2, which diverges by 1.48% (1.687 hand vs 1.662107 exact) with
+  no derivable source for the hand value. The election is Option A (z2=1.662107) on the grounds
+  that a locked pre-registration requires internally derivable constants; the stated criterion
+  is the bivariate joint P(Z1≥z1 OR Z2≥z2|H0)=0.05, and 1.662107 is the unique solution.
+
+  All other hand-drift corrections (bracket_6, sr0_ann, sr0_pp, z1, kill_switch_threshold)
+  are precision corrections ≤0.06%, flowing directly from the QD scipy-exact values. These
+  do not require a new election — they are pure precision updates consistent with the R5 norm
+  of freezing scipy-authoritative constants.
+
+  Power corrects from 0.327 to 0.340 (two-look joint) as a downstream consequence of z2
+  correction. The qualitative disclosure ("approximately 33%", "underpowered") remains valid
+  and is tightened to "approximately 34%" in the corrected pre-reg.
+
+  ──────────────────────────────────────────────────────────────
+  ANCHOR/REPLACEMENT SUBSTITUTION LIST (conf-sections-mathematician.md)
+  All anchors are quoted EXACTLY as they appear in that file.
+  ──────────────────────────────────────────────────────────────
+
+  [SUB-1] Section 2.5 — bracket intermediate z_arg2:
+    ANCHOR:   "= Z⁻¹(0.938687)            = 1.542968"
+    REPLACE:  "= Z⁻¹(0.938687)            = 1.543843"
+
+  [SUB-2] Section 2.5 — bracket arithmetic first term:
+    ANCHOR:   "= 0.4227843·0.967422 + 0.5772157·1.542968"
+    REPLACE:  "= 0.4227843·0.967422 + 0.5772157·1.543843"
+
+  [SUB-3] Section 2.5 — bracket arithmetic second term:
+    ANCHOR:   "= 0.409013 + 0.890636"
+    REPLACE:  "= 0.409013 + 0.891141"
+
+  [SUB-4] Section 2.5 — bracket result:
+    ANCHOR:   "= 1.299649"
+    REPLACE:  "= 1.300141"
+
+  [SUB-5] Section 2.5 — SR0_ann_conf computed value:
+    ANCHOR:   "SR0_ann_conf        = 0.426385 · 1.299649      = 0.554150   (annualized)"
+    REPLACE:  "SR0_ann_conf        = 0.426385 · 1.300141      = 0.554361   (annualized)"
+
+  [SUB-6] Section 2.5 — SR0_pp_conf final value:
+    ANCHOR:   "= 0.554150 / 15.874508     = 0.034908   (per-obs)"
+    REPLACE:  "= 0.554361 / 15.874508     = 0.034921   (per-obs)"
+
+  [SUB-7] Section 2.5 — FROZEN line:
+    ANCHOR:   "> **FROZEN: `SR0_ann_conf = 0.554150`, `SR0_pp_conf = 0.034908` (per-obs), `N_conf = 6`.**"
+    REPLACE:  "> **FROZEN: `SR0_ann_conf = 0.554361`, `SR0_pp_conf = 0.034921` (per-obs), `N_conf = 6`.**"
+
+  [SUB-8] Section 3.3 — alpha-spending value spend₁:
+    ANCHOR:   "α*(0.5) = 2·(1 − Φ(1.959964/0.707107)) = 2·(1 − Φ(2.771808)) = 2·(1 − 0.997211) = 0.005578   →  spend₁ ≈ 0.00558"
+    REPLACE:  "α*(0.5) = 2·(1 − Φ(1.959964/0.707107)) = 2·(1 − Φ(2.771808)) = 2·(1 − 0.997213) = 0.005575   →  spend₁ = 0.005575"
+
+  [SUB-9] Section 3.3 — boundary table z₁ value:
+    ANCHOR:   "| 1 | 0.50 | ≈ 0.0056 | **z₁ = 2.539** (one-sided p ≤ 0.00558) | bootstrap-`t` look-1 p ≤ 0.00558 |"
+    REPLACE:  "| 1 | 0.50 | 0.005575 | **z₁ = 2.537988** (one-sided p ≤ 0.005575) | bootstrap-`t` look-1 p ≤ 0.005575 |"
+
+  [SUB-10] Section 3.3 — boundary table z₂ value:
+    ANCHOR:   "| 2 | 1.00 | ≈ 0.0444 | **z₂ = 1.687** (one-sided nominal, sequential-adjusted) | bootstrap-`t` look-2 p ≤ 0.04442 |"
+    REPLACE:  "| 2 | 1.00 | 0.044425 | **z₂ = 1.662107** (bivariate joint, scipy-exact) | bootstrap-`t` look-2 p ≤ 0.044425 |"
+
+  [SUB-11] Section 3.3 — inline z₂ reference in prose:
+    ANCHOR:   "(Equivalently, on the z-scale: `t_obs ≥ z_j`. The z₂=1.687 is the sequential-adjusted final critical value — slightly above the fixed-sample 1.645 because look-1 consumed 0.0056 of the α; QD confirms via gsDesign that the exact final nominal one-sided z for this design is in [1.68, 1.69].) **The bootstrap p is the operative test; the z-boundaries are the equivalent reference.**"
+    REPLACE:  "(Equivalently, on the z-scale: `t_obs ≥ z_j`. The z₂=1.662107 is the bivariate joint-exact final critical value — derived by solving P(Z1≥z1 OR Z2≥z2|H0)=0.05 exactly via scipy.stats.multivariate_normal.cdf; confirmed by independent dblquad quadrature and 5 M-sample MC. **The bootstrap p is the operative test; the z-boundaries are the equivalent reference.**"
+
+  [SUB-12] Section 3.5 — power calculation z₂ reference:
+    ANCHOR:   "At the **terminal look (Y=5)** with the sequential-adjusted final boundary `z₂ ≈ 1.687`:"
+    REPLACE:  "At the **terminal look (Y=5)** with the bivariate joint-exact final boundary `z₂ = 1.662107`:"
+
+  [SUB-13] Section 3.5 — power arithmetic line:
+    ANCHOR:   "power = P(Z + λ ≥ z₂) = Φ(λ − z₂) = Φ(1.238826 − 1.687) = Φ(−0.448174) = 0.327"
+    REPLACE:  "power = P(Z + λ ≥ z₂) = Φ(λ − z₂) = Φ(1.239588 − 1.662107) = Φ(−0.422519) = 0.336 (single-look); two-look joint power = 0.340"
+
+  [SUB-14] Section 3.5 — terminal power conclusion:
+    ANCHOR:   "> **Terminal-look power ≈ 0.33 (33%) at `SR_plan = 0.554`.**"
+    REPLACE:  "> **Terminal-look power ≈ 0.34 (34%) at `SR_plan = 0.554361` (two-look joint; single-look 0.336).**"
+
+  [SUB-15] Section 3.5 — power cross-check prose (SR_plan reference):
+    ANCHOR:   "This is LOW and is disclosed as such. Cross-check against the orchestrator anchors at the fixed-sample boundary `z=1.645`, `SR=0.767`: `Y₅₀=(1.645/0.767)²=4.60 yr`, `Y₈₀=((1.645+0.8416)/0.767)²=10.5 yr` — i.e. even at the *snooped* 0.767, 5 yr gives ~52% power; at the honest `SR_plan=0.554`, `Y₅₀=(1.645/0.554)²=8.82 yr` and `Y₈₀=((1.645+0.8416)/0.554)²=20.1 yr`."
+    REPLACE:  "This is LOW and is disclosed as such. Cross-check against the orchestrator anchors at the fixed-sample boundary `z=1.645`, `SR=0.767`: `Y₅₀=(1.645/0.767)²=4.60 yr`, `Y₈₀=((1.645+0.8416)/0.767)²=10.5 yr` — i.e. even at the *snooped* 0.767, 5 yr gives ~52% power; at the honest `SR_plan=0.554361`, `Y₅₀=(1.645/0.554361)²=8.81 yr` and `Y₈₀=((1.645+0.8416)/0.554361)²=20.1 yr`."
+
+  [SUB-16] Section 4 — kill_switch_threshold pass-0 SR0_pp_conf reference:
+    ANCHOR:   "SR_pp ≈ SR0_pp_conf + z_dsr / sqrt(T−1) = 0.034908 + 1.644854/sqrt(1259)"
+    REPLACE:  "SR_pp ≈ SR0_pp_conf + z_dsr / sqrt(T−1) = 0.034921 + 1.644854/sqrt(1259)"
+
+  [SUB-17] Section 4 — pass-0 SR_pp arithmetic result:
+    ANCHOR:   "      = 0.034908 + 1.644854/35.482 = 0.034908 + 0.046357 = 0.081265"
+    REPLACE:  "      = 0.034921 + 1.644854/35.482 = 0.034921 + 0.046357 = 0.081278"
+
+  [SUB-18] Section 4 — pass-1 var_term computation (SR_pp plug-in):
+    ANCHOR:   "var_term   = 1 − 0.196·0.081265 + 2.570·0.081265² = 1 − 0.015928 + 2.570·0.006604"
+    REPLACE:  "var_term   = 1 − 0.196·0.081278 + 2.570·0.081278² = 1 − 0.015930 + 2.570·0.006606"
+
+  [SUB-19] Section 4 — pass-1 var_term result:
+    ANCHOR:   "           = 1 − 0.015928 + 0.016972 = 1.001044"
+    REPLACE:  "           = 1 − 0.015930 + 0.016977 = 1.001047"
+
+  [SUB-20] Section 4 — pass-1 sqrt(var_term):
+    ANCHOR:   "sqrt(var_term) = 1.000522"
+    REPLACE:  "sqrt(var_term) = 1.000523"
+
+  [SUB-21] Section 4 — pass-1 SR_pp converged:
+    ANCHOR:   "SR_pp = 0.034908 + 1.644854·1.000522/35.482 = 0.034908 + 0.046381 = 0.081289   (converged)"
+    REPLACE:  "SR_pp = 0.034921 + 1.644854·1.000523/35.482 = 0.034921 + 0.046381 = 0.081302   (converged; brentq exact: 0.081303)"
+
+  [SUB-22] Section 4 — annualized SR_ann:
+    ANCHOR:   "SR_ann = SR_pp · sqrt(252) = 0.081289 · 15.874508 = 1.290623"
+    REPLACE:  "SR_ann = SR_pp · sqrt(252) = 0.081303 · 15.874508 = 1.290641"
+
+  [SUB-23] Section 4 — FROZEN kill_switch_threshold line:
+    ANCHOR:   "> **FROZEN: `kill_switch_threshold: 1.291`** (annualized hold-out Sharpe required at the terminal look to clear DSR ≥ 0.95 at `SR0_pp_conf=0.034908`, `N_conf=6`, `T_holdout=1260`)."
+    REPLACE:  "> **FROZEN: `kill_switch_threshold: 1.2906`** (annualized hold-out Sharpe required at the terminal look to clear DSR ≥ 0.95 at `SR0_pp_conf=0.034921`, `N_conf=6`, `T_holdout=1260`; brentq-exact 1.290641)."
+
+  [SUB-24] Section 5 — routed question (clear after QD return):
+    ANCHOR:   "**`numerical-question-routed` (to quant-developer):**"
+    NOTE:     "Replace the entire routed-question block with: '`numerical-question-routed:` \" \" (QD confirmation received; all constants corrected per mathematician-z2-election.yaml)'"
+
+  TOTAL SUBSTITUTIONS: 24
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

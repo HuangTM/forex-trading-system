@@ -1,0 +1,152 @@
+role: principal-reviewer
+artifact_type: review-report
+rework-cycle: 2
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: r5-confirmatory-pr-cycle2
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+claimed_domains:
+  - independent-design-review
+  - spec-vs-implementation-drift-detection
+decision: approve
+
+findings-from-cycle1-status:
+  - finding_id: F-001
+    status: closed
+    evidence: >
+      §2.2 re-pins min_carry=-inf AS-EXECUTED with the 16-row provenance table; verified against
+      vol_target_carry.py:60 (params.get("min_carry", -np.inf)) and :72 (filter active only if min_carry>-inf),
+      run_r5_step4.py:312-316 (no variant_params). §1.3 cond.1 now lists min_carry=-inf and VOIDs any
+      variant_params override "restoring" -0.10. -0.10 appears only as "NOT in effect / config-reference".
+  - finding_id: F-002
+    status: closed
+    evidence: >
+      §3.3 elects operative rule bootstrap p_j ≤ Φ(−z_j); look-2 threshold corrected to 0.048246. I verified
+      scipy: Φ(−1.662107)=0.04824566, Φ(−2.537988)=0.00557459 — exact. Incremental-spend 0.044425 now framed
+      as alpha-budget (not p-threshold); z-boundaries are PRIMARY operative reference. Equivalence claim dropped.
+  - finding_id: F-003
+    status: closed
+    evidence: >
+      cut_freeze_receipt.py now _TARGETS r5|confirmatory. Verified --target r5 --cut REFUSES (exit 1, write-once);
+      --target confirmatory dry-run exits 0 and writes nothing (no receipt on disk); --help exits 0. Confirmatory
+      field-spec matches doc: z1=2.537988, z2=1.662107, look dates, kill=1.2906, sr0_pp=0.034921, n_conf=6,
+      scipy_required, sr0_note. r5 fields preserved (master_seed=576746, sr0_pp=0.022906).
+  - finding_id: F-004
+    status: closed
+    evidence: >
+      §3.4 adds the FROZEN no-peek PROVENANCE-BOUND ADJUDICATION: bound breach → two-source price/rate verify
+      (no strategy computation); legitimate → logged bound-only amendment, look PROCEEDS (no VOID); non-confirmable
+      → TECHNICAL FAILURE. §5.3 interim breach routes through the same §3.4 procedure. Early-peek-safe by construction.
+  - finding_id: F-005
+    status: closed
+    evidence: >
+      §2.3 adds the SUPPLEMENTARY write-once RUNNER-RECEIPT mechanism (refuse-to-overwrite, HoQR+Math-signed/
+      NHT-may-dissent quorum, cut before first look 2028-10-06, back-references original receipt SHA-256). FREEZE
+      BLOCK points forward to it; original receipt no longer claims to record the not-yet-existing runner.
+  - finding_id: F-006
+    status: closed
+    evidence: >
+      r5_decision.py carries the CROSS-TRIAL CONSTANT WARNING docstring (L15-23) + R5-ONLY inline guard at the
+      SR0_PP literal (L51). Confirmatory receipt carries sr0_note + scipy_required=True. New test file
+      test_confirmatory_freeze_receipt.py present; pytest = 17 passed, 8 skipped (on-disk skip pre-cut, by design).
+  - finding_id: F-007
+    status: closed
+    evidence: >
+      Observation, accepted-as-is. N_conf=6 election wording in §2.4 unchanged (disclosed as conservative ceiling
+      of the admissible band for a kill test); no change required, consistent with cycle-1 disposition.
+  - finding_id: F-008
+    status: closed
+    evidence: >
+      §1.3 "bit-for-bit" replaced with "same statistic family and HAC conventions ... univariate Politis-White
+      block-length ... whereas R5 used multivariate PW". grep confirms zero remaining "bit-for-bit"/"bit for bit"
+      in the doc. Univariate-vs-multivariate distinction now stated honestly.
+  - finding_id: R-001
+    status: closed
+    evidence: >
+      Verified int('f2fb41',16)=15924033, mod 1e6 = 924033 (scipy/python exact). All three carriers agree on the
+      rule-exact 924033 with drift disclosed: doc §5 FROZEN line (924033, "corrected from hand-hex drift 924289");
+      _TARGETS["confirmatory"]["fields"]["master_seed"]=924033 (tool L93); _EXPECTED_MASTER_SEED=924033 (test L60).
+  - finding_id: R-002
+    status: partially-closed
+    evidence: >
+      Doc sweep clean: -0.10/0.044425/924289 appear ONLY as disclosed-superseded; no stale "bit-for-bit"; section
+      flow intact. ONE benign code remnant: test_confirmatory_freeze_receipt.py:288 docstring reads "must be 924289"
+      while the assertion correctly checks ==_EXPECTED_MASTER_SEED (924033). Cosmetic-only; assertion is right, test
+      passes. Non-blocking; recommend a one-word docstring fix at consensus.
+
+contamination-check: >
+  PASS — no veto. The prompt designates the three role artifacts (hoqr/math patches, qd yaml) as patch/structured
+  inputs and instructs treating qd decision/body as redacted; I used only file lists, structured fields, and the
+  applied-doc/code state, not any role's stance on acceptance. No statement that another role approved or rejected
+  THIS cycle-2 artifact was injected. All closure calls are my own re-derivation against source/scipy/pytest.
+
+evidence:
+  - "scipy: Φ(−1.662107)=0.04824566, Φ(−2.537988)=0.00557459 (matches doc 0.048246 / 0.005575)"
+  - "int('f2fb41',16)=15924033; mod 1_000_000=924033 (python-exact)"
+  - "doc §5 FROZEN master_seed=924033; tool _TARGETS confirmatory master_seed=924033 (L93); test _EXPECTED_MASTER_SEED=924033 (L60) — all agree"
+  - "cut_freeze_receipt.py: --target r5 --cut exit 1 (refuses); --target confirmatory dry-run exit 0, no receipt file on disk; --help exit 0"
+  - "confirmatory field-spec L90-108: z1=2.537988, z2=1.662107, look1=2028-10-06, look2=2031-04-06, kill=1.2906, sr0_pp=0.034921, n_conf=6, scipy_required=True, sr0_note present"
+  - "r5 target preserved: master_seed=576746 (L72), sr0_pp=0.022906 (L74)"
+  - "pytest tests/harness/test_confirmatory_freeze_receipt.py: 17 passed, 8 skipped (on-disk tests skip pre-cut)"
+  - "r5_decision.py CROSS-TRIAL CONSTANT WARNING L15-23; R5-ONLY inline guard L51"
+  - "grep doc: zero 'bit-for-bit'; -0.10/0.044425/924289 appear only as disclosed-superseded values"
+  - "doc §2.2 min_carry=-inf row + §1.3 cond.1 variant_params-override VOID present"
+  - "doc §3.4 PROVENANCE-BOUND ADJUDICATION (two-source → logged amendment | TECHNICAL FAILURE); §5.3 routes interim breach through §3.4"
+  - "doc §2.3 RUNNER-RECEIPT MECHANISM (write-once, quorum-gated, before first look) + FREEZE BLOCK forward-pointer"
+  - "stale-but-benign: test_confirmatory_freeze_receipt.py:288 docstring says '924289' but asserts ==_EXPECTED_MASTER_SEED (924033)"
+
+assumptions:
+  - "Focused-verification scope per the cycle-2 mandate: per-finding closure only, no full rubric re-application; cycle-1 numeric constants (bracket/SR0/z1/z2/kill/power) accepted as previously re-derived and unchanged by these patches."
+  - "The on-disk RUNNER-RECEIPT and confirmatory FREEZE-RECEIPT do not exist yet by design (pre-consensus); their 8 skipped tests are expected to run post-cut. Not exercised live."
+  - "No market data computed (per instruction); look-runner not executed (does not exist)."
+
+confidence: high
+
+body: |
+  DECISION: approve. All eight cycle-1 findings (F-001..F-008) are CLOSED, and both remediation rows
+  (R-001 seed, R-002 patch-integrity) are resolved — R-002 with one benign cosmetic remnant only.
+
+  The blocking finding F-001 is fully and correctly resolved: §2.2 now pins min_carry=-inf AS-EXECUTED
+  with a row-by-row provenance table distinguishing config-via-_VARIANT_EXEC fields from strategy-default
+  fields, and §1.3 condition 1 now VOIDs any variant_params override — including one "restoring" the
+  config's -0.10. This matches source (vol_target_carry.py:60,72; run_r5_step4.py:312-316). The two major
+  findings are closed: F-002 elects the alpha-exact operative rule p_j ≤ Φ(−z_j) with look-2 threshold
+  0.048246 (I verified Φ(−1.662107)=0.04824566 in scipy), dropping the non-equivalent incremental-spend
+  framing; F-003's receipt tool is now --target-parameterized with verified per-target write-once (r5 --cut
+  refuses, confirmatory dry-run writes nothing) and a confirmatory field-spec that matches the doc exactly.
+  F-004 (no-peek provenance adjudication) and F-005 (supplementary runner-receipt) are spec-closed; F-006
+  guard comments + tests are present and green; F-007/F-008 wording dispositions applied as agreed.
+
+  R-001 (seed adjudication): int('f2fb41',16)=15924033 → mod 1e6 = 924033, verified independently. The
+  rule-governs adjudication landed in all three carriers (doc §5 FROZEN, tool _TARGETS, test
+  _EXPECTED_MASTER_SEED), each at 924033 with the 924289 hand-hex drift explicitly disclosed. Note this
+  SUPERSEDES the QD rework1 artifact (qd-conf-rework1.yaml), which had implemented 924289 pending
+  Mathematician confirmation — the applied code now carries 924033, so the QD artifact's stated value is
+  stale but the live code is correct.
+
+  R-002 (patch-application integrity): the doc sweep is clean — superseded values (-0.10-as-pinned,
+  0.044425-as-operative, 924289-as-frozen, "bit-for-bit") survive ONLY as explicitly-disclosed/reference
+  text, never as operative pins; section flow is intact. One benign remnant: a single stale test DOCSTRING
+  ("must be 924289") whose ASSERTION is correct (checks 924033). This is cosmetic, does not affect behavior,
+  and the test passes. It does not rise to a blocking or new-blocking gap.
+
+  No new blocking gap. No capital touched, no market data computed, look-runner not executed. Cycle-2
+  focused verification is complete: APPROVE. Recommend the one-word docstring fix (test L288) be folded in
+  at consensus, alongside re-stating the QD artifact's seed to 924033 for record hygiene.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/hoqr-conf-rework1-patches.md"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/math-conf-rework1-patches.md"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/qd-conf-rework1.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-r5-confirmatory/pr-conf-review.yaml"
+  - "scripts/cut_freeze_receipt.py"
+  - "src/forex_system/harness/r5_decision.py"
+  - "tests/harness/test_confirmatory_freeze_receipt.py"
+  - "src/forex_system/strategies/vol_target_carry.py"
+  - "scripts/run_r5_step4.py"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

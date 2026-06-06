@@ -1,0 +1,154 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: r5-confirmatory-math-rework1
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+claimed_domains:
+  - formal-modeling-and-derivations
+  - convergence-and-error-analysis
+
+operative_rule_elected: >
+  Reject H0 at look j iff look-j bootstrap p ≤ Φ(−z_j);
+  look-1 threshold = Φ(−2.537988) = 0.005575;
+  look-2 threshold = Φ(−1.662107) = 0.048246 (NOT the incremental spend 0.044425).
+
+look2_p_threshold: 0.048246
+
+assumptions:
+  - "z₂ = 1.662107 is the bivariate joint-exact root of P(Z1≥z1 OR Z2≥z2|H0)=0.05 with
+     rho=sqrt(0.5), z1=2.537988 — verified by QD via scipy triple-verify (bivariate CDF,
+     dblquad, 5M-sample MC). This is the frozen elected value."
+  - "The operative look-j threshold is Φ(−z_j) = one-sided p-value corresponding to z_j
+     under the standard normal — NOT the alpha-budget (incremental spend) at that look."
+  - "At look 1 the two coincide: Φ(−2.537988) = 0.005575 = spend₁ by construction of the
+     OBF spending function. At look 2 they diverge: Φ(−1.662107) = 0.048246 ≠ spend₂ = 0.044425."
+  - "Univariate Politis–White block-length selection is applied to the single hold-out series,
+     not multivariate PW across 36 columns as in R5. The statistic form (T_k), HAC kernel
+     (Bartlett/NW), and recentering convention are identical to R5; only the dimensionality of
+     the block-length input differs."
+  - "Incremental spend at look 2 (0.044425) represents the alpha-budget consumed by look 2;
+     it is NOT a p-value threshold. Applying 0.044425 as the reject threshold is equivalent to
+     using nominal conditional boundary Φ⁻¹(1−0.044425) = 1.701, which is strictly more
+     conservative than the joint-exact z₂ = 1.662107 and is not alpha-exact for this design."
+
+assumptions-identified:
+  - "F-002: The 'incremental spend = operative threshold' framing is correct at look 1 (numerical
+     coincidence) but INCORRECT at look 2. The two quantities — alpha-budget and p-scale threshold
+     — are different objects that happen to be equal only at the first look of an OBF design."
+  - "F-008: 'Bit-for-bit' mirroring of R5 SPA studentization overstates the correspondence.
+     The confirmatory uses the same statistic family and HAC conventions but univariate
+     block-length selection, not the multivariate version R5 used across 36 columns."
+  - "The z-boundaries (z₁, z₂) are the PRIMARY frozen operative reference; the p-scale
+     thresholds Φ(−z_j) are derived equivalents. Stating the p-scale form as primary with
+     z-scale as 'equivalent reference' (as the pre-reg previously had it) is acceptable as long
+     as the p-scale values are exact — but the pre-reg had the wrong p-scale value at look 2."
+
+failure-regimes:
+  - "Using 0.044425 as the look-2 bootstrap-p reject threshold: corresponds to z=1.701,
+     which is too conservative; the design would under-spend its declared alpha and the actual
+     joint type-I rate would be <0.05. A borderline p in (0.044425, 0.048246) would be incorrectly
+     classified as fail rather than pass."
+  - "scipy unavailable at evaluation: TECHNICAL_FAILURE (existing A-5 pin); Φ(−z_j) must be
+     computed via scipy.stats.norm.cdf, never approximated."
+  - "z₂ computed from spending function only (conditional boundary approach) rather than bivariate
+     joint solve: gives 1.701 not 1.662107, over-spending at look 1 and under-spending overall."
+
+alternative-methods:
+  - >
+    CONSIDERED AND REJECTED — elect the incremental-spend rule at look 2 (reject iff p ≤ 0.044425):
+    This would require re-deriving z₂ as Φ⁻¹(1−0.044425) = 1.701 (the nominal conditional
+    boundary), which is the boundary one would use if treating looks as independent sequential
+    tests conditioned on not stopping early. Under this rule the joint P(Z1≥z1 OR Z2≥z2|H0)
+    ≈ 0.0477, not 0.050 — the design under-spends its declared alpha budget. This is conservative
+    in the sense of fewer false positives, but it violates the stated design criterion
+    (P(Z1≥z1 OR Z2≥z2|H0)=0.05 exactly) and would require abandoning the z₂=1.662107 election
+    that was already ratified in mathematician-z2-election.yaml. The election also already
+    committed to the bivariate joint criterion as the derivation basis. Abandoning it here to
+    rescue the incremental-spend framing would be internally inconsistent. Therefore NOT elected.
+
+proof-sketch-or-reference: |
+  The Φ(−z_j) arithmetic — two lines:
+
+    Look 1:  Φ(−2.537988)
+           = scipy.stats.norm.cdf(−2.537988)
+           = 0.005575
+           = spend₁  [equal by OBF construction at look 1]
+
+    Look 2:  Φ(−1.662107)
+           = scipy.stats.norm.cdf(−1.662107)
+           = 0.048246
+           ≠ 0.044425 (incremental spend₂)
+
+  The incremental spend₂ = 0.044425 corresponds to the nominal conditional boundary:
+    Φ⁻¹(1 − 0.044425) = scipy.stats.norm.ppf(0.955575) = 1.701  (NOT z₂ = 1.662107)
+
+  The bivariate joint design criterion P(Z1≥z1 OR Z2≥z2|H0) = 0.05 is satisfied by
+  z₂ = 1.662107 (verified: scipy bivariate CDF gives P(Z1<z1,Z2<z2)=0.950000 exactly).
+  The operative threshold at look 2 is therefore the p-value corresponding to z₂ = 1.662107,
+  which is Φ(−1.662107) = 0.048246, not 0.044425.
+
+numerical-question-routed: ""
+
+evidence:
+  - "qd-constants-confirmation.yaml:31 — z2: 1.662107 (bivariate joint solve, scipy-exact triple-verified)"
+  - "qd-constants-confirmation.yaml:33 — total_alpha_achieved: 0.050000 (bivariate joint P(Z1<z1,Z2<z2) verified)"
+  - "qd-constants-confirmation.yaml:28-29 — z1: 2.537988; ldof_incr_spend_1: 0.005575 (equal by construction at look 1)"
+  - "qd-constants-confirmation.yaml:29 — ldof_incr_spend_2: 0.044425 (incremental budget at look 2; NOT the p-threshold)"
+  - "mathematician-z2-election.yaml:15 — z2_elected: 1.662107; election_basis confirms bivariate joint criterion"
+  - "mathematician-z2-election.yaml:98-114 — proof-sketch-or-reference confirming Φ₂(z1,z2;ρ)=0.95 ⇒ z2=1.662107"
+  - "r5_confirmatory_vol_target_carry_usdjpy.md:393 — existing boundary table row 2 (anchor for F-002-A patch)"
+  - "r5_confirmatory_vol_target_carry_usdjpy.md:395 — existing operative-rule prose (anchor for F-002-B patch)"
+  - "r5_confirmatory_vol_target_carry_usdjpy.md:260 — existing §1.3 Guard sentence (anchor for F-008-A patch)"
+  - "math-conf-rework1-patches.md — verbatim ANCHOR/REPLACEMENT for all 3 patches"
+
+confidence: high
+
+body: |
+  Two findings routed for resolution: F-002 (major, operative look-rule stated inconsistently)
+  and F-008 (observation, wording).
+
+  F-002 RESOLUTION — Operative rule elected: bootstrap p_j ≤ Φ(−z_j).
+
+  The pre-registration as assembled contained an inconsistency introduced when the z-boundaries
+  were corrected (via mathematician-z2-election.yaml) but the corresponding p-scale thresholds in
+  the boundary table and prose were not updated consistently. Specifically:
+  - The boundary table's look-2 `reject H0 if` column still read `bootstrap p ≤ 0.044425`
+    (the incremental spend), while the z-boundary had been corrected to z₂ = 1.662107.
+  - The operative-rule prose stated "reject at look j iff p ≤ incremental spend", which is
+    correct at look 1 (Φ(−z₁) = spend₁ = 0.005575, numerically equal) but incorrect at look 2
+    (Φ(−z₂) = 0.048246 ≠ spend₂ = 0.044425).
+
+  The clean resolution, consistent with the z₂ = 1.662107 election already ratified:
+  the operative threshold at look j is Φ(−z_j). At look 1 this equals the incremental spend
+  (a numerical coincidence of the OBF form at t=0.5); at look 2 it is Φ(−1.662107) = 0.048246.
+  The incremental-spend framing is DELETED as the operative rule at look 2 and replaced by the
+  Φ(−z_j) statement. The incremental-spend column in the boundary table is retained as the
+  alpha-BUDGET figure (it is still correct as a budget), distinguished from the operative threshold.
+
+  The alternative — electing the incremental-spend rule and re-deriving z₂ from it — is
+  considered and explicitly rejected: it would require abandoning z₂ = 1.662107 in favor of
+  z₂ = 1.701 (the nominal conditional boundary), which achieves joint type-I rate ≈ 0.0477 and
+  violates the stated bivariate joint criterion already ratified.
+
+  F-008 RESOLUTION — One-sentence wording fix in §1.3.
+
+  The phrase "mirrors the R5 SPA studentization bit-for-bit" overstates the correspondence.
+  The T_k statistic form, HAC kernel (Bartlett/NW), and recentering convention are identical;
+  however R5 applied Politis–White block-length selection across its 36-column matrix (multivariate
+  context) whereas the confirmatory applies the same function to a single hold-out series
+  (univariate context). The corrected wording states the true relationship honestly.
+
+  All patches are produced as exact ANCHOR/REPLACEMENT in math-conf-rework1-patches.md (3 patches).
+  No numerical constants change; only two p-scale threshold values (look-2 boundary table entry and
+  the operative-rule prose) and one wording sentence are corrected. The FROZEN z-boundaries
+  (z₁ = 2.537988, z₂ = 1.662107) are unchanged.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

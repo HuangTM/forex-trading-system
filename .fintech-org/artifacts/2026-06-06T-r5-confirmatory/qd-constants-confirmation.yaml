@@ -1,0 +1,206 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: r5-confirmatory-qd-constants
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+routed_from: mathematician
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+
+# ══════════════════════════════════════════════════════════════
+# RESULTS (all values computed via scipy — no approximations)
+# ══════════════════════════════════════════════════════════════
+results:
+  # ── Step 1: BLdP SR0 bracket(N=6) ──────────────────────────
+  z_5_6: 0.967422          # Z⁻¹(1 − 1/6) = Z⁻¹(0.833333); hand=0.967422; Δ=0.000000
+  z_1_minus_1_over_6e: 1.543843   # Z⁻¹(1 − 1/(6e)) = Z⁻¹(0.938687); hand=1.542968; Δ=+0.000875
+
+  bracket_6: 1.300141      # (1−γ)·Z⁻¹(5/6) + γ·Z⁻¹(1−1/(6e)); hand=1.299649; Δ=+0.000492
+  sr0_ann: 0.554361        # dispersion · bracket_6; hand=0.554150; Δ=+0.000211
+  sr0_pp: 0.034921         # sr0_ann / sqrt(252); hand=0.034908; Δ=+0.000013
+
+  # ── Step 2: Lan-DeMets sfLDOF boundaries ──────────────────
+  ldof_spend_t05: 0.005575   # α*(t=0.5) = 2·(1−Φ(1.959964/√0.5)); hand=0.005578; Δ=−0.000003
+  ldof_spend_t10: 0.050000   # α*(t=1.0) = 0.05 exactly (sanity)
+  ldof_incr_spend_1: 0.005575
+  ldof_incr_spend_2: 0.044425
+
+  z1: 2.537988             # Φ⁻¹(1 − spend₁); hand=2.539; Δ=−0.001012
+  z2: 1.662107             # bivariate joint solve — see DIVERGENCE note; hand=1.687; Δ=−0.024893
+  rho: 0.707107            # corr(Z1,Z2) = sqrt(t1/t2) = sqrt(0.5)
+  total_alpha_achieved: 0.050000   # P(Z1≥z1 OR Z2≥z2) under H0; verified via scipy.stats.multivariate_normal.cdf + 5M-sample MC
+
+  # ── Step 3: kill_switch_threshold ─────────────────────────
+  kill_switch_threshold_exact: 1.290641   # SR_ann; hand=1.291; Δ=−0.000359 (−0.028%)
+  kill_switch_threshold_4dp: 1.2906
+  kill_sr_pp_exact: 0.081303              # SR_pp at threshold
+  var_term_at_kill: 1.001053              # 1 − skew·SR_pp + ((xkurt+2)/4)·SR_pp²
+  dsr_at_kill: 0.950000                   # Φ(z_dsr) at solve — verified exact
+
+  # ── Step 4: terminal power ─────────────────────────────────
+  # At SR_plan = sr0_ann_scipy = 0.554361 (planning SR = exact scipy SR0_ann)
+  lambda_exact: 1.239588      # 0.554361 * sqrt(5)
+  drift_t1: 0.876521          # λ * sqrt(0.5)
+  drift_t2: 1.239588          # λ * sqrt(1.0)
+  power_terminal_single_look: 0.336323    # Φ(λ − z2) = Φ(1.239588 − 1.662107); hand≈0.327
+  power_two_look_joint: 0.340233         # 1 − P(Z1<z1, Z2<z2) under H1 bivariate
+
+  # At hand SR_plan = 0.554 (cross-check per spec step 4 instruction)
+  lambda_at_hand_SR_plan: 1.238782        # 0.554 * sqrt(5)
+  power_terminal_single_look_at_hand_SR: 0.336029
+  power_two_look_joint_at_hand_SR: 0.339938
+
+  # ── Step 5: sanity ─────────────────────────────────────────
+  phi_inv_0p95_sanity: 1.644854    # Φ⁻¹(0.95); matches hand exactly; Δ=0.000000
+
+  # ── Divergence table ──────────────────────────────────────
+  divergences:
+    - quantity: z_1_minus_1_over_6e
+      hand_value: 1.542968
+      exact_value: 1.543843
+      delta: +0.000875
+      pct: 0.0567%
+      verdict: within_0p5pct
+      explanation: >
+        The Mathematician's hand value 1.542968 is Z⁻¹(0.938687) = Z⁻¹(1 − 1/(6e)).
+        1/(6e) = 1/(6·2.718281828) = 0.061313; 1 − 0.061313 = 0.938687.
+        scipy gives 1.543843. Delta 0.000875 is 0.057% — within the 0.5% threshold.
+        The hand arithmetic rounded at an intermediate step (arg2 rounded to 0.938687
+        may have been rounded to fewer digits). Scipy value is exact.
+
+    - quantity: z2
+      hand_value: 1.687000
+      exact_value: 1.662107
+      delta: -0.024893
+      pct: 1.4756%
+      verdict: DIVERGENCE_exceeds_0p5pct
+      explanation: >
+        IMPORTANT — requires Mathematician adjudication.
+        The task spec requires z2 solved EXACTLY via scipy.stats.multivariate_normal.cdf
+        (bivariate) so that P(Z1≥z1 OR Z2≥z2)=0.05 under H0 with rho=sqrt(0.5).
+        Our bivariate brentq solve gives z2=1.662107 — verified three independent ways:
+        (1) scipy.stats.multivariate_normal.cdf gives P(Z1<z1,Z2<z2)=0.950000 exactly;
+        (2) scipy.integrate.dblquad independent quadrature gives 0.95000004;
+        (3) 5,000,000-sample MC simulation gives rejection rate 0.050055 (2σ of 0.00010).
+        The Mathematician's hand value 1.687 achieves joint alpha≈0.0477 (MC: 0.047669),
+        not 0.050 — it is CONSERVATIVE by ~2.3 percentage points of type-I spend.
+        Probable origin: published gsDesign table lookup or intermediate rounding in a
+        conditional-boundary calculation. Neither the conditional boundary (1.699) nor the
+        marginal boundary (1.701) equals 1.687 either — the 1.687 is unexplained.
+        QD recommendation: freeze z2=1.662107 per the exact stated criterion.
+        Impact on power: power_two_look_joint rises from ~0.327 (at 1.687) to 0.340 (at 1.662),
+        a +3.9% relative increase in power — directionally favourable to the kill test.
+
+    - quantity: power_terminal_single_look
+      hand_value: 0.327000
+      exact_value: 0.336323
+      delta: +0.009323
+      pct: 2.8511%
+      verdict: DIVERGENCE_exceeds_0p5pct
+      explanation: >
+        Flows directly from z2 divergence. Mathematician computed Φ(λ−z2)=Φ(1.238826−1.687)=
+        Φ(−0.448)=0.327 using z2=1.687. With exact z2=1.662107 and exact λ=1.239588:
+        Φ(1.239588−1.662107)=Φ(−0.422519)=0.336323. If Mathematician's z2 were corrected
+        the power would also correct. This is a DOWNSTREAM divergence from z2 — not an
+        independent discrepancy. At any z2 in [1.662,1.687], power remains in the 33-34%
+        band — the design is underpowered regardless. The "approximately 33%" conclusion
+        is robust.
+
+  total_divergences_above_0p5pct: 2
+  total_quantities_checked: 11
+
+# ══════════════════════════════════════════════════════════════
+# EVIDENCE (scipy methods used)
+# ══════════════════════════════════════════════════════════════
+evidence:
+  - "step1_methods: ['scipy.stats.norm.ppf(1 \u2212 1/6) \u2192 z_arg1', 'scipy.stats.norm.ppf(1 \u2212 1/(6\u00b7e)) \u2192 z_arg2', 'bracket = (1\u2212\u03b3)\u00b7z_arg1 + \u03b3\u00b7z_arg2, \u03b3=0.5772156649 (Euler-Mascheroni)', 'sr0_ann = 0.426385 \u00b7 bracket; sr0_pp = sr0_ann / sqrt(252)']"
+  - "step2_methods: ['scipy.stats.norm.ppf(0.975) \u2192 1.959964 (z_alpha/2)', 'spend_t05 = 2\u00b7(1 \u2212 scipy.stats.norm.cdf(1.959964/sqrt(0.5)))', 'spend_t10 = 2\u00b7(1 \u2212 scipy.stats.norm.cdf(1.959964/sqrt(1.0))) = 0.05 exactly', 'z1 = scipy.stats.norm.ppf(1 \u2212 spend_t05)', 'corr matrix rho=sqrt(0.5); scipy.stats.multivariate_normal.cdf([z1,z2_c], mean=[0,0], cov=[[1,rho],[rho,1]])', 'scipy.optimize.brentq(alpha_residual, 1.4, 2.5, xtol=1e-12) for z2', 'independent verification: scipy.integrate.dblquad bivariate PDF integral', 'independent verification: numpy 5M-sample MC simulation (seed 1234)']"
+  - "step3_methods: ['scipy.stats.norm.ppf(0.95) \u2192 z_dsr_target = 1.644854', 'scipy.optimize.brentq on DSR z-equation: (SR_pp \u2212 SR0_pp)\u00b7sqrt(T\u22121)/sqrt(var_term) = 1.644854', 'var_term = 1 \u2212 skew\u00b7SR_pp + ((xkurt+2)/4)\u00b7SR_pp\u00b2; xtol=1e-12', 'Verified: scipy.stats.norm.cdf(z_dsr_at_kill) = 0.950000 exactly']"
+  - "step4_methods: ['lambda = sr0_ann\u00b7sqrt(5); drift_t = lambda\u00b7sqrt(t)', 'power_single = scipy.stats.norm.cdf(lambda \u2212 z2)', 'power_two_look = 1 \u2212 scipy.stats.multivariate_normal.cdf([z1\u2212d1, z2\u2212d2], mean=[0,0], cov=corr_mat)']"
+  - "step5_sanity: ['scipy.stats.norm.ppf(0.95) = 1.644854 \u2014 confirmed']"
+## ══════════════════════════════════════════════════════════════
+# ASSUMPTIONS
+# ══════════════════════════════════════════════════════════════
+assumptions:
+  - "var_term=1 reference convention: the first-pass kill_switch_threshold solve uses var_term=1
+     as the initial guess only; the brentq solve iterates to the exact fixed point where var_term
+     is self-consistent with the solved SR_pp. The final var_term=1.001053 is NOT assumed to be
+     1.0 in the result — it is the converged value. This is equivalent to the two-pass solve in
+     the spec; the bisect is more accurate (converges to 12 significant figures vs ~6 with two-pass)."
+  - "Drift scaling: E[Z(t)] = λ·√t with λ = SR_plan·√Y at Y=5 years. This is the annualized-Sharpe
+     horizon law used by the Mathematician. Power is an upper bound (iid daily returns assumed; signal
+     autocorrelation would reduce effective n and widen HAC SE)."
+  - "Dispersion 0.426385 carried FROZEN from R5 — NOT re-derived. Any error in the R5 dispersion
+     estimate propagates directly to SR0_ann and kill_switch_threshold."
+  - "252 trading days/year for all annualization."
+  - "scipy.stats.multivariate_normal.cdf uses the accurate Genz algorithm — no table lookup approximation."
+  - "Information fraction t₁=0.5 is exact (2.5yr/5yr); rho=sqrt(t1/t2)=sqrt(0.5) exactly."
+  - "z2 is solved for the JOINT bivariate alpha criterion P(Z1≥z1 OR Z2≥z2)=0.05 under H0,
+     as explicitly stated in the task spec. This differs from the conditional (nominal) Lan-DeMets
+     boundary Φ⁻¹(1−incremental_spend₂)=1.701 but both achieve type-I control of 0.05 via different
+     decompositions. The bivariate joint criterion is the more rigorous statement and is what the
+     spec requires."
+
+# ══════════════════════════════════════════════════════════════
+# CONFIDENCE
+# ══════════════════════════════════════════════════════════════
+confidence: high
+confidence_rationale: >
+  All values computed via scipy with no approximation fallback. z2 and kill_switch_threshold
+  verified to 12 significant figures via brentq. z2 additionally verified by (a) scipy bivariate
+  CDF achieving P(joint below)=0.95000000000 exactly, (b) independent dblquad quadrature
+  giving 0.95000004, and (c) 5M-sample Monte Carlo achieving 0.050055 (within 0.6σ of target).
+  The one non-trivial divergence (z2=1.662107 vs hand 1.687) is fully characterised and
+  flagged for Mathematician adjudication. All other quantities are within 0.06% of hand values.
+
+# ══════════════════════════════════════════════════════════════
+# BODY
+# ══════════════════════════════════════════════════════════════
+body: |
+  QD scipy confirmation of the four quantities routed from the Mathematician.
+
+  STEP 1 (SR0 bracket): All values confirmed within 0.06% of hand arithmetic.
+  The only sub-0.5% discrepancy is in z_arg2 (Z⁻¹(1−1/(6e))): scipy gives 1.543843 vs
+  hand 1.542968 (Δ=+0.000875, 0.057%). This flows to bracket_6 (+0.000492), sr0_ann
+  (+0.000211), and sr0_pp (+0.000013) — all within 0.04%. Rounding in hand arithmetic
+  at the arg2 computation step. Scipy values are exact.
+
+  STEP 2 (OBF boundaries): z1=2.537988 confirmed (hand 2.539, Δ=−0.001012, 0.040%).
+  Spending function α*(t=0.5)=0.005575 confirmed (hand 0.005578, 0.061%). z2=1.662107
+  by bivariate joint solve — diverges from hand value 1.687 by 1.48% (FLAGGED). The
+  bivariate solve is triple-verified (scipy CDF, dblquad, 5M MC). The Mathematician's
+  1.687 is conservative relative to the stated criterion P(Z1≥z1 OR Z2≥z2)=0.05;
+  it achieves only α≈0.0477 joint type-I. z2=1.662107 achieves exactly 0.0500.
+
+  STEP 3 (kill_switch_threshold): 1.2906 (4dp), 1.290641 (6dp). Hand value 1.291 confirmed
+  to within 0.028%. The two-pass solve in the spec converges to the same fixed point as
+  the brentq bisect (the bisect achieves 12-figure convergence vs ~6 for two-pass).
+  DSR at threshold = 0.950000 exactly — solve is exact.
+
+  STEP 4 (power): Single-look power 0.336 (hand: 0.327) — the 2.9% divergence flows
+  entirely from z2 being 1.662 vs 1.687. Two-look joint power 0.340. Both confirm the
+  design is severely underpowered (~33-34%) at SR_plan=0.554. The "approximately 33%"
+  disclosure is directionally robust. If the Mathematician's z2=1.687 is retained
+  (conservative direction), power would be lower (~0.327), making the kill outcome
+  even more likely — safe-if-wrong for a kill test.
+
+  STEP 5 (sanity): Φ⁻¹(0.95)=1.644854 confirmed exactly.
+
+  RECOMMENDATION: Freeze the scipy-exact values for all quantities except z2, which
+  requires Mathematician adjudication on the boundary convention. Using z2=1.662107
+  (exact joint criterion) maximises type-I control fidelity; using z2=1.687 (conservative)
+  is safe-if-wrong for a kill test but does not satisfy the stated P(Z1≥z1 OR Z2≥z2)=0.05
+  criterion exactly.
+
+# ══════════════════════════════════════════════════════════════
+# METADATA
+# ══════════════════════════════════════════════════════════════
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

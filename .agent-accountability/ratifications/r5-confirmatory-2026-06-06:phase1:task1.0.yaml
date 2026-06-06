@@ -1,0 +1,104 @@
+status: EFFECTIVE
+# Orchestrator validation completed 2026-06-06T05:12:40Z: both quorum QGRs exist with decision=approve
+# (hoqr-conf-final-qgr OK, math-conf-final-qgr OK — validator-clean); PR cycle-2 approve covers
+# code/design; deterministic CRO/CTO domain scan: no triggers; forbidden-interim: no match;
+# breaker: 0 overrides this track (all findings RESOLVED via bounded rework); cross-session
+# lookup found=false; dissent content-hash verified (7e2c716411d14b96...).
+# Orchestrator validation required before EFFECTIVE:
+#   1. Confirm math-conf-final-qgr.yaml exists and decision=approve at the referenced path.
+#   2. Re-hash dissent file at linked path and compare to cached sha256 below.
+#   3. Confirm cross_session_lookup found=false (no prior r5-confirmatory ratification in this dir).
+#   4. Set status: EFFECTIVE and record validation timestamp.
+
+schema_version: "1.0"
+artifact_type: ratification
+track_id: r5-confirmatory-2026-06-06
+addressed_unit: r5-confirmatory-2026-06-06:phase1:task1.0
+
+artifact_under_ratification:
+  path: references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md
+  supplementary:
+    - docs/decisions/CONSENSUS_2026-06-06_r5_confirmatory_prereg.md
+    - scripts/cut_freeze_receipt.py
+    - src/forex_system/harness/r5_decision.py
+    - tests/harness/test_confirmatory_freeze_receipt.py
+
+approver:
+  name: head-of-quant-research, mathematician
+  role_or_human: role
+  authority_basis: >
+    Distributed quorum under the autonomous default (v0.6.0) per
+    protocols/distributed-ratification.md. Detected domains: research/kill-decision
+    (HoQR authority, hoqr-conf-final-qgr.yaml approve) + formal-modeling (Mathematician
+    authority, math-conf-final-qgr.yaml approve). Code/design domain covered by
+    principal-reviewer cycle-2 APPROVE (pr-conf-cycle2.yaml, 10 findings all closed).
+    No CRO-domain trigger detected (no live sizing decision; frozen-spec parameters only).
+    No CTO-domain trigger detected.
+
+decision:
+  outcome: ratified
+  # Routing outcome at write is ratified_with_dissent (see routing_outcome_at_write below)
+  # because NHT dissent artifact is linked. The 3-value approver outcome is "ratified"
+  # since the quorum signers have no reservations beyond the linked NHT dissent.
+  rationale: |
+    The confirmatory pre-registration for vol_target_carry:USDJPY (trial f2fb41fd) is ratified
+    for freeze. All eight PR cycle-1 findings (F-001..F-008) are closed; R-001 seed adjudication
+    and R-002 cosmetic nit are resolved. NHT survives at severity=concern, does_block=false —
+    one material non-blocking finding (F-1: look-time runner does not yet exist) is contained by
+    the receipt interlock and behavior-equivalence pin at freeze. The document is internally
+    consistent, the selection charge is honest and conservative (N_conf=6 at the ceiling),
+    the terminal look is binding, and the expected outcome is wind-down.
+
+reservations: []
+
+linked_dissents:
+  - path: .agent-accountability/dissents/r5-confirmatory-2026-06-06:phase1:task1.0:null-hypothesis-tester.yaml
+
+linked_gaps: []
+
+timestamp: "2026-06-06T10:00:00Z"
+
+accountable_party:
+  name: orchestrator
+  role_or_human: role
+
+quorum_signers:
+  - path: .fintech-org/artifacts/2026-06-06T-r5-confirmatory/hoqr-conf-final-qgr.yaml
+    decision: approve
+    role: head-of-quant-research
+  - path: .fintech-org/artifacts/2026-06-06T-r5-confirmatory/math-conf-final-qgr.yaml
+    decision: approve
+    role: mathematician
+    note: "ORCHESTRATOR VALIDATES EXISTENCE BEFORE SETTING status=EFFECTIVE"
+
+quorum_basis:
+  detected_domains:
+    - research/kill-decision    # HoQR authority
+    - formal-modeling           # Mathematician authority
+    - code/design               # covered by PR cycle-2 approve (pr-conf-cycle2.yaml)
+  required_roles: []            # no CRO-domain or CTO-domain trigger fired
+
+cross_session_lookup:
+  deferred_decisions_jsonl: empty
+  ratifications_dir_scan:
+    addressed_unit: r5-confirmatory-2026-06-06:phase1:task1.0
+    found: false
+    note: "No prior r5-confirmatory ratification exists in .agent-accountability/ratifications/"
+
+routing_outcome_at_write:
+  computed_label: ratified_with_dissent
+  computed_at: "2026-06-06T10:00:00Z"
+  inputs_at_compute_time:
+    decision_outcome: ratified
+    linked_dissents_count: 1
+    paired_gap_present: false
+    linked_dissents_hashes:
+      - path: .agent-accountability/dissents/r5-confirmatory-2026-06-06:phase1:task1.0:null-hypothesis-tester.yaml
+        sha256: 7e2c716411d14b96562e11a08493da583beedaac2502d54d17129f6d45938b54
+    paired_gap_hash: null
+
+write_metadata:
+  written_at: "2026-06-06T10:00:00Z"
+  written_by: fintech-org/pm
+  consuming_skill: fintech-org
+  artifact_uuid: 6adaf669-255d-448a-9d5b-4317f9e21c44

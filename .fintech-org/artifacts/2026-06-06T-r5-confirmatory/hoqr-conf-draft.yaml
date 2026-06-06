@@ -1,0 +1,87 @@
+role: head-of-quant-research
+artifact_type: research-approval
+decision: approve
+timestamp: "2026-06-06T05:10:00Z"
+subtask_ref: r5-confirmatory-hoqr-draft
+subtask_id: r5-confirmatory-2026-06-06:phase1:task1.0
+trial_id: f2fb41fd
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - strategy-kill-decisions
+  - falsification-archive-curation
+
+ranked-alternatives: []
+
+retirement-criteria:
+  - "look.is_final == true AND look.efficacy_crossed == false -> KILL vol_target_carry:USDJPY (archive FALSIFIED; carry program full wind-down per R5 SS5.1). Power level does NOT gate this."
+  - "look.futility_boundary_exists == true AND look.futility_crossed == true -> EARLY KILL (same archival, stopped early)."
+  - "look.efficacy_crossed == true AND look.dsr_cleared_kill_switch == true -> GRADUATE to a fresh paper-canary pre-reg (NO CAPITAL; new trial_id; fresh HoQR+Math+NHT ratification)."
+  - "look.is_interim == true AND efficacy not crossed AND futility not crossed -> CONTINUE to next frozen look (bounded; unavailable at final look)."
+  - "VOID-on-freeze-mismatch: receipt.prereg_sha256 != sha256(this file as committed) OR receipt.code_commit != pinned_commit -> VOID."
+  - "VOID-on-early-peek: any strategy-performance computation on a post-2026-04-06 bar with timestamp < frozen_look_date -> VOID."
+  - "VOID-on-parameter-drift: any executed config field for vol_target_carry:USDJPY differs from the Section 2.2 verbatim pin, or code path not behavior-equivalent to commit 350cbd4 -> VOID."
+  - "VOID-on-missing-selection-absorption: confirmatory honest-N / SR0 does not charge the R5 36-cell argmax as a spent look -> VOID."
+  - "VOID-on-wrong-trial-id: run registers under 576746aa or omits org-counter increment -> VOID (trial is f2fb41fd)."
+  - "look.code_error OR look.data_integrity_fault OR holdout fails storage.py bounds [20.0, 245.0] -> HALT; trial counter NOT incremented."
+
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:2 -- decision: AMBIGUOUS_GATE_FAIL (the outcome that spawns this confirmatory gate)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:3,5,7,8 -- p_spa_consistent=0.0162, p_rc=0.0588 (discordant), dsr=0.9503, dsr_cleared=true"
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:9-13,17 -- k_star_label=vol_target_carry:USDJPY, k_star_idx=18, sr_ann_kstar=0.7672, skew=0.1963, xkurt=8.2783, T=4186"
+  - "references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.yaml:62 -- code_commit=350cbd4b592485f3bd935ec414ee007e63879de5 (R5 freeze pin of the matrix builder)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:349-352 (SS4 outcome) -- AMBIGUOUS maps to confirmatory-only pre-reg gate; NEVER CONTINUE; new trial_id + R5 36-cell selection absorbed (BINDING)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:365 (SS5 outcome 4 row) -- ANOMALOUS/AMBIGUOUS named firm action: confirmatory pre-reg gate only, no capital, family not re-opened"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:368-376 (SS5.1) -- wind-down-to-monitoring definition: no carry research spend, archive RETIRED/FALSIFIED, observe-only, capacity redirect, CEO ratification"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:399 -- R5 kill_switch_threshold: 0.767 (confirmatory must derive its OWN higher value at the post-absorption honest-N)"
+  - "config/vol_target_carry.yaml:20-51 -- verbatim structure pin: USDJPY, target_vol 0.10, vol_window 252, leverage_cap 2.0, min_carry -0.10, rebalance_threshold 0.20, continuous, entry_delay_bars 1, cost params"
+  - "src/forex_system/harness/carry_universe_matrix.py:266-274 -- _VARIANT_EXEC['vol_target_carry']: continuous, VolTargetSizer, leverage_cap 2.0, max_order_units 5e6, min_order_size 100"
+  - "src/forex_system/harness/carry_universe_matrix.py:522-528 -- return convention: equity_curve.pct_change() net-of-cost (matches R5 matrix builder)"
+  - "src/forex_system/data/storage.py:54 -- USDJPY daily close provenance bounds [20.0, 245.0] (quarantines synthetic series); the interim data-integrity gate"
+  - ".fintech-org/trials.jsonl:last line -- trial_id f2fb41fd registered 2026-06-06T04:18:05Z, spawned=true, confirmatory-only, absorbs R5 36-cell selection, never reuses 576746aa"
+
+assumptions:
+  - "Post-2026-04-06 USDJPY daily data will accrue via the existing data pipeline; pipeline gaps at a look date are a TECHNICAL FAILURE (Section 4 outcome 5), not a confirmatory fail."
+  - "The existing vol_target_carry execution path at commit 350cbd4 covers the single-cell confirmatory run; if a successor commit is used it must be byte-equivalent on a fixed sub-window (Section 2.3) -- otherwise Quant Developer is engaged and CONF-freeze scope expands."
+  - "The design is multi-look (the ~4.6yr/50%-power, ~10yr/80%-power reality forces interim looks over a single multi-year wait); the Mathematician freezes the alpha-spending function and look schedule (CONF-interim)."
+  - "The kill_switch_threshold exceeds R5's 0.767 because absorbing the 36-cell argmax raises the confirmatory honest-N and deflation charge; the exact value is Math's derivation, adopted verbatim by HoQR."
+  - "A single-series confirmatory test has no 36-cell SPA-vs-RC family discordance to reconcile; concordance is the joint of efficacy-crossing AND DSR-clearing (Math specifies)."
+  - "CEO ratification precedes the freeze-receipt cut (R5 pattern); this track cannot cut the freeze-receipt autonomously."
+
+confidence: high
+
+body: |
+  HoQR draft of the R5-confirmatory pre-registration (trial f2fb41fd), authoring the
+  HoQR-owned sections in full and leaving Mathematician-owned statistics sections as
+  merge placeholders. Spawned by R5's AMBIGUOUS_GATE_FAIL (p_SPA=0.0162, p_RC=0.0588
+  discordant, DSR=0.9503), which under the frozen R5 SS7.3.6 RULE 4 / SS5 outcome 4
+  maps to EXACTLY ONE forward action: a fresh, separately-pre-registered confirmatory-only
+  test of the single surviving structure k* = vol_target_carry:USDJPY, no capital.
+
+  Sections authored: (1) Preamble & confirmatory contract incl. VOID conditions and
+  f2fb41fd<-576746aa lineage; (2) the structure under test -- verbatim config pin from
+  config/vol_target_carry.yaml + carry_universe_matrix._VARIANT_EXEC, pinned to code
+  commit 350cbd4 (or verified-equivalent successor); (3) hold-out RULE (strictly after
+  2026-04-06, zero R5 overlap) + look-date calendar governance + provenance gate, co-sign
+  Math; (4) decision map -- PASS->graduate to fresh paper-canary pre-reg (NO CAPITAL),
+  fail-at-final->KILL, futility->early KILL, interim->continue to next frozen look,
+  technical->HALT; no keep-spending branch, final look terminal; (5) interim observe-only
+  monitoring (no carry research spend, quarterly mechanical data-integrity ONLY, R5
+  falsification-archive entry, capacity redirect); (6) kill_switch_threshold placeholder
+  adopting Math's freshly-derived value (NOT 0.767); (7) machine-checkable retirement
+  criteria incl. all VOID triggers.
+
+  The carry program's most-likely terminal state remains wind-down. This confirmatory
+  test does not change that prior; it converts the R5 ambiguity into a clean forward
+  binary on unsnoopable future data, with no capital and a mandatory kill branch.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources: []
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

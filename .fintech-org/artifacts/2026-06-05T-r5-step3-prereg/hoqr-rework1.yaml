@@ -1,0 +1,118 @@
+role: head-of-quant-research
+artifact_type: research-approval
+decision: approve
+timestamp: "2026-06-05T22:10:00Z"
+subtask_ref: r5-step3-prereg-hoqr-rework1
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+trial_id: 576746aa
+
+claimed_domains:
+  - falsification-archive-curation
+  - strategy-kill-decisions
+  - alpha-direction-and-research-prioritization
+
+n_election:
+  value: 3
+  basis: >-
+    N=3 is the midpoint of the combined credible range (HoQR 1-2 / NHT 2-4 -> union 1-4).
+    SR0 is strictly INCREASING in N, so the union FLOOR (N=2) is the LEAST-deflating
+    admissible choice and biases a pre-committed KILL test toward false CONTINUE. I move
+    off the floor toward the conservative pole but stop at the midpoint rather than the
+    skeptic's top (4): the mechanistic decomposition finds only TWO distinct information
+    sources (pure rate-differential carry; carry+momentum hybrid), and N=3 charges a
+    half-look for the residual independence the 2-source view understates (FRED regime
+    gate and vol-targeting condition on information the bare differential does not use).
+    N=4 would charge as if all five carry keys carried near-independent information, which
+    the shared rate_differentials.parquet feed contradicts. The Mathematician freezes SR0
+    for N in {2,3,4} in parallel; the elected value is the N=3 scalar.
+
+ranked-alternatives:
+  - option: "N = 3 (ELECTED)"
+    rank: 1
+    rationale: >-
+      Midpoint of union range; off the anti-conservative floor; charges a defensible
+      half-look beyond the bare 2-source count; not the over-deflating skeptic's top.
+  - option: "N = 4 (skeptic's top / conservative pole)"
+    rank: 2
+    rationale: >-
+      Most conservative admissible; defensible for a kill test, but over-charges given
+      four of five carry keys demonstrably share the rate-differential feed -> would
+      over-deflate and understate a real edge (the symmetric error to the N=2 floor).
+  - option: "N = 2 (union floor / original draft)"
+    rank: 3
+    rationale: >-
+      REJECTED as the primary pin: it is the least-deflating admissible choice and biases
+      toward false CONTINUE, which is anti-conservative for a kill test whose declared
+      most-likely outcome is wind-down. Retained only as the lower bracket of the
+      Mathematician's frozen {2,3,4} set.
+  - option: "N = 10 (honest_n.py org-wide) or N = 37 (raw count)"
+    rank: 4
+    rationale: >-
+      REJECTED: both mix non-carry strategies and count cost-ablations/re-runs as separate
+      looks -> overstate independent carry looks, over-deflate. honest_n exists to reject
+      the raw 37; the org-wide 10 is the wrong scope object for a carry-family DSR.
+
+retirement-criteria:
+  - "R5.spa_p >= 0.05 -> RETIRE carry program (wind-down to monitoring); fires at any power level."
+  - "R5.spa_p < 0.05 AND R5.white_rc_p >= 0.05 (discordant) -> AMBIGUOUS; confirmatory pre-reg gate only; confirmatory test must register NEW trial_id and absorb R5 36-cell selection burden."
+  - "R5.spa_p < 0.05 AND R5.white_rc_p < 0.05 (concordant, post-deflation) -> CONTINUE permitted ONLY to author a confirmatory-only pre-reg (NEW trial_id, absorbs R5 selection burden); never trade, never re-open family."
+  - "Any R5-spawned confirmatory test that reuses trial_id 576746aa OR omits the R5 36-cell selection from its honest-N / SR0 inputs -> VOID."
+  - "freeze_receipt must pin the F-001-fixed reality_check.py commit; if the DSR gate does not execute, the Method-B haircut is inert and the SR_1=0.80 conservative-if-wrong safety argument is void."
+
+evidence:
+  - claim: "honest_n.py returns N_honest=10 org-wide on the real registry (NOT 8->5)."
+    source: "src/forex_system/harness/honest_n.py:147-152 (pre_reg_path keyed first); .fintech-org/trials.jsonl (37 lines, 30 unique trial_ids after collapse, 8 spawned/exploratory excluded)."
+    note: "Verified by hand-trace of the keying logic (code execution forbidden this session). Carry-family key subset = {carry, carry_momentum, fred_carry, vol_target_carry, vol_target_carry.md} = 5 keys."
+  - claim: "carry_fred never appears as a hypothesis key (no registry row)."
+    source: ".fintech-org/trials.jsonl -- no retained row has strategy=='carry_fred'; the only carry_fred-adjacent retained row is fred_carry_stripped (trial b7d1a65a) -> strips to fred_carry."
+  - claim: "trials.jsonl line citations were off by ~6; corrected and re-anchored to trial_id."
+    source: "carry_momentum = trial 6a56df9c at line 27 (draft cited :21); carry = 5d18776d at line 26 (cited :20); fred_carry_stripped = b7d1a65a at line 28 (cited :22); vol_target_carry_no_vol_scaling = 9017fadb at line 35 (cited :25). Cited lines 20-25 hold unrelated backfill rows with sharpe=null."
+  - claim: "SR_1=0.80 is registry-prose, not a trial-result row; conservative-if-wrong; contingent on F-001 DSR-gate fix."
+    source: "references/pre-registrations/carry_fred.md:15,25,149 (OOS holdout 2023-04-25->2026-04-25; NHT cosign condition 3: do not size on 0.80 regime-active); fred_carry_stripped.md:65-66,92; .fintech-org/trials.jsonl line 36 (Bet#1 false-PASS correction, supersedes_dsr)."
+  - claim: "Effective independent carry dimension is 1-2 (HoQR) / 2-4 (NHT); union 1-4."
+    source: "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md:21,45,94."
+
+assumptions:
+  - "The Mathematician freezes SR0 (and the Var[SR_n] / quantile arithmetic) for N in {2,3,4} in parallel; the elected N=3 maps to a frozen scalar. HoQR no longer hand-computes Var[SR_n] (the N=2 two-look hand-arith was an artifact of the anti-conservative floor pin and is superseded)."
+  - "The F-001 DSR-units fix (Mathematician) lands BEFORE freeze and is pinned in the freeze-receipt; otherwise the Method-B haircut is inert."
+  - "Code execution was forbidden this session; the N_honest=10 figure is confirmed by hand-trace of honest_n.py keying logic against the real trials.jsonl, consistent with the routed finding A-1."
+
+confidence: high
+
+body: >-
+  REWORK-1 fixes all five routed findings on the HoQR-owned sections of the R5 pre-reg.
+  A-1: the 8->5 dedup table is rewritten honestly -- it was a HAND recomputation narrated
+  as honest_n.py output; the code actually returns N_honest=10 org-wide, keys by pre_reg_path
+  first, and carry_fred never appears. The 5->2 collapse is restated as MY adjudication as
+  falsification-archive owner, defended on merits, with the false mechanical authority removed.
+  A-2: I re-adjudicate the N pin with the bias direction on the table -- SR0 increases in N, so
+  the N=2 union floor is anti-conservative (biases toward false CONTINUE), which is wrong for a
+  KILL test. I move to N=3 (union midpoint), defended as the conservative-but-not-extreme point.
+  A-3: all trials.jsonl citations re-anchored to stable trial_ids with corrected line numbers
+  (the draft was off by ~6). A-4: binding forking-paths counter-discipline added to outcomes 1
+  and 4 and the matching decision/retirement rules -- any R5-spawned confirmatory test increments
+  the org-wide trial counter as a NEW trial AND absorbs the R5 36-cell selection burden in its own
+  honest-N / deflation inputs. F-007: the SR_1=0.80 provenance is disclosed as registry-prose
+  (not trial-verified), retained on a conservative-if-wrong basis, contingent on the F-001 DSR-gate
+  execution. Output: hoqr-rework1-patches.md (8 exact-anchor PATCH blocks). decision=approve.
+
+knowledge_gaps:
+  - "Exact SR0 scalar for N=3 is the Mathematician's to compute/sign (inverse-normal-CDF + Var over the N=3 look-Sharpes); not derivable by HoQR hand-arithmetic this session."
+  - "The third look-Sharpe for the N=3 dispersion is drawn per the Mathematician's convention from the carry-family member set; HoQR pins N and the representative Sharpes, not the variance plug-in."
+  - "Whether the F-001 DSR-units fix lands before freeze is outside HoQR control; flagged as a freeze-receipt precondition."
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/r5_carry_universe_kill_test.md (PART I §3.4, §4, §5, §6)"
+  - "src/forex_system/harness/honest_n.py"
+  - ".fintech-org/trials.jsonl"
+  - "references/pre-registrations/carry_fred.md"
+  - "references/pre-registrations/fred_carry_stripped.md"
+  - "references/pre-registrations/carry_momentum.md"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md"
+
+web_research_conducted: false
+websearch_used: false
+webfetch_used: false
+no-capital-instruction: true

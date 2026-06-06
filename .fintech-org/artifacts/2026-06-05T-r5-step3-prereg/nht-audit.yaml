@@ -1,0 +1,284 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: survives
+timestamp: "2026-06-05T22:40:00Z"
+subtask_ref: r5-step3-prereg-nht-audit
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+claimed_domains: [null-hypothesis-construction, p-hacking-and-data-snooping-detection, replication-protocol-design, structural-skepticism-on-any-claim]
+claim-tested: |
+  "The assembled R5 pre-registration at references/pre-registrations/r5_carry_universe_kill_test.md
+  constitutes an HONEST, BINDING, statistically sound one-shot KILL TEST of the firm's carry universe:
+  every degree of freedom that could be exploited post-hoc is frozen before any draw; the snooping
+  charge is real, not theater; a non-rejection at any power maps irreversibly to WIND-DOWN; and no
+  branch of the decision tree permits 'inconclusive, keep spending.'"
+
+tests-requested:
+  - id: T-1
+    ROUTE_TO: quant-developer
+    status: "self-served — NHT verified by reading code + running honest_n.py and the SR0/DSR arithmetic; no route needed before consensus"
+    spec: |
+      (Resolved by NHT directly, NOT routed — recorded for transparency.) Verified: (1) SR0 sample
+      ddof=1 = 0.221616 and population ddof=0 = 0.156706 reproduce the frozen values to 6 figures
+      using scipy norm.ppf; (2) the BLdP second quantile argument Z^-1(1-1/(N*e)) (Ne in denominator)
+      is the canonical form (Wikipedia/BLdP), matching the pre-reg; (3) honest_n.compute_honest_n on
+      the REAL trials.jsonl returns N_honest=10 org-wide, NOT the "8 pre-regs -> 5 keys" the pre-reg
+      narrates; (4) the DSR gate requires best-cell annualized SR ~0.625 to clear DSR>=0.95 at the
+      frozen SR0=0.2216; (5) SR0 is strictly increasing in N (N=2 -> 0.2216, N=4 -> 0.4486).
+  - id: T-2
+    ROUTE_TO: quant-developer
+    status: "OPTIONAL — recommended at STEP 4 build, NOT a freeze blocker"
+    spec: |
+      At STEP 4, before reading p_SPA, log the realized per-cell annualized Sharpe of the argmax cell
+      k*, its skew and excess-kurtosis (scipy bias convention used), and the realized N basis, into the
+      result artifact so the DSR gate inputs are reconcilable against this pre-reg's frozen SR0=0.221616
+      and the N=2 election. Confirm scipy.stats.skew/kurtosis bias flag used (immaterial at T=4186 but
+      should be recorded for full freeze reproducibility).
+
+tests-results:
+  - "n/a (pre-run audit) — T-1 self-served (see body); T-2 deferred to STEP 4 build."
+
+matched-benchmark-sharpe: "n/a (pre-run audit — the SPA null IS the matched benchmark; benchmark=ZERO with documented anti-double-count rationale (§1 PART II: cost-of-carry already in the net swap leg). Construction assessed: sound.)"
+permutation-results: "n/a (pre-run audit)"
+
+dsr-assessment: |
+  The frozen DSR gate (§7.3) is statistically sound in its formula and arithmetic, and CONSERVATIVE on
+  the Var/spread axis, but ANTI-conservative on the N axis. Verified findings:
+
+  - SR0 FORMULA: canonical BLdP (2014). SR0 = sqrt(Var[SR_n])*[(1-gamma)Z^-1(1-1/N)+gamma*Z^-1(1-1/(Ne))].
+    The second quantile uses Ne in the denominator — confirmed canonical against Wikipedia/BLdP. The
+    pre-reg's Z^-1(0.81607)=0.900452 and bracket 0.519756 are correct.
+  - ARITHMETIC: REPRODUCED EXACTLY. sample(ddof=1) SR0_ann=0.221616; population(ddof=0)=0.156706. Both
+    match the frozen scalars to 6 sig figs (scipy norm.ppf).
+  - Var ELECTION: SAMPLE (÷(N-1))=0.1818 elected over population 0.0909. This is the MORE conservative
+    (higher SR0, harder CONTINUE) choice and the unbiased estimator — correct election. Signed.
+  - SR_1=0.80 PROVENANCE: registry-UNVERIFIED. carry_fred has NO trials.jsonl row at all (grep
+    confirmed NOT FOUND). The 0.80 is pre-reg-documented only (carry_fred.md:16 states the >=0.30
+    hypothesis; the "0.80 realized" appears as a reference inside fred_carry_stripped.md:18,66). The
+    "Bet#1 = carry_fred" label is FALSE per the registry: trial 87fa1d23 (Bet#1) is strategy=momentum
+    (trials.jsonl:24,36), RETIRED 2026-06-02 with corrected DSR=0.1296. The pre-reg discloses this
+    provenance weakness (§7.3.1) and neutralizes it via the Var/spread monotonicity argument, which I
+    independently CONFIRMED holds: over-stated SR_1 -> larger spread -> higher SR0 -> harder CONTINUE ->
+    can only cause false WIND-DOWN, never false CONTINUE. The monotonicity defense is valid.
+  - N=2 PIN — THE ONE DIRECTIONAL DEFECT: SR0 is strictly INCREASING in N (verified: N=2->0.2216,
+    N=4->0.4486 at the elected sqrt(Var)). Therefore pinning N at the BOTTOM of the credible range
+    (HoQR 1-2 / NHT 2-4) is the ANTI-conservative choice on the multiplicity axis. If the true effective
+    N is 4 (top of my prior range), the frozen SR0=0.2216 is ~half the conservative 0.4486 — the gate is
+    too EASY, biasing toward a FALSE CONTINUE. The pre-reg's conservatism argument covers only the
+    Var/spread leg, NOT the N leg; this asymmetry is unstated. MITIGATED (not eliminated) by: (a) DSR is
+    one of three AND-gates (p_SPA<0.05 AND DSR>=0.95 AND p_RC<0.05); (b) a false CONTINUE buys only a
+    confirmatory pre-reg, never capital or family re-open. Net: a recordable concern, NOT a freeze
+    blocker, because the worst case is one extra pre-registered confirmatory trial, not spend.
+  - GATE STRENGTH: requires best-cell annualized SR ~0.625 to clear DSR>=0.95 (verified across skew
+    {-0.5,0,+0.5}, exk {0,1,3}). That is a high, honest bar against the firm's realized carry Sharpes
+    (0.07-0.80 in-sample, snooped).
+
+audit-findings:
+  - id: A-1
+    severity: minor
+    finding: >
+      §3.4 Step 1 claims to "apply the firm's de-duplication rule (honest_n.py:40-81)" yielding "8 carry
+      pre-regs -> 5 dedup keys." This is NOT what the code does. Running honest_n.compute_honest_n on the
+      real trials.jsonl returns N_honest=10 org-wide with carry-family keys {carry, carry_momentum,
+      fred_carry, vol_target_carry, vol_target_carry.md}. The code keys by pre_reg_path FIRST when
+      present (so vol_target_carry.md and momentum.md are NOT suffix-stripped), and carry_fred never
+      appears (no registry row). HoQR's "8->5" table is a HAND recomputation narrated as code output. The
+      further collapse 5->2 "information sources" is a pure judgement call the code never performs.
+    exploit-path: >
+      Not directly exploitable (N=2 is defended on its merits and sits in both ranges). The risk is
+      epistemic: dressing a judgement call in a code citation ("honest_n.py:40-81") lends false
+      mechanical authority to a number that is actually adjudicated. A future reader could mistake N=2
+      for a reproducible registry computation when it is not.
+  - id: A-2
+    severity: material
+    finding: >
+      N=2 is pinned at the BOTTOM of the combined credible range (HoQR 1-2 / NHT 2-4). Because SR0 is
+      strictly increasing in N (verified N=2->0.2216 vs N=4->0.4486), the smallest admissible N produces
+      the LOWEST haircut — the anti-conservative choice on the multiplicity axis. The pre-reg's
+      "conservative-if-wrong" defense (§7.3.1/§7.3.2) addresses only the Var/spread axis (SR_1 inflation),
+      which is genuinely conservative, but is SILENT on the N axis, where the chosen value biases toward
+      false CONTINUE.
+    exploit-path: >
+      An N under-count lets a lucky best-of-36 cell clear DSR when a conservative N=4 would have failed
+      it. CONTAINED: false CONTINUE -> confirmatory-only pre-reg (no capital, no family re-open, three
+      AND-gates). Cannot leak into "keep spending on the family." Records as material because it is a real
+      directional bias the pre-reg mis-describes as conservative, but it does not warrant blocking the
+      freeze given the containment.
+  - id: A-3
+    severity: minor
+    finding: >
+      trials.jsonl LINE-NUMBER citations are systematically wrong by ~6 (e.g. carry_momentum cited at
+      ":21" is actually line 27; carry baseline ":20" is line 26; fred_carry_stripped ":22" is line 28;
+      vol_target_carry_no_vol_scaling ":25" is line 35). The line cited for each (20-25) actually holds an
+      unrelated exploratory backfill row with sharpe=null. HOWEVER, every cited trial_id (6a56df9c,
+      5d18776d, b7d1a65a, 9017fadb) resolves correctly via grep and the SR values (0.197, 0.2841, 0.07464)
+      match the rejection_reason fields exactly. So the substantive data is verifiable; only the line
+      pointers drifted.
+    exploit-path: >
+      None substantive — IDs resolve. Pure citation-hygiene defect. Flag because a frozen kill-test should
+      cite by resolvable trial_id (which it also does), and the wrong line numbers would mislead a manual
+      auditor checking by line.
+  - id: A-4
+    severity: concern
+    finding: >
+      The CONTINUE (outcome 1) and AMBIGUOUS (outcome 4) branches both permit carrying the surviving /
+      anomalous structure into "a fresh, separately-pre-registered confirmatory test with its own freeze,
+      treated as a brand-new hypothesis." The pre-reg correctly forbids free exploration, re-parameterization,
+      new variant/pair search, and capital on this branch. BUT it is SILENT on the trial-counter / honest-N
+      discipline for that confirmatory test. Outcome 5 (technical failure) explicitly pins "counter NOT
+      incremented"; outcomes 1/4 say nothing. A confirmatory test on a cell SELECTED after seeing R5's 36-cell
+      results is itself a spent look; if it neither increments the org-wide counter nor inherits the R5
+      selection burden in its own N, it re-opens the garden of forking paths through the back door.
+    exploit-path: >
+      Snoop 36 cells -> pick the winner -> test it "fresh" with N that ignores the 36-cell selection ->
+      manufacture a clean p on a post-hoc-selected cell. PARTIALLY CONTAINED: the confirmatory test gets its
+      own pre-reg + freeze + audit (so it can be caught THEN) and no capital flows from R5 itself. Records as
+      a concern (not material) because the next gate exists; but the pre-reg should pin, now, that any
+      R5-spawned confirmatory test (i) increments the org-wide counter and (ii) sets its honest-N to absorb
+      the R5 36-cell selection. Recommend adding one sentence to outcomes 1 and 4.
+  - id: A-5
+    severity: note
+    finding: >
+      Residual unfrozen DOF is minor: §7.3.4 pins skew/kurtosis to cell k* in Fisher (excess) convention via
+      dsr.py, but does NOT pin the sample-estimator bias flag (scipy bias=True/False) for skew/kurtosis. At
+      T=4186 the finite-sample correction is O(1/T) and immaterial to the DSR. "White-RC concordant" IS pinned
+      numerically (p_RC<0.05, lines 322/810); seed (576746), K=5000, block-length rule, matrix-build invocation,
+      and Var ddof (sample) are all frozen. So this is the only surviving DOF and it is negligible.
+    exploit-path: "None material — sub-0.1% perturbation to var_term on T=4186."
+  - id: A-6
+    severity: note
+    finding: >
+      benchmark=ZERO (not a matched-carry benchmark as my prior dissent phrased it). The pre-reg justifies
+      zero as the non-double-counting benchmark: the cost-of-carry is already realized inside the net swap leg
+      of the equity curve (§1 PART II). This is a sound substitution for "matched-carry" — subtracting an
+      external carry benchmark would deduct the carry return twice. My dissent condition is satisfied in
+      substance.
+
+dissent-statement: |
+  NHT POSITION ON THE R5 PRE-REGISTRATION (append-only; preserve verbatim in CONSENSUS):
+
+  The pre-reg SURVIVES my audit and is freezable as-is. It honors every condition of my 2026-06-02
+  dissent: joint same-block stationary bootstrap against a zero benchmark (with a sound anti-double-count
+  rationale for zero over matched-carry); a crypto-frozen full-grid pre-reg with an exhaustive wind-down
+  action map; K=5000 >> the 2000 floor with reported MC-SE=0.0031; and a snooping charge that is real,
+  not theater — Method A (clean hold-out) was honestly adjudicated UNAVAILABLE per-variant (two variants'
+  development windows end AFTER the R5 index terminus), and Method B (BLdP deflation haircut) is operative
+  with arithmetic I reproduced exactly (SR0=0.221616). The decision tree contains NO branch that maps to
+  "inconclusive, keep spending": a non-rejection at ANY power -> WIND-DOWN (binding, outcomes 2 & 3);
+  CONTINUE and AMBIGUOUS buy only a fresh confirmatory pre-reg, never capital or family re-open. The
+  underpowered-non-rejection caveat (power ~20-35%) is correctly bound to WIND-DOWN rather than a third door.
+
+  I record FOUR reservations, none of which block the freeze:
+
+  (1) MATERIAL — N=2 is pinned at the FLOOR of the credible range and SR0 is strictly increasing in N
+  (N=2->0.2216, N=4->0.4486). On the multiplicity axis this is the ANTI-conservative choice, biasing toward
+  false CONTINUE — the OPPOSITE of the conservatism the pre-reg claims. The pre-reg's monotonicity defense
+  is valid ONLY on the Var/spread (SR_1) axis, which I confirmed; it is silent on the N axis. This is
+  contained because a false CONTINUE buys only a confirmatory pre-reg behind three AND-gates, never spend.
+  But the pre-reg should not describe N=2 as conservative; it is the least-deflating admissible N.
+
+  (2) MINOR — "honest_n.py:40-81" is cited as the mechanism for N, but the code on the real registry returns
+  N_honest=10, not the "8->5->2" the pre-reg narrates. N=2 is a sound JUDGEMENT but it is dressed as a code
+  computation it is not. carry_fred (the SR_1=0.80 representative) has NO registry row, and the "Bet#1 =
+  carry_fred" label contradicts the registry (Bet#1 = trial 87fa1d23 = momentum, retired). The 0.80 is
+  registry-unverified; the pre-reg discloses this and the Var-monotonicity neutralizes its direction.
+
+  (3) CONCERN — the confirmatory-test branch (outcomes 1 & 4) does not pin the trial-counter / honest-N
+  discipline for the spun-off test. A post-hoc-selected winning cell tested "fresh" without absorbing the
+  36-cell selection burden re-opens the garden of forking paths. Contained by the requirement that the
+  confirmatory test get its own freeze + audit, but should be pinned now.
+
+  (4) MINOR — trials.jsonl line-number citations are off by ~6; trial_ids resolve correctly so the data is
+  verifiable, but a frozen kill-test should not carry stale line pointers.
+
+  CALIBRATION: I rejected my own instinct to escalate. The expected outcome remains WIND-DOWN, the gate is
+  honestly hard (best-cell annualized SR ~0.625 needed to clear DSR), and every residual loophole terminates
+  at a fresh pre-reg behind a fresh audit — never at uncontrolled spend. Over-rejecting this would itself be
+  a calibration failure. I sign the audit as SURVIVES with the four reservations recorded, and I recommend
+  HoQR/Mathematician adopt the two one-sentence fixes (N-axis conservatism caveat; confirmatory-branch
+  counter discipline) at or before freeze if they wish to close (1) and (3) cleanly — but their absence does
+  not make the spec unfreezable.
+
+severity: concern
+contamination-check: "clean"
+
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:106-119,640-653,732-800 — SR0 formula, Method B, DSR gate, threshold"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:146-204 — honest-N=2 derivation narrative"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:699-729 — SR_1=0.80 provenance disclosure + Var monotonicity defense"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:280-299,808-834 — decision functional, wind-down map, AMBIGUOUS/CONTINUE branches"
+  - "src/forex_system/harness/honest_n.py:40-81,144-163 — keys by pre_reg_path first; suffix-strip only when path absent; returns N_honest=10 on real registry"
+  - "src/forex_system/harness/dsr.py:46-104,107-207 — expected_max_sr, compute_dsr (per-obs units, (exk+2)/4 term, degenerate-guard returns 0.0)"
+  - ".fintech-org/trials.jsonl:24,36 — Bet#1 trial 87fa1d23 is strategy=momentum, retired 2026-06-02 DSR=0.1296 (NOT carry_fred)"
+  - ".fintech-org/trials.jsonl:26,27,28,35 — carry 0.2841, carry_momentum 0.197, fred_carry_stripped 0.07464, vol_target_carry_no_vol_scaling (cited lines 20-25 are WRONG; IDs resolve)"
+  - ".fintech-org/trials.jsonl — grep 'carry_fred' returns NOT FOUND (SR_1=0.80 registry-unverified)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/qd-omega-floor-check.yaml — floor-safe, min omega 6.47e-08, ratio 6.47e4 to 1e-12 floor"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/qd-n1-hardening.yaml — T=4186, 0 dropped, carry_momentum std 6.93e-06 (~600-1130x scale gap)"
+  - "NHT-run scipy reproduction: SR0 sample=0.221616, pop=0.156706; DSR-clear needs best-cell SR_ann~0.625; SR0(N=4)=0.4486"
+  - ".agent-accountability/dissents/r5-scope-2026-06-02:phase1:task1.0:null-hypothesis-tester.yaml — prior dissent conditions, all met in substance"
+
+assumptions:
+  - "scipy.stats.norm is the inverse-normal/CDF backend at run time (dsr.py imports it; falls back to a rational approx only if scipy is absent — the freeze should pin scipy presence)."
+  - "The frozen run passes SR0=0.221616 (annualized) -> 0.013961 (per-obs) as an EXTERNAL benchmark override into compute_dsr, NOT the code's default expected_max_sr (§7.3.3). If the harness cannot accept the override, §7.3.3 correctly routes that to TECHNICAL FAILURE."
+  - "T=4186 and 0-dropped persist at STEP 4 identically to the STEP 2b / N1 builds (deterministic given the same data files)."
+  - "Bet#1 = momentum, not carry_fred — taken from the registry rows, which I treat as truth over the pre-reg label."
+
+confidence: high
+
+body: |
+  AUDIT SUMMARY — DECISION: SURVIVES (severity: concern; does NOT block the freeze).
+
+  I audited the assembled R5 pre-reg across all six mandated stress axes, reading the artifact, the
+  Mathematician/HoQR sub-artifacts, the implementation (dsr.py, honest_n.py, reality_check.py refs,
+  carry_universe_matrix.py refs), and the raw registry, and I reproduced the load-bearing arithmetic
+  with scipy.
+
+  STRESS 1 (can any outcome -> "keep spending"?): NO, with one caveat. The four terminal branches are
+  CONTINUE (-> confirmatory pre-reg only, no spend/no family re-open), AMBIGUOUS (-> confirmatory pre-reg
+  only), WIND-DOWN (-> monitoring), TECHNICAL FAILURE (-> re-run same trial). None maps to free
+  exploration of the 36-cell family. The one residual is the confirmatory-branch counter discipline
+  (finding A-4) — a back-door forking-paths risk, contained by the requirement that the confirmatory test
+  get its own freeze+audit. Recorded as a concern, not material.
+
+  STRESS 2 (N=2 vs my 2-4; bias direction): N=2 is defensible as a value but is the FLOOR of the combined
+  range, and the N-error bias direction is ANTI-conservative: SR0 strictly increases in N (verified
+  N=2->0.2216, N=4->0.4486), so under-counting N LOWERS the haircut and biases toward FALSE CONTINUE. The
+  pre-reg mis-frames N=2 as conservative; its conservatism argument is valid only on the Var/spread axis.
+  This is finding A-2 (material), contained by the three AND-gates and the no-capital ratchet.
+
+  STRESS 3 (SR_1=0.80 provenance / monotonicity): SR_1=0.80 is registry-UNVERIFIED (carry_fred has no
+  trials.jsonl row) and the "Bet#1=carry_fred" label is FALSE (Bet#1=momentum, retired). The pre-reg
+  discloses this and argues SR_1 inflation is conservative via Var monotonicity — which I CONFIRMED: higher
+  SR_1 -> higher SR0 -> harder CONTINUE -> can only false-WIND-DOWN. The monotonicity defense holds on the
+  SR_1 axis. There is NO path where the SR_1 weakness alone produces a false CONTINUE. (The false-CONTINUE
+  risk lives on the N axis, finding A-2, not the SR_1 axis.)
+
+  STRESS 4 (AMBIGUOUS backdoor): the AMBIGUOUS branch maps strictly to a confirmatory-only pre-reg gate,
+  never to CONTINUE on the family, with no re-parameterization and no capital. The gap is the unstated
+  counter/honest-N discipline for the spun-off confirmatory test (finding A-4, concern).
+
+  STRESS 5 (unfrozen DOF): essentially none material. Seed, K, block-length rule, matrix-build invocation,
+  "White-RC concordant" (p_RC<0.05), Var ddof (sample), skew/kurtosis cell (k*, Fisher) are all pinned. The
+  only survivor is the scipy skew/kurtosis bias flag — immaterial at T=4186 (finding A-5, note).
+
+  STRESS 6 (my prior dissent conditions): ALL met in substance. Joint same-block bootstrap (zero benchmark,
+  sound anti-double-count rationale); crypto pre-reg + wind-down map; K=5000>=2000 with MC-SE; hold-out
+  adjudicated then deflation haircut. Romano-Wolf StepM was replaced by SPA max-statistic single-family
+  FWER — an acceptable substitute already adopted in the ratified scope.
+
+  NET: The pre-reg is an honest, binding, statistically sound one-shot kill test. The atomic claim holds.
+  The DSR gate is hard (best-cell annualized SR ~0.625 to clear) and the math reproduces exactly. The
+  expected outcome remains WIND-DOWN. The four reservations are recorded append-only; two (A-2 N-axis
+  caveat, A-4 confirmatory-counter discipline) are worth a one-sentence fix each before freeze but do not
+  render the spec unfreezable. I sign SURVIVES at severity=concern.
+
+knowledge_gaps:
+  - "Whether the harness at STEP 4 will actually accept the externally-pinned SR0 override (§7.3.3) — verified as a routed-to-TECHNICAL-FAILURE contingency, not pre-confirmed in code by NHT."
+  - "The exact realized skew/kurtosis of cell k* (unknown until STEP 4) — but the DSR-clear threshold is insensitive to it across the plausible range (verified ~0.62-0.63 SR_ann for skew in [-0.5,0.5], exk in [0,3])."
+policy_violations_detected: []
+sources:
+  - "https://en.wikipedia.org/wiki/Deflated_Sharpe_ratio — confirms SR0 = sqrt(Var[SR_n])*[(1-gamma)Z^-1(1-1/N)+gamma*Z^-1(1-1/(Ne))], Ne in denominator, N=2 bracket ~0.518"
+  - "https://gmarti.gitlab.io/qfin/2018/05/30/deflated-sharpe-ratio.html — DSR = Phi((SR-E[maxSR])/sigma[SR]); E[maxSR]=sqrt(Var[SR])*E[maxZ] (search-result level; page itself auth-gated)"
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 1
+no-capital-instruction: true

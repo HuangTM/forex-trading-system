@@ -55,6 +55,39 @@ _SENSITIVITY_BLOCK_LENGTHS: tuple[int, ...] = (5, 10, 20)
 # ---------------------------------------------------------------------------
 
 
+def hac_se_nw(x: np.ndarray, bandwidth: int) -> float:
+    """Newey-West (Bartlett kernel) HAC standard error for a 1-D series mean.
+
+    This is a module-level extraction of the ``_hac_se`` closure inside
+    :func:`r5c_hansen_spa`.  Both must stay bit-for-bit identical; if you
+    modify one, modify both.
+
+    Parameters
+    ----------
+    x:
+        1-D array of observations.
+    bandwidth:
+        Bartlett kernel half-bandwidth ``h`` (number of lags); must be >= 1.
+        Convention (mirroring the closure): ``h = max(block_length - 1, 1)``.
+
+    Returns
+    -------
+    float
+        HAC SE = sqrt(s2 / n), clamped so that s2 >= 1e-12.
+    """
+    n = len(x)
+    x_dm = x - np.mean(x)
+    h = max(bandwidth, 1)
+    gamma0 = np.dot(x_dm, x_dm) / n
+    s2 = gamma0
+    for lag in range(1, h + 1):
+        w = 1.0 - lag / (h + 1)
+        gamma_lag = np.dot(x_dm[lag:], x_dm[:-lag]) / n
+        s2 += 2.0 * w * gamma_lag
+    s2 = max(s2, 1e-12)
+    return float(math.sqrt(s2 / n))
+
+
 def _annualized_sharpe(returns: np.ndarray) -> float:
     """Compute annualized Sharpe ratio from a 1-D daily return array.
 
@@ -848,20 +881,8 @@ def r5c_hansen_spa(
 
     # HAC (Newey-West) standard error for each pair's mean, with actual_block_length lags
     def _hac_se(x: np.ndarray) -> float:
-        """Newey-West HAC SE for a 1-D series (bandwidth = actual_block_length - 1)."""
-        n = len(x)
-        x_dm = x - np.mean(x)
-        # Bartlett kernel, bandwidth h = actual_block_length - 1
-        h = max(actual_block_length - 1, 1)
-        gamma0 = np.dot(x_dm, x_dm) / n
-        s2 = gamma0
-        for lag in range(1, h + 1):
-            w = 1.0 - lag / (h + 1)
-            gamma_lag = np.dot(x_dm[lag:], x_dm[:-lag]) / n
-            s2 += 2.0 * w * gamma_lag
-        # Clamp to avoid negative variance from small samples
-        s2 = max(s2, 1e-12)
-        return float(math.sqrt(s2 / n))
+        """Delegate to module-level hac_se_nw (bandwidth = actual_block_length - 1)."""
+        return hac_se_nw(x, bandwidth=max(actual_block_length - 1, 1))
 
     omegas = np.array([_hac_se(pair_returns[:, j]) for j in range(k)])
     # Guard against zero omega (all returns identical)

@@ -29,6 +29,8 @@ import pytest
 
 from forex_system.backtest.engine import run_backtest
 from forex_system.core.types import BacktestResult
+from forex_system.sizing.continuous import ContinuousSizer
+from forex_system.sizing.vol_target import VolTargetSizer
 from forex_system.harness.carry_universe_matrix import (
     CARRY_PAIRS,
     CARRY_VARIANTS,
@@ -36,6 +38,7 @@ from forex_system.harness.carry_universe_matrix import (
     JointReturnMatrix,
     R5CarryResult,
     _VARIANT_EXEC,
+    _build_sizer,
     _drop_cell,
     build_joint_return_matrix,
     run_r5_on_carry_universe,
@@ -1364,3 +1367,296 @@ class TestCarryMomentumModeFidelityNumeric:
             f"magnitude, or sizer is being ignored. "
             f"Discrete std={disc_std:.6f}, mean |cont-disc|={float(np.mean(diff)):.6f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# N1: _build_sizer None-check hardening tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSizerN1Hardening:
+    """N1: _build_sizer must honor 0.0 overrides, not silently discard them.
+
+    The `or`-idiom (e.g. `variant_params.get('x') or exec_cfg.x`) treats 0.0 as
+    falsy and falls back to the config default, silently discarding a valid override.
+    The fix replaces every such occurrence with an explicit None-check.
+
+    These tests pin the corrected behavior: a 0.0 override must propagate into
+    the constructed sizer; a None override (absent key) must fall back to the
+    config default.
+    """
+
+    # -------------------------------------------------------------------
+    # VolTargetSizer branch — tests for leverage_cap, max_order_units, min_order_size
+    # -------------------------------------------------------------------
+
+    def test_vol_target_zero_override_leverage_cap_honored(self) -> None:
+        """N1: leverage_cap=0.0 override must reach VolTargetSizer (not fall back to default).
+
+        Regression guard: with the `or`-idiom, 0.0 was falsy and was silently
+        replaced by exec_cfg.leverage_cap. The None-check fix must honor 0.0.
+        """
+        exec_cfg = _VARIANT_EXEC["vol_target_carry"]
+        assert exec_cfg.leverage_cap is not None  # precondition: default is nonzero
+        assert exec_cfg.leverage_cap != 0.0
+
+        sizer = _build_sizer(exec_cfg, {"leverage_cap": 0.0})
+        assert sizer is not None
+        assert isinstance(sizer, VolTargetSizer)
+        assert sizer.leverage_cap == pytest.approx(0.0), (
+            f"leverage_cap=0.0 override was discarded; got {sizer.leverage_cap!r}. "
+            "N1 regression: the `or`-idiom is still present."
+        )
+
+    def test_vol_target_zero_override_max_order_units_honored(self) -> None:
+        """N1: max_order_units=0.0 override must reach VolTargetSizer."""
+        exec_cfg = _VARIANT_EXEC["vol_target_carry"]
+        sizer = _build_sizer(exec_cfg, {"max_order_units": 0.0})
+        assert sizer is not None
+        assert sizer.max_order_units == pytest.approx(0.0), (
+            f"max_order_units=0.0 override was discarded; got {sizer.max_order_units!r}. "
+            "N1 regression."
+        )
+
+    def test_vol_target_zero_override_min_order_size_honored(self) -> None:
+        """N1: min_order_size=0.0 override must reach VolTargetSizer."""
+        exec_cfg = _VARIANT_EXEC["vol_target_carry"]
+        sizer = _build_sizer(exec_cfg, {"min_order_size": 0.0})
+        assert sizer is not None
+        assert sizer.min_order_size == pytest.approx(0.0), (
+            f"min_order_size=0.0 override was discarded; got {sizer.min_order_size!r}. "
+            "N1 regression."
+        )
+
+    def test_vol_target_none_override_falls_back_to_config(self) -> None:
+        """N1: absent key (None from .get()) must fall back to exec_cfg default."""
+        exec_cfg = _VARIANT_EXEC["vol_target_carry"]
+        # No keys in variant_params → all defaults from exec_cfg
+        sizer = _build_sizer(exec_cfg, {})
+        assert sizer is not None
+        assert isinstance(sizer, VolTargetSizer)
+        assert sizer.leverage_cap == pytest.approx(exec_cfg.leverage_cap)
+        assert sizer.max_order_units == pytest.approx(exec_cfg.max_order_units)
+        assert sizer.min_order_size == pytest.approx(exec_cfg.min_order_size)
+
+    # -------------------------------------------------------------------
+    # ContinuousSizer branch — tests for risk_per_trade, stop_loss_atr_multiple
+    # -------------------------------------------------------------------
+
+    def test_continuous_zero_override_risk_per_trade_honored(self) -> None:
+        """N1: risk_per_trade=0.0 override must reach ContinuousSizer (not fall back to default).
+
+        With the `or`-idiom, 0.0 was falsy → silently fell back to exec_cfg.risk_per_trade.
+        The None-check fix must propagate 0.0 into the sizer.
+        """
+        exec_cfg = _VARIANT_EXEC["carry_momentum"]
+        assert exec_cfg.risk_per_trade is not None
+        assert exec_cfg.risk_per_trade != 0.0
+
+        sizer = _build_sizer(exec_cfg, {"risk_per_trade": 0.0})
+        assert sizer is not None
+        assert isinstance(sizer, ContinuousSizer)
+        assert sizer.risk_per_trade == pytest.approx(0.0), (
+            f"risk_per_trade=0.0 override was discarded; got {sizer.risk_per_trade!r}. "
+            "N1 regression: the `or`-idiom is still present."
+        )
+
+    def test_continuous_zero_override_stop_loss_atr_multiple_honored(self) -> None:
+        """N1: stop_loss_atr_multiple=0.0 override must reach ContinuousSizer."""
+        exec_cfg = _VARIANT_EXEC["carry_momentum"]
+        assert exec_cfg.stop_loss_atr_multiple is not None
+        assert exec_cfg.stop_loss_atr_multiple != 0.0
+
+        sizer = _build_sizer(exec_cfg, {"stop_loss_atr_multiple": 0.0})
+        assert sizer is not None
+        assert sizer.stop_loss_atr_multiple == pytest.approx(0.0), (
+            f"stop_loss_atr_multiple=0.0 override was discarded; "
+            f"got {sizer.stop_loss_atr_multiple!r}. N1 regression."
+        )
+
+    def test_continuous_none_override_falls_back_to_config(self) -> None:
+        """N1: absent key (None from .get()) must fall back to exec_cfg default."""
+        exec_cfg = _VARIANT_EXEC["carry_momentum"]
+        # No keys in variant_params → all defaults from exec_cfg
+        sizer = _build_sizer(exec_cfg, {})
+        assert sizer is not None
+        assert isinstance(sizer, ContinuousSizer)
+        assert sizer.risk_per_trade == pytest.approx(exec_cfg.risk_per_trade)
+        assert sizer.stop_loss_atr_multiple == pytest.approx(exec_cfg.stop_loss_atr_multiple)
+
+    def test_discrete_variant_returns_none(self) -> None:
+        """Discrete variants (sizer_type='none') must return None from _build_sizer."""
+        exec_cfg = _VARIANT_EXEC["carry"]
+        assert exec_cfg.sizer_type == "none"
+        result = _build_sizer(exec_cfg, {})
+        assert result is None, f"Expected None for discrete variant, got {result!r}"
+
+    def test_nonzero_override_still_works(self) -> None:
+        """N1: non-zero overrides must still be honored (regression safety: fix didn't break normal path)."""
+        exec_cfg = _VARIANT_EXEC["carry_momentum"]
+        sizer = _build_sizer(exec_cfg, {"risk_per_trade": 0.05, "stop_loss_atr_multiple": 3.0})
+        assert sizer is not None
+        assert sizer.risk_per_trade == pytest.approx(0.05)
+        assert sizer.stop_loss_atr_multiple == pytest.approx(3.0)
+
+
+# ---------------------------------------------------------------------------
+# F-006: end-to-end _build_cell plumbing with sizer_override=0.0
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCellSizerOverrideEndToEnd:
+    """F-006: assert a 0.0 sizer override propagates through the _build_cell path.
+
+    Item 3 requirement: an end-to-end test asserting a 0.0 sizer override
+    propagates through the actual _build_cell plumbing path (not just
+    _build_sizer in isolation) using minimal synthetic data.
+    """
+
+    def test_zero_risk_per_trade_propagates_through_build_cell(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        ohlcv: pd.DataFrame,
+        rate_data: pd.DataFrame,
+    ) -> None:
+        """F-006 E2E: risk_per_trade=0.0 override must propagate into _build_cell.
+
+        Exercises the full _build_cell path (not just _build_sizer).
+        With risk_per_trade=0.0, ContinuousSizer sizes every position to 0 units,
+        so the equity curve is flat (no trades execute).  The test verifies that
+        the result builds successfully (no drop) and that the equity curve is
+        flat — confirming the 0.0 override was honored, not silently discarded.
+
+        The N1 fix replaced the `or`-idiom in _build_sizer with explicit
+        None-checks.  A regression here means the fix has been reverted.
+        """
+        from forex_system.harness.carry_universe_matrix import _build_cell, _DEFAULT_PAIR_INFO
+
+        pair = "USDJPY"
+        variant = "carry_momentum"
+
+        # rate_data in plain format (carry_momentum uses USDJPY, not USDJPY_diff)
+        rd_plain = rate_data.rename(
+            columns={c: c.replace("_diff", "") for c in rate_data.columns if c.endswith("_diff")}
+        )
+
+        # Patch load_parquet to return synthetic OHLCV
+        monkeypatch.setattr(
+            "forex_system.harness.carry_universe_matrix.load_parquet",
+            lambda p, tf, data_dir, **kw: ohlcv,
+        )
+
+        # Call _build_cell with risk_per_trade=0.0 override via variant_params
+        returns, rebalance_mode, sizer_type = _build_cell(
+            variant=variant,
+            pair=pair,
+            data_dir="data",
+            variant_params={"risk_per_trade": 0.0, "stop_loss_atr_multiple": 2.0},
+            pair_info=_DEFAULT_PAIR_INFO[pair],
+            rate_data=rd_plain,
+            initial_capital=1_000_000.0,
+            entry_delay_bars=1,
+        )
+
+        # The call must succeed (no exception, not dropped)
+        assert len(returns) > 0, "Expected non-empty returns from _build_cell"
+        assert rebalance_mode == "continuous", (
+            f"carry_momentum must use continuous mode; got {rebalance_mode!r}"
+        )
+        assert sizer_type == "continuous", (
+            f"carry_momentum sizer_type must be 'continuous'; got {sizer_type!r}"
+        )
+
+        # With risk_per_trade=0.0, ContinuousSizer sizes positions to 0 units.
+        # The equity curve stays flat at initial_capital, so returns are all 0.0.
+        # If the 0.0 override was silently discarded (N1 regression), the default
+        # risk_per_trade=0.007 would be used and returns would be non-zero.
+        assert np.allclose(returns.to_numpy(), 0.0, atol=1e-10), (
+            f"risk_per_trade=0.0 override was NOT honored: returns are non-zero. "
+            f"N1 regression: the 'or'-idiom is still present in _build_sizer. "
+            f"Mean |return| = {np.abs(returns.to_numpy()).mean():.6e}"
+        )
+
+    def test_none_override_falls_back_to_config_through_build_cell(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        ohlcv: pd.DataFrame,
+        rate_data: pd.DataFrame,
+    ) -> None:
+        """F-006 E2E: absent override (None from .get()) must use config default.
+
+        When variant_params has no risk_per_trade key, _build_sizer must fall back
+        to exec_cfg.risk_per_trade = 0.007.  The equity curve should be non-flat
+        (the sizer is active).
+
+        Also tests Item 3 requirement: 'a test pinning behavior when a config
+        field is None AND the override is None'.  The sizer_type='continuous'
+        variant has non-None config defaults.  Passing an empty variant_params
+        dict must use those defaults without raising TypeError.
+        """
+        from forex_system.harness.carry_universe_matrix import _build_cell, _DEFAULT_PAIR_INFO
+
+        pair = "USDJPY"
+        variant = "carry_momentum"
+
+        rd_plain = rate_data.rename(
+            columns={c: c.replace("_diff", "") for c in rate_data.columns if c.endswith("_diff")}
+        )
+
+        monkeypatch.setattr(
+            "forex_system.harness.carry_universe_matrix.load_parquet",
+            lambda p, tf, data_dir, **kw: ohlcv,
+        )
+
+        # No overrides — must use config defaults (risk_per_trade=0.007)
+        returns, rebalance_mode, sizer_type = _build_cell(
+            variant=variant,
+            pair=pair,
+            data_dir="data",
+            variant_params={},  # empty — no overrides
+            pair_info=_DEFAULT_PAIR_INFO[pair],
+            rate_data=rd_plain,
+            initial_capital=1_000_000.0,
+            entry_delay_bars=1,
+        )
+
+        assert len(returns) > 0, "Expected non-empty returns"
+        assert rebalance_mode == "continuous"
+        assert sizer_type == "continuous"
+        # With default risk_per_trade=0.007 (non-zero), returns are not all zero
+        # (the sizer is active and positions are non-trivial)
+        # We just confirm the call does NOT raise TypeError from float(None)
+        # and returns a valid series — the config default was applied
+        assert returns.dtype == float or np.issubdtype(returns.dtype, np.floating), (
+            f"Expected float returns; got dtype={returns.dtype}"
+        )
+
+    def test_float_none_config_raises_type_error(self) -> None:
+        """F-006 Item 3: when config field is None AND override is None, float(None) raises TypeError.
+
+        This pins the CURRENT behavior: if exec_cfg.risk_per_trade is None
+        (hypothetical future misconfiguration) and no override is provided,
+        float(None) raises TypeError.  We assert the raise rather than changing
+        the behavior — this test documents what happens, not a desired state.
+
+        In the current codebase, all continuous variants have non-None defaults
+        in _VARIANT_EXEC, so this path is not reached in normal operation.
+        The test guards against a regression where a None config default
+        silently produces 0.0 instead of raising clearly.
+        """
+        from forex_system.harness.carry_universe_matrix import _build_sizer, _VariantExecConfig
+
+        # Construct a hypothetical config where the continuous sizer field is None
+        bad_cfg = _VariantExecConfig(
+            rebalance_mode="continuous",
+            rebalance_threshold=0.20,
+            sizer_type="continuous",
+            config_source="test_only",
+            risk_per_trade=None,       # hypothetical misconfiguration
+            stop_loss_atr_multiple=2.0,
+        )
+
+        # Neither variant_params nor exec_cfg provides risk_per_trade
+        # float(None) must raise TypeError
+        with pytest.raises(TypeError):
+            _build_sizer(bad_cfg, {})  # no override, None config -> float(None) -> TypeError

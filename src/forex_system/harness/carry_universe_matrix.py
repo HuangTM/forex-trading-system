@@ -410,15 +410,21 @@ def _build_sizer(
     variant_params may override individual fields when an explicit caller-supplied
     override is present (non-None); otherwise the config-sourced defaults win.
 
+    N1 fix: use explicit None-checks instead of the `or`-idiom so that a valid
+    falsy override (e.g. 0.0) is honored rather than silently discarded.
+
     Returns None for discrete variants (no sizer needed).
     """
     if exec_cfg.sizer_type == "vol_target":
         # Parameters from _VARIANT_EXEC (sourced from config — see config_source).
         # variant_params overrides are accepted for test/caller flexibility but the
         # config value is the default, not a magic literal here.
-        leverage_cap = variant_params.get("leverage_cap") or exec_cfg.leverage_cap
-        max_order_units = variant_params.get("max_order_units") or exec_cfg.max_order_units
-        min_order_size = variant_params.get("min_order_size") or exec_cfg.min_order_size
+        _lc = variant_params.get("leverage_cap")
+        leverage_cap = _lc if _lc is not None else exec_cfg.leverage_cap
+        _mou = variant_params.get("max_order_units")
+        max_order_units = _mou if _mou is not None else exec_cfg.max_order_units
+        _mos = variant_params.get("min_order_size")
+        min_order_size = _mos if _mos is not None else exec_cfg.min_order_size
         return VolTargetSizer(
             leverage_cap=float(leverage_cap),
             max_order_units=float(max_order_units),
@@ -429,10 +435,10 @@ def _build_sizer(
         # For carry_momentum: risk_per_trade=0.007 from carry_momentum_portfolio.yaml
         # (NOT 0.02 from scripts/run_carry_momentum.py, which is an exploratory sweep).
         # Provisional until STEP 3 pre-registration freezes the exact value.
-        risk_per_trade = variant_params.get("risk_per_trade") or exec_cfg.risk_per_trade
-        stop_loss_atr_multiple = (
-            variant_params.get("stop_loss_atr_multiple") or exec_cfg.stop_loss_atr_multiple
-        )
+        _rpt = variant_params.get("risk_per_trade")
+        risk_per_trade = _rpt if _rpt is not None else exec_cfg.risk_per_trade
+        _slam = variant_params.get("stop_loss_atr_multiple")
+        stop_loss_atr_multiple = _slam if _slam is not None else exec_cfg.stop_loss_atr_multiple
         return ContinuousSizer(
             risk_per_trade=float(risk_per_trade),
             stop_loss_atr_multiple=float(stop_loss_atr_multiple),

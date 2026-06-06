@@ -1,0 +1,393 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-05T21:00:37Z"
+subtask_ref: r5-step3-prereg
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+task-statement: >
+  Author, assemble, and crypto-freeze the R5 pre-registration + wind-down action map
+  for the joint carry-universe kill test before any test run.
+deliverable-type: spec-completion
+deadline: 2026-06-05T23:59:00Z
+instrument-universe:
+  - USDJPY
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - CADJPY
+  - NZDJPY
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "step4_run_out_of_scope: true"
+  - "no_silent_cell_exclusion: true — any drop from the 36-cell universe must be
+      logged with structured reason; silent exclusion voids the FWER guarantee
+      (CONSENSUS_2026-06-02_r5_scope.md §Carry universe)"
+  - "pre_registration_before_any_draw: true — the frozen pre-reg document and its
+      SHA-256 + git commit hash MUST be recorded and committed before STEP 4 executes
+      a single bootstrap draw"
+  - "no_trial_counter_increment: true — STEP 3 is a spec artifact, not a new trial;
+      trials.jsonl remains at line 36"
+  - "nht_dissent_append_only: true — NHT dissent is verbatim, never paraphrased or
+      overridden by later consensus (firm rule 6)"
+  - "no_new_strategy_work: true — no new strategy design, variant creation, or
+      parameter search in this wave"
+  - "underpowered_non_rejection_maps_to_wind_down: true — pre-reg must pre-commit
+      that a p >= 0.05 with the acknowledged low power (~20-35%) = WIND-DOWN, not
+      inconclusive"
+
+criteria:
+  # --- N1: code hardening (pre-condition for freeze) ---
+  - id: N1-sizer-hardening
+    description: >
+      _build_sizer in carry_universe_matrix.py (lines 419-421, 432-434) uses the
+      `or`-idiom which silently discards a valid falsy override of 0.0 and falls
+      back to the config default. A one-line None-check fix is required
+      (e.g., `x if (x := variant_params.get('k')) is not None else exec_cfg.k`)
+      for leverage_cap, max_order_units, min_order_size, risk_per_trade,
+      stop_loss_atr_multiple — all five `or` occurrences — before the code
+      state is pinned for freeze.
+    owner: quant-developer
+    done_when: >
+      git diff shows each `or` replaced with an explicit None-check; existing tests
+      pass; principal-reviewer signs off on the diff.
+
+  # --- N2: normalization addressed in pre-reg ---
+  - id: N2-studentization-addressed
+    description: >
+      The carry_momentum variant's return std is ~1000x smaller than the other five
+      variants (correct consequence of risk_per_trade=0.007 in
+      carry_momentum_portfolio.yaml). This scale disparity makes carry_momentum a
+      near-null SPA column if raw returns are used. The pre-registration MUST
+      explicitly state whether (a) studentized T_k = sqrt(n)*mean(f_k)/omega_hat_k
+      is applied uniformly (which normalizes scale and is the standard SPA
+      specification), or (b) raw-return SPA is used and the near-null column
+      distortion is accepted and documented. The mathematician must sign this choice.
+    owner: mathematician + head-of-quant-research
+    done_when: >
+      The pre-reg document contains an explicit numbered section on per-cell
+      normalization with the chosen method stated and rationale given; mathematician
+      artifact references this section.
+
+  # --- Null hypothesis ---
+  - id: PRE-REG-null
+    description: >
+      Frozen null H0 stated verbatim: max over cells k of expected net-of-cost,
+      post-entry-delay, benchmark-relative (benchmark = ZERO) per-bar performance
+      d_k <= 0. Must appear word-for-word in the pre-reg document.
+    owner: mathematician + head-of-quant-research
+    done_when: >
+      Pre-reg document contains a "Null Hypothesis" section with the exact
+      mathematical statement; any deviation from this formulation is a blocker.
+
+  # --- Test statistic and method ---
+  - id: PRE-REG-statistic
+    description: >
+      Exact statistic and method frozen: Hansen SPA (primary) p-value AND White
+      Reality Check p-value (conservative cross-check) emitted from the SAME
+      stationary-bootstrap draws. Statistic = studentized mean
+      T_k = sqrt(n)*mean(f_k)/omega_hat_k; family statistic = max_k T_k.
+      Joint same-block resampling across all ~36 cells (preserves cross-sectional
+      dependence). Both p-values reported.
+    owner: mathematician
+    done_when: >
+      Pre-reg document has a "Test Statistic and Method" section that names
+      the function signatures from reality_check.py (r5c_hansen_spa, White-RC path)
+      and confirms joint same-block draw.
+
+  # --- Frozen 36-cell universe with no-silent-exclusion rule ---
+  - id: PRE-REG-universe
+    description: >
+      The pre-registration must enumerate all 36 cells explicitly:
+      6 variants (carry, carry_fred, fred_carry_stripped, vol_target_carry,
+      vol_target_carry_no_vol_scaling, carry_momentum) x 6 JPY crosses
+      (USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY). A no-silent-exclusion
+      rule must be stated: any cell dropped from the universe must be reported with
+      structured reason in the pre-reg or results; a silent drop voids the FWER
+      guarantee.
+    owner: head-of-quant-research
+    done_when: >
+      Pre-reg document contains a complete 6x6 grid enumeration and the
+      no-silent-exclusion rule stated as a named constraint.
+
+  # --- OOS window and snooping treatment ---
+  - id: PRE-REG-oos-window
+    description: >
+      The exact evaluation window (start date, end date, bar count) must be frozen
+      with an honest treatment of data snooping: these are the firm's
+      longest-studied strategies; the pre-reg must either (a) designate a genuine
+      post-development hold-out period, or (b) apply a deflated-Sharpe-style haircut
+      (DSR) and state the haircut formula and inputs. The HoQR and mathematician must
+      both sign off on which path is taken.
+    owner: head-of-quant-research + mathematician
+    done_when: >
+      Pre-reg document has an "OOS Window and Snooping Treatment" section that names
+      the window dates, approach (hold-out or deflated-Sharpe), and the rationale.
+      "We used all available data" with no haircut is not acceptable.
+
+  # --- Block length ---
+  - id: PRE-REG-block-length
+    description: >
+      Block length = Politis-White (2004) automatic data-driven rule, applied
+      per-variant (not a single shared value), with guard L >= 1. The committed
+      implementation in reality_check.py must be confirmed as the frozen algorithm.
+      Pre-reg must state that L is computed from the actual series (not assumed
+      from the near-white ACF proxy finding, which may not hold for
+      vol-targeted/FRED-conditioned variants).
+    owner: mathematician + quant-developer
+    done_when: >
+      Pre-reg document cites the Politis-White rule by name, references the
+      reality_check.py function, and states per-variant application with
+      max-across-cells aggregation for the joint draw.
+
+  # --- K and MC-SE ---
+  - id: PRE-REG-K-MCSE
+    description: >
+      K >= 2000 bootstrap draws required; target K=5000-10000 preferred. The
+      pre-reg must state the exact K value and report the MC-SE formula:
+      sqrt(p*(1-p)/K) at p=0.05 (= 0.0049 at K=2000). K=200 is prohibited
+      (MC-SE ~0.0154 straddles the 0.05 boundary).
+    owner: mathematician
+    done_when: >
+      Pre-reg document has a "Bootstrap Parameters" section with K stated,
+      MC-SE formula stated, and K=200 explicitly ruled out with rationale.
+
+  # --- Alpha and FWER ---
+  - id: PRE-REG-alpha-FWER
+    description: >
+      Alpha = 0.05 stated. FWER (not FDR) via max-statistic over the single pooled
+      family of ~36 cells. Rationale for FWER over FDR must be stated: the firm
+      decision is one binary CONTINUE/WIND-DOWN = P(any false CONTINUE) = FWER.
+    owner: mathematician
+    done_when: >
+      Pre-reg document has an "Error Control" section with alpha, FWER vs FDR
+      choice, and rationale.
+
+  # --- Go/no-go decision threshold ---
+  - id: PRE-REG-decision-threshold
+    description: >
+      The exact go/no-go threshold must be stated: SPA p < 0.05 -> CONTINUE path;
+      SPA p >= 0.05 -> WIND-DOWN path. CONTINUE is necessary-but-not-sufficient
+      (a single isolated cell p<0.05 does not rescue the program; post-hoc selection
+      invalidates the p). AMBIGUOUS path (subset survives) maps to new pre-reg for
+      confirmatory testing only, never to CONTINUE on the original family.
+    owner: head-of-quant-research
+    done_when: >
+      Pre-reg document has a "Decision Rules" section with the exact threshold and
+      each branch (CONTINUE / WIND-DOWN / AMBIGUOUS) defined before any run.
+
+  # --- Wind-down action map ---
+  - id: PRE-REG-winddown-map
+    description: >
+      A complete pre-committed wind-down action map covering every possible outcome
+      must appear in the pre-reg BEFORE the test runs. Required outcomes and their
+      firm actions:
+        (1) REJECT (p < 0.05, class level): named next-step actions (confirmatory
+            pre-reg, not free exploration).
+        (2) FAIL TO REJECT, powered scenario (p >= 0.05, power adequate):
+            WIND-DOWN — zero validated alpha structural.
+        (3) FAIL TO REJECT, underpowered scenario (p >= 0.05, power ~20-35%):
+            WIND-DOWN — not "inconclusive, keep spending." This is binding.
+        (4) ANOMALOUS result (e.g., partial subsets, carry_momentum distortion
+            after normalization decision): AMBIGUOUS path with named confirmatory
+            pre-reg gate; does NOT license CONTINUE.
+        (5) Technical failure (code error, data integrity fault detected at run time):
+            HALT, root-cause, re-freeze before re-run; does NOT increment trial counter.
+    owner: head-of-quant-research
+    done_when: >
+      Pre-reg document has a "Wind-Down Action Map" section with all five outcomes
+      enumerated and firm actions named. "Inconclusive, keep spending" is not a
+      valid action for any outcome.
+
+  # --- Power statement ---
+  - id: PRE-REG-power
+    description: >
+      The pre-reg must state the estimated class-level power (~20-35% at the stated
+      ~0.30 annualized Sharpe under FWER over correlated cells) and pre-commit that
+      this low power makes a non-rejection UNINFORMATIVE as evidence of no-edge, but
+      does not change the firm action: WIND-DOWN. Power does not license a third
+      "inconclusive" outcome.
+    owner: mathematician + null-hypothesis-tester
+    done_when: >
+      Pre-reg document has a "Power and Limitations" section with the power estimate,
+      source of the estimate, and the binding statement that underpowered
+      non-rejection -> WIND-DOWN.
+
+  # --- Freeze mechanics ---
+  - id: FREEZE-mechanics
+    description: >
+      After consensus ratification of the pre-reg package, the document must be
+      frozen by: (a) SHA-256 hash of the pre-reg file, (b) git commit hash of the
+      code state (carry_universe_matrix.py + reality_check.py post-N1 fix),
+      both recorded in a freeze-receipt artifact before any STEP 4 run.
+      The quant-developer is responsible for producing and committing the
+      freeze-receipt. Any post-freeze code change (other than the permitted N1 fix,
+      which must occur BEFORE freeze) voids the pre-reg.
+    owner: quant-developer + principal-reviewer
+    done_when: >
+      A freeze-receipt YAML is committed to
+      .fintech-org/artifacts/2026-06-05T-r5-step3-prereg/ containing both hashes
+      before the first STEP 4 bootstrap draw.
+
+  # --- NHT adversarial audit ---
+  - id: NHT-audit
+    description: >
+      NHT must produce an adversarial audit of the assembled pre-reg package
+      (null, statistic, normalization, universe, OOS window, K, power, wind-down
+      map). NHT dissent is append-only: any objection is recorded verbatim and
+      does not block unless NHT raises it to block-threshold severity.
+    owner: null-hypothesis-tester
+    done_when: >
+      NHT audit artifact present at
+      .fintech-org/artifacts/2026-06-05T-r5-step3-prereg/nht-audit.yaml with
+      decision field populated (approve | dissent | block) and verbatim text.
+
+  # --- Principal-reviewer sign-off on N1 diff ---
+  - id: PR-review-N1
+    description: >
+      The principal-reviewer must independently review the N1 one-line hardening
+      diff in carry_universe_matrix.py before it is merged and before freeze.
+      Review covers: correctness of the None-check, no unintended behavior change,
+      and that all five `or`-idiom occurrences are addressed.
+    owner: principal-reviewer
+    done_when: >
+      Principal-reviewer artifact present at
+      .fintech-org/artifacts/2026-06-05T-r5-step3-prereg/pr-n1-review.yaml
+      with decision: approve or decision: needs-work.
+
+  # --- Consensus ratification ---
+  - id: CONSENSUS-signed
+    description: >
+      A consensus document covering the complete pre-reg package must be signed by
+      head-of-quant-research, mathematician, quant-developer (code-pin confirmation),
+      and NHT (audit result). PM collects signatures and authors the consensus file.
+      CEO ratification is required before STEP 4 is authorized (wind-down is
+      irreversible firm policy; not in the autonomous quorum's authority).
+    owner: pm
+    done_when: >
+      CONSENSUS_2026-06-05_r5_step3_prereg.md committed to docs/decisions/ with
+      all role signatures and CEO ratification noted.
+
+out-of-scope:
+  - "Running the R5 kill test (STEP 4) — any bootstrap draw, p-value computation,
+      or result interpretation is prohibited in this wave"
+  - "New strategy design, variant creation, or parameter search of any kind"
+  - "Live trading, paper trading, or any capital-at-risk action"
+  - "Charter or protocol edits (firm non-negotiables are not renegotiated in this wave)"
+  - "Non-JPY pair inclusion — the universe is frozen at 6 JPY crosses"
+  - "Bet#1 or other retired trial analysis — those are closed"
+  - "New alpha hypotheses — the firm has zero validated OOS alpha; no new exploration
+      is authorized until STEP 4 resolves"
+  - "Trial counter increment — this wave produces a spec artifact, not a trial"
+  - "Contamination audit scope expansion beyond what STEP 1 already resolved"
+
+roles-staffed:
+  - pm: Acceptance criteria, consensus document authorship, signature collection;
+      makes no domain or test-design decisions.
+  - head-of-quant-research: Authors the pre-registration draft; owns the universe
+      enumeration, OOS window + snooping treatment, and go/no-go / wind-down
+      decision framing.
+  - mathematician: Frozen formal statistical specification — exact null, statistic,
+      per-cell normalization (N2 decision), block-length algorithm, K, alpha, FWER
+      rationale, power statement, and snooping haircut method.
+  - quant-developer: N1 one-line None-check hardening in _build_sizer and
+      carry_universe_matrix.py; produces and commits the freeze-receipt (SHA-256 +
+      git commit hash) after consensus; no strategy decisions.
+  - null-hypothesis-tester: Adversarial audit of the assembled pre-reg package;
+      dissent is append-only (firm rule 6); block-threshold dissent halts signing.
+  - principal-reviewer: Independent review of the full pre-reg package AND the N1
+      diff; separate review wave after role artifacts are assembled.
+
+wraps_invocation_of: []
+
+evidence:
+  - path: docs/decisions/CONSENSUS_2026-06-02_r5_scope.md
+    note: >
+      Ratified scope document: null formulation, test design, universe, sequencing,
+      go/no-go framework, NHT dissent (verbatim), and the deferred-to-STEP-3 list
+      that defines what this pre-reg must contain.
+  - path: src/forex_system/harness/carry_universe_matrix.py
+    lines: "419-421, 432-434"
+    note: >
+      N1 finding: the five `or`-idiom occurrences in _build_sizer that would
+      silently discard a falsy 0.0 override. Verified by direct Read of the file.
+  - path: src/forex_system/harness/reality_check.py
+    note: >
+      Committed Politis-White auto block-length + White-RC implementation (STEP 2a,
+      commit 563b6d7); r5c_hansen_spa function that STEP 3 pre-reg will pin.
+  - path: src/forex_system/harness/carry_universe_matrix.py
+    note: >
+      Committed joint (T,36) return matrix builder (STEP 2b, commit 8d3bedb);
+      all 36 cells build with 0 dropped per commit message.
+  - path: .fintech-org/trials.jsonl
+    note: >
+      Verified at 36 lines (wc -l output). STEP 3 does not increment this counter.
+  - path: .agent-accountability/ratifications/r5-scope-2026-06-02:phase1:task1.0.yaml
+    note: >
+      Ratification record for the scope consensus; N1 and N2 deferred findings
+      originate from the Principal Reviewer's review of STEP 2b.
+
+assumptions:
+  - >
+    STEP 1 (data-integrity audit, NHT hard blocker) is confirmed closed by the
+    committed storage.py guard (commit 9be7eb3). If any new data-integrity issue
+    surfaces during pre-reg assembly, it is a blocker that halts STEP 3.
+  - >
+    The ~0.30 annualized Sharpe reference in the scope is annualized (not per-bar
+    daily); the mathematician will confirm the exact figure and its source in the
+    power section.
+  - >
+    The 6 variant files are the exhaustive carry family (no undiscovered variants
+    outside src/forex_system/strategies/). The STEP 1 grep is assumed to have
+    confirmed this; if not, HoQR must re-confirm before pre-reg freeze.
+  - >
+    `rate_differentials.parquet` is the single signal source for all 6 variants;
+    no variant silently reads a different rate source.
+  - >
+    The N1 fix is a one-line mechanical change with no behavior impact on any
+    currently-passing test (no sizer parameter is currently overridden to 0.0 in
+    production paths). The principal-reviewer will verify this assumption.
+  - >
+    CEO has ratified the BUILD decision (from the scope consensus fork). STEP 3
+    proceeds on that basis. If the CEO has not ratified, this PM artifact is
+    premature and must be held.
+
+confidence: high
+
+body: |
+  This acceptance-criteria artifact defines what "done" means for STEP 3 of the R5
+  kill-test pipeline: a crypto-frozen pre-registration document covering the complete
+  statistical specification and a wind-down action map that pre-commits firm actions
+  for every possible test outcome — before a single bootstrap draw runs.
+
+  The criteria are derived exclusively from the ratified scope consensus
+  (CONSENSUS_2026-06-02_r5_scope.md) and from direct inspection of the committed
+  code (carry_universe_matrix.py lines 419-421 and 432-434 for N1; the
+  carry_momentum scale finding for N2). No domain or statistical judgment is
+  made by the PM.
+
+  Two pre-conditions must clear before the pre-reg is frozen:
+    (1) N1 hardening: the _build_sizer `or`-idiom must be replaced with None-checks
+        by the quant-developer and reviewed by the principal-reviewer.
+    (2) N2 decision: the mathematician must explicitly state the per-cell
+        normalization approach (studentized vs raw) in the pre-reg so the
+        carry_momentum scale disparity is handled by design, not by accident.
+
+  The wind-down action map is the binding deliverable that makes R5 a true kill test
+  rather than an exploratory exercise: underpowered non-rejection is pre-committed as
+  WIND-DOWN. This is the firm's stated intent per the CEO's BUILD decision and the
+  NHT's preserved dissent. Any pre-reg that leaves a non-rejection open to
+  "inconclusive, keep spending" interpretation fails criterion PRE-REG-winddown-map
+  and must be revised before signing.
+
+  All five `or` occurrences in _build_sizer are load-bearing claims verified by
+  direct file read; the trial counter claim (36 lines) is verified by wc -l.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

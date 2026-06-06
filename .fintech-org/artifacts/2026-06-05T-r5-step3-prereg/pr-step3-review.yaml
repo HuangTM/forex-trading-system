@@ -1,0 +1,278 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: "2026-06-05T14:30:00Z"
+subtask_ref: r5-step3-prereg-pr-review
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+claimed_domains: [independent-design-review, independent-algorithm-review, spec-vs-implementation-drift-detection, test-coverage-and-test-quality-review]
+artifact-under-review: "r5_carry_universe_kill_test.md (853 lines) + N1 diff in carry_universe_matrix.py + TestBuildSizerN1Hardening"
+rubrics-applied:
+  - "review-plan: applied (Correctness, Design, Completeness, Clarity, Risk; Testing on N1; Security skipped — no untrusted input / secrets surface, paper-only)"
+  - "execution-firewall-review: applied (Section A spec-vs-impl drift, Section C parameter sourcing, Section E spec-vs-code integration tests; ML annex skipped — non-ML statistical harness)"
+  - "log-as-decision-trace: applied to the cell_dropped / seed / block-length / result decision boundaries the spec pins"
+  - "probability-statistics: applied to DSR/SPA/HAC/block-length/MC-SE math verification"
+  - "Inversion Check (pre-mortem): applied"
+  - "Absent Evidence Detection: applied"
+  - "Assumption Audit: applied"
+  - "Self-Verification: applied (re-ran arithmetic and expected_max_sr reverse-search to re-verify the two blocking findings)"
+findings:
+  - id: F-001
+    severity: blocking
+    location: "r5_carry_universe_kill_test.md §7.3.3 (lines 748-761) vs src/forex_system/harness/dsr.py:107-114,198"
+    category: spec-drift
+    observation: >
+      §7.3.3 freezes SR0 = 0.221616 annualized (= 0.013961 per-obs) and asserts the gate is
+      evaluated by passing this frozen SR0 INTO compute_dsr as the deflation benchmark, calling it
+      "a parameter pin, not a code change: expected_max_sr/compute_dsr are unchanged; the frozen SR0
+      scalar is passed as the benchmark." The actual compute_dsr signature is
+      compute_dsr(sharpe_ratio, n_observations, skewness, excess_kurtosis, n_trials, periods_per_year)
+      — there is NO benchmark/SR0 parameter. The benchmark is computed internally at
+      dsr.py:198 sr_star = expected_max_sr(n_trials, n_observations). compute_dsr is the only DSR
+      entry point (grep over src/.../harness confirms no SR0-accepting overload).
+    inference: >
+      INFERENCE: The frozen SR0 cannot be injected without editing dsr.py — which the freeze forbids
+      post-freeze (§1.3, §7.3.3 own words). I verified the override is also unreachable via n_trials:
+      expected_max_sr(2,4186)=0.008034 per-obs and the frozen target is 0.013961; reverse-searching
+      n_trials in [2,100000) the closest is n=3 -> 0.013183 (still 5.6% off and a different, unjustified
+      trial count). The structural reason: the frozen SR0 uses the EMPIRICAL cross-trial dispersion
+      sqrt(Var[SR_n])=0.4264, whereas expected_max_sr divides the same bracket by the NULL-theoretical
+      1/sqrt(T-1) — two different dispersions; no n_trials makes them equal. Therefore STEP 4's DSR gate
+      (and thus the CONTINUE and the DSR-fail AMBIGUOUS branches) is unexecutable as frozen. Per §7.3.3's
+      own escape clause this is a TECHNICAL FAILURE (§5 outcome 5), meaning the pre-reg as written routes
+      its own primary deflation path to a forced HALT. A freeze that cannot run its own load-bearing gate
+      is not freezable.
+    evidence: >
+      dsr.py:107-114 (signature, 6 params, no SR0); dsr.py:198 (sr_star = expected_max_sr(n_trials,
+      n_observations)); executed: expected_max_sr(2,4186)=0.008034358980737623 vs frozen
+      0.221616/sqrt(252)=0.013960495775; reverse-search closest n_trials=3 -> 0.0131826; spec
+      pre-reg lines 756-761.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: mathematician
+  - id: F-002
+    severity: blocking
+    location: "r5_carry_universe_kill_test.md §7.3.6 (lines 808-819) — CONTINUE vs AMBIGUOUS branch overlap"
+    category: correctness
+    observation: >
+      The integrated decision functional defines CONTINUE iff (p_SPA<0.05 AND DSR>=0.95 AND p_RC<0.05)
+      with NO straddle-band exclusion, and AMBIGUOUS iff [p_SPA<0.05 AND (DSR<0.95 OR p_RC>=0.05)] OR
+      (|p_SPA-0.05| <= MC-SE = 0.0031) OR isolated-subset/normalization-distortion. The WIND-DOWN branch
+      is explicitly gated "outside the MC-SE straddle band" so WIND-DOWN does not overlap AMBIGUOUS — but
+      the CONTINUE branch is NOT analogously gated.
+    inference: >
+      INFERENCE: An input that clears all three CONTINUE conditions while sitting inside the MC-SE
+      straddle band lands in BOTH CONTINUE and AMBIGUOUS with no stated precedence. Concrete instance:
+      p_SPA=0.048 (so p_SPA<0.05 AND |0.048-0.05|=0.002 <= 0.0031), DSR=0.96, p_RC=0.01. CONTINUE fires
+      (all three met) AND the AMBIGUOUS straddle clause fires. The document's entire posture is that a
+      boundary result must NOT buy CONTINUE (§4 AMBIGUOUS, §5 outcome 4), so the intended resolution is
+      almost certainly AMBIGUOUS — but the functional as frozen does not say so. Post-freeze this is
+      unresolvable without a spec edit (which voids the freeze). The reviewer cannot determine the
+      decision for a boundary-significant-yet-deflation-passing result from the document alone.
+    evidence: >
+      pre-reg lines 808-810 (CONTINUE: no straddle exclusion), 812-816 (AMBIGUOUS straddle clause),
+      818-819 (WIND-DOWN gated 'outside the MC-SE straddle band'); executed enumeration confirms
+      p_SPA=0.048 satisfies both CONTINUE preconditions and the AMBIGUOUS straddle predicate.
+    recommended-action-class: clarify-spec
+    owning-role: mathematician
+  - id: F-003
+    severity: blocking
+    location: "r5_carry_universe_kill_test.md FREEZE BLOCK (lines 848-852) + self-reference in lines 3, 26, 321"
+    category: invariant-violation
+    observation: >
+      The FREEZE BLOCK contains three unfilled placeholders: Pre-reg SHA-256 [FROM FREEZE-RECEIPT],
+      Pinned code commit [FROM FREEZE-RECEIPT], Freeze timestamp [FROM FREEZE-RECEIPT] (grep confirms
+      exactly these three). Line 3 and line 26 define the freeze-receipt as "SHA-256 of this file";
+      retirement criterion line 321 voids the run iff freeze_receipt.sha256 != sha256(this_file).
+    inference: >
+      INFERENCE: The hash is taken over "this file," but the file contains a slot for its own hash. If the
+      SHA-256 is written into line 850, the file bytes change and the stored hash no longer equals
+      sha256(this_file) — the line-321 retirement check becomes unsatisfiable, voiding every run. The doc
+      never specifies WHICH file state is hashed (with placeholders present, with the receipt filled, or
+      the receipt stored in a separate external artifact). Until the hashed-state is pinned and the FREEZE
+      BLOCK is either externalized or excluded from the hash, the freeze is not verifiable post-hoc and the
+      "permitted pre-freeze changes" set (N1 only) cannot be closed against a concrete hash. This is the
+      mechanics that FREEZE-mechanics exists to guarantee, and it is currently broken by construction.
+    evidence: >
+      pre-reg lines 850-852 (three [FROM FREEZE-RECEIPT] placeholders); line 3 / line 26 ("SHA-256 of this
+      file"); line 321 ("freeze_receipt.sha256 != sha256(this_file) -> VOID").
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-004
+    severity: minor
+    location: "r5_carry_universe_kill_test.md §7.3.4 (lines 784-786) vs dsr.py:168-169"
+    category: spec-drift
+    observation: >
+      §7.3.4 documents only ONE compute_dsr return-0.0 path: "If var_term <= 0, compute_dsr returns 0.0
+      ... the documented degenerate path (dsr.py:187-195)." compute_dsr has a SECOND early return-0.0 at
+      dsr.py:168-169: "if sharpe_ratio <= 0.0: return 0.0" (non-positive Sharpe). The spec does not pin
+      this branch.
+    inference: >
+      INFERENCE: For the best cell k* (the family argmax) SR is normally positive, so this branch is
+      unlikely to fire and the omission is low-risk. But the gate's behavior on a non-positive winning
+      Sharpe is unspecified: it would silently FAIL the DSR gate (DSR=0 < 0.95) rather than route to
+      TECHNICAL FAILURE. An audit reading dsr.py:168 against the spec would find an undocumented decision
+      boundary. Pin it for completeness so the gate's failure modes are exhaustively documented.
+    evidence: >
+      dsr.py:168-169 (sharpe_ratio<=0.0 -> return 0.0); pre-reg lines 784-786 (only var_term<=0 path
+      documented).
+    recommended-action-class: clarify-spec
+    owning-role: mathematician
+  - id: F-005
+    severity: minor
+    location: "r5_carry_universe_kill_test.md §2.3 caveat (lines 462-463) and §2.3 item-1 (line 433) vs reality_check.py:863,868"
+    category: spec-drift
+    observation: >
+      The spec cites the HAC-SE absolute floor at "reality_check.py:867" (line 463 caveat) and
+      "reality_check.py:868" (line 433 item-1). There are actually TWO distinct 1e-12 guards: an INTERNAL
+      s2 clamp inside _hac_se at line 863 (s2 = max(s2, 1e-12)) and the omega np.where floor at line 868
+      (omegas = np.where(omegas < 1e-12, 1e-12, omegas)). Line 867 is blank/comment. The supporting YAML
+      (qd-omega-floor-check.yaml) compounds this, citing "reality_check.py:863" for the omega floor in its
+      verdict comment.
+    inference: >
+      INFERENCE: The two guards operate on different quantities (s2 long-run variance vs omega SE) and a
+      pre-reg that pins the wrong line for the floor it claims is "never clipping" weakens auditability —
+      a post-hoc auditor checking line 867 finds nothing. The substantive claim (floor-safe, ratio 6.47e4)
+      is independently verified and correct; only the line citations drift. Tighten the citations so each
+      1e-12 guard is pinned to its true line (863 internal s2 clamp; 868 omega floor).
+    evidence: >
+      reality_check.py:863 (s2 = max(s2, 1e-12)); reality_check.py:868 (omegas = np.where(... 1e-12 ...));
+      pre-reg line 463 says ':867', line 433 says ':868'; qd-omega-floor-check.yaml verdict comment says
+      ':863' for the omega floor.
+    recommended-action-class: clarify-spec
+    owning-role: mathematician
+  - id: F-006
+    severity: observation
+    location: "tests/harness/test_carry_universe_matrix.py TestBuildSizerN1Hardening + src/.../carry_universe_matrix.py:402-446"
+    category: test-coverage-gap
+    observation: >
+      The N1 diff correctly replaces all five `or`-idiom fallbacks with explicit None-checks (leverage_cap,
+      max_order_units, min_order_size for vol_target; risk_per_trade, stop_loss_atr_multiple for
+      continuous). Non-None inputs are unchanged; the discrete branch returns None unchanged. The tests
+      cover 0.0-propagation for all five fields, None-fallback for both sizer branches, discrete->None, and
+      a non-zero regression. The data flow is real: build_joint_return_matrix -> _build_cell(variant_params
+      =extra_params) -> _build_sizer(exec_cfg, variant_params).
+    inference: >
+      INFERENCE (test inversion): the bug only bites for falsy-but-valid values; the only such value in
+      these float fields is 0.0, which the tests DO cover, so a reintroduced `or`-idiom would be caught.
+      Two residual gaps, both low-risk: (1) the tests never assert via the actual run_r5 / build_matrix
+      caller that the frozen STEP-4 path forwards a 0.0 override end-to-end — they unit-test _build_sizer in
+      isolation, so a future caller that fails to plumb variant_params would slip past; (2) no test pins
+      that min_order_size's None-fallback equals exec_cfg.min_order_size for a variant where that field is
+      None (vol_target_carry has it set), so a None-config-field + None-override -> float(None) TypeError
+      path is untested. Neither blocks the frozen run (which uses _VARIANT_EXEC defaults, not 0.0 overrides),
+      so N1 is a correct defensive pre-freeze fix with no behavior change for the frozen run.
+    evidence: >
+      carry_universe_matrix.py:422-446 (five None-checks); :504 (_build_sizer(exec_cfg, variant_params));
+      :700 (variant_params=extra_params); test file class TestBuildSizerN1Hardening (10 tests).
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-007
+    severity: observation
+    location: "r5_carry_universe_kill_test.md §3.4 Sharpe table (line 214) and §7.3.1 (lines 699-709)"
+    category: other
+    observation: >
+      SR_1 = 0.80 (the dominant DSR input) is registry-unverified: §7.3.1 itself records it as
+      "pre-reg-documented at carry_fred.md:16 ... with no trials.jsonl row" and notes the "Bet #1 =
+      carry_fred" label repeats a labeling the 2026-06-02 adjudication flagged (Bet #1 / trial 87fa1d23 was
+      a momentum portfolio, not carry_fred). The Mathematician neutralizes this via a monotonicity argument
+      (over-stated SR_1 raises Var[SR_n] -> raises SR0 -> harder CONTINUE -> only a false WIND-DOWN, never a
+      false CONTINUE).
+    inference: >
+      INFERENCE: The monotonicity argument is sound IF the DSR gate runs at all — but per F-001 the gate
+      cannot run as frozen, so the "conservative-if-wrong" safety net is moot until F-001 is resolved. I am
+      not re-opening the N=2 / SR=0.80 trading-domain call (out of scope; owned by HoQR/Mathematician); I
+      flag only that a load-bearing frozen input is self-described as provenance-weak AND that its safety
+      argument is contingent on a gate that F-001 shows is unexecutable. Routing to the owning role for
+      visibility, not for re-derivation.
+    evidence: >
+      pre-reg line 214 (SR_1=0.80 source carry_fred.md:16, no trials.jsonl row); lines 701-709 (provenance
+      caution + monotonicity neutralization).
+    recommended-action-class: escalate-to-owning-role
+    owning-role: head-of-quant-research
+coverage-statement: >
+  I reviewed 4 of 4 artifact groups in scope: (1) the full 853-line pre-registration (PART I HoQR +
+  PART II Mathematician), re-derived against source; (2) the N1 diff in carry_universe_matrix.py
+  _build_sizer plus TestBuildSizerN1Hardening; (3) both supporting measurement YAMLs (qd-omega-floor-check
+  numeric results and qd-n1-hardening matrix_facts — decision/body fields treated as redacted, numbers
+  only); (4) the pinned implementation (reality_check.py SPA/HAC/block-length/seed, dsr.py compute_dsr/
+  expected_max_sr, carry_universe_matrix.py build/drop path, honest_n.py referenced but not separately
+  re-read line-by-line — its line citations 39-81 were used as given by the spec, not independently
+  re-derived; this is the one citation I did not re-verify at source). Nothing skipped for time.
+contamination-check: clean
+time-spent-reasoning: ~70 minutes
+evidence:
+  - "src/forex_system/harness/dsr.py:107-114 (compute_dsr signature, no SR0 param)"
+  - "src/forex_system/harness/dsr.py:168-169 (sharpe_ratio<=0 -> 0.0)"
+  - "src/forex_system/harness/dsr.py:184 ((excess_kurtosis+2)/4)"
+  - "src/forex_system/harness/dsr.py:187-195 (var_term<=0 degenerate)"
+  - "src/forex_system/harness/dsr.py:198 (sr_star = expected_max_sr internal)"
+  - "src/forex_system/harness/dsr.py:46-104 (expected_max_sr; bracket/sqrt(T-1))"
+  - "src/forex_system/harness/reality_check.py:48 (_ALPHA=0.05), :49 (_B=10_000)"
+  - "src/forex_system/harness/reality_check.py:824-825 (master_seed+2, PCG64)"
+  - "src/forex_system/harness/reality_check.py:829-835 (block length max(1,ceil(L_max)))"
+  - "src/forex_system/harness/reality_check.py:850-864 (_hac_se), :863 (s2 clamp), :868 (omega floor)"
+  - "src/forex_system/harness/reality_check.py:871 (studentized T_k), :876-877 (RC obs), :895 (mu_bar recenter), :918/924/930 (boot SE floors), :938 (RC boot recenter by means), :941-945 (p-value +1/+1)"
+  - "src/forex_system/harness/carry_universe_matrix.py:402-446 (_build_sizer N1), :504/:700 (variant_params plumbing), :823-865 (_drop_cell structured reason/exc_type/category)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/qd-omega-floor-check.yaml (T=4186, dropped 0, L_max=21.330121, min omega 6.472882e-08, ratio 6.47e4)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/qd-n1-hardening.yaml matrix_facts (T=4186, 0 dropped, carry_momentum std 6.93e-06)"
+  - "executed: expected_max_sr(2,4186)=0.008034 vs frozen SR0_pp 0.013961; reverse-search closest n_trials=3->0.013183; SR0_sample=0.221616, SR0_pop=0.156704, Z^-1(0.81606)=0.900452, ceil(21.330121)=22 — all verified"
+assumptions:
+  - "honest_n.py:39-81 line citations and the N=2 dedup logic were taken as the spec states them; I did not independently re-read honest_n.py at source (out of the load-bearing spec-vs-impl traces enumerated in the prompt)."
+  - "The N=2 / SR=0.80 / Var[SR_n] trading-domain calls are owned by HoQR/Mathematician and are out of my review scope; I assess only their internal consistency and executability, not their correctness as research judgments."
+  - "redacted decision/body fields in the two supporting YAMLs were not read as approvals; only numeric results used."
+  - "git diff src/ tests/ at review time is the N1 delta under review; no other uncommitted code changes were assessed."
+confidence: high
+body: |
+  DECISION: REJECT. Three blocking findings, two of which make the pre-registration UNFREEZABLE as
+  written, and one of which makes the freeze itself unverifiable.
+
+  The arithmetic and the statistical machinery are, to their credit, almost entirely correct. I
+  re-derived SR0 (0.221616 sample / 0.156704 population), Z^-1(0.81606)=0.900452, the per-obs
+  conversion 0.013961, the block length ceil(21.330121)=22, and the omega-floor safety ratio (6.47e4)
+  — all check out exactly against source. The studentized SPA statistic (:871), Hansen thresholded
+  recentering (:895), joint same-block bootstrap (:882-890), HAC Newey-West with Bartlett kernel
+  (:850-864), the +1/+1 p-value (:941-945), the seed discipline (:824-825), and the (excess_kurtosis+2)/4
+  kurtosis convention (dsr.py:184) all say what the spec claims they say. The N1 diff is a correct,
+  behavior-preserving defensive fix with adequate tests. The no-silent-exclusion machinery (_drop_cell
+  structured reason/exc_type/category, fail-closed on code errors) is real and well-instrumented.
+
+  But the load-bearing DSR gate cannot run. F-001: §7.3.3 pins a frozen SR0 = 0.221616 and asserts it is
+  "passed as the benchmark" to compute_dsr with "no code change." compute_dsr has no benchmark parameter;
+  it computes expected_max_sr(n_trials, n_observations) internally at dsr.py:198, and that function uses
+  the null-theoretical dispersion 1/sqrt(T-1), structurally incapable of reproducing the spec's
+  empirical-dispersion SR0 for ANY n_trials (verified: expected_max_sr(2,4186)=0.008034 vs target
+  0.013961; closest reachable is n=3->0.013183). So STEP 4 either edits dsr.py (forbidden post-freeze) or
+  hits §7.3.3's own TECHNICAL-FAILURE clause — the pre-reg routes its own primary deflation gate to a
+  forced HALT. This is the single most important finding: a kill test whose deflation gate cannot execute
+  is not a freezable kill test.
+
+  F-002: the integrated decision functional (§7.3.6) is not mutually exclusive. CONTINUE has no MC-SE
+  straddle exclusion while AMBIGUOUS claims the whole straddle band, so a boundary-significant result
+  that also clears DSR and White-RC (e.g. p_SPA=0.048, DSR=0.96, p_RC=0.01) lands in BOTH branches with
+  no precedence rule. Given the document's explicit anti-CONTINUE-on-boundary posture this is almost
+  certainly meant to resolve to AMBIGUOUS, but as frozen it is genuinely ambiguous — and post-freeze that
+  cannot be patched without voiding the pre-reg.
+
+  F-003: the FREEZE BLOCK still holds three [FROM FREEZE-RECEIPT] placeholders, and the doc hashes "this
+  file" while embedding a slot for its own hash. Without specifying which file state is hashed (and
+  excluding/externalizing the receipt block), the line-321 retirement check sha256(this_file) is
+  self-defeating and the freeze is not verifiable post-hoc.
+
+  These are exactly the failure class a pre-registration exists to prevent: a frozen spec that, once
+  frozen, cannot be executed, cannot be unambiguously decided at the boundary, and cannot be cryptographically
+  pinned. All three are fixable BEFORE freeze (F-001 and F-002 by the Mathematician; F-003 by the QD code-pin
+  owner), and none requires re-opening the research judgments. The minors (F-004 undocumented second
+  compute_dsr 0.0 path; F-005 floor line-citation drift) and observations (F-006 N1 end-to-end test gap;
+  F-007 SR_1=0.80 provenance contingent on the F-001 gate) should be folded into the same revision pass.
+
+  Recommend: return to Mathematician for F-001/F-002/F-004/F-005, to QD for F-003/F-006, surface F-007 to
+  HoQR, then re-review the revised PART II and FREEZE BLOCK before any freeze-receipt is cut. No STEP-4
+  draw may proceed; no p-value computed in this review.
+knowledge_gaps:
+  - "Did not independently re-read honest_n.py:39-81 at source; relied on the spec's characterization of the dedup rule."
+  - "Whether the firm intends the freeze-receipt to live in a separate artifact (resolving F-003) is not stated in the doc; flagged rather than assumed."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

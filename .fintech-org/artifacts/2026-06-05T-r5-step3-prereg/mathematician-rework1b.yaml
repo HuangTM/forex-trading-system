@@ -1,0 +1,108 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-05T00:00:00Z"
+subtask_ref: r5-step3-prereg-math-rework1b
+subtask_id: "r5-step3-prereg-2026-06-05:phase1:task1.0"
+trial_id: "576746aa"
+
+claimed_domains:
+  - formal-modeling-and-derivations
+  - numerical-method-selection-and-stability
+
+assumptions:
+  - "dispersion_convention: sqrt(Var[SR_n]) = 0.426385 is the sample (\u00f7(N_obs\u22121) = \u00f71) standard deviation over the TWO observed independent look-representative Sharpes {SR_1=0.80, SR_2=0.197}, held fixed across N \u2208 {2,3,4}. The elected N=3 enters only through the expected-maximum bracket axis. No third Sharpe observation is invented; the only non-fabricated dispersion estimate is the two-point sample estimator."
+  - "dispersion_limitation: A dispersion estimate from exactly 2 observations is highly uncertain. The estimation noise propagates in both directions on SR0. The direction of the residual error is absorbed by the two-axis framing in \u00a77.3.1 (Var/spread axis conservative-if-wrong; N-axis anti-conservative at the union floor) and is explicitly disclosed rather than claimed away."
+  - "quantile_provenance: All 6-dp normal-quantile values are scipy.stats.norm.ppf-grade exact values (orchestrator-verified mechanical arithmetic). The prior hand-bracketed N=3 and N=4 probits (1.162095, 1.328869) are superseded by the exact values (1.161957, 1.328722). The N=2 value Z\u207b\u00b9(0.816060)=0.900452 is retained (sub-ULP difference from orchestrator's 0.900453; immaterial at execution precision)."
+  - "elected_n: 3 (HoQR \u00a73.4 election; Mathematician co-signs)"
+  - "elected_sr0_ann: 0.363623"
+  - "elected_sr0_pp: 0.022906"
+
+assumptions_identified:
+  - >
+    Dispersion is estimated from only N_obs=2 look-Sharpe observations; the resulting sqrt(Var)=0.426385
+    is noisy by a large factor. Acknowledged as a known limitation.
+  - >
+    SR_1=0.80 is registry-prose, not a trial-result row (F-007). Its role in the dispersion estimate
+    is acknowledged conservative-if-wrong on the Var/spread axis only (see §7.3.1 two-axis analysis).
+  - >
+    scipy.stats.norm.ppf is required at run time (A-5 pin); the frozen quantile values are the
+    exact scipy-grade values adopted from the orchestrator mechanical verification.
+
+failure_regimes:
+  - >
+    Dispersion-from-2-observations noise: if the true cross-trial Sharpe dispersion is materially
+    different from 0.426385 (plausible given only 2 observations), SR0 is mis-calibrated in either
+    direction. No fix is available without additional independent look-Sharpe data; the limitation
+    is disclosed and the direction of each axis's error is mapped explicitly.
+  - >
+    If scipy is absent at STEP-4 run time, the frozen quantiles cannot be independently reproduced
+    by the runner — this is a TECHNICAL FAILURE per §7.3.4 A-5 pin, not a license to use the
+    BSM approximation.
+
+alternative_methods:
+  rejected_third_sharpe_fabrication: >
+    One could invent a third look-Sharpe (e.g. the carry baseline SR=0.2841 or the vol_target_carry
+    full-history SR=0.7594) to compute sqrt(Var) over 3 points rather than 2, arguing that N=3
+    implies 3 observations. This is rejected: the three candidate values are not independently
+    drawn look-representatives — they share the same rate-differential feed, and using them would
+    conflate the bracket-axis N=3 election (which charges multiplicity) with the dispersion-axis
+    observation count (which requires genuinely independent draws). The two-point sample estimator
+    over the two distinct information sources is the only defensible choice; the limitation is
+    the price of honesty.
+  population_estimator_alternative: >
+    The population (÷N_obs) estimator over the two observed Sharpes gives sqrt(Var)=0.3015,
+    producing SR0(N=3)=0.129558 — the less-conservative alternative. Rejected in favor of the
+    sample estimator on the basis of unbiasedness and the N=2 maximal-bias argument (§7.3.2).
+
+proof_sketch_or_reference: >
+  All corrected constants are orchestrator-verified mechanical arithmetic against statistics.NormalDist
+  (Python standard library double precision), identical to scipy.stats.norm.ppf to float64 precision.
+  Bracket arithmetic verified by direct multiplication:
+    N=3: 0.4227843×0.430727 + 0.5772157×1.161957 = 0.182103 + 0.670701 = 0.852804;
+         0.426385×0.852804 = 0.363623.
+    N=4: 0.4227843×0.674490 + 0.5772157×1.328722 = 0.285167 + 0.767059 = 1.052123 (prior 1.052310
+         carried the stale Z⁻¹(0.908030)=1.328869; corrected to 1.328722);
+         0.426385×1.052123 = 0.448609.
+  Per-obs: SR0(N=3)/sqrt(252) = 0.363623/15.874508 = 0.022906.
+           SR0(N=4)/sqrt(252) = 0.448609/15.874508 = 0.028260.
+  N=2 unchanged: SR0=0.221616, SR0_pp=0.013961.
+
+numerical_question_routed: ""
+
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:806-819 (§7.3.1 table — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:850-891 (§7.3.3 derivations and FROZEN line — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:919-932 (§7.3.3 execution mechanism blockquote — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:957-961 (§7.3.4 code block — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:28-31 (§1.3 item 2 runner literal — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:280-321 (§3.4 Var/DSR blocks — PATCHED)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:984-1066 (§7.3.5/§7.3.6 — SWEPT, no further patches)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/hoqr-rework1-patches.md:326-340 (HoQR NOTE delegating N=3 dispersion convention to Mathematician)"
+
+confidence: high
+
+body: >
+  Rework-1b resolves two parallel triggers: (1) HoQR's N=3 election replaces the N=2 "(elected)"
+  label and scalar in three execution-critical document spots (§1.3 runner literal, §7.3.3 FROZEN
+  line and execution mechanism blockquote, §7.3.4 code block); (2) orchestrator-verified exact
+  scipy.stats.norm.ppf-grade quantiles correct 5th-decimal hand-bracketing drift in the N=3 and
+  N=4 rows (Z⁻¹(0.877374): 1.162095→1.161957; Z⁻¹(0.908030): 1.328869→1.328722), propagating
+  through brackets and SR0 scalars. The dispersion convention (sqrt(Var)=0.426385 from the two
+  observed look-Sharpes, held fixed across N) is now stated explicitly in §3.4 with the two-
+  observation limitation honestly disclosed, per the HoQR NOTE delegation. Seven delta-patches
+  produced. §7.3.5 and §7.3.6 swept: both clean (no N-specific scalars, no further patches).
+  Elected frozen scalars: SR0=0.363623 ann / SR0_pp=0.022906 per-obs (N=3). N=2 and N=4 recorded
+  as contingency scalars (0.221616/0.013961 and 0.448609/0.028260 respectively).
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources: []
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no_capital_instruction: true
+no-capital-instruction: true

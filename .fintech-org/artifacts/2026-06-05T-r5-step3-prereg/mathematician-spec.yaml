@@ -1,0 +1,135 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound-with-caveats
+timestamp: "2026-06-05T22:15:00Z"
+subtask_ref: r5-step3-prereg
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+trial_id: 576746aa
+claimed_domains: [formal-modeling-and-derivations, numerical-method-selection-and-stability, probability-measure-and-filtration-correctness]
+
+assumptions-identified:
+  - "Stationarity: each cell return series f_{k,t} is (weakly) stationary over the OOS window, so the stationary block bootstrap null and the HAC long-run variance are valid. Carry returns were found near-white (ACF lag-1 ~ -0.003), consistent with this."
+  - "Cross-sectional dependence dominates temporal dependence: the 36 cells share ONE rate-differential idea and overlapping price legs; effective independent dimension ~ 1-4. The joint same-block resampling is justified ONLY under this; if temporal dependence were dominant the L choice would become first-order."
+  - "Scale-invariance of T_k holds in exact arithmetic: omega_hat_k is positive-homogeneous degree 1, so rescaling a column by c>0 leaves T_k = sqrt(n)*mean/omega unchanged. This is the formal basis for the N2 studentization decision handling the carry_momentum ~1000x std gap."
+  - "The ~0.30 reference Sharpe is ANNUALIZED, not per-bar daily (confirmed: per-bar 0.30 would be a ~4.8 annualized Sharpe, trivially significant, and the whole kill-test framing would be wrong)."
+  - "n (joint inner-join index length) is ~4186 daily bars; the exact realized n must be read off the assembled matrix at run time and the power back-of-envelope re-confirmed against it."
+  - "Hansen consistent recentering mu_bar_k = max(0, mean_hat_k) is the correct least-favourable-configuration null for a universe dominated by near-zero/negative cells; SPA dominates White RC in power exactly there."
+  - "Benchmark = ZERO is correct because cost-of-carry is already realized in the swap leg inside the net-of-cost equity curve; an external carry benchmark would double-count."
+  - "K = 5000 with seed 576746 (master_seed); the run is reproducible from frozen seed + frozen code commit; PCG64 RNG."
+
+# orchestrator-mechanical-fix 2026-06-05: base-schema `assumptions` field was omitted from the
+# spawn skeleton (orchestrator error, not agent noncompliance); content below mirrors the
+# agent-authored `assumptions-identified` verbatim. Logged in .fintech-org/spawns.jsonl.
+assumptions:
+  - "Stationarity: each cell return series f_{k,t} is (weakly) stationary over the OOS window, so the stationary block bootstrap null and the HAC long-run variance are valid. Carry returns were found near-white (ACF lag-1 ~ -0.003), consistent with this."
+  - "Cross-sectional dependence dominates temporal dependence: the 36 cells share ONE rate-differential idea and overlapping price legs; effective independent dimension ~ 1-4. The joint same-block resampling is justified ONLY under this; if temporal dependence were dominant the L choice would become first-order."
+  - "Scale-invariance of T_k holds in exact arithmetic: omega_hat_k is positive-homogeneous degree 1, so rescaling a column by c>0 leaves T_k = sqrt(n)*mean/omega unchanged. This is the formal basis for the N2 studentization decision handling the carry_momentum ~1000x std gap."
+  - "The ~0.30 reference Sharpe is ANNUALIZED, not per-bar daily (confirmed: per-bar 0.30 would be a ~4.8 annualized Sharpe, trivially significant, and the whole kill-test framing would be wrong)."
+  - "n (joint inner-join index length) is ~4186 daily bars; the exact realized n must be read off the assembled matrix at run time and the power back-of-envelope re-confirmed against it."
+  - "Hansen consistent recentering mu_bar_k = max(0, mean_hat_k) is the correct least-favourable-configuration null for a universe dominated by near-zero/negative cells; SPA dominates White RC in power exactly there."
+  - "Benchmark = ZERO is correct because cost-of-carry is already realized in the swap leg inside the net-of-cost equity curve; an external carry benchmark would double-count."
+  - "K = 5000 with seed 576746 (master_seed); the run is reproducible from frozen seed + frozen code commit; PCG64 RNG."
+
+failure-regimes:
+  - "carry_momentum omega_hat_k approaching the ABSOLUTE 1e-12 HAC-SE floor: the floor is absolute, not relative, so a genuinely tiny-but-nonzero variance could be clipped, breaking scale-invariance for that cell and turning it spuriously null. ROUTED to quant-developer for numerical confirmation. Fix if triggered: relative floor omega = max(omega, eps_rel*|mean|) — a PRE-FREEZE code change only."
+  - "Non-stationarity / regime break within the OOS window: invalidates both the block-bootstrap null and the HAC variance; SPA p becomes uninterpretable. Mitigation is the pre-reg window choice (HoQR), not the statistic."
+  - "Silent cell drop: if a cell is excluded from the 36-cell max WITHOUT a logged structured reason, the FWER guarantee is void (the realized family is smaller than declared). Guarded by carry_universe_matrix fail-closed drops + re-raise on code errors, but the freeze must record the realized K."
+  - "Temporal dependence stronger than assumed for vol-targeted/FRED-conditioned variants: L_max (max across cols) absorbs this by construction, but if a cell were severely under-blocked the SPA null would be too tight (anti-conservative). Max-across-cols aggregation is the conservative guard; the 0/10 L-sweep flips evidence supports second-order status."
+  - "Snooping uncontrolled: if R5 runs on the full snooped 2010-2026 sample with NO hold-out and NO DSR haircut, the p is optimistically biased and NOT face-valid regardless of magnitude (NHT dissent point 3)."
+
+alternative-methods:
+  - "Raw-mean SPA (max_k sqrt(n)*mean(f_k)) — REJECTED: the carry_momentum ~1000x smaller std makes it a near-null column that can never be the family argmax; silently neutralizes a sixth of the universe (representation/multiplicity defect)."
+  - "Per-pair families + Bonferroni-over-6 — REJECTED: the firm decision is ONE binary CONTINUE/WIND-DOWN, so one pooled family + one max-stat p is the right object; a second Bonferroni layer is unnecessary and over-conservative."
+  - "FDR control — REJECTED: FDR is the right object only when acting on a SET of discoveries (portfolio sizing); here a single false 'family has alpha' rejection is the entire harm, so FWER is correct."
+  - "Romano-Wolf StepM layered on the max-stat — REJECTED as redundant: the joint same-block bootstrap of max_k T_k already gives strong FWER control for the single CONTINUE/WIND-DOWN decision; StepM adds per-cell identification we do not need to act on."
+  - "Feature-label permutation as primary — REJECTED (per scope): it tests a single-strategy null; the min/max over 36 cells IS the snooping it was meant to prevent."
+  - "White RC as primary — REJECTED as primary, KEPT as conservative cross-check: RC's least-favourable-configuration null collapses power when the universe is dominated by near-zero/negative cells; SPA studentizes + recenters poor cells out. RC reported off the SAME draws for transparency (expected white_rc >= spa_consistent)."
+  - "Absolute-only omega floor (status quo 1e-12) — FLAGGED, not yet rejected: adequate IF carry_momentum omega stays well above 1e-12 (expected); a relative floor is the fallback pending the routed numerical check."
+
+proof-sketch-or-reference:
+  - "Studentized SPA statistic T_SPA = max_l sqrt(n)*d_bar_l/omega_hat_l: Hansen (2005) 'A Test for Superior Predictive Ability', JBES 23(4), 365-380, sec 2-3."
+  - "Scale-invariance of T_k: omega_hat_k is a HAC standard error = sqrt(s2/n) where s2 is a quadratic-then-square-root functional of the de-meaned column; rescaling column by c>0 -> mean*c, s2*c^2, omega*c, so T_k = sqrt(n)*(c*mean)/(c*omega) = unchanged. Exact for positive scalar rescaling."
+  - "Bartlett-kernel HAC PSD long-run variance: Newey-White (1987); weights w_lag = 1 - lag/(h+1) guarantee s2 >= 0 up to finite-sample correction."
+  - "Stationary bootstrap (geometric block length, circular wrap): Politis-Romano (1994)."
+  - "Automatic block length L_opt = (2*G_hat^2/D_SB)^(1/3)*T^(1/3): Politis-White (2004) Econometric Reviews 23(1) 53-70; Patton-Politis-White (2009) correction 28(4) 372-375; adjudicated vs R blocklength::pwsd to <0.5% (WN 2.392, AR(0.5) 7.164, AR(0.9) 19.963)."
+  - "Max-across-columns block aggregation = conservative coverage: max_j L_j >= each cell's optimal block, so no cell is under-blocked (mathematician R5 spec, block-length rule)."
+  - "MC-SE of a bootstrap p-value = sqrt(p(1-p)/K): the bootstrap p is a sample proportion of B indicator draws -> binomial SE; at p=0.05, K=200->0.0154, K=2000->0.0049, K=5000->0.0031, K=10000->0.0022."
+  - "White (2000) Reality Check, recenter by sample mean (eq. 3.7 stationary-bootstrap variant), non-studentized: Econometrica 68(5) 1097-1126."
+  - "Deflated Sharpe Ratio expected-max-Sharpe SR0 = sqrt(Var[SR_n])*[(1-gamma)*Zinv(1-1/N) + gamma*Zinv(1-1/(N*e))], gamma = Euler-Mascheroni: Bailey & Lopez de Prado (2014) 'The Deflated Sharpe Ratio', SSRN 2460551."
+
+numerical-question-routed: "For the carry_momentum cells (risk_per_trade=0.007, ~1000x smaller return std than the other five variants), compute omega_hat_k (the Newey-West HAC SE from reality_check.py _hac_se) on the realized joint matrix and report min(omega_hat_k) over the 6 carry_momentum cells. Confirm it stays at least ~3 orders of magnitude above the absolute floor 1e-12 (reality_check.py:868) so the floor never clips and scale-invariance of T_k = sqrt(n)*mean/omega is preserved. If any carry_momentum omega_hat_k is within ~100x of 1e-12, the absolute floor must be replaced by a relative floor (omega = max(omega, eps_rel*|mean|)) BEFORE freeze. Report the 6 omega values and the min."
+
+evidence:
+  - "src/forex_system/harness/reality_check.py:871 — studentized statistic T_k = sqrt(T)*means/omegas (N2 decision is implemented as written)"
+  - "src/forex_system/harness/reality_check.py:850-864 — _hac_se: Newey-West Bartlett-kernel HAC SE, bandwidth h = block_length-1, the exact omega_hat_k estimator"
+  - "src/forex_system/harness/reality_check.py:868 — absolute zero/near-zero-variance guard omegas<1e-12 -> 1e-12 (and :918,:924,:930 for bootstrap replicates)"
+  - "src/forex_system/harness/reality_check.py:895 — Hansen consistent recentering mu_bar = max(means, 0)"
+  - "src/forex_system/harness/reality_check.py:874-877,938-939 — White RC: non-studentized t_rc_obs and bootstrap recentered by sample mean, off the SAME draws"
+  - "src/forex_system/harness/reality_check.py:882-890 — _joint_bootstrap_once: whole-row resample preserving cross-sectional dependence (joint same-block)"
+  - "src/forex_system/harness/reality_check.py:941-945 — p = (1+#{boot>=obs})/(B+1) for both SPA and RC"
+  - "src/forex_system/harness/reality_check.py:49 — B = _B = 10_000 implementation default (frozen run passes K=5000 explicitly)"
+  - "src/forex_system/harness/reality_check.py:313-351 — politis_white_block_length_multivariate returns max L across columns; :341-342 the max"
+  - "src/forex_system/harness/reality_check.py:829-835 — actual_block_length = max(1, ceil(L_max)); guard L>=1"
+  - "src/forex_system/harness/reality_check.py:119-310 — univariate Politis-White/PPW implementation pinned (c=qnorm(0.975), K_N, flat-top, b_max cap, L=1 degenerate guards)"
+  - "src/forex_system/harness/reality_check.py:824,359-367 — child_seed = master_seed+2; seed/rng/numpy version logged (deterministic, reproducible)"
+  - "src/forex_system/harness/reality_check.py:48 — _ALPHA = 0.05"
+  - "src/forex_system/harness/carry_universe_matrix.py:516-530 — f_{k,t} = equity_curve.pct_change() net-of-cost simple return; fail-closed on mid-series NaN"
+  - "src/forex_system/harness/carry_universe_matrix.py:680-715 — structured logged cell drop on data-insufficiency; re-raise on code error (no silent FWER-voiding drop)"
+  - "src/forex_system/harness/carry_universe_matrix.py:284-293,429-437 — carry_momentum risk_per_trade=0.007 (source of the ~1000x std disparity, finding N2)"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md — ratified scope: H0, benchmark=0, SPA primary+White-RC, joint resampling, K>=2000, FWER, power 20-35% at ~0.30 annualized Sharpe"
+
+confidence: high
+
+body: |
+  N2 DECISION (the normalization call I own): studentize uniformly. The per-cell statistic is
+  T_k = sqrt(n)*mean_hat(f_k)/omega_hat_k, family statistic max_k T_k. Raw-mean SPA is rejected.
+  Rationale: T_k is scale-invariant (rescaling a column by c>0 leaves T_k unchanged because
+  omega_hat_k is homogeneous degree 1), so the carry_momentum ~1000x smaller std does NOT make it a
+  near-null column after studentization — it competes on its t-ratio like every other cell. This is
+  also the canonical Hansen (2005) SPA specification. Confirmed implemented at reality_check.py:871.
+
+  omega_hat ESTIMATOR: Newey-West HAC standard error of the cell mean, Bartlett (triangular) kernel,
+  bandwidth h = L-1 (block length minus one), with negative-variance clamp max(s2,1e-12) and an
+  absolute zero-variance floor omega<1e-12 -> 1e-12 applied to observed AND bootstrap SEs
+  (reality_check.py:850-868). Hansen consistent recentering mu_bar = max(0, mean). White RC reported
+  off the SAME draws as a conservative cross-check (non-studentized, sample-mean recentered).
+
+  BLOCK LENGTH: Politis-White (2004)+PPW (2009) auto rule via politis_white_block_length_multivariate,
+  aggregated as MAX across the 36 columns, guard L>=1 (reality_check.py:341-342,829-835). Max-across-cols
+  is the conservative coverage choice. L is second-order here (0/10 verdict flips over L in {1,2,3,5})
+  because cross-sectional dependence dominates; still computed from data, not hardcoded.
+
+  K = 5000 (frozen), MC-SE = sqrt(p(1-p)/K) = 0.0031 at p=0.05. K=200 prohibited (MC-SE 0.0154 straddles
+  the boundary). master_seed = 576746, PCG64, logged. alpha=0.05, FWER via max-stat over one pooled
+  36-cell family (one binary CONTINUE/WIND-DOWN decision -> P(any false CONTINUE) = FWER; FDR is wrong).
+
+  SNOOPING METHOD: two admissible methods, co-signed with HoQR. Method A = genuine post-development
+  hold-out (requires per-variant last-development-date + never-used attestation from HoQR). Method B =
+  Deflated-Sharpe haircut (Bailey-Lopez de Prado 2014): SR0 = sqrt(Var[SR_n])*[(1-gamma)*Zinv(1-1/N) +
+  gamma*Zinv(1-1/(N*e))]. FROZEN RULE: N = honest-N registry of EFFECTIVELY INDEPENDENT carry looks
+  (single-digit, given effective dim ~1-4), NOT the org-wide trials.jsonl count (37, which over-deflates)
+  and NOT N=1 (under-deflates). I co-sign HoQR's window iff it provides either the §7.1 attestation OR
+  the §7.2 honest-N + Var[SR_n] + DSR threshold. "Used all data, no haircut" is NOT signable.
+
+  POWER: ~20-35% at true ~0.30 ANNUALIZED Sharpe over ~4186 daily bars under FWER over correlated cells
+  (single-cell t ~ 1.22 < 1.96 even before multiplicity). BINDING: underpowered non-rejection is
+  UNINFORMATIVE as evidence of no-edge but the firm action is WIND-DOWN regardless — no third
+  "inconclusive" outcome. Confirm exact n against the realized matrix at run time.
+
+  CAVEAT (one): the HAC-SE floor 1e-12 is ABSOLUTE, not relative. Scale-invariance holds in exact
+  arithmetic, but if a carry_momentum omega_hat_k actually approaches 1e-12 the floor would clip it and
+  break scale-invariance for that cell. Expected not to trigger (carry_momentum returns are tiny but
+  non-degenerate), but it MUST be confirmed numerically before freeze — routed to quant-developer. If
+  triggered, the fix (relative floor) is a PRE-freeze code change, not post-freeze. This is why the
+  decision is sound-WITH-CAVEATS rather than unconditionally sound.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf"
+  - "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551"
+  - "https://en.wikipedia.org/wiki/Deflated_Sharpe_ratio"
+web_research_conducted: true
+websearch_used: 1
+webfetch_used: 0
+no-capital-instruction: true

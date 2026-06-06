@@ -1,0 +1,160 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-05T21:14:00Z"
+subtask_ref: r5-step3-prereg
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+claimed_domains: [production-code-implementation-from-TradeIntent-specs, test-authoring-pytest-property-based]
+commit_hash: uncommitted
+
+files_changed:
+  - src/forex_system/harness/carry_universe_matrix.py: >
+      _build_sizer (lines 402–446): replaced all 5 `or`-idiom occurrences with explicit
+      None-checks (_lc/_mou/_mos for VolTargetSizer branch; _rpt/_slam for ContinuousSizer
+      branch). Docstring updated with N1 note. No other changes.
+  - tests/harness/test_carry_universe_matrix.py: >
+      Added `_build_sizer`, `ContinuousSizer`, `VolTargetSizer` to top-level imports.
+      Added class TestBuildSizerN1Hardening (9 new test methods) at end of file.
+
+tests_added:
+  - [test_vol_target_zero_override_leverage_cap_honored, "0.0 override for leverage_cap reaches VolTargetSizer; not discarded by `or`-idiom"]
+  - [test_vol_target_zero_override_max_order_units_honored, "0.0 override for max_order_units reaches VolTargetSizer"]
+  - [test_vol_target_zero_override_min_order_size_honored, "0.0 override for min_order_size reaches VolTargetSizer"]
+  - [test_vol_target_none_override_falls_back_to_config, "absent key falls back to exec_cfg default for all 3 VolTargetSizer params"]
+  - [test_continuous_zero_override_risk_per_trade_honored, "0.0 override for risk_per_trade reaches ContinuousSizer; not discarded"]
+  - [test_continuous_zero_override_stop_loss_atr_multiple_honored, "0.0 override for stop_loss_atr_multiple reaches ContinuousSizer"]
+  - [test_continuous_none_override_falls_back_to_config, "absent key falls back to exec_cfg default for both ContinuousSizer params"]
+  - [test_discrete_variant_returns_none, "discrete variant (sizer_type=none) returns None from _build_sizer"]
+  - [test_nonzero_override_still_works, "non-zero overrides still propagate correctly after fix (regression safety)"]
+
+tests_passing:
+  tests_run: 233
+  passed: 233
+  failed: 0
+  blocked: 0
+
+broad_regression:
+  tests_run: 1066
+  passed: 1066
+  failed: 0
+  note: "tests/ --ignore=tests/governance; includes harness, backtest, features, data, costs, strategies"
+
+sacred_test_status: pass
+
+matrix_facts:
+  index_start: "2010-03-15"
+  index_end: "2026-04-06"
+  bar_count_T: 4186
+  dropped_cells: 0
+  all_six_variants_present: true
+  per_variant_return_std:
+    carry: 4.158715e-03
+    carry_fred: 6.250778e-03
+    fred_carry_stripped: 7.830625e-03
+    vol_target_carry: 5.953059e-03
+    vol_target_carry_no_vol_scaling: 4.883128e-03
+    carry_momentum: 6.927630e-06
+  scale_disparity_note: >
+    carry_momentum std is ~6.93e-06 vs ~4.2e-03 to ~7.8e-03 for the other five variants —
+    a ~600–1130x scale disparity. This is the correct consequence of risk_per_trade=0.007
+    in carry_momentum_portfolio.yaml (positions sized to a fraction of account equity,
+    producing small per-bar returns vs discrete unit-notional signals). This is the figure
+    the Mathematician's N2 section must address (studentized vs raw SPA normalization).
+
+firewall-self-review: |
+  Rubric: execution-firewall-review applied to my own diff (carry_universe_matrix.py lines 402-446
+  and tests/harness/test_carry_universe_matrix.py new class TestBuildSizerN1Hardening).
+
+  Section A: Research artifacts in implementation code
+    A1 (hardcoded thresholds): None introduced. The fix changes fallback-logic mechanism only.
+       No new numeric parameters; all values continue to source from exec_cfg (YAML authority).
+    A2 (silent data cleaning): None. No fillna/clip/dropna/nan-handling added.
+    A3 (lookback/window parameters): None introduced.
+    A4 (regime/asset-class branching): None. The if exec_cfg.sizer_type branches already existed.
+    A5 (signal transformations): None.
+
+  Section B: Spec completeness
+    The PM acceptance-criteria (N1-sizer-hardening) constitutes the spec. It specifies:
+    "replace every `or` occurrence with `x if x is not None else default` form".
+    The implementation follows this exactly. No spec gaps.
+
+  Section C: Parameter sourcing
+    All numeric parameters continue to source from exec_cfg, which is itself sourced from
+    _VARIANT_EXEC, which is verified by C-1 tests to match committed YAML config files.
+    No new magic literals introduced.
+
+  Section D: Observability at the firewall boundary
+    No changes to logging. The carry_matrix.cell_ok event already emits sizer_type and
+    rebalance_mode (decision-trace), and carry_matrix.cell_start logs the variant_params dict.
+    A 0.0 override propagating to the sizer is now observable because carry_matrix.cell_start
+    logs the incoming variant_params (which would show the 0.0 key) and cell_ok logs sizer_type.
+    No new observability gap introduced.
+
+  Section E: Integration tests
+    Nine new unit tests in TestBuildSizerN1Hardening cover:
+    - 0.0 override path for all 5 fixed parameters (positive invariant: 0.0 is honored)
+    - absent-key (None-from-get) fall-back path for both sizer branches (negative invariant)
+    - discrete variant returns None (correctness for unaffected branch)
+    - non-zero override still works (regression safety: fix didn't break the normal path)
+
+  Decision: approve
+  No findings. The diff is a mechanical 1-line-per-occurrence fix as specced.
+  No research-class decisions made. No parameter values changed. No signal transformations.
+
+bash_blocked: false
+
+deviations-from-instructions:
+  - "The PM spec cited 5 `or` occurrences across lines 419-421 and 432-434 (original line numbers).
+     After reading the function, confirmed exactly 5: leverage_cap, max_order_units, min_order_size
+     in the vol_target branch (3), and risk_per_trade, stop_loss_atr_multiple in the continuous
+     branch (2). Count matches the spec exactly — no discrepancy."
+  - "The N1 fix uses temporary variables (_lc, _mou, _mos, _rpt, _slam) rather than the
+     walrus-operator form shown in the PM example (`x if (x := variant_params.get('k')) is not None
+     else exec_cfg.k`). The two forms are semantically identical. The two-line form was chosen
+     for clarity and to match the existing codebase style (no walrus operators elsewhere in this
+     file). No behavior difference."
+
+evidence:
+  - "src/forex_system/harness/carry_universe_matrix.py : 402–446 — _build_sizer after fix (Read)"
+  - "tests/harness/test_carry_universe_matrix.py : 32–43 — import block with _build_sizer added (Edit)"
+  - "tests/harness/test_carry_universe_matrix.py : 1368–end — TestBuildSizerN1Hardening class (Write)"
+  - "pytest tests/harness/ output : 233 passed in 7.78s (executed)"
+  - "pytest tests/ --ignore=tests/governance output : 1066 passed (executed)"
+  - "pytest -k test_no_lookahead output : 9 passed (executed)"
+  - "matrix build run : build_joint_return_matrix(CARRY_VARIANTS, CARRY_PAIRS, ...) → T=4186, dropped=0 (executed)"
+  - "ruff check src/forex_system/harness/carry_universe_matrix.py tests/harness/test_carry_universe_matrix.py : All checks passed (executed)"
+
+assumptions:
+  - "The `_build_sizer` function is exercised only via `_build_cell`, which is called from
+     `build_joint_return_matrix`. No callers pass 0.0 overrides in any current production path
+     (the fix is latent-bug hardening, not a currently-manifesting bug)."
+  - "The `_VariantExecConfig` type is accessible for import in the test module via the
+     private `_build_sizer` function reference — verified by 233 passing tests."
+  - "Matrix facts are from a real run over `data/processed/` and `data/rates/rate_differentials.parquet`
+     on the committed codebase (8d3bedb + N1 fix). These figures are deterministic given the
+     same data files."
+
+confidence: high
+
+body: |
+  Part A (N1 hardening): Fixed all 5 `or`-idiom occurrences in `_build_sizer` (lines 402–446
+  of carry_universe_matrix.py) with explicit None-checks. The vol_target branch fixes
+  leverage_cap, max_order_units, min_order_size; the continuous branch fixes risk_per_trade
+  and stop_loss_atr_multiple. 9 new tests in TestBuildSizerN1Hardening pin the corrected
+  behavior (0.0 override honored; None fall-back to config default).
+
+  Part B (matrix facts): Ran build_joint_return_matrix over the full 36-cell universe
+  (6 variants × 6 pairs) with real data. Key facts for pre-registration: T=4186 bars
+  (2010-03-15 to 2026-04-06), 0 dropped cells, all 6 variants present. The carry_momentum
+  return std is ~6.93e-06 vs ~4.2–7.8e-03 for other variants — a confirmed ~600–1130x
+  scale disparity that the Mathematician's N2 normalization decision must address.
+
+  All verifications run with python3 (not python). No network access used.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

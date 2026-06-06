@@ -1,0 +1,65 @@
+role: mathematician
+artifact_type: quality-gate-review
+decision: approve
+timestamp: "2026-06-05T23:05:00Z"
+subtask_ref: r5-step3-prereg-math-signoff
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+trial_id: 576746aa
+salvage_transcription: true
+# PROVENANCE: the opus mathematician agent (wave 2d) completed ALL adjudications and wrote them to
+# mathematician-patches.md (14K, on disk, complete) before stalling. A sonnet salvage agent also
+# stalled before starting. This artifact is an ORCHESTRATOR TRANSCRIPTION of the mathematician's
+# own written decisions — no domain judgment was made by the orchestrator. Every adjudication value
+# below is quoted from mathematician-patches.md §7.3.1-7.3.6 and PATCH-1. Consistency checks were
+# run by the orchestrator with direct tool evidence (see evidence list). Logged in spawns.jsonl
+# (attempts 1-2 stalls + this transcription).
+claimed_domains: [formal-modeling-and-derivations, numerical-method-selection-and-stability, convergence-and-error-analysis, probability-measure-and-filtration-correctness]
+rubric_applied: formal-modeling-and-derivations
+findings: []
+approve_when_check:
+  - "derivation-steps-fully-shown-no-handwaving: satisfied (patches §7.3.3-7.3.4 show every step incl. per-obs vs annualized unit reconciliation)"
+  - "numerical-scheme-stability-region-stated-and-respected: satisfied (omega floor checked numerically on realized matrix; floor-safe)"
+  - "convergence-rate-quantified-not-asserted: satisfied (MC-SE table frozen; K=5000, MC-SE 0.0031 at p=0.05)"
+  - "all-assumptions-listed-explicitly-with-violation-conditions: satisfied (PART II assumptions-identified + failure-regimes)"
+reject_when_check:
+  - "derivation-skips-step-that-changes-the-result: not-triggered"
+  - "numerical-method-known-unstable-for-the-stated-regime: not-triggered (floor-safe verdict, ratio 6.47e+04)"
+  - "convergence-claim-without-rate-or-bound: not-triggered"
+  - "dimensional-or-unit-error: not-triggered (units reconciled and made binding in §7.3.4)"
+  - "measure-change-without-Radon-Nikodym-or-Girsanov-justification: not-triggered (n/a)"
+adjudications:
+  honest_n_input: "accepted — N=2 admissible under the §7.2 frozen rule; honest_n.py dedup 8->5 keys then 2 information sources; inside both scope ranges (HoQR 1-2, NHT 2-4) (patches §7.3.1)"
+  sharpe_provenance: "accepted-with-monotonicity-neutralization — SR_1=0.80 registry-unverified + Bet#1 labeling conflation recorded as genuine weakness; signable because SR0 strictly increases in Var which increases in |SR_1-SR_2|: an inflated SR_1 over-deflates (false WIND-DOWN possible, false CONTINUE impossible) (patches §7.3.1)"
+  var_estimator_elected: "sample-0.1818 (sqrt 0.426385) — unbiased /(N-1) form; N=2 maximizes the /N bias; provenance caution argues the conservative leg (patches §7.3.2)"
+  sr0_frozen: 0.221616
+  dsr_threshold_frozen: "DSR >= 0.95 — set equal to 1-alpha with alpha=0.05 so the SPA gate and the DSR gate enforce the same 5% error budget on their two distinct error channels (patches §7.3.5)"
+  omega_caveat: discharged-floor-safe
+assumptions:
+  - "Monotonicity-conservatism: SR0 strictly increasing in Var[SR_n]; over-stated SR_1 can only raise the bar (patches §7.3.1)"
+  - "Unit discipline: SR_hat, SR0, skew, kurtosis all enter per-observation; annualized Sharpe divided by sqrt(252) exactly once; excess-kurtosis +2 coefficient per dsr.py:184 (patches §7.3.4)"
+  - "N=2 reflects two genuinely distinct information sources (rate-differential carry; carry+momentum hybrid); within both ratified scope ranges (patches §7.3.1)"
+  - "Frozen SR0 passed as an externally-pinned benchmark to compute_dsr; harness inability to accept the pin = TECHNICAL FAILURE, not a license to substitute the code default (patches §7.3.3)"
+evidence:
+  - "references/pre-registrations/r5_carry_universe_kill_test.md — PATCH-1 ('Caveat — DISCHARGED (floor-safe') and PATCH-2 ('### 7.3 Frozen DSR gate') present verbatim; 'SR0 = 0.221616' and 'DSR ≥ 0.95' present (orchestrator-verified post-apply)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/qd-omega-floor-check.yaml — verdict floor-safe; min carry_momentum omega 6.472882e-08 (GBPJPY); ratio_to_floor 6.47e+04 (orchestrator-verified)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/hoqr-snooping-inputs.yaml — honest_n.value=2, var_sr=0.0909 population with sample 0.1818 recorded as alternative (the mathematician elected the sample value) (orchestrator-verified)"
+  - "src/forex_system/harness/dsr.py:46,107,179,184,187-195 — expected_max_sr, compute_dsr, sr_pp conversion, (excess_k+2)/4 coefficient, degenerate return-0.0 path (orchestrator-verified against PATCH-2 claims)"
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/mathematician-patches.md — the adjudication source document (opus mathematician, complete)"
+confidence: high
+body: |
+  TRANSCRIPTION of the mathematician's wave-2d sign-off (source: mathematician-patches.md, complete on
+  disk before the agent stalled). Frozen: Var[SR_n]=0.1818 (sample election), SR0=0.221616 annualized
+  (0.013961 per-obs), DSR threshold 0.95, and the integrated decision functional — CONTINUE iff
+  p_SPA<0.05 AND DSR>=0.95 AND White-RC concordant; p_SPA<0.05 with DSR<0.95 or RC discordant ->
+  AMBIGUOUS (confirmatory gate only, never CONTINUE, not WIND-DOWN); p_SPA>=0.05 outside the MC-SE
+  straddle band -> WIND-DOWN. The §2.3 omega-floor caveat is discharged floor-safe with no code change.
+  All three pre-write consistency checks passed with direct orchestrator tool evidence. The
+  mathematician's quality-gate decision over the assembled pre-registration is APPROVE; this artifact
+  counts as its quorum signature per protocols/distributed-ratification.md.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,100 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-05T00:00:00+00:00"
+subtask_ref: r5-step3-prereg-qd-argmax-fix
+subtask_id: "r5-step3-prereg-2026-06-05:phase1:task1.0"
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+
+commit_hash: uncommitted
+
+files_changed:
+  - src/forex_system/harness/reality_check.py
+  - src/forex_system/harness/r5_decision.py
+  - scripts/run_r5_step4.py
+
+tests_added:
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_plain_sharpe_and_tk_rankings_diverge
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_select_k_star_picks_tk_argmax_not_plain_sharpe
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_sr_ann_kstar_is_annualized_sharpe_of_selected_column
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_t_k_star_is_studentized_statistic_of_selected_column
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_raises_on_bad_input
+  - tests/harness/test_r5_decision.py::TestSelectKStarStudentized::test_single_column_selects_index_zero
+
+tests_passing:
+  tests_run: 303
+  passed: 303
+  failed: 0
+  blocked: 0
+
+sacred_test_status: PASS  # test_no_lookahead: 9 passed, 0 failed
+
+kill_test_executed: false
+
+spec-to-impl-trace: >
+  §7.3.4 k* clause: "k* = argmax_k T_k where T_k = sqrt(T)*mean(d_k)/omega_hat_k,
+  omega_hat_k = Newey-West HAC SE (Bartlett kernel, bandwidth h = block_length-1,
+  floor 1e-12)."
+  Code line: r5_decision.py::select_k_star_studentized(), lines ~52-111 (new function).
+  Called from: scripts/run_r5_step4.py lines ~412-432 (replaced plain-Sharpe argmax).
+
+firewall-self-review: >
+  Fix is a pure spec-to-code translation of §7.3.4 k* selection.  No new research
+  decisions introduced.  The DSR input (sr_ann_kstar) is unchanged in formula --
+  only the selection of which column k* is computed differently.  The block_length
+  passed to select_k_star_studentized is L_int, the same value that was passed to
+  r5c_hansen_spa on the line above, preserving the single-block-length invariant.
+  No p-values computed, no capital touched.
+
+deviations-from-instructions:
+  - >
+    Instruction said "_hac_se is module-level; verify the exact name/signature by
+    reading."  Verification showed it is a CLOSURE inside r5c_hansen_spa, not
+    module-level.  Resolution: extracted it as module-level hac_se_nw() in
+    reality_check.py and delegated the closure to it.  The closure is preserved
+    for backward compatibility (same computation, different delegation path).
+    The instruction's assumption was incorrect per the source code.
+
+evidence:
+  - "src/forex_system/harness/reality_check.py:58-89 (new hac_se_nw module-level function)"
+  - "src/forex_system/harness/reality_check.py:884-886 (closure now delegates to hac_se_nw)"
+  - "src/forex_system/harness/r5_decision.py:52-111 (new select_k_star_studentized function)"
+  - "scripts/run_r5_step4.py:412-432 (argmax replaced with select_k_star_studentized call)"
+  - "scripts/run_r5_step4.py:433-439 (log event updated to source='argmax_studentized_T_k_hac', includes t_k_star)"
+  - "tests/harness/test_r5_decision.py::TestSelectKStarStudentized (6 new tests)"
+
+assumptions:
+  - >
+    block_length used in select_k_star_studentized is L_int (the same value
+    passed to r5c_hansen_spa).  This is the only correct value per §7.3.4.
+  - >
+    The demeaning approach in the divergence test matrix (_make_divergence_matrix)
+    ensures the sample mean is exactly the target value regardless of random seed,
+    making the divergence property deterministic.
+
+confidence: high
+
+body: >
+  The plain-Sharpe argmax in run_r5_step4.py (lines ~419-424) was replaced with
+  an exact §7.3.4 studentized T_k argmax via a new importable pure function
+  select_k_star_studentized() in r5_decision.py.  The HAC SE logic was extracted
+  from the r5c_hansen_spa closure into a module-level hac_se_nw() function in
+  reality_check.py so that both the SPA internals and select_k_star_studentized
+  share the identical Newey-West Bartlett-kernel implementation.  The closure now
+  delegates to hac_se_nw.  The DSR gate input (sr_ann_kstar = mean/std(ddof=1)*sqrt(252)
+  of the selected column) is unchanged in formula.  The decision-trace log event
+  was updated to source="argmax_studentized_T_k_hac" and now includes t_k_star.
+  6 unit tests were added covering: construction sanity (rankings diverge), core
+  divergence assertion, sr_ann correctness, t_k_star correctness, bad-input guard,
+  and single-column edge case.  303/303 harness tests pass; 9/9 sacred tests pass;
+  ruff clean.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

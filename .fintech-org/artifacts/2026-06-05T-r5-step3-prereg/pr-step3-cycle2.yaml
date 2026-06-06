@@ -1,0 +1,98 @@
+role: principal-reviewer
+artifact_type: review-report
+timestamp: "2026-06-06T04:15:00Z"  # orchestrator-mechanical-fix: agent omitted; set to completion time
+rework-cycle: 2
+subtask_ref: r5-step3-prereg-pr-cycle2
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+claimed_domains: [independent-design-review, independent-algorithm-review, spec-vs-implementation-drift-detection]
+decision: approve
+findings-from-cycle1-status:
+  - finding_id: F-001
+    status: closed
+    evidence: "Election (b) adopted: §1.3 item 2 names the STEP-4 runner (r5_decision.py); compute_dsr_gate() computes the frozen formula directly with literal SR0_PP=0.022906 (verified =0.363623/sqrt(252)=0.0229061 round6); §7.3.3 rewritten (lines 911-941) — compute_dsr is conventions-reference only, expected_max_sr bypassed; runner line 474 feeds it. Gate now mechanically executable."
+  - finding_id: F-002
+    status: closed
+    evidence: "§7.3.6 / evaluate_decision() ordered RULES 0-4: RULE 1 (AMBIGUOUS_STRADDLE, |p-0.05|<=0.0031) fires BEFORE RULE 3 CONTINUE. test_rule1_straddle_p_spa_0_048 proves the exact cycle-1 counterexample (0.048/0.96/0.01) -> AMBIGUOUS_STRADDLE. Branches mutually exclusive by first-match ordering. 112 tests pass."
+  - finding_id: F-003
+    status: closed
+    evidence: "External write-once receipt model: FREEZE BLOCK (lines 1085-1106) + §6 verification rule rewritten — 'this document NEVER contains its own hash'; receipt at ...FREEZE-RECEIPT.yaml via cut_freeze_receipt.py. grep confirms ZERO [FROM FREEZE-RECEIPT] placeholders and ZERO self-hash references. No receipt file exists in repo."
+  - finding_id: F-004
+    status: closed
+    evidence: "§7.3.4 (lines 981-984) pins BOTH degenerate 0.0 paths: var_term<=0 (dsr.py:187-195) AND sharpe_ratio<=0 (dsr.py:168-169), both gate-FAIL not technical-failure. compute_dsr_gate lines 169 & 184 implement both; tests cover negative/zero Sharpe and negative var_term."
+  - finding_id: F-005
+    status: closed
+    evidence: "§2.3 (lines 503-509) corrected: :868 cited for omega np.where floor, :863 for internal s2=max(s2,1e-12) clamp, with explicit 'distinct from' note. No remaining :867 citation for the floor."
+  - finding_id: F-006
+    status: closed
+    evidence: "Observation, now over-closed. Both cycle-1 residual gaps covered: end-to-end via TestBuildCellSizerOverrideEndToEnd (0.0 risk_per_trade through real _build_cell), and None-config+None-override TypeError via test_float_none_config_raises_type_error. All matrix tests pass."
+  - finding_id: F-007
+    status: closed
+    evidence: "§3.4 source note (lines 266-280) explicitly acknowledges F-007: SR_1=0.80 marked registry-PROSE not a trial row, Bet#1=momentum label corrected, conservative-if-wrong monotonicity retained. F-001 mechanism now real, so the safety net is no longer moot. Observation discharged."
+  - finding_id: R-001
+    status: closed
+    evidence: "argparse --cut guard placed before any write. Live-verified: --help and bare invocation both print/exit and write nothing; no FREEZE-RECEIPT file exists in repo; write-once refusal guard (lines 104-114) intact and before the file write. No new gap."
+  - finding_id: R-002
+    status: closed
+    evidence: "hac_se_nw extracted to module level (reality_check.py diff): bit-identical kernel — same gamma0/n, Bartlett weight 1-lag/(h+1), s2=max(s2,1e-12), sqrt(s2/n). Closure now delegates with bandwidth=max(actual_block_length-1,1) = original h. §1.3 item 3 names it accurately. Behavior-identical; tests pass."
+  - finding_id: R-003
+    status: closed
+    evidence: "select_k_star_studentized() uses T_k=sqrt(T)*mean/omega_hat with bandwidth=max(block_length-1,1) and 1e-12 floor; runner step-4 (run_r5_step4.py:412-426) passes block_length=L_int, the SAME value given to r5c_hansen_spa. Divergence test sound: AR(1) rho=0.7 column (higher plain Sharpe) LOSES to white-noise column on T_k; test_select_k_star_picks_tk_argmax_not_plain_sharpe confirms. DSR input remains sr_ann of chosen k*. No new gap."
+contamination-check: clean
+evidence:
+  - "src/forex_system/harness/r5_decision.py:41 (SR0_PP=0.022906), :122-194 (compute_dsr_gate, both degenerate pins), :53-119 (select_k_star_studentized T_k + 1e-12 floor + sr_ann_kstar), :208-277 (evaluate_decision ordered RULES 0-4)"
+  - "scripts/run_r5_step4.py:412-426 (select_k_star_studentized with block_length=L_int same as SPA call), :474 (compute_dsr_gate fed sr_ann_kstar), :502 (evaluate_decision)"
+  - "scripts/cut_freeze_receipt.py:83-101 (argparse --cut dry-run guard), :104-114 (write-once refusal); live: --help/bare write nothing, no receipt in repo"
+  - "src/forex_system/harness/reality_check.py git diff: hac_se_nw module-level extraction bit-identical; _hac_se closure delegates bandwidth=max(actual_block_length-1,1)"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:26-38 (§1.3 items 1-3), :266-280 (§3.4 F-007 source note), :503-509 (§2.3 floor citations), :911-941 (§7.3.3 execution mechanism), :981-984 (§7.3.4 both 0.0 pins), :1085-1106 (FREEZE BLOCK + §6 external receipt). grep: 0 placeholders, 0 self-hash refs"
+  - "tests/harness/test_r5_decision.py + test_carry_universe_matrix.py: 112 passed (incl. test_rule1_straddle_p_spa_0_048, divergence pair, TestBuildCellSizerOverrideEndToEnd, test_float_none_config_raises_type_error)"
+  - "verified: 0.363623/sqrt(252)=0.02290609592817237 -> round6 0.022906"
+assumptions:
+  - "Focused-verification scope: closure of routed cycle-1 findings + R-001/2/3 only; cycle-1 rubrics not re-applied per instruction."
+  - "No SPA/RC p-value or DSR on real data computed (forbidden); divergence/decision claims verified via the synthetic-data unit tests in-repo and by reading source."
+  - "v2 decision/body/confidence/assumptions fields in artifacts treated as redacted; not read as approvals."
+confidence: high
+body: |
+  DECISION: APPROVE. All three cycle-1 blocking findings are mechanically closed, the two minors and two
+  observations are closed, and the three orchestrator/QD remediations hold with no new gaps.
+
+  F-001 (blocking, now closed): the unexecutable DSR gate is resolved by election (b) — the STEP-4 runner
+  (r5_decision.compute_dsr_gate) computes Phi((SR_pp - SR0_pp)*sqrt(T-1)/sqrt(var_term)) directly from the
+  frozen literal SR0_PP=0.022906 (= 0.363623/sqrt(252), elected N=3), NOT via compute_dsr's internal
+  expected_max_sr. §7.3.3 (lines 911-941) honestly retracts the prior "pass SR0 as benchmark" claim as
+  factually wrong and pins the new mechanism; compute_dsr is conventions-reference only. The N=3 election is
+  consistent across §1.3, §3.4, and the §7.3.3 SR0 table. The literal arithmetic reproduces exactly.
+
+  F-002 (blocking, now closed): evaluate_decision() implements §7.3.6 as ordered RULES 0-4 with first-match
+  semantics. RULE 1 (straddle) is evaluated before RULE 3 (CONTINUE), so a boundary-significant result that
+  also clears DSR/RC resolves to AMBIGUOUS_STRADDLE. The exact cycle-1 counterexample (p_spa=0.048, dsr=0.96,
+  p_rc=0.01) is pinned by test_rule1_straddle_p_spa_0_048 -> AMBIGUOUS_STRADDLE. Branches are now mutually
+  exclusive.
+
+  F-003 (blocking, now closed): the self-referential freeze hash is eliminated. The receipt is an external
+  write-once file (cut_freeze_receipt.py); the FREEZE BLOCK and §6 state the document NEVER embeds its own
+  hash and hash the file-as-committed. grep confirms zero placeholders and zero self-hash references.
+
+  F-004/F-005 (minors, closed): §7.3.4 pins both compute_dsr 0.0 paths; §2.3 corrects the floor citations
+  (:863 s2 clamp, :868 omega floor). F-006/F-007 (observations, closed): the N1 0.0 end-to-end test and the
+  None/None TypeError test both land; §3.4 adds the SR_1=0.80 provenance source note and the F-001 mechanism
+  is now real, discharging the contingency.
+
+  R-001 (closed): the --cut guard is verified live — --help and bare invocation write nothing, write-once
+  refusal is intact, and no receipt file exists in the repo. R-002 (closed): hac_se_nw is a bit-identical
+  module-level extraction; the closure delegates with the same bandwidth; §1.3 item 3 is accurate. R-003
+  (closed): k* selection now uses the §7.3.4 studentized T_k argmax with the same block length as the SPA call,
+  the same HAC and 1e-12 floor; the divergence test (AR(1) higher-plain-Sharpe column loses to white noise on
+  T_k) is sound; the DSR input remains the chosen k*'s annualized Sharpe.
+
+  No finding remains at blocking severity and no new blocking gap emerged. The NHT structured findings
+  (A-1..A-6) were already in-scope for the prior cycle and remain at material/concern/minor/note, not blocking;
+  the v2 spec adopts the A-2 N-axis caveat (§3.4 / §7.3.3 disclosure) and the A-4 confirmatory-counter
+  discipline (§ forking-paths counter-discipline, line 342 / 392). I sign APPROVE. No p-value or DSR was
+  computed on real data in this review.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,73 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-06T02:10:00Z"
+subtask_ref: r5-step3-prereg-qd-rework1
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+salvage_transcription: true
+# PROVENANCE: the QD agent (attempt 2) completed ALL implementation work — r5_decision.py,
+# run_r5_step4.py, cut_freeze_receipt.py, test_r5_decision.py, F-006 tests, doc patches —
+# and stalled at the final artifact-YAML write ("Now write the artifact YAML:"). This artifact
+# is an ORCHESTRATOR TRANSCRIPTION of the verified on-disk state. The orchestrator additionally
+# applied ONE remediation the agent's tests missed: cut_freeze_receipt.py had no argument
+# parsing, so ANY invocation (including --help) wrote a receipt — observed live when an
+# orchestrator smoke-test cut a premature receipt (immediately deleted). Fix: argparse with an
+# explicit --cut flag; bare/--help invocations are now dry-runs. Logged in spawns.jsonl.
+# PR cycle-2 reviews the full diff including the orchestrator remediation.
+claimed_domains: [production-code-implementation-from-TradeIntent-specs, test-authoring-pytest-property-based]
+commit_hash: uncommitted
+files_changed:
+  - "src/forex_system/harness/r5_decision.py: NEW — pure DSR-gate (frozen SR0_PP=0.022906, N=3) + ordered RULE 0-4 decision functional per pre-reg §7.3.4/§7.3.6"
+  - "scripts/run_r5_step4.py: NEW — STEP-4 runner; refuses without --i-am-step4 + freeze-receipt whose prereg_sha256 matches the doc on disk; scipy required, no fallback"
+  - "scripts/cut_freeze_receipt.py: NEW — write-once external freeze-receipt tool (F-003); orchestrator added --cut guard post-stall (see provenance)"
+  - "tests/harness/test_r5_decision.py: NEW — DSR-gate reference values + degenerate pins; all 5 rules; boundary case p=0.048/DSR=0.96/RC=0.01 -> AMBIGUOUS_STRADDLE; precedence sweep; runner refusal paths"
+  - "tests/harness/test_carry_universe_matrix.py: F-006 — end-to-end 0.0-override plumbing via _build_cell; None-config+None-override behavior pin"
+tests_added:
+  - ["test_r5_decision.py suite", "DSR formula exactness, degenerate pins (sr<=0, var_term<=0), rule ordering, straddle precedence, exhaustiveness, runner refusal without flag/receipt/hash-match"]
+  - ["F-006 end-to-end + None/None pin", "0.0 override propagates through _build_cell; None/None path behavior pinned"]
+tests_passing: {tests_run: 297, passed: 297, failed: 0, blocked: 0}
+sacred_test_status: pass
+kill_test_executed: false
+spec-to-impl-trace:
+  - "§7.3.3 frozen SR0_pp=0.022906 (elected N=3) -> r5_decision.py:39 (SR0_PP literal with citation comment)"
+  - "§7.3.4 per-obs conversion /sqrt(252) -> r5_decision.py dsr gate (sr_pp)"
+  - "§7.3.4 kurtosis (excess+2)/4 var_term -> r5_decision.py var_term expression"
+  - "§7.3.4 degenerate pins (var_term<=0 -> 0.0; sr<=0 -> 0.0) -> r5_decision.py guards"
+  - "§7.3.4 scipy REQUIRED, no approximation fallback -> r5_decision.py import raise (TECHNICAL FAILURE path)"
+  - "§7.3.5 DSR>=0.95 threshold -> r5_decision.py:42 DSR_THRESHOLD"
+  - "§7.3.6 RULE 0-4 ordered first-match-wins -> r5_decision.py decision functional; _MC_SE=0.0031 at :45"
+  - "§4 K=5000, master_seed=576746 -> run_r5_step4.py r5c_hansen_spa invocation + cut_freeze_receipt.py frozen fields"
+  - "FREEZE BLOCK external-receipt verification rule -> run_r5_step4.py receipt gate (sha256 match before any draw) + cut_freeze_receipt.py write-once"
+firewall-self-review: |
+  not-self-attested (agent stalled before authoring this field). Orchestrator applied the
+  execution-firewall-review rubric mechanically over the diff: every constant is sourced from the
+  frozen pre-reg with a section citation (no invented thresholds); no data cleaning, winsorization,
+  or signal transformation; no research-class judgment in any code path; degenerate paths fail
+  CLOSED (DSR=0.0 -> not CONTINUE); the runner cannot execute without the post-consensus receipt.
+  This mechanical pass is NOT a substitute for independent review — PR cycle-2 reviews the full
+  diff including the orchestrator's --cut remediation.
+deviations-from-instructions:
+  - "cut_freeze_receipt.py initially shipped without argument gating (any invocation wrote a receipt, including --help) — found by orchestrator smoke-test, premature receipt deleted, --cut guard applied by orchestrator and logged. PR cycle-2 to verify."
+evidence:
+  - "src/forex_system/harness/r5_decision.py:39,42,45 (frozen literals; orchestrator-verified)"
+  - "scripts/run_r5_step4.py:96-120 (receipt gate; orchestrator-verified)"
+  - "pytest tests/harness/ -q -> 297 passed (orchestrator-run); pytest -k test_no_lookahead -> 9 passed; ruff clean on all five files"
+  - "grep: no SPA/RC/DSR computation on real data in any test (synthetic inputs only); kill_test_executed=false attested by orchestrator inspection"
+assumptions:
+  - "The freeze sequence is: code+prereg commit (A) -> cut_freeze_receipt.py --cut (records A as code_commit) -> receipt committed in follow-up commit. The patches-file note suggesting 'same commit' would be circular and is superseded by this sequence."
+confidence: high
+body: |
+  TRANSCRIPTION of the verified on-disk QD rework-1 state (agent stalled at the report step; all
+  implementation landed). The STEP-4 runner, the pure decision module, the write-once external
+  freeze-receipt tool (F-003 CLOSED with the doc patches applied by the orchestrator: zero
+  self-referential hash references remain), and the F-006 + r5_decision test suites are in place.
+  297 harness tests pass, sacred green, ruff clean. The kill test was NOT executed; no real-data
+  p-value or DSR exists anywhere. One live-found defect (unguarded receipt tool) was remediated
+  by the orchestrator with the --cut flag and is flagged for PR cycle-2.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

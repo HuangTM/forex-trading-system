@@ -1,0 +1,82 @@
+role: head-of-quant-research
+artifact_type: research-approval
+decision: approve
+timestamp: "2026-06-05T21:08:17Z"
+subtask_ref: r5-step3-prereg
+subtask_id: r5-step3-prereg-2026-06-05:phase1:task1.0
+trial_id: 576746aa
+claimed_domains: [alpha-direction-and-research-prioritization, strategy-kill-decisions, falsification-archive-curation]
+ranked-alternatives: []
+retirement-criteria:
+  - "R5.spa_p >= 0.05 -> RETIRE carry program (wind-down to monitoring); fires regardless of power adequacy"
+  - "R5.spa_p < 0.05 AND R5.white_rc_p >= 0.05 (discordant) -> AMBIGUOUS; confirmatory pre-reg gate only, NOT CONTINUE on family"
+  - "R5.cells_built != 36 AND any dropped cell reason is null/empty -> VOID run (NO-SILENT-EXCLUSION breach); HALT + re-freeze"
+  - "R5.code_error == true OR R5.data_integrity_fault == true -> HALT, root-cause, re-freeze, re-run; trial counter NOT incremented"
+  - "freeze_receipt.sha256 != sha256(prereg) OR freeze_receipt.code_commit != pinned_commit -> VOID; result not face-valid"
+  - "R5.spa_p < 0.05 AND R5.white_rc_p < 0.05 (concordant, post-deflation) -> CONTINUE permitted ONLY to author a confirmatory-only pre-reg; never to trade or re-open the family"
+evidence:
+  - ".fintech-org/artifacts/2026-06-05T-r5-step3-prereg/pm-acceptance-criteria.yaml:100-201 — owned criteria PRE-REG-universe, oos-window, decision-threshold, winddown-map; N2 co-ownership"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md:21 — ratified scope: SPA+White-RC, benchmark=zero, K>=2000, FWER max-stat, underpowered non-rejection -> WIND-DOWN, p<0.05 necessary-not-sufficient"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md:43-45 — 6x6 universe enumeration; effective independent tests ~1-2 (HoQR)/2-4 (NHT); USDJPY real (75.82-161.71)"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md:51 — rate_differentials.parquet forward-filled MONTHLY; effective-N ~monthly (~180-190), not daily; informs the no-clean-forward-holdout judgement"
+  - "docs/decisions/CONSENSUS_2026-06-02_r5_scope.md:63-68 — go/no-go CONTINUE/WIND-DOWN/AMBIGUOUS framework + binding power caveat"
+  - ".agent-accountability/dissents/r5-scope-2026-06-02:phase1:task1.0:null-hypothesis-tester.yaml:27-43 — NHT dissent: snooping sunk, only clean p from hold-out OR deflated-Sharpe haircut; underpowered non-rejection -> WIND-DOWN"
+  - "src/forex_system/harness/carry_universe_matrix.py:1-60 — joint (T,36) matrix builder; inner-join alignment; window slice applied after alignment; cell_dropped structured-reason event; fail-closed on code errors"
+  - "config/carry_momentum_portfolio.yaml:58 — risk_per_trade: 0.007 (source of carry_momentum ~1000x smaller return std / near-null column; N2 driver referenced in HoQR sections)"
+assumptions:
+  - "Exact window dates / bar count T and any hold-out split date come from the QD verified build report at assembly; left as marked slot, not invented."
+  - "The PRIMARY deflation-haircut path is operative; mathematician owns and signs the haircut formula/inputs and the N2 normalization decision (HoQR references, does not author them)."
+  - "The 6 variant files are the exhaustive carry family (STEP 1 grep assumed to confirm none live outside src/forex_system/strategies/)."
+  - "CEO has ratified the BUILD-R5 decision from the scope fork; STEP 3 proceeds on that basis."
+  - "Expected build is all 36 cells, 0 dropped (per STEP 2b commit); any deviation must be explained cell-by-cell before the p is read."
+  - "~0.30 Sharpe is annualized (confirmed in scope by both NHT and mathematician)."
+confidence: high
+body: |
+  Authored the HoQR-owned sections of the R5 pre-registration plus the full document
+  skeleton with all mathematician sections clearly marked as merge placeholders
+  ([SECTION OWNED BY MATHEMATICIAN — merged at assembly]); no statistical content drafted
+  in those sections.
+
+  Section 1 (Preamble & scope): R5 framed as the TERMINAL honest KILL TEST for a firm with
+  ZERO validated OOS alpha and a tripped kill-criterion; explicitly NOT a validation/rescue
+  vehicle; the freeze is binding — any post-freeze change other than the pre-freeze N1 fix
+  voids the pre-reg, and STEP 4 is one-shot.
+
+  Section 2 (Universe): explicit 6x6 grid (36 cells) enumerated as a table; NO-SILENT-EXCLUSION
+  stated as a named constraint (every cell appears or drops with a structured logged reason;
+  silent drop voids FWER; code errors fail closed); honest statement that the six variants are
+  re-parameterizations/ablations of ONE rate-differential idea with effective independent tests
+  ~1-2.
+
+  Section 3 (Window & snooping — HoQR proposal, mathematician co-signs): snooping is sunk and
+  uncontrollable on the firm's longest-studied strategies. PROPOSAL = PRIMARY deflated-Sharpe-style
+  haircut charged against the significance bar (rationale: rate signal is forward-filled MONTHLY,
+  so effective-N is ~monthly and a meaningful clean daily forward hold-out does not exist), with a
+  genuine post-development hold-out as documented FALLBACK if one is later shown to exist. The
+  haircut formula/inputs are explicitly deferred to the mathematician; HoQR owns only the decision
+  that snooping MUST be charged and that bare p<0.05 is necessary-but-not-sufficient. Window stated
+  as a RULE over the inner-join common joint index (post-entry-delay, net-of-cost); exact dates/T
+  left as a marked [EXACT DATES FROM QD BUILD REPORT] slot. "All data, no haircut" explicitly rejected.
+
+  Section 4 (Decision Rules): SPA p<0.05 (post-deflation, White-RC concordant) -> CONTINUE, which is
+  necessary-but-not-sufficient and only ever authorizes a NAMED confirmatory-only new pre-reg (no
+  free exploration). p>=0.05 -> WIND-DOWN. AMBIGUOUS (boundary straddle / isolated subset /
+  normalization distortion) -> confirmatory pre-reg gate only, never CONTINUE on the original family.
+
+  Section 5 (Wind-Down Action Map): all five outcomes per PRE-REG-winddown-map, each with a named
+  firm action — (1) REJECT -> confirmatory pre-reg only; (2) powered non-rejection -> WIND-DOWN;
+  (3) underpowered non-rejection -> WIND-DOWN (BINDING, not "inconclusive, keep spending");
+  (4) ANOMALOUS -> AMBIGUOUS confirmatory gate; (5) technical failure -> HALT/root-cause/re-freeze,
+  no counter increment. Section 5.1 defines "wind-down to monitoring" concretely: no new research
+  spend, archive registry as RETIRED/FALSIFIED, observe-only, redirect capacity, CEO ratification.
+
+  Section 6 (Retirement criteria): six machine-checkable triggers tied to the decision rules,
+  including the VOID-on-freeze-mismatch and VOID-on-silent-drop guards; no machine-checkable path
+  from this test to "keep spending on the carry family."
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

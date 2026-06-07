@@ -1,0 +1,203 @@
+---
+# Principal Reviewer (Independent) — New-Alpha Kickoff Quality-Gate Review / Co-Signature
+role: principal-reviewer
+artifact_type: quality-gate-review
+decision: approve
+timestamp: "2026-06-06T21:00:00Z"
+subtask_ref: new-alpha-pr-qgr
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+
+rubric_applied: independent-design-review
+
+# ════════════════════════════════════════════════════════════════════════════
+findings: []
+# No new findings. This is a focused closure verification, not a re-review.
+# All prior findings from pr-kickoff-review.yaml are fully addressed.
+# The package advances.
+
+# ════════════════════════════════════════════════════════════════════════════
+approve_when_check:
+  - condition: "artifact-passes-applied-rubrics-with-zero-blocking-findings"
+    status: satisfied
+    note: >
+      The original review (pr-kickoff-review.yaml) found zero blocking findings.
+      The two minor conditions (PR-F2 arithmetic, PR-F3 ordering) and the one
+      major risk (PR-F1 model risk) have all been addressed and ratified by the
+      HoQR. No new blocking finding arose during closure verification.
+
+  - condition: "all-prior-blocking-findings-from-this-reviewer-have-been-addressed"
+    status: "satisfied — note this reviewer had zero blocking findings; the two minor conditions and one major risk disclosure are closed"
+    note: >
+      PR-F1 (major, model risk): owned on the record, no-spend flip disclosed,
+      post-2015 decay test adopted as mandatory QRB-3 pre-reg kill condition.
+      PR-F2 (minor, arithmetic): three overlay/roadmap totals corrected to
+      orchestrator-recomputed values (QRB-2=3.89, QRB-4=3.62, QRB-6=4.38),
+      originals preserved in weighted_total_stated_original fields.
+      PR-F3 (minor, ordering): QRA-5 (3.67) acknowledged above QRA-2 (3.58)
+      per the frozen aggregation rule; ordering_correction footer recorded;
+      HoQR ratified the reorder.
+
+  - condition: "evidence-cited-for-every-claim-in-the-artifact-under-review"
+    status: satisfied
+    note: >
+      hoqr-kickoff-final-qgr.yaml cites file paths and line ranges for all
+      three correction verifications. hoqr-ranking.yaml carries
+      weighted_total_stated_original fields and arithmetic_correction
+      annotations for all three corrected rows. The HoQR's hand-verification
+      of QRB-4 and QRB-6 is shown term-by-term in corrections_detail.
+
+reject_when_check:
+  - condition: "load-bearing arithmetic error in a ranked-candidate row remains uncorrected"
+    status: not-triggered
+    note: >
+      All six ranked-candidate weighted totals were verified arithmetically
+      exact in the original review and remain unchanged. The three corrected
+      rows are all overlay/roadmap items with no eligibility consequence.
+
+  - condition: "a prior finding was closed with a cosmetic acknowledgment that does not address the substance"
+    status: not-triggered
+    note: >
+      PR-F1: HoQR restated the 3-vs-4 basis on the record (mandate-as-constraint
+      framing, anchor-by-anchor consistency with QRA-1/2/5 scored at 3), explicitly
+      disclosed the no-spend flip risk, and adopted the post-2015 isolation test as
+      a mandatory kill condition — this is the disposition I recommended (ownership
+      + disclosure + hedge), not a cosmetic acknowledgment.
+      PR-F2: corrections are arithmetically verified; originals preserved.
+      PR-F3: ordering revert is rubric-compliant and HoQR-ratified.
+
+  - condition: "new blocking defect discovered during closure verification"
+    status: not-triggered
+    note: >
+      Closure verification was limited to the three stated conditions. No new
+      blocking defect discovered. The ranked_alternatives section in hoqr-ranking.yaml
+      still reflects the pre-correction order (QRA-2 rank:1, QRA-5 rank:2), but the
+      ordering_correction footer and the hoqr-kickoff-final-qgr.yaml ratification both
+      record the correct order. This is a presentational residual, not a new blocking
+      finding; both fail the first-candidate bar and the recommendation is unaffected.
+
+# ════════════════════════════════════════════════════════════════════════════
+closure_verification:
+  pr_f2:
+    verdict: verified
+    spot_check_row: QRB-2
+    dims_used: [4, 4, 3, 4, 4, 5, 4]
+    weights: [0.28, 0.20, 0.16, 0.16, 0.12, 0.05, 0.03]
+    term_expansion: "0.28×4 + 0.20×4 + 0.16×3 + 0.16×4 + 0.12×4 + 0.05×5 + 0.03×4 = 1.12+0.80+0.48+0.64+0.48+0.25+0.12"
+    python3_result: 3.89
+    hoqr_ranking_corrected_total: 3.89
+    original_stated: 3.88
+    match: true
+    note: >
+      Spot-check QRB-2 python3-verified: 3.8900 = 3.89 (confirmed). The other
+      two rows (QRB-4=3.62, QRB-6=4.38) were hand-verified by the HoQR in
+      hoqr-kickoff-final-qgr.yaml corrections_detail with term expansions shown.
+      All three corrected values carry weighted_total_stated_original preservation
+      and arithmetic_correction annotation in hoqr-ranking.yaml. Closure confirmed.
+
+  pr_f3:
+    verdict: verified
+    observation: >
+      hoqr-ranking.yaml ordering_correction footer (line 1053-1054) records the
+      orchestrator reorder: "QRA-5 (3.67) and QRA-2 (3.58) reordered by
+      weighted_total per the frozen tie-break/order rule (PR-F3); orchestrator-
+      mechanical." hoqr-kickoff-final-qgr.yaml correction_b_ordering explicitly
+      ratifies the reorder and confirms QRA-5 correctly ranks above QRA-2 by
+      weighted_total. Ranked_candidates block in hoqr-ranking.yaml reflects rank:3
+      for QRA-5 and rank:2 for QRA-2 as a pre-correction artifact; the footer and
+      HoQR ratification establish the authoritative post-correction ordering. The
+      ranked_alternatives section retains the legacy order (a presentational residual
+      noted above under reject_when_check), not a reopened finding. Closure confirmed.
+
+  pr_f1:
+    verdict: disposition-confirmed
+    one_line: >
+      HoQR restated the mechanism=4 basis on the record (mandate-as-constraint, anchor
+      consistency), explicitly disclosed the no-spend flip risk to CEO, and adopted the
+      post-2015 isolation test as a mandatory QRB-3 pre-registration kill condition —
+      exactly the ownership + disclosure + hedge disposition this reviewer recommended;
+      the 3-vs-4 call itself is not re-adjudicated.
+
+# ════════════════════════════════════════════════════════════════════════════
+contamination-check: >
+  Clean. Role stance fields in the closure artifacts were read as the objects of
+  verification (the HoQR QGR is the artifact being co-signed; reading its decision
+  fields is required). The co-signature is based on independent arithmetic verification
+  (python3 spot-check of QRB-2), independent re-reading of the three closure sections,
+  and independent assessment of whether the disposition matches the original recommended
+  action class — not on any upstream role's "confidence: high" or blanket approval claim.
+  No live-capital action is implied.
+
+evidence:
+  - "hoqr-ranking.yaml:523-531 (QRB-2 corrected weighted_total=3.89, weighted_total_stated_original=3.88, arithmetic_correction annotation)"
+  - "hoqr-ranking.yaml:591-600 (QRB-4 corrected weighted_total=3.62, stated_original=3.50)"
+  - "hoqr-ranking.yaml:668-677 (QRB-6 corrected weighted_total=4.38, stated_original=4.07)"
+  - "hoqr-ranking.yaml:1053-1054 (ordering_correction footer: QRA-5/QRA-2 reorder recorded)"
+  - "hoqr-kickoff-final-qgr.yaml:21-60 (corrections_detail: hand-verification of QRB-4 and QRB-6 term-by-term)"
+  - "hoqr-kickoff-final-qgr.yaml:63-113 (pr_f1_response: mechanism=4 basis on the record, no_spend_flip_acknowledged=true, decay_test_adopted=adopted)"
+  - "python3 spot-check (this session): QRB-2 dims [4,4,3,4,4,5,4] × weights [.28,.20,.16,.16,.12,.05,.03] = 3.8900 = 3.89 (confirmed)"
+
+assumptions:
+  - >
+    The hoqr-ranking.yaml and hoqr-kickoff-final-qgr.yaml files in the
+    2026-06-06T-new-alpha-kickoff directory are the final, authoritative versions
+    of those artifacts; no further revisions have been made since the HoQR QGR
+    was timestamped 2026-06-06T20:00:00Z.
+  - >
+    The ranked_alternatives section still showing QRA-2 above QRA-5 is a
+    presentational residual of the pre-correction authoring, superseded by the
+    ordering_correction footer and the HoQR ratification. It is not a new defect.
+  - >
+    The scope of this co-signature is the three stated closure conditions only;
+    I am not re-adjudicating the full package rubric from scratch.
+
+confidence: high
+
+# ════════════════════════════════════════════════════════════════════════════
+body: |
+  ## Co-Signature Decision: APPROVE
+
+  All three conditions from the original approve-with-conditions review are closed.
+
+  PR-F2 (arithmetic): The three overlay/roadmap weighted totals are corrected to the
+  values derived from the rows' own dimension scores and frozen weights. QRB-2 verified
+  independently via python3 (3.89 confirmed). QRB-4 (3.62) and QRB-6 (4.38) verified
+  by the HoQR term-by-term with the corrected calculation strings shown. Originals
+  preserved in weighted_total_stated_original fields. No eligibility impact on any row.
+
+  PR-F3 (ordering): QRA-5 (3.67) above QRA-2 (3.58) is established by the
+  ordering_correction footer in hoqr-ranking.yaml and ratified in the HoQR QGR. The
+  ranked_alternatives section retains the legacy order, which is a presentational
+  residual; it does not reopen the finding. Both proposals fail the first-candidate bar;
+  the recommendation is unaffected.
+
+  PR-F1 (model risk disclosure): The HoQR restated the mechanism=4 basis on the record
+  with anchor-level reasoning, explicitly acknowledged that a mechanism=3 read collapses
+  the wave to NO-SPEND, disclosed this to the CEO, and adopted the post-2015 sub-window
+  isolation test as a mandatory QRB-3 pre-registration kill condition — the sharpest
+  available procedural hedge against the McLean-Pontiff publication-break risk. This
+  is the disposition this reviewer recommended: ownership + disclosure + adopted hedge.
+  The 3-vs-4 call is not re-adjudicated; the risk is now on the record and protected
+  at pre-registration.
+
+  The package advances to CONSENSUS sign-off. The QRB-3 pre-registration must honor
+  all four NHT binding conditions plus the newly adopted post-2015 isolation test
+  (2015-2026 in isolation as a kill condition, in addition to the 2010-2017 vs
+  2018-2026 half-split). Both must pass.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml
+  - .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-kickoff-final-qgr.yaml
+  - .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pr-kickoff-review.yaml
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

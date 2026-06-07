@@ -1,0 +1,162 @@
+---
+part: 3
+screener: NHT (Null-Hypothesis Tester)
+timestamp: "2026-06-06T08:00:00Z"
+status: COMPLETE
+
+rows:
+
+  - id: QRB-4
+    verdict: conditional-survive
+    condition: >
+      GATE component (suppress entries in hole-bar) is unconditionally sound — passes as a cost
+      hygiene overlay, no additional condition required.
+      FADE component (enter opposite after hole-bar ATR-overshoot) survives with the following
+      mandatory pre-registration elements:
+        (1) k×ATR threshold pre-registered ex-ante before any return examination — if threshold
+            is empirically fitted, FADE is a new trial registration;
+        (2) entry bar must be confirmed as normal-liquidity (spread_z ≤ gate threshold) to avoid
+            entering at the tail of a still-elevated spread;
+        (3) "no structural decay" falsification: effect must not be confined to pre-2015
+            (as explicitly specified in the QR's falsification sketch — binding, not advisory);
+        (4) pooled across 3 pairs (not per-pair), given cross-correlation during rollovers.
+      If FADE fails cost net after valid pre-registration, retire FADE and retain GATE only.
+    dedup: >
+      PASSES. tas_ceiling_4h and archived ORB family both operate on session-OPEN or price-deviation
+      triggers; QRB-4 operates on the UTC-17/18 rollover hour, identified by the spread feed, with
+      FADE sign (opposite the overshoot) — different time anchor, different data source, different
+      direction. The GATE is trivially distinct (cost hygiene, not alpha). The FADE mechanism
+      (thin-book hour-keyed overshoot reversion using spread-by-hour as state) does not overlap
+      any archived family on mechanism.
+    base_rate_note: >
+      Moderate prior. Microstructure-anchored intraday mean-reversion in FX has reasonable theoretical
+      backing (thin-book overshoots during low-liquidity windows do revert). Not in the worst
+      reference class (unlike calendar seasonality). The FADE's "entering one bar late" assumption
+      is the load-bearing empirical question: how much reversion occurs within the hole bar itself
+      vs. carrying into the next bar? No strong literature prior on this specific mechanism; honest
+      uncertainty. The GATE has a near-certain positive prior (removing highest-cost entries improves
+      cost-adjusted returns by construction, assuming any directional signal is independently sound).
+    testability_note: >
+      GATE: trivially powered (full 25,457-bar sample per pair; every hole-hour bar is an observation).
+      FADE: conditional on k×ATR threshold. At a pre-registered k=1, roughly 30–40% of hole bars
+      qualify → ~1,200–1,700 events per pair → ~3,600–5,100 pooled across EURUSD/GBPUSD/USDJPY.
+      Adequate for block-bootstrap under pooled treatment. Critical caveat: the 3 pairs share the
+      same rollover hour and are correlated during stress; effective independent-N is lower than
+      5,100. Block-bootstrap with pair-level blocks (not bar-level) is the right test. Power is
+      sufficient for a pooled test with adequate block-length; per-pair power is marginal.
+    cost_note: >
+      GATE: positive-EV by construction (removes the highest-slippage entries). No cost issue.
+      FADE: enters on the next normal-liquidity 4H bar; verified spread ~2.0 pips → round-trip
+      ~4 pips (spread + spread; slippage adds ~1 pip each side on entry/exit). Net cost ~4–6 pips
+      per event. Hole-bar ATR-overshoot must generate >4–6 pips of next-bar reversion to survive.
+      Honest assessment: marginal to failing. The QR correctly flags this as the hardest cost case.
+      GATE-first emphasis is the right sequencing; FADE only if cost is cleared in pre-registered test.
+
+  - id: QRB-5
+    verdict: kill
+    condition: null
+    dedup: >
+      PASSES trivially — no archived strategy conditions on weekday. Dedup is not the killer here.
+    base_rate_note: >
+      KILL trigger. Day-of-week seasonality is the most data-mined calendar family in empirical
+      finance (documented since French 1980 in equities; widely studied in FX). Post-publication
+      decay in this family is severe; McLean-Pontiff ~35% average applies to anomalies with a
+      reasonable prior, and for widely-known calendar effects the decay is plausibly >50%–100%.
+      The liquidity conditioner (spread_z) does not rescue the prior: weekday and spread are
+      correlated (Monday/Friday spread patterns exist by microstructure), so the conditioner risks
+      rediscovering spread seasonality rather than an independent return edge. The reference class
+      (calendar seasonality, widely known, liquid instrument) is the worst in this portfolio.
+    testability_note: >
+      KILL trigger. 12 pairs × 5 weekdays = 60 hypotheses. FWER correction (Bonferroni or White)
+      raises per-test α threshold to ~0.00083 (t-critical ~3.35 at N=847). Typical weekday effect
+      sizes in FX are 0.05–0.15σ per bar; t-statistic across 847 observations ≈ 1.5–4.4 — marginal
+      to nil power at the corrected threshold. The 60-hypothesis FWER correction eats essentially
+      all statistical power for effects of the documented magnitude. The QR explicitly acknowledges
+      this ("60 hypotheses — high multiple-testing burden"). Even if one weekday survives the FWER
+      filter by noise, it is almost certainly a false positive given the reference class.
+    cost_note: >
+      KILL trigger. QR's own honest assessment: "weekday effects are typically < 1–2 pips, the same
+      order as the round-trip cost. Honestly likely to fail cost survival as a standalone." Majors
+      round-trip: ~1.5–3.0 pips (spread-only lower bound ~1.5 pips for EURUSD; slippage adds more).
+      An effect of 1–2 pips gross against a 1.5–3.0 pip cost is zero-to-negative net. Three
+      independent kill triggers (base-rate, testability, cost) converge; kill is unambiguous.
+
+  - id: QRB-6
+    verdict: conditional-survive
+    condition: >
+      ROADMAP VALUE ONLY — acquisition_required, ineligible for first-candidate slot.
+      Survives for roadmap with the following mandatory pre-registration element (beyond QR's draft):
+        (1) STRUCTURAL DECAY CHECK is binding, not advisory: the falsification sketch must include
+            an explicit post-2015 sub-window test (2015–2026 in isolation, not just two disjoint
+            halves of 2010–2026). Rationale: carried-forward NHT finding — the pre-FOMC announcement
+            drift "essentially disappeared after 2015" in the disappearing-drift literature; the 2015
+            endpoint is the structural break, not the sample midpoint. If the effect is confined to
+            2010–2015 (the pre-disappearance period), it is not exploitable in the current regime.
+            A standard two-half split (e.g., 2010–2018 / 2018–2026) does not cleanly test this break.
+        (2) The ~65% post-announcement reversal figure cited in the proposal comes from a WebSearch
+            summary (not a verified paper — WebFetch calls to NY Fed and ResearchGate returned 403).
+            This figure is UNVERIFIED and must NOT be hard-coded as the pre-registered reversal target;
+            pre-register the reversal test as "statistically distinguishable from both 0% and 100%"
+            without specifying a point estimate derived from an unverified source.
+        (3) Multi-bank pooling must treat banks as independent blocks, not observations; per-bank
+            Sharpe reported as a secondary metric with a note that the Fed/ECB/BoJ dominate the pool.
+      Subject to these conditions, QRB-6 has the strongest mechanism prior in the portfolio and is
+      recommended for authorization once CEO approves the calendar acquisition.
+    dedup: >
+      PASSES. Clearly distinct from all archived families. No strategy triggers on scheduled
+      central-bank announcement calendar dates. The mechanism (pre-decision drift + post-announcement
+      reversal tied to uncertainty-resolution) is orthogonal to carry level (continuous), MA crossover
+      (price), ORB (session range), and QRB-1's data-lagged rate-change (which uses the stale monthly
+      feed, not the scheduled announcement date). Passes on all axes.
+    base_rate_note: >
+      MIXED — carried-forward NHT findings are load-bearing and partially adverse.
+      Favorable: the pre-FOMC drift (Lucca-Moench 2015) is one of the few documented, named, peer-
+      reviewed FX-adjacent anomalies to survive post-publication for a measured period — a rare prior.
+      Multi-bank pooling (~900 events) is the best-powered event study in this portfolio.
+      Adverse (load-bearing): my prior finding that the pre-FOMC drift "essentially disappeared after
+      2015" directly contradicts QRB-6's decade-survival claim for the 2015–2026 portion that matters
+      most. The firm's OOS-relevant window is primarily post-2015. McLean-Pontiff ~35% average decay
+      is a lower bound for effects where structural disappearance has been documented. The net prior
+      is: strong pre-2015, uncertain-to-weak post-2015, requiring an explicit structural break test
+      rather than a simple stability check. The roadmap value is real but conditional on the
+      post-2015 survival test; without that test, QRB-6 risks reporting a 2010–2026 aggregate that
+      is dominated by the pre-2015 in-sample signal and presents dead alpha as live.
+    testability_note: >
+      STRONG (if acquisition proceeds). ~8 banks × ~8 decisions/yr × 16 yr ≈ 1,024 pooled events.
+      Well-powered for a block-bootstrap pooled test. Scheduled dates are unambiguous (no event
+      identification snooping possible). Per-bank power is lower (~128 events/bank) but adequate
+      for secondary analysis. Acquisition effort is low (free public data, curation + UTC normalization
+      + scheduled/emergency flagging). This is the best testability profile in the portfolio, and
+      the acquisition cost is trivially justified if the prior survives the post-2015 structural check.
+    cost_note: >
+      FAVOURABLE. Very low turnover (~64 decisions/yr across 8 banks, 2 trades per event per pair).
+      Annual cost drag is minimal. Documented pre-decision drift magnitude (if real) measured in
+      tens of basis points dwarfs a ~2–3 pip major round-trip. The cost is not the constraint here;
+      structural decay post-2015 is the constraint.
+
+part_observations: |
+  Three proposals; three distinct outcomes driven by three different failure modes.
+
+  QRB-4 (rollover-hole gate/fade): Mechanism is genuinely distinct from the archived session-boundary
+  family. The GATE component is sound by construction and should proceed immediately. The FADE is
+  mechanistically novel and adequately powered but faces a hard cost bar (entering one bar late after
+  the reversion has partially run). Conditional-survive: GATE unconditionally, FADE conditional on
+  pre-registered ATR threshold and net-of-cost clearance.
+
+  QRB-5 (weekday seasonality): Three independent kill triggers — (1) worst reference class in
+  empirical finance, (2) 60-hypothesis FWER correction kills statistical power for effects of the
+  documented magnitude, (3) QR's own honest acknowledgment that weekday effects are sub-pip and
+  likely fail cost. The liquidity conditioner does not rescue any of these. Kill is unambiguous and
+  the QR essentially called it themselves.
+
+  QRB-6 (CB decision calendar): Strongest mechanism prior in the portfolio and best testability
+  (900+ events). Acquisition barrier is trivially low. Passes dedup cleanly. Two adverse carried-
+  forward findings condition the verdict: (a) pre-FOMC drift disappeared post-2015 — the post-2015
+  sub-window test is mandatory, not advisory; (b) the ~65% reversal figure is from an unverified
+  source (WebSearch summary; WebFetch 403 failures) and must not be pre-registered as a point target.
+  Conditional-survive for roadmap; upgrade to candidate when CEO authorizes calendar acquisition AND
+  the structural-decay test is explicitly required in the pre-registration.
+
+  Calibration note: two conditional-survives and one kill. The kill is a true kill (three convergent
+  failure modes, QR self-assessed as low-conviction). The conditional-survives are not soft passes —
+  both carry binding conditions that could result in kills at pre-registration stage.

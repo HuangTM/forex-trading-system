@@ -1,0 +1,244 @@
+part: 1
+screener: null-hypothesis-tester
+timestamp: "2026-06-06T06:45:00Z"
+rows:
+
+  - id: QRA-1
+    verdict: conditional-survive
+    condition: >
+      (a) ADF unit-root test on r_t = ln(EURGBP) - [ln(EURUSD) - ln(GBPUSD)] must
+      firmly reject at p < 0.05 BEFORE any backtest runs — a non-stationary residual
+      means the mean-reversion premise is false; AUTO-KILL if ADF fails.
+      (b) Walk-forward OOS Sharpe >= 0.30 net of full 3-leg round-trip cost
+      (~7 pips total: EURGBP + EURUSD + GBPUSD spreads).
+      (c) OU half-life of r_t must be shorter than the mean holding period such that
+      <= 70% of gross edge is consumed by cost; kill if cost-consumption ratio > 70%.
+      (d) Signal must fire >= 15 times/yr on OOS walk-forward folds; if < 10/yr the
+      OOS folds are statistically degenerate and the strategy is archived as too-rare.
+    dedup: >
+      PASS. The mechanism is a 3-pair cross-quote consistency residual (a no-arb
+      identity that should hold to within cost). No archived family touches a
+      triangular multi-pair identity residual: carry uses rate-diffs, momentum/MA use
+      single-series close-to-close, Bollinger+RSI uses single-pair band/oscillator,
+      ORB/tas_ceiling_4h uses single-pair session or regression-envelope mean reversion.
+      Net-zero directional exposure is structural, not cosmetic — this is a
+      relative-value construct orthogonal to all archived directional families.
+    base_rate_note: >
+      Reference class: OHLC-geometry constructs on this dataset; firm honest-N = 11
+      trials, 0 validated OOS alpha. Prior probability of success: low (~5-15%).
+      Mechanism (data-stamp stale-quote noise in three concurrent daily closes) is
+      coherent and potentially real, but no prior evidence exists. The QR's own
+      "marginal" cost-survival characterization is appropriate. No special prior uplift
+      is warranted beyond mechanism coherence.
+    testability_note: >
+      Single derived time series (r_t has one degree of freedom). With 20-60 trades/yr,
+      walk-forward OOS windows will have ~3-10 trades per fold — thin but not dead
+      for estimating directional accuracy. The ADF pre-check (condition a) is the
+      correct first gate: a non-stationary r_t means effective N = 0 for mean-reversion
+      testing. If r_t IS stationary, ~320-960 total trades in-sample provides adequate
+      power for IS fit; OOS power remains thin per fold. The half-life (condition c)
+      is the second binding check — if the residual reverts in 1 bar, signals are
+      effectively noise; if > 20 bars, cost compounds past the edge.
+    cost_note: >
+      3-leg round-trip: EURUSD daily spread ~2.0 pips + GBPUSD ~2.5 pips + EURGBP
+      ~2.5 pips = ~7 pips total. Multi-day hold (est. 5-20 day average) means cost
+      is a one-time 7-pip charge against the residual's typical reversal magnitude.
+      For the strategy to survive, the average reversal at z > 2 must exceed 7 pips
+      in EURGBP-equivalent terms. Plausible if sigma(r_t) in EURGBP pips is >= 5 pips,
+      but genuinely marginal. The falsification cost-consumption threshold (70% rule)
+      directly tests this; no cost-kill at screening stage, but it is the central risk.
+
+  - id: QRA-2
+    verdict: conditional-survive
+    condition: >
+      The asymmetry claim (JPY-crosses continue the gap, USD-majors fade it) is the
+      ONLY falsifiable core. Both class-conditional legs must yield net-of-cost positive
+      OOS expectancy. If only one class works OOS, the surviving leg must be registered
+      as a NEW single-class proposal with Bonferroni penalty; the combined hypothesis
+      is then partially falsified and cannot claim the gap-asymmetry mechanism as
+      validated. Combined walk-forward OOS Sharpe >= 0.30. Gap gate must be calibrated
+      on IS data only (no OOS snooping on gate threshold selection).
+    dedup: >
+      PASS. The information source is g_t = ln(open_t) - ln(close_{t-1}), a daily
+      discontinuity feature absent from all archived families (which operate on
+      close-to-close series only). The JPY-continuation leg is momentum-adjacent
+      (same-sign gap -> same-sign intraday return), but the alpha claim lives in the
+      ASYMMETRY between pair-classes, not in the continuation alone. Without the
+      asymmetric conditioning on pair-class, the base rule has no claimed edge (it
+      would be mixed and net-null by the QR's hypothesis). The new information source
+      is the gap-discontinuity feature crossed with pair-class identity -- neither
+      element alone is novel enough to survive dedup; together they constitute a new
+      mechanism. The JPY-continuation leg alone would be a momentum re-skin (AUTO-KILL
+      in isolation) -- this is a genuine adjacent-but-distinct judgment call; NHT
+      accepts it ONLY because the falsification sketch correctly binds both legs
+      simultaneously and KILLS if the asymmetry is absent.
+    base_rate_note: >
+      Reference class: OHLC-geometry constructs; honest-N = 11, 0 validated OOS alpha.
+      Prior: low. The economic story (Asian-risk repricing vs thin-book stamping noise)
+      is coherent and pair-class-specific; FX gaps are smaller than equity gaps due
+      to near-24h trading, but the 00:00 UTC stamp creates genuine discontinuities
+      (weekend opens, Asian-session repricing). No special prior uplift beyond
+      mechanism coherence.
+    testability_note: >
+      12 pairs split into 6 JPY-cross + 6 USD-major classes. After gap gating:
+      est. 30-80 signals/yr/pair = 180-480/yr per class. Walk-forward OOS: several
+      hundred events per class over 3+ year OOS windows. The 6 JPY-crosses share a
+      JPY leg (effective dimension ~2-3 within class); same for USD-majors (shared
+      USD leg). The class-level test has adequate power; the per-pair within-class
+      test does not. The asymmetry test (class A vs class B coefficient sign) is the
+      appropriate primary test and has adequate OOS power given the trade count.
+    cost_note: >
+      Open-to-close 1-day hold. EURUSD/GBPUSD: ~2.0-2.5 pip cost vs. 20-50 pip
+      typical open-to-close range on gated large-gap days. Adequate headroom for
+      majors. JPY-crosses: ~3-5 pip cost vs. 30-80 pip range. Marginal on JPY-crosses
+      but not a cost-kill at screening stage. Gating to large gaps is the lever;
+      ungated, noise dilution kills this before cost does. No cost-kill here; the
+      falsification Sharpe threshold is the operative gate.
+
+  - id: QRA-3
+    verdict: kill
+    condition: "n/a"
+    dedup: >
+      ADJACENT-BUT-DISTINCT -- but the adjacency is too close relative to the cost
+      burden and prior. The base signal is 1-day close-to-close return continuation
+      (1-day momentum), gated by TS_t. Momentum (Bet#1) on 14-day ROC already failed
+      in this firm's trials. The new element is TS_t (4h-to-daily vol ratio) as a
+      regime classifier that flips the momentum sign. This is not a re-skin
+      (the gate is new), but the alpha-source reduces entirely to: "does the
+      4h-to-daily GK/Parkinson vol ratio correctly classify trend vs chop regimes
+      well enough to net-positive after daily-rebalance cost?" The momentum-adjacency
+      is not the kill by itself; the combination of (momentum-adjacent base signal) +
+      (worst cost profile) + (only 3 pairs) + (QR's own low-confidence rating) is
+      the kill package. The claimed novelty (TS_t) cannot be evaluated independently
+      from the momentum base signal it gates -- any OOS success is ambiguous between
+      the gate and the base signal. That ambiguity is a fundamental weakness.
+    base_rate_note: >
+      Same graveyard (0/11). Vol-regime filters for conditional trend strategies have
+      a weak real-world track record in daily-bar FX; this class of strategies is
+      well-explored in the quant literature with disappointing out-of-sample results.
+      QR's own "confidence: low" is appropriately calibrated. No uplift.
+    testability_note: >
+      Only 3 pairs (EURUSD, GBPUSD, USDJPY) have 4h data. Daily rebalance at
+      150-250 trades/yr/pair provides adequate total-N for Sharpe estimation, but
+      the TS_t regime classifier itself has low classification power (base rates of
+      "truly chop" vs "truly trend" days are unknown, and the classifier's accuracy
+      needs to be estimated from the same data used to build the strategy). The 3-pair
+      limitation means all walk-forward OOS inference rests on a portfolio of 3
+      correlated major pairs -- effectively 2 independent signals (EURUSD and GBPUSD
+      share GBP/EUR dynamics; USDJPY is semi-independent). Thin but not the kill.
+    cost_note: >
+      KILL contributor. Daily rebalance on 3 pairs. ~2.0-2.5 pip round-trip cost
+      per pair per day. The per-day directional edge from the TS_t gate would need
+      to exceed ~2 pips consistently to survive. Average major-pair daily move is
+      50-80 pips, but directional accuracy improvement from TS_t is unknown and
+      has no demonstrated prior. Even a 52% vs 50% directional accuracy improvement
+      yields only 50-80 pips * 0.02 = 1-1.6 pips expected gross per day -- below
+      cost. The gate would need to identify 55-60% accuracy-improvement days to
+      clear cost, which is a strong and unvalidated claim for a novel signal with
+      no prior evidence. This is the cost-kill that tips the verdict to KILL.
+
+  - id: QRA-4
+    verdict: conditional-survive
+    condition: >
+      (a) Dollar-neutral basket construction must be done on the ~8-currency space
+      (after decomposing pairs into constituent currencies), NOT on the raw 12-pair
+      space. The 12-pair panel contains redundant legs (CADJPY, EURJPY, AUDJPY,
+      GBPJPY, NZDJPY all share a JPY leg; a JPY dispersion spike must not be counted
+      as 5 independent pair-dispersion events). Failure to decompose = the basket
+      is inadvertently a leveraged JPY bet disguised as diversification; this is a
+      structural flaw that must be closed before pre-registration.
+      (b) Walk-forward OOS Sharpe >= 0.30 net of full multi-leg cost (~8-12 legs
+      per event, all with realistic spread + slippage).
+      (c) Sign-check: if the demeaned top-N-day movers CONTINUE rather than revert
+      on OOS walk-forward, the sign is wrong and the proposal is IMMEDIATELY KILLED
+      with no appeal (it would be momentum-disguised, which is an archived family).
+      (d) The dispersion gate threshold must be calibrated on IS data only; no OOS
+      exposure during gate selection.
+    dedup: >
+      PASS. Cross-sectional reversion (short top same-day movers, long bottom) is the
+      OPPOSITE sign to momentum (which is long top trailing-return movers). The
+      dispersion-gate conditioning (flat when D_t is low, active only on spikes) is
+      a new regime variable not present in any archived family. Carry ranks by
+      rate-differential; momentum ranks by trailing own-return; both are continuation
+      signals. QRA-4 is a reversion signal gated by a cross-sectional moment. The
+      mechanism is genuinely orthogonal to the archive. The sign-check condition (c)
+      serves as a dedup safety valve: if OOS behavior is continuation, it auto-kills
+      as momentum-disguised.
+    base_rate_note: >
+      Same graveyard (0/11). Cross-sectional reversion in FX is less studied than in
+      equities (where stat-arb has a documented positive track record). The ~8-currency
+      effective panel (after USD-normalization) is a thin cross-section for reversion
+      strategies; equity stat-arb typically requires 50-500+ stocks for robust
+      inference. The FX panel is too small for confidence but not too small to test.
+      The dispersion-spike gate adds structure but also a free parameter (gate
+      quantile). Prior: low, with a genuine mechanism argument (idiosyncratic
+      overshoot + partial retrace) that is coherent but untested on this data.
+    testability_note: >
+      FLAGGED AS THE PRIMARY RISK. The 12-pair panel decomposes to ~8 currencies;
+      shared-leg correlation (5 JPY-crosses + USD dominance) means each
+      high-dispersion day is NOT 12 independent observations -- it is 2-3 effective
+      factor bets. Gating to ~30-60 dispersion-spike events/yr gives ~60-180 events
+      over a 3-year OOS window, but at 2-3 effective factors per event, the
+      independent information is closer to 20-60 OOS data points. This is statistically
+      thin. The falsification sketch has adequate power to detect large effects
+      (Sharpe > 0.30 net of cost) but low power to rule out a false positive at
+      smaller effect sizes. NHT accepts this on the grounds that: (1) the sign-check
+      condition provides a high-power binary kill, (2) the cost threshold provides
+      a natural kill for weak signals, and (3) the effective-N limitation is an honest
+      epistemic constraint disclosed here, not hidden. The QR must disclose this
+      effective-N limitation in the pre-registration.
+    cost_note: >
+      8-12 legs per rebalancing event. Costs per leg: 2-5 pips spread + slippage.
+      Total basket round-trip cost per event: est. 25-60 pips (summed across legs).
+      Expected convergence per leg on a high-dispersion day: unknown but the
+      dispersion spike (larger-than-average idiosyncratic moves) is the cost-headroom
+      lever. Genuinely marginal -- the QR's "dominant risk" characterization is accurate.
+      The cost-consumption threshold in the falsification sketch (70% rule) is the
+      operative gate. Gating to high-dispersion events (larger expected convergence)
+      is the ONLY mechanism for cost survival; without it, this dies to spread on
+      normal-vol days. Condition (a) on proper currency-space construction also
+      affects cost: an improperly constructed basket may inadvertently double-count
+      JPY legs, inflating both apparent diversification and actual cost.
+
+part_observations: >
+  Portfolio-level observations on the 4 proposals:
+
+  1. KILL RATIO: 1 kill (QRA-3), 3 conditional-survives (QRA-1, QRA-2, QRA-4).
+  The kill-ratio of 25% is lower than the historical graveyard base rate (~91%
+  in honest-N terms), but these are proposals not yet backtested -- the conditional
+  requirements impose pre-backtest gates that may kill 1-2 more at pre-reg stage.
+
+  2. COMMON STRUCTURAL WEAKNESS: All 4 proposals share the low-effective-N problem
+  inherent to a 12-pair daily OHLCV dataset with volume=0. The ~4185 daily bars
+  are further reduced by walk-forward windows; OOS folds are thin. None of the
+  surviving proposals can produce high-confidence statistical verdicts from this
+  dataset alone; they can only produce "signal present/absent given cost floor"
+  verdicts. The firm should set expectations accordingly.
+
+  3. COST IS THE SILENT KILLER: QRA-3 is the explicit cost-kill; QRA-4 is marginal;
+  QRA-1 is acknowledged-marginal. Only QRA-2 has comfortable cost headroom on the
+  major-class leg. The firm's ~1.5 pip round-trip floor means any daily-rebalance
+  strategy with sub-3-pip directional edge is dead before testing. The cost screen
+  eliminated QRA-3 as the dominant failure mode.
+
+  4. MOMENTUM-ADJACENCY WATCH: QRA-3's momentum-adjacent base signal is one kill
+  factor. QRA-2's JPY-continuation leg is momentum-adjacent but survives because
+  the ASYMMETRY is the claimed mechanism and the falsification correctly kills if
+  the asymmetry is absent. This distinction (adjacent mechanism where the NEW part
+  carries the alpha) is the correct NHT judgment; the dedup screen is not binary
+  adjacent/distant but conditional on where the alpha claim lives.
+
+  5. PORTFOLIO ORTHOGONALITY: QRA-1 (relative value, net-zero directional) is the
+  most orthogonal to the other surviving proposals. QRA-2 (directional, intraday)
+  and QRA-4 (cross-sectional reversion, multi-day) have some correlation through
+  shared JPY exposure. If all three proceed to pre-registration, the Bonferroni
+  denominator grows by 3 (or more if each is multi-pair) and the DSR thresholds
+  tighten -- the testing-cost of running all three must be accounted for in the
+  pre-reg denominator update.
+
+  6. BEST CANDIDATE: QRA-1 has the strongest a-priori NHT endorsement for orthogonality
+  and sharpest falsification sketch (ADF pre-check gates before any backtest; OU
+  half-life vs cost provides a clean quantitative kill). QRA-2 is the most tractable
+  to test and has the best cost headroom. QRA-4 is the most fragile (thin effective-N,
+  multi-leg cost) but the mechanism is genuine. NHT orders priority: QRA-1 > QRA-2
+  > QRA-4 for pre-registration sequencing (QRA-3 retired).

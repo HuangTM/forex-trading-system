@@ -1,0 +1,351 @@
+---
+# Principal Reviewer (Independent) — New-Alpha Kickoff wave review
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-06T18:30:00Z"
+subtask_ref: new-alpha-pr-review
+subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
+
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+
+artifact-under-review:
+  - pm-acceptance-criteria.yaml
+  - qr-a-proposals.yaml
+  - qr-b-proposals.yaml
+  - hoqr-rubric.yaml
+  - nht-screen.yaml
+  - hoqr-ranking.yaml
+
+rubrics-applied:
+  - "Load-bearing check 1: rubric-application fidelity (anchor spot-check ≥4 rows; arithmetic verification of all 9 weighted totals; hard-gate + first-candidate-bar application; post-hoc anchor/weight diff)"
+  - "Load-bearing check 2: NHT-condition verbatim adoption + three portfolio preconditions"
+  - "Load-bearing check 3: wave-compliance (no backtest/perf computation; trial counter not incremented)"
+  - "Load-bearing check 4: kill integrity (QRA-3, QRB-5 rationale consistency)"
+  - "Load-bearing check 5: contract completeness vs PM done_when predicates"
+  - "review-plan skill: Correctness, Design, Completeness, Clarity, Risk dimensions + Inversion Check + Self-Verification"
+
+# ════════════════════════════════════════════════════════════════════════════
+findings:
+
+  # ── BLOCKING ────────────────────────────────────────────────────────────
+  # (none — the first-candidate decision and its load-bearing scores are
+  #  arithmetically and anchor-correct; no blocking defect found)
+
+  # ── MAJOR ───────────────────────────────────────────────────────────────
+  - id: PR-F1
+    severity: major
+    location: "hoqr-ranking.yaml:67-78 (QRB-3 mechanism_quality=4) + recommendation:868-886"
+    category: rubric-application-fidelity / single-point-of-failure
+    observation: >
+      The ENTIRE recommendation rests on one score: QRB-3 mechanism_quality = 4.
+      It is the only proposal clearing the first-candidate bar, and it clears
+      ONLY because mechanism is 4 (not 3). The 3→4 boundary is exactly where the
+      frozen rubric is most fragile here: anchor LEVEL 3 literally lists
+      "month-end rebalancers" as its own canonical example of a level-3 named
+      counterparty ("A named counterparty class (e.g., month-end rebalancers,
+      retail stop-clusters, hedgers indifferent to price) but the persistence
+      argument is weak"). The HoQR scored the SAME mechanism a 4 by invoking the
+      "mandate constraint" clause of anchor 4.
+    inference: >
+      The 4 is defensible (a passive index-tracking mandate IS the "inelastic
+      hedging need / structurally price-insensitive flow" anchor 4 names), and
+      it is internally consistent with how the scorer treated the behavioral-
+      counterparty proposals (QRA-1/2/5 all got 3). But because the rubric's own
+      level-3 exemplar IS "month-end rebalancers," a reasonable scorer could land
+      this on 3 — which would collapse the recommendation to NO-SPEND. The
+      recommendation is therefore a single-judgment-call away from a different
+      terminal outcome. This is not an error; it is concentrated model risk that
+      the package does not flag as such.
+    evidence: >
+      Rubric anchor-3 text (hoqr-rubric.yaml:54-56) names "month-end rebalancers"
+      as a level-3 example; anchor-4 text (hoqr-rubric.yaml:57-61) requires "a
+      CONSTRAINT that forces them to keep losing (a mandate ... inelastic hedging
+      need ...)". QRB-3 first_candidate_bar_check (hoqr-ranking.yaml:134-143)
+      shows the bar clears solely on mechanism=4/novelty=4/cost=4/stat=4; drop
+      mechanism to 3 and clears_bar=false.
+    recommended-action-class: surface-to-CEO-and-PM
+    owning-role: head-of-quant-research
+
+  # ── MINOR ───────────────────────────────────────────────────────────────
+  - id: PR-F2
+    severity: minor
+    location: "hoqr-ranking.yaml:563 (QRB-2), :627 (QRB-4), :703 (QRB-6) weighted_total fields"
+    category: rubric-application-fidelity / arithmetic
+    observation: >
+      Three weighted_total values do not equal the weighted sum of their own
+      dimension scores (verified with python3 arithmetic against weights
+      .28/.20/.16/.16/.12/.05/.03, AND against the artifact's own written term
+      expansions in each `calculation:` string):
+        QRB-2: dims (4,4,3,4,4,5,4) → 3.89; states 3.88 (off 0.01).
+        QRB-4: dims (4,4,4,2,4,4,2) → 3.62; states 3.50 (off 0.12).
+        QRB-6: dims (4,5,4,5,5,2,4) → 4.38; states 4.07 (off 0.31).
+      The QRB-4 and QRB-6 errors are material in magnitude, not rounding. Note
+      QRB-6 at the correct 4.38 would be the highest score in the portfolio by a
+      wider margin (already noted as "highest" at 4.07).
+    inference: >
+      All six RANKED CANDIDATE totals (QRB-3, QRA-2, QRA-5, QRA-1, QRB-1, QRA-4)
+      verified arithmetically correct, so these three errors do NOT touch the
+      first-candidate decision — all three erroneous rows are overlay/roadmap
+      items explicitly ineligible for the candidate slot. Impact is presentational
+      and to the roadmap ordering, not to the recommendation. Still a fidelity
+      defect: the ranking artifact's stated totals must match its own scores.
+    evidence: "python3 verification (this review): 6/9 totals exact, 3/9 mismatch; the 3 mismatches are all non-candidate overlay/roadmap rows."
+    recommended-action-class: correct-arithmetic-in-place
+    owning-role: head-of-quant-research
+
+  - id: PR-F3
+    severity: minor
+    location: "hoqr-ranking.yaml:726-732 (rank 2 QRA-2 vs rank 3 QRA-5)"
+    category: rubric-application-fidelity / ranking-order
+    observation: >
+      QRA-5 (weighted_total 3.67) is ranked BELOW QRA-2 (weighted_total 3.58) —
+      a rank inversion relative to the rubric's aggregation rule, which ranks by
+      weighted sum. The artifact justifies it post-hoc (line 731-732): "ranked
+      below it because cost=2 is a more severe deficiency than QRA-2's cost=3."
+      The frozen rubric's tie_break ladder applies only "If still tied"
+      (hoqr-rubric.yaml:241-247); QRA-2 and QRA-5 are NOT tied (3.58 ≠ 3.67), so
+      the tie-break ladder is not licensed to reorder them.
+    inference: >
+      Introducing a "severity of cost deficiency" reorder among non-tied,
+      below-bar runners-up is an off-rubric criterion applied after scores were
+      seen. It does not affect the recommendation (both fail the bar; QRB-3 is
+      the only candidate) — but it is precisely the class of post-hoc
+      discretion the frozen-rubric design was meant to remove. Either rank by
+      weighted_total as written, or record this as an explicit, rubric-sanctioned
+      HoQR judgment call (tie_break step 5) rather than implying the ladder applies.
+    evidence: "ranked_candidates (hoqr-ranking.yaml:713-750) lists rank2=QRA-2(3.58), rank3=QRA-5(3.67); rubric aggregation rule (hoqr-rubric.yaml:218-227) = weighted sum; tie_break gated on 'If still tied' (line 247)."
+    recommended-action-class: rank-by-rule-or-label-as-judgment-call
+    owning-role: head-of-quant-research
+
+  - id: PR-F4
+    severity: minor
+    location: "nht-screen.yaml timestamp '2026-06-07T00:34:19Z' vs hoqr-ranking.yaml timestamp '2026-06-06T08:00:00Z'"
+    category: metadata-integrity / sequencing
+    observation: >
+      The NHT screen carries a timestamp ~16.5h AFTER the HoQR ranking that
+      consumes it. PM sequencing mandates NHT (wave 3) before HoQR ranking
+      (wave 4), and the ranking's content reproduces NHT verdicts/conditions
+      verbatim — so the ranking demonstrably saw NHT output. The forward-dated
+      NHT timestamp therefore cannot be the true screening time.
+    inference: >
+      The NHT file's merge_note (nht-screen.yaml:692-693) explains a "6-stall
+      infra outage forced micro-decomposition" into part1/2/3 fragments merged
+      late; the 00:34:19Z is most plausibly the late SYNTHESIS/merge time, with
+      per-proposal screening authored earlier (the three part fragments exist on
+      disk, dated 17:33). Substantively the NHT-before-ranking dependency holds
+      (ranking faithfully echoes NHT). This is a metadata artifact, not a
+      content-ordering violation — but a reviewer cannot reconstruct true
+      ordering from the timestamps as written.
+    evidence: "ls of artifact dir: nht-screen-part1/2/3.yaml all dated Jun 6 17:33; merge_note present; ranking nht_conditions_adopted reproduce NHT QRB-3 conditions verbatim (grep-confirmed)."
+    recommended-action-class: note-metadata-artifact
+    owning-role: null-hypothesis-tester
+
+  # ── OBSERVATION ─────────────────────────────────────────────────────────
+  - id: PR-F5
+    severity: observation
+    location: "hoqr-rubric.yaml timestamp 06:05:00Z == qr-a-proposals.yaml timestamp 06:05:00Z"
+    category: rubric-freeze-provenance
+    observation: >
+      The frozen rubric and QR-slice-A proposals share an identical timestamp
+      (06:05:00Z). The rubric asserts it was "Frozen BEFORE any proposal is seen"
+      (hoqr-rubric.yaml:2). An identical timestamp neither proves nor disproves
+      the freeze ordering.
+    inference: >
+      Verified evidence that the rubric was NOT tuned to the proposals: the
+      direction_view (written into the frozen rubric) names "STRUCTURAL
+      REBALANCING / CALENDAR FLOWS" as the #1 prior class BEFORE proposals
+      existed (hoqr-rubric.yaml:263-271), and QRB-3 (turn-of-month) lands exactly
+      in that pre-stated class — i.e., the rubric predicted the winner's CLASS
+      ex-ante rather than being retrofit to it. The weights/anchors/gates in the
+      ranking match the frozen rubric byte-for-byte (grep-diff: weights .28/.20/
+      .16/.16/.12/.05/.03 and all first-candidate-bar thresholds identical). No
+      post-hoc modification detected. The identical timestamp is an orchestration
+      artifact of parallel wave-2 dispatch, not evidence of contamination.
+    evidence: "Direction-view item 1 (rubric:263-271) pre-names calendar/rebalancing flows; bar thresholds (rubric:311-319) == ranking bar check (ranking:54-58); weights identical."
+    recommended-action-class: none-informational
+    owning-role: head-of-quant-research
+
+  - id: PR-F6
+    severity: observation
+    location: "nht-screen.yaml dissent-statement:505-509 + hoqr-ranking.yaml:911-916"
+    category: portfolio-risk / mean-reversion-concentration
+    observation: >
+      NHT flags that 6 of 9 survivors are mean-reversion-flavored, against a
+      firm history where the Bollinger-RSI (mean-reversion-adjacent) family went
+      0-for-3. The HoQR adopts this concern and correctly notes QRB-3 (the
+      recommended candidate) is DIRECTIONAL calendar-flow, i.e. drawn from the
+      non-concentrated minority.
+    inference: >
+      This is a genuine portfolio-level risk that no per-proposal score captures,
+      and the package handles it correctly: it neither suppresses the NHT dissent
+      (append-only honored) nor lets it block the wave, and the recommendation
+      is deliberately the one survivor NOT exposed to the concentration. Surfaced
+      for CEO awareness; not a defect in the package.
+    evidence: "NHT dissent (nht-screen.yaml:505-509); HoQR mean_reversion_concentration_acknowledgment (ranking:911-916)."
+    recommended-action-class: none-informational
+    owning-role: head-of-quant-research
+
+# ════════════════════════════════════════════════════════════════════════════
+coverage-statement: >
+  All five PM acceptance criteria with PR-checkable done_when predicates were
+  reviewed. (a) NHT archive-dedup veto applied to ALL 11 proposals — verified:
+  each of QRA-1..5 and QRB-1..6 has an explicit dedup row (PASS/clean for all;
+  no proposal slipped through sharing mechanism with carry/momentum/MA/BB/TAS/
+  ORB). (b) HoQR rubric applied consistently — verified: all 9 non-killed
+  proposals carry full 7-dimension scores with anchor citations; 2 kills
+  correctly excluded; the recommended first candidate (QRB-3) IS the only
+  survivor clearing the frozen first-candidate bar, and all six ranked-candidate
+  weighted totals are arithmetically exact. (c) Every surviving proposal has the
+  three required elements (falsification sketch, data-availability statement,
+  cost-survival note) — verified present in qr-a/qr-b proposal files for all 11.
+  (d) No backtest results / no return-performance data / no trial-counter
+  increment anywhere — verified: grep found zero computed Sharpe/return/p-value
+  on real data (all are kill-thresholds in falsification sketches); trial_id =
+  "no-trial-proposal-only-wave" on all artifacts; trials.jsonl independently
+  re-counted at 40 lines (unchanged); max_trials_this_wave=1 addresses the
+  DSR-denominator precondition. Three portfolio preconditions honored: QRB-2 and
+  QRB-4-GATE classified OVERLAY and excluded from ranked_candidates; QRB-6
+  classified ROADMAP/acquisition_required; DSR denominator addressed via
+  max-trials=1. NHT QRB-3 binding conditions adopted verbatim (single
+  pre-registered window; v1/v2 pre-competing contrast; stability-across-halves
+  2010-2017/2018-2026; McLean-Pontiff decay acknowledged in basis). Anchor
+  spot-check performed on ≥6 scored rows (QRB-3 mech=4, QRA-1 cost=2, QRA-5
+  cost=2, QRB-1 mech=2, QRA-4 mech=2, QRB-6 nov=5) — all anchor citations match
+  the proposal content and the frozen anchor text. Consensus-stage criteria
+  (CONSENSUS-shortlist) remain the open downstream items; PR-review is this
+  artifact.
+
+contamination-check: >
+  Clean. Per the prompt's contamination protocol, role decision/stance fields
+  were treated as redacted EXCEPT where the artifact IS the object under review:
+  the HoQR ranking (the ranking + first-candidate verdict) and the NHT screen
+  (the 11 verdicts) are the review objects themselves and were read in full as
+  intended. The prompt did NOT assert any role's approval of the PACKAGE as a
+  whole — it described the artifacts neutrally as the objects to find-what-they-
+  missed — so no contamination-veto is triggered. I formed my fidelity and
+  arithmetic findings from the raw scores/anchors/weights independently
+  (re-running the arithmetic and re-reading anchor text), not from any role's
+  self-assessed "confidence: high" or "decision: approve" field. No live-capital
+  action is implied or recommended by this review.
+
+time-spent-reasoning: "~35 minutes: 6 artifacts read end-to-end; arithmetic re-verification of all 9 weighted totals via python3; anchor spot-check on 6 rows; verbatim-condition and precondition grep-diffs; trial-counter and wave-compliance independent checks."
+
+evidence:
+  - "python3 arithmetic (this review): 9 weighted totals recomputed from dimension scores and from each row's own written term expansion; 6 ranked-candidate totals EXACT, 3 overlay/roadmap totals MISMATCH (QRB-2 3.89≠3.88, QRB-4 3.62≠3.50, QRB-6 4.38≠4.07)."
+  - "wc -l .fintech-org/trials.jsonl = 40 (independently re-counted; trial counter unchanged this wave)."
+  - "grep over all 6 *.yaml: zero computed Sharpe/return/p-value on real data; only kill-thresholds (e.g. 'kill if Sharpe < 0.30') and permitted structural facts (4.15 pip 17:00 spread, 197 rate-diff changes, 15.9% of days >2x median, 4237/25457 bar counts)."
+  - "grep-diff: hoqr-ranking.yaml weights (.28/.20/.16/.16/.12/.05/.03) and first-candidate-bar thresholds == hoqr-rubric.yaml frozen values (no post-hoc weight/anchor modification)."
+  - "QRB-3 nht_conditions_adopted (ranking:890-903) reproduce NHT QRB-3 condition (nht-screen.yaml:314-321) verbatim: EXACTLY ONE window, PRE-COMPETING v1/v2 contrast, stability-across-halves 2010-2017/2018-2026."
+  - "Three portfolio preconditions: QRB-2/QRB-4-GATE classification: OVERLAY (ranking:505,571) and absent from ranked_candidates (ranking:713-750); QRB-6 classification: ROADMAP (ranking:637); max_trials_this_wave: 1 (ranking:918)."
+  - "Kill rationales: NHT QRA-3 verdict=kill (cost-kill: 52% accuracy→1-1.6 pips gross < ~2-2.5 pip cost; nht-screen.yaml:119-127) and QRB-5 verdict=kill (3 convergent triggers; nht-screen.yaml:400-427) reproduced faithfully in kill_list_echo (ranking:21-37); both correctly excluded from scoring."
+  - "Anchor boundary: rubric mechanism anchor-3 (hoqr-rubric.yaml:54-56) names 'month-end rebalancers' as a level-3 exemplar; QRB-3 scored mechanism=4 via anchor-4 'mandate constraint' clause (ranking:67-78)."
+  - "ls artifact dir: nht-screen-part1/2/3.yaml dated Jun 6 17:33; nht-screen.yaml merge_note documents infra-outage micro-decomposition (nht-screen.yaml:692-693)."
+
+assumptions:
+  - "The six YAML artifacts in the kickoff directory are the complete, final wave package presented for PR review; no later revisions exist that I have not seen."
+  - "Per the FORBIDDEN-skills constraint, I performed NO performance computation on market data; python3 was used solely for arithmetic verification of stated rubric scores/totals."
+  - "The frozen-rubric claim (frozen before proposals) is corroborated by the direction-view pre-naming the winning class and by byte-identical weights/anchors in the ranking; I did not have git-history proof of the freeze instant, and the identical rubric/QR-A timestamp is treated as an orchestration artifact (PR-F5)."
+  - "Structural data facts cited by the QRs (4.15 pip 17:00 spread, 197 rate-diff changes, volume==0, bar counts) are taken as provisionally verified from the QR/NHT evidence sections; re-executing those queries is out of scope for a no-performance-computation review and was not required to adjudicate the load-bearing checks."
+
+confidence: high
+
+# ════════════════════════════════════════════════════════════════════════════
+body: |
+  ## Decision: APPROVE-WITH-CONDITIONS
+
+  The wave package is sound and the recommendation (QRB-3 turn-of-month as the
+  single first candidate, max-trials=1) is defensible and rubric-faithful on
+  every load-bearing axis I was asked to check. No blocking defect was found.
+  Two conditions attach (below), and one major risk should be surfaced to the
+  CEO before any pre-registration spend.
+
+  ## What passed cleanly (the load-bearing checks)
+
+  1. RUBRIC FIDELITY — the core check. All six RANKED-CANDIDATE weighted totals
+     are arithmetically exact against the frozen weights, and the first-candidate
+     bar was applied as written. QRB-3 genuinely clears every bar requirement
+     (mechanism≥4, novelty≥4, cost≥4, stat≥4, falsifiability≥3, data==5, all
+     dims≥3, NHT survive); the five non-clearing candidates each fail on the
+     specific dimensions the artifact names. Weights/anchors/bar-thresholds in
+     the ranking are byte-identical to the frozen rubric — no post-hoc tuning.
+     The rubric was plausibly frozen before proposals (the direction-view
+     pre-named QRB-3's class).
+
+  2. NHT-CONDITION ADOPTION — QRB-3's three binding conditions are adopted
+     verbatim, and all three portfolio preconditions are honored (QRB-2 &
+     QRB-4-GATE as overlays not candidates; QRB-6 roadmap-only; DSR denominator
+     handled via max-trials=1).
+
+  3. WAVE-COMPLIANCE — no performance computation on real data anywhere; trial
+     counter independently re-verified at 40 (unincremented); trial_id markers
+     correct.
+
+  4. KILL INTEGRITY — QRA-3 (cost-kill, quantified) and QRB-5 (three convergent
+     triggers) have internally consistent, evidence-cited rationales, faithfully
+     echoed and correctly excluded from scoring.
+
+  5. CONTRACT COMPLETENESS — all five PR-checkable done_when predicates satisfied.
+
+  ## Conditions for approval (both minor, neither blocks the recommendation)
+
+  C1 (PR-F2): Correct the three overlay/roadmap weighted_totals to match their
+     own dimension scores (QRB-2→3.89, QRB-4→3.62, QRB-6→4.38). None touch the
+     first-candidate decision, but the ranking artifact must be internally
+     consistent before it is signed into CONSENSUS. Note QRB-6 corrected to 4.38
+     only strengthens its already-stated "highest in portfolio" roadmap status.
+
+  C2 (PR-F3): Either rank QRA-2/QRA-5 by weighted_total as the rubric's
+     aggregation rule requires (which would put QRA-5 above QRA-2), or relabel
+     the current order as an explicit rubric-sanctioned HoQR judgment call
+     (tie_break step 5) rather than implying the tie-break ladder applies to
+     non-tied scores. Cosmetic to the recommendation; both fail the bar.
+
+  ## The one thing the CEO should hear (PR-F1, major)
+
+  The entire recommendation balances on a single 3-vs-4 judgment: QRB-3's
+  mechanism_quality. It is the ONLY survivor clearing the bar, and it clears
+  ONLY because mechanism is scored 4. The frozen rubric's level-3 anchor
+  literally names "month-end rebalancers" as a level-3 example; the score
+  reaches 4 by invoking anchor-4's "mandate constraint" clause. The 4 is
+  defensible and consistently applied — but a reasonable scorer could place this
+  exact mechanism at 3, which would flip the wave to its explicitly-valid
+  NO-SPEND outcome. This is concentrated model risk, not an error: the firm
+  should go into QRB-3's pre-registration knowing the recommendation rests on
+  one boundary call, and that the rubric's own pre-registered fallback
+  (no-spend) was a live alternative.
+
+  ## Inversion check (pre-mortem)
+
+  If this package shipped and caused a wasted-trial P0: the most likely root
+  cause is NOT an arithmetic or process error (those are clean for the
+  candidate) — it is QRB-3's mechanism being a genuine level-3 (a known,
+  partially-pre-traded calendar effect that has decayed below cost post-2015),
+  scored generously to 4. The package's own mandatory stability-across-halves
+  condition (2010-2017 vs 2018-2026) is the correct and adopted guardrail against
+  exactly this failure; the residual risk is that the half-split is coarser than
+  the McLean-Pontiff/Melvin-Prins 2015-publication break the NHT itself flags
+  for QRB-6 (a sharper post-2015 sub-window test). Recommend QRB-3's
+  pre-registration borrow QRB-6's post-2015 isolation test, not just a midpoint
+  half-split.
+
+  ## Net
+
+  Approve-with-conditions. The build org did NOT miss anything that breaks the
+  recommendation. What it under-surfaced is (a) three internal-arithmetic slips
+  on non-candidate rows, (b) an off-rule runner-up reorder, and (c) the
+  single-point-of-failure nature of the one score the whole wave turns on. Fix
+  C1/C2 before CONSENSUS sign-off; carry PR-F1 into QRB-3's pre-registration as
+  an explicit known-risk.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

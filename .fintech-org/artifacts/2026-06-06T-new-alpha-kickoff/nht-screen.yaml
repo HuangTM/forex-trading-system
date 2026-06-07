@@ -1,106 +1,591 @@
 role: null-hypothesis-tester
 artifact_type: null-test-report
 decision: survives
-timestamp: "2026-06-06T00:00:00Z"
+timestamp: '2026-06-07T00:34:19Z'
 subtask_ref: new-alpha-nht-screen
-subtask_id: "new-alpha-kickoff-2026-06-06:phase1:task1.0"
-trial_id: "no-trial-proposal-only-wave"
+subtask_id: new-alpha-kickoff-2026-06-06:phase1:task1.0
+trial_id: no-trial-proposal-only-wave
 claimed_domains:
-  - null-hypothesis-construction
-  - p-hacking-and-data-snooping-detection
-  - structural-skepticism-on-any-claim
-claim-tested: "the 11 proposals are genuinely new, base-rate-defensible, testable, and cost-honest"
+- null-hypothesis-construction
+- p-hacking-and-data-snooping-detection
+- structural-skepticism-on-any-claim
+claim-tested: the 11 proposals are genuinely new, base-rate-defensible, testable, and cost-honest
 screen-verdicts:
-  - id: "QRA-1 triangular-residual-reversion"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRA-2 overnight-gap-asymmetry"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRA-3 vol-term-structure-gate"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRA-4 cross-sectional-dispersion-regime"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRA-5 overlap-bar-CLV-reversion"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-1 rate-diff-shock-reaction"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-2 spread-blowout-liquidity-gate"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-3 turn-of-month-flow"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-4 rollover-liquidity-hole"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-5 weekday-seasonality"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
-  - id: "QRB-6 acquisition-CB-event-study"
-    verdict: TBD
-    condition: ""
-    dedup: TBD
-    base_rate_note: TBD
-    testability_note: TBD
-    cost_note: TBD
+- id: QRA-1
+  verdict: conditional-survive
+  condition: '(a) ADF unit-root test on r_t = ln(EURGBP) - [ln(EURUSD) - ln(GBPUSD)] must firmly reject at p < 0.05
+    BEFORE any backtest runs — a non-stationary residual means the mean-reversion premise is false; AUTO-KILL if
+    ADF fails. (b) Walk-forward OOS Sharpe >= 0.30 net of full 3-leg round-trip cost (~7 pips total: EURGBP + EURUSD
+    + GBPUSD spreads). (c) OU half-life of r_t must be shorter than the mean holding period such that <= 70% of
+    gross edge is consumed by cost; kill if cost-consumption ratio > 70%. (d) Signal must fire >= 15 times/yr on
+    OOS walk-forward folds; if < 10/yr the OOS folds are statistically degenerate and the strategy is archived as
+    too-rare.
+
+    '
+  dedup: 'PASS. The mechanism is a 3-pair cross-quote consistency residual (a no-arb identity that should hold to
+    within cost). No archived family touches a triangular multi-pair identity residual: carry uses rate-diffs, momentum/MA
+    use single-series close-to-close, Bollinger+RSI uses single-pair band/oscillator, ORB/tas_ceiling_4h uses single-pair
+    session or regression-envelope mean reversion. Net-zero directional exposure is structural, not cosmetic — this
+    is a relative-value construct orthogonal to all archived directional families.
+
+    '
+  base_rate_note: 'Reference class: OHLC-geometry constructs on this dataset; firm honest-N = 11 trials, 0 validated
+    OOS alpha. Prior probability of success: low (~5-15%). Mechanism (data-stamp stale-quote noise in three concurrent
+    daily closes) is coherent and potentially real, but no prior evidence exists. The QR''s own "marginal" cost-survival
+    characterization is appropriate. No special prior uplift is warranted beyond mechanism coherence.
+
+    '
+  testability_note: 'Single derived time series (r_t has one degree of freedom). With 20-60 trades/yr, walk-forward
+    OOS windows will have ~3-10 trades per fold — thin but not dead for estimating directional accuracy. The ADF
+    pre-check (condition a) is the correct first gate: a non-stationary r_t means effective N = 0 for mean-reversion
+    testing. If r_t IS stationary, ~320-960 total trades in-sample provides adequate power for IS fit; OOS power
+    remains thin per fold. The half-life (condition c) is the second binding check — if the residual reverts in
+    1 bar, signals are effectively noise; if > 20 bars, cost compounds past the edge.
+
+    '
+  cost_note: '3-leg round-trip: EURUSD daily spread ~2.0 pips + GBPUSD ~2.5 pips + EURGBP ~2.5 pips = ~7 pips total.
+    Multi-day hold (est. 5-20 day average) means cost is a one-time 7-pip charge against the residual''s typical
+    reversal magnitude. For the strategy to survive, the average reversal at z > 2 must exceed 7 pips in EURGBP-equivalent
+    terms. Plausible if sigma(r_t) in EURGBP pips is >= 5 pips, but genuinely marginal. The falsification cost-consumption
+    threshold (70% rule) directly tests this; no cost-kill at screening stage, but it is the central risk.
+
+    '
+- id: QRA-2
+  verdict: conditional-survive
+  condition: 'The asymmetry claim (JPY-crosses continue the gap, USD-majors fade it) is the ONLY falsifiable core.
+    Both class-conditional legs must yield net-of-cost positive OOS expectancy. If only one class works OOS, the
+    surviving leg must be registered as a NEW single-class proposal with Bonferroni penalty; the combined hypothesis
+    is then partially falsified and cannot claim the gap-asymmetry mechanism as validated. Combined walk-forward
+    OOS Sharpe >= 0.30. Gap gate must be calibrated on IS data only (no OOS snooping on gate threshold selection).
+
+    '
+  dedup: 'PASS. The information source is g_t = ln(open_t) - ln(close_{t-1}), a daily discontinuity feature absent
+    from all archived families (which operate on close-to-close series only). The JPY-continuation leg is momentum-adjacent
+    (same-sign gap -> same-sign intraday return), but the alpha claim lives in the ASYMMETRY between pair-classes,
+    not in the continuation alone. Without the asymmetric conditioning on pair-class, the base rule has no claimed
+    edge (it would be mixed and net-null by the QR''s hypothesis). The new information source is the gap-discontinuity
+    feature crossed with pair-class identity -- neither element alone is novel enough to survive dedup; together
+    they constitute a new mechanism. The JPY-continuation leg alone would be a momentum re-skin (AUTO-KILL in isolation)
+    -- this is a genuine adjacent-but-distinct judgment call; NHT accepts it ONLY because the falsification sketch
+    correctly binds both legs simultaneously and KILLS if the asymmetry is absent.
+
+    '
+  base_rate_note: 'Reference class: OHLC-geometry constructs; honest-N = 11, 0 validated OOS alpha. Prior: low.
+    The economic story (Asian-risk repricing vs thin-book stamping noise) is coherent and pair-class-specific; FX
+    gaps are smaller than equity gaps due to near-24h trading, but the 00:00 UTC stamp creates genuine discontinuities
+    (weekend opens, Asian-session repricing). No special prior uplift beyond mechanism coherence.
+
+    '
+  testability_note: '12 pairs split into 6 JPY-cross + 6 USD-major classes. After gap gating: est. 30-80 signals/yr/pair
+    = 180-480/yr per class. Walk-forward OOS: several hundred events per class over 3+ year OOS windows. The 6 JPY-crosses
+    share a JPY leg (effective dimension ~2-3 within class); same for USD-majors (shared USD leg). The class-level
+    test has adequate power; the per-pair within-class test does not. The asymmetry test (class A vs class B coefficient
+    sign) is the appropriate primary test and has adequate OOS power given the trade count.
+
+    '
+  cost_note: 'Open-to-close 1-day hold. EURUSD/GBPUSD: ~2.0-2.5 pip cost vs. 20-50 pip typical open-to-close range
+    on gated large-gap days. Adequate headroom for majors. JPY-crosses: ~3-5 pip cost vs. 30-80 pip range. Marginal
+    on JPY-crosses but not a cost-kill at screening stage. Gating to large gaps is the lever; ungated, noise dilution
+    kills this before cost does. No cost-kill here; the falsification Sharpe threshold is the operative gate.
+
+    '
+- id: QRA-3
+  verdict: kill
+  condition: n/a
+  dedup: 'ADJACENT-BUT-DISTINCT -- but the adjacency is too close relative to the cost burden and prior. The base
+    signal is 1-day close-to-close return continuation (1-day momentum), gated by TS_t. Momentum (Bet#1) on 14-day
+    ROC already failed in this firm''s trials. The new element is TS_t (4h-to-daily vol ratio) as a regime classifier
+    that flips the momentum sign. This is not a re-skin (the gate is new), but the alpha-source reduces entirely
+    to: "does the 4h-to-daily GK/Parkinson vol ratio correctly classify trend vs chop regimes well enough to net-positive
+    after daily-rebalance cost?" The momentum-adjacency is not the kill by itself; the combination of (momentum-adjacent
+    base signal) + (worst cost profile) + (only 3 pairs) + (QR''s own low-confidence rating) is the kill package.
+    The claimed novelty (TS_t) cannot be evaluated independently from the momentum base signal it gates -- any OOS
+    success is ambiguous between the gate and the base signal. That ambiguity is a fundamental weakness.
+
+    '
+  base_rate_note: 'Same graveyard (0/11). Vol-regime filters for conditional trend strategies have a weak real-world
+    track record in daily-bar FX; this class of strategies is well-explored in the quant literature with disappointing
+    out-of-sample results. QR''s own "confidence: low" is appropriately calibrated. No uplift.
+
+    '
+  testability_note: 'Only 3 pairs (EURUSD, GBPUSD, USDJPY) have 4h data. Daily rebalance at 150-250 trades/yr/pair
+    provides adequate total-N for Sharpe estimation, but the TS_t regime classifier itself has low classification
+    power (base rates of "truly chop" vs "truly trend" days are unknown, and the classifier''s accuracy needs to
+    be estimated from the same data used to build the strategy). The 3-pair limitation means all walk-forward OOS
+    inference rests on a portfolio of 3 correlated major pairs -- effectively 2 independent signals (EURUSD and
+    GBPUSD share GBP/EUR dynamics; USDJPY is semi-independent). Thin but not the kill.
+
+    '
+  cost_note: 'KILL contributor. Daily rebalance on 3 pairs. ~2.0-2.5 pip round-trip cost per pair per day. The per-day
+    directional edge from the TS_t gate would need to exceed ~2 pips consistently to survive. Average major-pair
+    daily move is 50-80 pips, but directional accuracy improvement from TS_t is unknown and has no demonstrated
+    prior. Even a 52% vs 50% directional accuracy improvement yields only 50-80 pips * 0.02 = 1-1.6 pips expected
+    gross per day -- below cost. The gate would need to identify 55-60% accuracy-improvement days to clear cost,
+    which is a strong and unvalidated claim for a novel signal with no prior evidence. This is the cost-kill that
+    tips the verdict to KILL.
+
+    '
+- id: QRA-4
+  verdict: conditional-survive
+  condition: '(a) Dollar-neutral basket construction must be done on the ~8-currency space (after decomposing pairs
+    into constituent currencies), NOT on the raw 12-pair space. The 12-pair panel contains redundant legs (CADJPY,
+    EURJPY, AUDJPY, GBPJPY, NZDJPY all share a JPY leg; a JPY dispersion spike must not be counted as 5 independent
+    pair-dispersion events). Failure to decompose = the basket is inadvertently a leveraged JPY bet disguised as
+    diversification; this is a structural flaw that must be closed before pre-registration. (b) Walk-forward OOS
+    Sharpe >= 0.30 net of full multi-leg cost (~8-12 legs per event, all with realistic spread + slippage). (c)
+    Sign-check: if the demeaned top-N-day movers CONTINUE rather than revert on OOS walk-forward, the sign is wrong
+    and the proposal is IMMEDIATELY KILLED with no appeal (it would be momentum-disguised, which is an archived
+    family). (d) The dispersion gate threshold must be calibrated on IS data only; no OOS exposure during gate selection.
+
+    '
+  dedup: 'PASS. Cross-sectional reversion (short top same-day movers, long bottom) is the OPPOSITE sign to momentum
+    (which is long top trailing-return movers). The dispersion-gate conditioning (flat when D_t is low, active only
+    on spikes) is a new regime variable not present in any archived family. Carry ranks by rate-differential; momentum
+    ranks by trailing own-return; both are continuation signals. QRA-4 is a reversion signal gated by a cross-sectional
+    moment. The mechanism is genuinely orthogonal to the archive. The sign-check condition (c) serves as a dedup
+    safety valve: if OOS behavior is continuation, it auto-kills as momentum-disguised.
+
+    '
+  base_rate_note: 'Same graveyard (0/11). Cross-sectional reversion in FX is less studied than in equities (where
+    stat-arb has a documented positive track record). The ~8-currency effective panel (after USD-normalization)
+    is a thin cross-section for reversion strategies; equity stat-arb typically requires 50-500+ stocks for robust
+    inference. The FX panel is too small for confidence but not too small to test. The dispersion-spike gate adds
+    structure but also a free parameter (gate quantile). Prior: low, with a genuine mechanism argument (idiosyncratic
+    overshoot + partial retrace) that is coherent but untested on this data.
+
+    '
+  testability_note: 'FLAGGED AS THE PRIMARY RISK. The 12-pair panel decomposes to ~8 currencies; shared-leg correlation
+    (5 JPY-crosses + USD dominance) means each high-dispersion day is NOT 12 independent observations -- it is 2-3
+    effective factor bets. Gating to ~30-60 dispersion-spike events/yr gives ~60-180 events over a 3-year OOS window,
+    but at 2-3 effective factors per event, the independent information is closer to 20-60 OOS data points. This
+    is statistically thin. The falsification sketch has adequate power to detect large effects (Sharpe > 0.30 net
+    of cost) but low power to rule out a false positive at smaller effect sizes. NHT accepts this on the grounds
+    that: (1) the sign-check condition provides a high-power binary kill, (2) the cost threshold provides a natural
+    kill for weak signals, and (3) the effective-N limitation is an honest epistemic constraint disclosed here,
+    not hidden. The QR must disclose this effective-N limitation in the pre-registration.
+
+    '
+  cost_note: '8-12 legs per rebalancing event. Costs per leg: 2-5 pips spread + slippage. Total basket round-trip
+    cost per event: est. 25-60 pips (summed across legs). Expected convergence per leg on a high-dispersion day:
+    unknown but the dispersion spike (larger-than-average idiosyncratic moves) is the cost-headroom lever. Genuinely
+    marginal -- the QR''s "dominant risk" characterization is accurate. The cost-consumption threshold in the falsification
+    sketch (70% rule) is the operative gate. Gating to high-dispersion events (larger expected convergence) is the
+    ONLY mechanism for cost survival; without it, this dies to spread on normal-vol days. Condition (a) on proper
+    currency-space construction also affects cost: an improperly constructed basket may inadvertently double-count
+    JPY legs, inflating both apparent diversification and actual cost.
+
+    '
+- id: QRA-5
+  name: Intraday range-position reversion within the London-NY 4h session block
+  verdict: conditional-survive
+  condition: 'Entry cost in the falsification run MUST use the verified 17:00 UTC 4h spread (~4.15 pips mean for
+    EURUSD, higher for USDJPY — per QRB-2 evidence), NOT the 13:00 overlap bar spread (~2.0 pips). The signal fires
+    at 13:00 close and executes at the 17:00 bar OPEN (entry_delay=1 in 4h terms), which lands in the verified liquidity
+    hole. If net-of-cost Sharpe survives that penalty in walk-forward OOS, the mechanism clears. ADDITIONAL CONDITION:
+    a pre-registered news-event exclusion calendar (FOMC, NFP, and any event with UTC announcement time 12:30–14:30)
+    must be committed before any backtest run; failure to pre-register the exclusion constitutes implicit snooping
+    because the highest-range 13:00 bars will concentrate on news days and the signal will be partially selected
+    by outcome.
+
+    '
+  dedup: 'PASS — distinct from archived families. tas_ceiling_4h is a multi-bar trend-residual mean-reversion using
+    OLS z-scores across 120 bars; QRA-5 is a single-bar within-session range-position (CLV) predicting the next
+    4h bar. Same universe (EURUSD/GBPUSD/USDJPY 4h) and same general family (mean-reversion), but the information
+    source (CLV of a named session bar) and holding period (single 4h bar) are structurally distinct. The explicit
+    auto-kill if CLV≥0.85 predicts continuation (rather than reversion) is the correct safety rail — if it fires
+    like an ORB the strategy self-kills. The QR''s claim of "opposite logic to ORB" is honest and testable; accepted.
+
+    '
+  base_rate_note: 'No published prior for overlap-bar CLV reversion specifically — this is an unpublished session-microstructure
+    claim. Generic novel session-structure prior applies (~graveyard rate zone). No McLean-Pontiff decay risk (unpublished),
+    but also no mechanism validation from the literature. The behavioral story (retail chases the overlap extreme;
+    light NY-afternoon book fades it) is plausible but unverified. News-day contamination is the dominant regime
+    risk: FOMC/NFP hit exactly the 13:00 bar and would create the highest-CLV, highest-range observations that also
+    have the worst fade outcomes — a selection-bias trap.
+
+    '
+  testability_note: 'STRONG effective-N. ~252 trading days/yr × 3 pairs × 16 years × ~30% gate hit rate (CLV extreme
+    + range filter) ≈ 3,600 total signal observations. At the daily-independence level, ~750+ event-pairs per year
+    across 3 pairs (before gating) → well above the 100-event floor even after filtering. Walk-forward 2010–2026
+    on 4h bars (25,457 bars per pair) is computationally trivial. Not an effective-N concern.
+
+    '
+  cost_note: 'CENTRAL RISK IS THE ENTRY SPREAD. The entry bar (17:00 UTC) carries verified mean spread of 4.15 pips
+    (EURUSD 4h, QRB-2 evidence) — more than 2x the 13:00 bar spread. The QR''s cost narrative was written assuming
+    the 13:00 spread (~1–2 pips); the actual entry fires into the liquidity hole. For USDJPY the 17:00 spread is
+    wider still. Gross edge (CLV-gated overlap reversion) must clear ~5–7 pip round-trip total. Gating to large-range
+    overlap bars creates cost headroom, but the 17:00 entry penalty is materially larger than the QR assumed. This
+    is the dominant kill risk — not the signal quality, but the execution cost at the mandated entry bar.
+
+    '
+- id: QRB-1
+  name: Rate-differential SHOCK reaction (the surprise event, not the level)
+  verdict: conditional-survive
+  condition: 'MUST pre-register a pooled independent-events count post-2010 that demonstrates N_independent >= 60
+    policy steps (adjusting for cross-pair correlation: a Fed rate change affects all 6 USD pairs simultaneously
+    and counts as ONE independent policy event, not six). If N_independent < 60, the pre-registration must declare
+    UNDERPOWERED and the proposal retires without a backtest. ADDITIONALLY: must pre-register a SINGLE post-event
+    window length (e.g., 5 days) before any return series is examined. Scanning over window lengths N=1..10 and
+    choosing ex-post is a hidden degree of freedom that inflates the test beyond the ~197-event budget.
+
+    '
+  dedup: 'PASS — genuinely distinct from archived carry families. Carry (carry_baseline, carry_fred) conditions
+    on the rate-differential LEVEL held continuously; QRB-1 conditions on CHANGES (Δ≠0), a sparse event series the
+    carry family never touches. PM brief explicitly permits rate-differential CHANGES as genuinely new. The alpha
+    directional claim is adjacent (both predict appreciation of the higher-rate currency), but the mechanism (short-term
+    post-event repositioning drift vs. persistent funding differential) and trigger (event day vs. every day) are
+    structurally different. Also distinct from carry_momentum (which uses cross-sectional PRICE momentum as the
+    carry-direction filter, not rate changes). Adjudication: the alpha lives in the event timing and post-change
+    drift, not the level — accepted as novel transform.
+
+    '
+  base_rate_note: 'Post-announcement FX drift is a real phenomenon (related to FOMC pre-drift literature), but QRB-1
+    is NOT the announcement-day drift — it is the drift observable from MONTHLY-STALE data, which fires up to 30
+    days after the actual policy meeting. Any fast drift from the announcement itself is already gone from prices.
+    What QRB-1 captures (if anything) is very slow residual repositioning after the market has already processed
+    the policy change. Published prior is weak-to-nonexistent for a month-delayed post-change drift specifically.
+    The "why not arbed" rationale (slow drift, data-lag moat) is plausible but thin: the fast institutional repositioning
+    happens at the actual announcement; the lagged-data version is a rump claim.
+
+    '
+  testability_note: 'BORDERLINE. Verified: 197 total nonzero Δ days for EURUSD_diff over 6540 rows (2001–2026).
+    Post-2010 usable events are a subset. Pooled across 12 pairs, raw event count is large, but cross-pair correlation
+    is severe: a Fed hike lands as one independent policy step across 6 USD pairs simultaneously. Honest effective-N
+    = number of distinct independent central-bank policy steps post-2010, not raw pair×event count. Estimate: Fed
+    (~10 steps 2015–19 + ~11 steps 2022–23), ECB, BOJ, BOE, etc. → roughly 50–90 independent policy steps post-2010
+    across all 8 banks. This is near the QRB''s own 120-event UNDERPOWERED threshold when the independence correction
+    is applied. Power is the primary risk. The White block-bootstrap on this event series (already in the falsification
+    sketch) is the right test but requires adequate N — if the bootstrap''s effective block count is < 40, p-values
+    are unreliable.
+
+    '
+  cost_note: 'Marginal but plausible IF drift exists. A 5-day drift on majors of 50–70 pips would clear a ~2–5 pip
+    round-trip. The concern: QRB-1''s "50–70 pips over 5 days" number is borrowed from a general macro context,
+    not from the data-lagged monthly-stale signal specifically. Post-lagged drift (if any) is likely a fraction
+    of the full announcement move, which markets processed weeks earlier. Cost survival is contingent on the drift
+    being real and not just the announcement-day gap that already closed.
+
+    '
+- id: QRB-2
+  name: Spread-blowout liquidity-regime gate (spread as a risk-off state variable)
+  verdict: conditional-survive
+  condition: 'Advances as OVERLAY/GATE ONLY — not as a standalone alpha claim. The conditional survival applies
+    specifically to the gate application: must be pre-registered as a modifier attached to another approved signal
+    (e.g., any of QRA-5, QRB-1, QRB-3 that survive screening), not as an independent strategy entry in the backtest
+    trial ledger. The standalone fade variant (trade when spread is widest, fade the preceding move) is DEAD on
+    cost grounds: acting into the widest-spread bars pays the elevated round-trip cost precisely when gross edge
+    is most uncertain. If QRB-2 is submitted as a standalone strategy, kill it. As an overlay, the verdict is survive.
+
+    '
+  dedup: 'PASS — clean novel information source. No archived strategy (carry, momentum, MA-crossover, Bollinger-RSI,
+    ORB/tas_ceiling_4h) uses spread_pips as a signal or state variable; all treat it as a cost-only input. Using
+    spread as a REGIME CONDITIONING variable is structurally new. No dedup conflict.
+
+    '
+  base_rate_note: 'As a gate: high prior probability of improving cost-adjusted returns — removing trades in the
+    highest-spread (most costly, most-chaotic) environments is mechanically beneficial. No published prior needed;
+    the intuition is sound and testable. As a standalone fade: very low prior probability. The behavioral claim
+    that stress-spread episodes produce tradeable reversion is plausible in theory but faces the exact cost barrier
+    that makes the trades unattractive in practice. The reason the reversion might be "un-arbed" (spread deters
+    participants) is the same reason trading it is expensive. Gate variant: strong prior. Standalone: graveyard-rate
+    prior.
+
+    '
+  testability_note: 'Adequate for gate application. EURUSD daily spread data spans 2010–2026, 4237 rows, with 15.9%
+    of days exceeding 2× median spread (~674 days). 4h data adds finer resolution. Gate test is a straightforward
+    before/after comparison on any base signal with or without the gate applied — well-powered given the full daily
+    sample. Standalone fade: high-spread EXTREME events (say, top 2% of spread_z) are ~85 days total over 16 years,
+    which is borderline for a robust test (effective-N < 100 for extreme events). Gate is testable; standalone is
+    not well-powered at the extremes.
+
+    '
+  cost_note: 'Gate variant: mechanically cost-positive. Removing the highest-spread trades reduces realized round-trip
+    cost; the gate can only improve net returns, not harm them (assuming the suppressed trades had negative or zero
+    net edge). This is the clean, defensible economic case. Standalone fade: must overcome elevated spread at entry
+    (2–10× median, so 4–44 pips on EURUSD) with a next-bar reversion. Even a 20-pip next-bar reversal needs a 10-pip
+    net to clear entry spread alone, before exit cost. Extremely marginal; honest failure mode is that the elevated
+    spread makes all such trades negative EV regardless of the directional signal. Cost analysis correctly identifies
+    gate as the viable variant.
+
+    '
+- id: QRB-3
+  name: Turn-of-month rebalancing flow (calendar-mechanical, equity-conditioned)
+  verdict: conditional-survive
+  condition: 'Must pre-register EXACTLY ONE window definition (e.g., last 2 + first 1 trading days) and EXACTLY
+    ONE primary pair-set before any return data is examined. Testing multiple window lengths or pair subsets and
+    selecting ex-post consumes the ~190-event budget faster than the bootstrap can correct for. The v1 (fixed long-USD
+    bias) and v2 (equity-proxy conditioned) must be declared as PRE-COMPETING hypotheses with their difference tested
+    as a pre-registered contrast — not as a sequential search where v2 is tried if v1 fails. The stability-across-halves
+    test (sign consistency 2010–2017 vs 2018–2026) is MANDATORY given the McLean-Pontiff decay concern; if the effect
+    flips sign in the second half, it is dead regardless of pooled result.
+
+    '
+  dedup: 'PASS — clean new conditioning axis. No archived strategy conditions on day-of-month or the turn-of-month
+    calendar window. Pure calendar-mechanical flow effect is structurally distinct from all archived families (carry
+    conditions on rate levels, momentum on price returns, MA/BB on price bands, ORB on session structure). The mechanism
+    (mechanical index-rebalancing creating non-information-based FX pressure) is documented and distinguishable.
+    Passes dedup easily.
+
+    '
+  base_rate_note: 'Carried-forward NHT finding applies here: McLean-Pontiff ~35% post-publication anomaly decay.
+    QRB-3 explicitly cites Melvin & Prins (2015) as the published prior — confirming the effect was documented 11
+    years ago. The WMR 4pm London fix rebalancing effect is specifically watched and partially traded by FX desks
+    globally. The "non-information-based flow must trade" argument is the textbook justification for persistence,
+    but the degree to which sophisticated counterparties have already compressed the edge is uncertain. The strongest
+    case for survival: truly mechanical hedging flow IS price-insensitive and cannot be fully arbitraged; the weakest
+    case: FX desks front-run the fix window aggressively and the retail-accessible daily-close signal captures only
+    the residual. Honest assessment: a REAL documented prior with real decay risk. This is better than no prior
+    (validates the mechanism) but demands the post-publication stability test.
+
+    '
+  testability_note: 'STRONGEST effective-N in this batch. ~190 independent month-turns 2010–2026 with a single pre-registered
+    window definition. If testing ONE hypothesis on ONE pair-set, 190 observations is adequately powered (White
+    reality-check block-bootstrap will have reasonable block counts). Multiple-testing budget: testing v1 vs v2
+    as a pre-registered contrast costs 1 degree of freedom, acceptable. Testing across all 12 pairs without correction
+    would be fatal (multiple testing × 12 pairs × potentially multiple windows = > 50 effective tests on the same
+    190-event budget). One pre-registered hypothesis, one pair-set: cleanly testable. The QRB falsification sketch
+    correctly mandates this.
+
+    '
+  cost_note: 'BEST cost profile in this batch. One trade per month per pair, ~2–3 pip round-trip on EURUSD/USDJPY,
+    against documented month-end moves of tens of pips (if the effect is alive). Low turnover = minimal cost drag.
+    The honest risk is effect-size shrinkage post-publication (McLean-Pontiff decay) rather than cost. Even at 50%
+    decay from the documented effect, the residual should exceed a 3-pip round-trip on a 3-day window move. Cost
+    honesty is sound; the QR''s risk framing is correct.
+
+    '
+- id: QRB-4
+  verdict: conditional-survive
+  condition: "GATE component (suppress entries in hole-bar) is unconditionally sound — passes as a cost hygiene\
+    \ overlay, no additional condition required. FADE component (enter opposite after hole-bar ATR-overshoot) survives\
+    \ with the following mandatory pre-registration elements:\n  (1) k×ATR threshold pre-registered ex-ante before\
+    \ any return examination — if threshold\n      is empirically fitted, FADE is a new trial registration;\n  (2)\
+    \ entry bar must be confirmed as normal-liquidity (spread_z ≤ gate threshold) to avoid\n      entering at the\
+    \ tail of a still-elevated spread;\n  (3) \"no structural decay\" falsification: effect must not be confined\
+    \ to pre-2015\n      (as explicitly specified in the QR's falsification sketch — binding, not advisory);\n \
+    \ (4) pooled across 3 pairs (not per-pair), given cross-correlation during rollovers.\nIf FADE fails cost net\
+    \ after valid pre-registration, retire FADE and retain GATE only.\n"
+  dedup: 'PASSES. tas_ceiling_4h and archived ORB family both operate on session-OPEN or price-deviation triggers;
+    QRB-4 operates on the UTC-17/18 rollover hour, identified by the spread feed, with FADE sign (opposite the overshoot)
+    — different time anchor, different data source, different direction. The GATE is trivially distinct (cost hygiene,
+    not alpha). The FADE mechanism (thin-book hour-keyed overshoot reversion using spread-by-hour as state) does
+    not overlap any archived family on mechanism.
+
+    '
+  base_rate_note: 'Moderate prior. Microstructure-anchored intraday mean-reversion in FX has reasonable theoretical
+    backing (thin-book overshoots during low-liquidity windows do revert). Not in the worst reference class (unlike
+    calendar seasonality). The FADE''s "entering one bar late" assumption is the load-bearing empirical question:
+    how much reversion occurs within the hole bar itself vs. carrying into the next bar? No strong literature prior
+    on this specific mechanism; honest uncertainty. The GATE has a near-certain positive prior (removing highest-cost
+    entries improves cost-adjusted returns by construction, assuming any directional signal is independently sound).
+
+    '
+  testability_note: 'GATE: trivially powered (full 25,457-bar sample per pair; every hole-hour bar is an observation).
+    FADE: conditional on k×ATR threshold. At a pre-registered k=1, roughly 30–40% of hole bars qualify → ~1,200–1,700
+    events per pair → ~3,600–5,100 pooled across EURUSD/GBPUSD/USDJPY. Adequate for block-bootstrap under pooled
+    treatment. Critical caveat: the 3 pairs share the same rollover hour and are correlated during stress; effective
+    independent-N is lower than 5,100. Block-bootstrap with pair-level blocks (not bar-level) is the right test.
+    Power is sufficient for a pooled test with adequate block-length; per-pair power is marginal.
+
+    '
+  cost_note: 'GATE: positive-EV by construction (removes the highest-slippage entries). No cost issue. FADE: enters
+    on the next normal-liquidity 4H bar; verified spread ~2.0 pips → round-trip ~4 pips (spread + spread; slippage
+    adds ~1 pip each side on entry/exit). Net cost ~4–6 pips per event. Hole-bar ATR-overshoot must generate >4–6
+    pips of next-bar reversion to survive. Honest assessment: marginal to failing. The QR correctly flags this as
+    the hardest cost case. GATE-first emphasis is the right sequencing; FADE only if cost is cleared in pre-registered
+    test.
+
+    '
+- id: QRB-5
+  verdict: kill
+  condition: null
+  dedup: 'PASSES trivially — no archived strategy conditions on weekday. Dedup is not the killer here.
+
+    '
+  base_rate_note: 'KILL trigger. Day-of-week seasonality is the most data-mined calendar family in empirical finance
+    (documented since French 1980 in equities; widely studied in FX). Post-publication decay in this family is severe;
+    McLean-Pontiff ~35% average applies to anomalies with a reasonable prior, and for widely-known calendar effects
+    the decay is plausibly >50%–100%. The liquidity conditioner (spread_z) does not rescue the prior: weekday and
+    spread are correlated (Monday/Friday spread patterns exist by microstructure), so the conditioner risks rediscovering
+    spread seasonality rather than an independent return edge. The reference class (calendar seasonality, widely
+    known, liquid instrument) is the worst in this portfolio.
+
+    '
+  testability_note: 'KILL trigger. 12 pairs × 5 weekdays = 60 hypotheses. FWER correction (Bonferroni or White)
+    raises per-test α threshold to ~0.00083 (t-critical ~3.35 at N=847). Typical weekday effect sizes in FX are
+    0.05–0.15σ per bar; t-statistic across 847 observations ≈ 1.5–4.4 — marginal to nil power at the corrected threshold.
+    The 60-hypothesis FWER correction eats essentially all statistical power for effects of the documented magnitude.
+    The QR explicitly acknowledges this ("60 hypotheses — high multiple-testing burden"). Even if one weekday survives
+    the FWER filter by noise, it is almost certainly a false positive given the reference class.
+
+    '
+  cost_note: 'KILL trigger. QR''s own honest assessment: "weekday effects are typically < 1–2 pips, the same order
+    as the round-trip cost. Honestly likely to fail cost survival as a standalone." Majors round-trip: ~1.5–3.0
+    pips (spread-only lower bound ~1.5 pips for EURUSD; slippage adds more). An effect of 1–2 pips gross against
+    a 1.5–3.0 pip cost is zero-to-negative net. Three independent kill triggers (base-rate, testability, cost) converge;
+    kill is unambiguous.
+
+    '
+- id: QRB-6
+  verdict: conditional-survive
+  condition: "ROADMAP VALUE ONLY — acquisition_required, ineligible for first-candidate slot. Survives for roadmap\
+    \ with the following mandatory pre-registration element (beyond QR's draft):\n  (1) STRUCTURAL DECAY CHECK is\
+    \ binding, not advisory: the falsification sketch must include\n      an explicit post-2015 sub-window test\
+    \ (2015–2026 in isolation, not just two disjoint\n      halves of 2010–2026). Rationale: carried-forward NHT\
+    \ finding — the pre-FOMC announcement\n      drift \"essentially disappeared after 2015\" in the disappearing-drift\
+    \ literature; the 2015\n      endpoint is the structural break, not the sample midpoint. If the effect is confined\
+    \ to\n      2010–2015 (the pre-disappearance period), it is not exploitable in the current regime.\n      A\
+    \ standard two-half split (e.g., 2010–2018 / 2018–2026) does not cleanly test this break.\n  (2) The ~65% post-announcement\
+    \ reversal figure cited in the proposal comes from a WebSearch\n      summary (not a verified paper — WebFetch\
+    \ calls to NY Fed and ResearchGate returned 403).\n      This figure is UNVERIFIED and must NOT be hard-coded\
+    \ as the pre-registered reversal target;\n      pre-register the reversal test as \"statistically distinguishable\
+    \ from both 0% and 100%\"\n      without specifying a point estimate derived from an unverified source.\n  (3)\
+    \ Multi-bank pooling must treat banks as independent blocks, not observations; per-bank\n      Sharpe reported\
+    \ as a secondary metric with a note that the Fed/ECB/BoJ dominate the pool.\nSubject to these conditions, QRB-6\
+    \ has the strongest mechanism prior in the portfolio and is recommended for authorization once CEO approves\
+    \ the calendar acquisition.\n"
+  dedup: 'PASSES. Clearly distinct from all archived families. No strategy triggers on scheduled central-bank announcement
+    calendar dates. The mechanism (pre-decision drift + post-announcement reversal tied to uncertainty-resolution)
+    is orthogonal to carry level (continuous), MA crossover (price), ORB (session range), and QRB-1''s data-lagged
+    rate-change (which uses the stale monthly feed, not the scheduled announcement date). Passes on all axes.
+
+    '
+  base_rate_note: 'MIXED — carried-forward NHT findings are load-bearing and partially adverse. Favorable: the pre-FOMC
+    drift (Lucca-Moench 2015) is one of the few documented, named, peer- reviewed FX-adjacent anomalies to survive
+    post-publication for a measured period — a rare prior. Multi-bank pooling (~900 events) is the best-powered
+    event study in this portfolio. Adverse (load-bearing): my prior finding that the pre-FOMC drift "essentially
+    disappeared after 2015" directly contradicts QRB-6''s decade-survival claim for the 2015–2026 portion that matters
+    most. The firm''s OOS-relevant window is primarily post-2015. McLean-Pontiff ~35% average decay is a lower bound
+    for effects where structural disappearance has been documented. The net prior is: strong pre-2015, uncertain-to-weak
+    post-2015, requiring an explicit structural break test rather than a simple stability check. The roadmap value
+    is real but conditional on the post-2015 survival test; without that test, QRB-6 risks reporting a 2010–2026
+    aggregate that is dominated by the pre-2015 in-sample signal and presents dead alpha as live.
+
+    '
+  testability_note: 'STRONG (if acquisition proceeds). ~8 banks × ~8 decisions/yr × 16 yr ≈ 1,024 pooled events.
+    Well-powered for a block-bootstrap pooled test. Scheduled dates are unambiguous (no event identification snooping
+    possible). Per-bank power is lower (~128 events/bank) but adequate for secondary analysis. Acquisition effort
+    is low (free public data, curation + UTC normalization + scheduled/emergency flagging). This is the best testability
+    profile in the portfolio, and the acquisition cost is trivially justified if the prior survives the post-2015
+    structural check.
+
+    '
+  cost_note: 'FAVOURABLE. Very low turnover (~64 decisions/yr across 8 banks, 2 trades per event per pair). Annual
+    cost drag is minimal. Documented pre-decision drift magnitude (if real) measured in tens of basis points dwarfs
+    a ~2–3 pip major round-trip. The cost is not the constraint here; structural decay post-2015 is the constraint.
+
+    '
 tests-requested: []
 tests-results:
-  - "n/a (paper screen)"
-matched-benchmark-sharpe: "n/a"
-permutation-results: "n/a"
-dsr-assessment: "n/a (no performance computed)"
-dissent-statement: TBD
-severity: TBD
-contamination-check: TBD
-evidence: []
-assumptions: []
-confidence: TBD
-body: TBD
+- n/a (paper screen)
+matched-benchmark-sharpe: n/a
+permutation-results: n/a
+dsr-assessment: n/a (no performance computed)
+dissent-statement: 'NHT PORTFOLIO-LEVEL DISSENT — 2026-06-06 wave, 11 proposals screened.
+
+  OUTCOME SUMMARY: 9 conditional-survives, 2 kills (QRA-3, QRB-5). Zero unconditional survives. Zero unconditional
+  survives is the correct posture given the firm''s honest-N = 11 trials, 0 validated OOS alpha. A wave that produced
+  even one unconditional survive would demand scrutiny of the screen''s rigour; none here indicates the screen is
+  functioning as intended.
+
+  LOAD-BEARING CONDITIONS COMMON ACROSS MULTIPLE PROPOSALS: (1) Pre-registered windows before any return data is
+  examined — binding across QRA-1 (ADF pre-check before backtest), QRB-1 (single post-event window), QRB-3 (single
+  turn-of-month window + pair-set), QRB-4 (k×ATR threshold ex-ante), QRB-6 (post-2015 sub-window break test). Failure
+  to pre-register any of these consumes hidden degrees of freedom and automatically inflates the DSR denominator;
+  any trial that skips a required pre-registration is barred from the ledger. (2) Post-2015 stability check — explicitly
+  load-bearing for QRB-3 (McLean-Pontiff decay from 2015-published effect), QRB-6 (pre-FOMC drift disappeared post-2015
+  per carried-forward NHT finding). The firm''s OOS-relevant deployment window is 2015–2026; a strategy that is
+  alive only pre-2015 is dead alpha regardless of pooled statistics. (3) Cost at the execution bar — binding for
+  QRA-5 (entry fires into the 17:00 UTC liquidity hole, verified 4.15 pip EURUSD mean spread, not the 13:00 overlap
+  bar spread QR modeled), QRB-4 FADE (enters one bar late after partial reversion; 4–6 pip round-trip at normal-liquidity
+  bar), QRA-1 (7-pip 3-leg round-trip marginal vs residual''s sigma). Proposals that modeled cost at a different
+  bar than the execution bar introduce a systematic optimistic bias; the condition forces cost at the ACTUAL entry
+  bar.
+
+  STRUCTURAL PORTFOLIO OBSERVATIONS: (a) MEAN-REVERSION CONCENTRATION: 6 of 9 surviving proposals are mean-reversion-flavored
+  (QRA-1 triangular residual reversion, QRA-4 cross-sectional reversion, QRA-5 overlap-bar CLV reversion, QRB-4
+  rollover overshoot fade, QRB-6 post-announcement reversal, QRA-2''s USD-major fade leg). If mean-reversion is
+  structurally broken in this dataset — as the archived Bollinger-RSI family suggests (0 for 3 on mean-reversion-adjacent
+  trials) — then the wave''s portfolio-level failure rate will exceed what proposal-level screening can detect.
+  This is a systemic concentration risk. (b) QRB-2 / QRB-4 GATE OVERLAP: Both QRB-2 (spread-blowout gate) and QRB-4
+  (rollover hole gate) are cost-overlay gates, not standalone alphas. They must be attached to approved primary
+  signals; they do not independently contribute to the DSR numerator. If submitted as standalone trials they are
+  re-killed on arrival. The orchestration layer must enforce this: QRB-2 and QRB-4-GATE advance only as attributes
+  of whichever primary signal they modify. (c) DSR DENOMINATOR PRESSURE: If all 9 conditional-survives proceed to
+  pre-registration, the firm''s running trial count increases materially (honest-N currently 11). The DSR denominator
+  grows; minimum required Sharpe thresholds tighten for all trials including previously registered ones. The HoQR
+  must update the DSR denominator before any of these trials run. (d) EFFECTIVE-N IS THE BINDING EPISTEMIC CONSTRAINT
+  ACROSS THE WAVE: Not proposal-level; the entire 12-pair daily-close OHLCV panel with ~4185 bars (volume=0) constrains
+  every proposal. The cross-pair correlation structure means shared-leg proposals (JPY-cross concentration in QRA-4,
+  USD-major correlation in QRA-2, QRB-3) have effective-N substantially below the raw event count. No proposal in
+  this wave will produce a high-confidence verdict; the realistic outcome is "signal present/absent given cost floor"
+  — a weak but honest epistemic claim.
+
+  MAY THE WAVE PROCEED TO RANKING? YES — with mandatory preconditions. The wave may proceed to the ranking phase
+  (HoQR prioritisation + PM acceptance-criteria application) under the following non-negotiable constraints: (1)
+  QRB-2 and QRB-4-GATE are classified as overlays in the ranking artifact, not ranked as candidate slots; (2) QRB-6
+  enters the ranking as roadmap-only (acquisition_required flag) and may not occupy a first-candidate slot until
+  CEO authorizes calendar acquisition; (3) the HoQR ranking artifact must incorporate a DSR denominator update before
+  assigning trial slots. Subject to these three constraints, the 9 conditional-survives are adequately screened
+  for mechanism novelty, cost honesty, and testability; the ranking phase may proceed.
+
+  '
+severity: 'concern — ranking may proceed; no mandatory block. The wave has no material_concern+ trigger: no unconditional
+  kill of the entire wave, no structural contamination, no disqualifying DSR-denominator violation at screen stage.
+  The elevated mean-reversion concentration is a portfolio-level concern (not a per-proposal defect) that the HoQR
+  must acknowledge in the ranking artifact but does not block the wave. The two kills (QRA-3, QRB-5) are unambiguous
+  and do not require appeal. The 9 conditional-survives carry binding kill conditions that will eliminate further
+  proposals at pre-registration stage; the screen has done its work correctly.
+
+  '
+contamination-check: 'clean. NHT reviewed: (a) the two QR proposal files (qr-a-proposals.yaml, qr-b-proposals.yaml),
+  (b) the firm''s pre-registration archive (references/pre-registrations/ directory listing and pre-reg filenames),
+  (c) NHT''s own three fragment files (nht-screen-part1.yaml, nht-screen-part2.yaml, nht-screen-part3.yaml). No
+  other role''s stances (CRO, HoQR, PM, CTO) were seen prior to composing any verdict row. The merge file (nht-screen.yaml)
+  was read only at synthesis stage, after all 11 per-proposal rows were already authored. No cross-contamination
+  detected.
+
+  '
+evidence:
+- .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-a-proposals.yaml (proposals QRA-1 through QRA-5)
+- .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml (proposals QRB-1 through QRB-6)
+- .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen-part1.yaml (NHT verdicts QRA-1 through QRA-4)
+- .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen-part2.yaml (NHT verdicts QRA-5 through QRB-3)
+- .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen-part3.yaml (NHT verdicts QRB-4 through QRB-6)
+- references/pre-registrations/ (archive of all 22 firm pre-registrations; consulted for dedup base on archived
+  families)
+- 'QRB-2 cost_note: verified 4.15 pip mean EURUSD 17:00 UTC spread — sourced from QRB-2 spread-data analysis cited
+  in QRA-5 condition'
+- references/pre-registrations/tas_ceiling_4h.md (archived ORB/session family; dedup reference for QRA-5, QRB-4)
+- references/pre-registrations/momentum.md, carry_baseline.md, carry_fred.md, bollinger_rsi.md (archived families;
+  dedup reference throughout)
+assumptions:
+- The firm's honest-N trial count remains 11 as of screen date; no new trials registered between last commit (8d3bedb)
+  and this screen.
+- The 22 pre-registration files in references/pre-registrations/ constitute the complete dedup archive; no unregistered
+  trials exist in the graveyard that would affect dedup verdicts.
+- Spread data cited in QRB-2 (4.15 pip EURUSD 17:00 UTC mean) is sourced from the QRB QR's own analysis of the firm's
+  OHLCV dataset; NHT treats it as provisionally verified for the QRA-5 cost condition but has not independently
+  re-executed the spread query.
+- Cross-pair correlation structure assumed from first principles (shared currency legs in 12-pair panel); no correlation
+  matrix was computed at screen stage.
+- McLean-Pontiff decay estimate (~35% average post-publication, potentially higher for widely-known calendar effects)
+  is a carried-forward prior; not recomputed from the data.
+confidence: high
+body: 'Eleven proposals screened; 9 conditional-survive, 2 kill, 0 unconditional-survive. Zero unconditional survives
+  is correct given the firm''s 0/11 validated OOS alpha record — the screen is calibrated at the appropriate stringency.
+  The two kills (QRA-3: momentum-adjacent base signal + worst cost profile + 3-pair limitation + QR self-assessed
+  low confidence; QRB-5: worst reference class in empirical finance + 60-hypothesis FWER correction destroys power
+  + sub-pip effect against 1.5–3 pip round-trip) are unambiguous and the QRs effectively called them. Among the
+  9 conditional-survives, three cross-cutting structural issues dominate: (1) cost must be modelled at the ACTUAL
+  execution bar (QRA-5, QRA-1, QRB-4 all have mismatches between the QR''s cost assumption and the real entry bar);
+  (2) post-2015 stability is load-bearing for QRB-3 and QRB-6, which were partially or fully documented before the
+  firm''s OOS window; (3) the mean-reversion concentration (6 of 9 surviving proposals) creates portfolio-level
+  failure risk that no per-proposal condition can mitigate — if this dataset does not support mean-reversion, the
+  wave fails wholesale. The wave may proceed to ranking; QRB-2 and QRB-4-GATE advance as overlays only; QRB-6 advances
+  as roadmap/acquisition-required only; DSR denominator must be updated by HoQR before trial slots are assigned.
+
+  '
 knowledge_gaps: []
 policy_violations_detected: []
 sources: []
@@ -108,3 +593,111 @@ web_research_conducted: false
 websearch_used: 0
 webfetch_used: 0
 no-capital-instruction: true
+part_observations:
+  part1: 'Portfolio-level observations on the 4 proposals:
+
+    1. KILL RATIO: 1 kill (QRA-3), 3 conditional-survives (QRA-1, QRA-2, QRA-4). The kill-ratio of 25% is lower
+    than the historical graveyard base rate (~91% in honest-N terms), but these are proposals not yet backtested
+    -- the conditional requirements impose pre-backtest gates that may kill 1-2 more at pre-reg stage.
+
+    2. COMMON STRUCTURAL WEAKNESS: All 4 proposals share the low-effective-N problem inherent to a 12-pair daily
+    OHLCV dataset with volume=0. The ~4185 daily bars are further reduced by walk-forward windows; OOS folds are
+    thin. None of the surviving proposals can produce high-confidence statistical verdicts from this dataset alone;
+    they can only produce "signal present/absent given cost floor" verdicts. The firm should set expectations accordingly.
+
+    3. COST IS THE SILENT KILLER: QRA-3 is the explicit cost-kill; QRA-4 is marginal; QRA-1 is acknowledged-marginal.
+    Only QRA-2 has comfortable cost headroom on the major-class leg. The firm''s ~1.5 pip round-trip floor means
+    any daily-rebalance strategy with sub-3-pip directional edge is dead before testing. The cost screen eliminated
+    QRA-3 as the dominant failure mode.
+
+    4. MOMENTUM-ADJACENCY WATCH: QRA-3''s momentum-adjacent base signal is one kill factor. QRA-2''s JPY-continuation
+    leg is momentum-adjacent but survives because the ASYMMETRY is the claimed mechanism and the falsification correctly
+    kills if the asymmetry is absent. This distinction (adjacent mechanism where the NEW part carries the alpha)
+    is the correct NHT judgment; the dedup screen is not binary adjacent/distant but conditional on where the alpha
+    claim lives.
+
+    5. PORTFOLIO ORTHOGONALITY: QRA-1 (relative value, net-zero directional) is the most orthogonal to the other
+    surviving proposals. QRA-2 (directional, intraday) and QRA-4 (cross-sectional reversion, multi-day) have some
+    correlation through shared JPY exposure. If all three proceed to pre-registration, the Bonferroni denominator
+    grows by 3 (or more if each is multi-pair) and the DSR thresholds tighten -- the testing-cost of running all
+    three must be accounted for in the pre-reg denominator update.
+
+    6. BEST CANDIDATE: QRA-1 has the strongest a-priori NHT endorsement for orthogonality and sharpest falsification
+    sketch (ADF pre-check gates before any backtest; OU half-life vs cost provides a clean quantitative kill). QRA-2
+    is the most tractable to test and has the best cost headroom. QRA-4 is the most fragile (thin effective-N, multi-leg
+    cost) but the mechanism is genuine. NHT orders priority: QRA-1 > QRA-2 > QRA-4 for pre-registration sequencing
+    (QRA-3 retired).
+
+    '
+  part2: 'All four proposals survive to conditional-survive; none are auto-killed. The dedup archive is clean enough
+    to permit passage on mechanism grounds — the QRs have done good novelty work. The dominant kill risks are: (QRA-5)
+    the 17:00 UTC entry spread penalty making cost survival harder than the QR modeled; (QRB-1) power/independence
+    — the ~197 raw events may collapse to < 60 independent policy steps post-2010 after cross-pair correlation adjustment,
+    tripping the UNDERPOWERED clause; (QRB-2) scope creep — must be held to gate-overlay status, not allowed to
+    masquerade as standalone alpha; (QRB-3) McLean-Pontiff decay from a published-11-years-ago effect that FX desks
+    already watch. The best-powered and cleanest-cost proposal is QRB-3 (turn-of-month); the riskiest on effective-N
+    is QRB-1; the most testable mechanism in novel territory is QRA-5 if the entry-spread condition is met. QRB-2
+    advances only as an overlay tool. Recommendation to HoQR: prioritize QRB-3 (best power + cost + documented mechanism),
+    then QRA-5 (novel, well-powered, but must resolve 17:00 spread), then QRB-1 (weak power; count independent events
+    first before committing backtest resources), with QRB-2 attached as an overlay to whichever primary signal advances.
+
+    '
+  part3: 'Three proposals; three distinct outcomes driven by three different failure modes.
+
+
+    QRB-4 (rollover-hole gate/fade): Mechanism is genuinely distinct from the archived session-boundary
+
+    family. The GATE component is sound by construction and should proceed immediately. The FADE is
+
+    mechanistically novel and adequately powered but faces a hard cost bar (entering one bar late after
+
+    the reversion has partially run). Conditional-survive: GATE unconditionally, FADE conditional on
+
+    pre-registered ATR threshold and net-of-cost clearance.
+
+
+    QRB-5 (weekday seasonality): Three independent kill triggers — (1) worst reference class in
+
+    empirical finance, (2) 60-hypothesis FWER correction kills statistical power for effects of the
+
+    documented magnitude, (3) QR''s own honest acknowledgment that weekday effects are sub-pip and
+
+    likely fail cost. The liquidity conditioner does not rescue any of these. Kill is unambiguous and
+
+    the QR essentially called it themselves.
+
+
+    QRB-6 (CB decision calendar): Strongest mechanism prior in the portfolio and best testability
+
+    (900+ events). Acquisition barrier is trivially low. Passes dedup cleanly. Two adverse carried-
+
+    forward findings condition the verdict: (a) pre-FOMC drift disappeared post-2015 — the post-2015
+
+    sub-window test is mandatory, not advisory; (b) the ~65% reversal figure is from an unverified
+
+    source (WebSearch summary; WebFetch 403 failures) and must not be pre-registered as a point target.
+
+    Conditional-survive for roadmap; upgrade to candidate when CEO authorizes calendar acquisition AND
+
+    the structural-decay test is explicitly required in the pre-registration.
+
+
+    Calibration note: two conditional-survives and one kill. The kill is a true kill (three convergent
+
+    failure modes, QR self-assessed as low-conviction). The conditional-survives are not soft passes —
+
+    both carry binding conditions that could result in kills at pre-registration stage.
+
+    '
+merge_note: orchestrator-mechanical merge of nht-screen-part1/2/3.yaml fragments (6-stall infra outage forced micro-decomposition;
+  all rows NHT-authored verbatim); synthesis fields (dissent/severity/etc) filled by the NHT synthesis dispatch
+confidence_calibration: 'high on kill verdicts (QRA-3, QRB-5): three independent convergent failure modes each;
+  any one is sufficient. High on the conditional-survive structure: the binding conditions for each proposal are
+  mechanically falsifiable and directly address the dominant kill risk identified during screening. Moderate on
+  portfolio-level severity calibration: the mean-reversion concentration risk is a structural observation, not a
+  quantified correlation estimate; the actual portfolio-level failure rate from this concentration cannot be estimated
+  without a correlation matrix. Low on QRB-1 effective-N estimate: the "50–90 independent policy steps post-2010"
+  figure is a first-principles estimate from known central-bank meeting frequency, not a verified count from the
+  FRED rate data.
+
+  '

@@ -1,0 +1,226 @@
+---
+part: 2
+screener: NHT
+timestamp: "2026-06-06T08:00:00Z"
+status: complete
+
+rows:
+
+  - id: QRA-5
+    name: "Intraday range-position reversion within the London-NY 4h session block"
+    verdict: conditional-survive
+    condition: >
+      Entry cost in the falsification run MUST use the verified 17:00 UTC 4h spread
+      (~4.15 pips mean for EURUSD, higher for USDJPY — per QRB-2 evidence), NOT the
+      13:00 overlap bar spread (~2.0 pips). The signal fires at 13:00 close and
+      executes at the 17:00 bar OPEN (entry_delay=1 in 4h terms), which lands in the
+      verified liquidity hole. If net-of-cost Sharpe survives that penalty in walk-forward
+      OOS, the mechanism clears. ADDITIONAL CONDITION: a pre-registered news-event
+      exclusion calendar (FOMC, NFP, and any event with UTC announcement time 12:30–14:30)
+      must be committed before any backtest run; failure to pre-register the exclusion
+      constitutes implicit snooping because the highest-range 13:00 bars will concentrate
+      on news days and the signal will be partially selected by outcome.
+    dedup: >
+      PASS — distinct from archived families. tas_ceiling_4h is a multi-bar trend-residual
+      mean-reversion using OLS z-scores across 120 bars; QRA-5 is a single-bar within-session
+      range-position (CLV) predicting the next 4h bar. Same universe (EURUSD/GBPUSD/USDJPY
+      4h) and same general family (mean-reversion), but the information source (CLV of a
+      named session bar) and holding period (single 4h bar) are structurally distinct.
+      The explicit auto-kill if CLV≥0.85 predicts continuation (rather than reversion) is
+      the correct safety rail — if it fires like an ORB the strategy self-kills. The QR's
+      claim of "opposite logic to ORB" is honest and testable; accepted.
+    base_rate_note: >
+      No published prior for overlap-bar CLV reversion specifically — this is an
+      unpublished session-microstructure claim. Generic novel session-structure prior
+      applies (~graveyard rate zone). No McLean-Pontiff decay risk (unpublished),
+      but also no mechanism validation from the literature. The behavioral story
+      (retail chases the overlap extreme; light NY-afternoon book fades it) is
+      plausible but unverified. News-day contamination is the dominant regime risk:
+      FOMC/NFP hit exactly the 13:00 bar and would create the highest-CLV, highest-range
+      observations that also have the worst fade outcomes — a selection-bias trap.
+    testability_note: >
+      STRONG effective-N. ~252 trading days/yr × 3 pairs × 16 years × ~30% gate hit rate
+      (CLV extreme + range filter) ≈ 3,600 total signal observations. At the daily-independence
+      level, ~750+ event-pairs per year across 3 pairs (before gating) → well above the
+      100-event floor even after filtering. Walk-forward 2010–2026 on 4h bars (25,457 bars per pair)
+      is computationally trivial. Not an effective-N concern.
+    cost_note: >
+      CENTRAL RISK IS THE ENTRY SPREAD. The entry bar (17:00 UTC) carries verified mean
+      spread of 4.15 pips (EURUSD 4h, QRB-2 evidence) — more than 2x the 13:00 bar spread.
+      The QR's cost narrative was written assuming the 13:00 spread (~1–2 pips); the actual
+      entry fires into the liquidity hole. For USDJPY the 17:00 spread is wider still.
+      Gross edge (CLV-gated overlap reversion) must clear ~5–7 pip round-trip total.
+      Gating to large-range overlap bars creates cost headroom, but the 17:00 entry
+      penalty is materially larger than the QR assumed. This is the dominant kill risk
+      — not the signal quality, but the execution cost at the mandated entry bar.
+
+  - id: QRB-1
+    name: "Rate-differential SHOCK reaction (the surprise event, not the level)"
+    verdict: conditional-survive
+    condition: >
+      MUST pre-register a pooled independent-events count post-2010 that demonstrates
+      N_independent >= 60 policy steps (adjusting for cross-pair correlation: a Fed
+      rate change affects all 6 USD pairs simultaneously and counts as ONE independent
+      policy event, not six). If N_independent < 60, the pre-registration must declare
+      UNDERPOWERED and the proposal retires without a backtest. ADDITIONALLY: must
+      pre-register a SINGLE post-event window length (e.g., 5 days) before any return
+      series is examined. Scanning over window lengths N=1..10 and choosing ex-post is
+      a hidden degree of freedom that inflates the test beyond the ~197-event budget.
+    dedup: >
+      PASS — genuinely distinct from archived carry families. Carry (carry_baseline,
+      carry_fred) conditions on the rate-differential LEVEL held continuously; QRB-1
+      conditions on CHANGES (Δ≠0), a sparse event series the carry family never touches.
+      PM brief explicitly permits rate-differential CHANGES as genuinely new.
+      The alpha directional claim is adjacent (both predict appreciation of the
+      higher-rate currency), but the mechanism (short-term post-event repositioning
+      drift vs. persistent funding differential) and trigger (event day vs. every day)
+      are structurally different. Also distinct from carry_momentum (which uses
+      cross-sectional PRICE momentum as the carry-direction filter, not rate changes).
+      Adjudication: the alpha lives in the event timing and post-change drift, not the
+      level — accepted as novel transform.
+    base_rate_note: >
+      Post-announcement FX drift is a real phenomenon (related to FOMC pre-drift
+      literature), but QRB-1 is NOT the announcement-day drift — it is the drift
+      observable from MONTHLY-STALE data, which fires up to 30 days after the actual
+      policy meeting. Any fast drift from the announcement itself is already gone from
+      prices. What QRB-1 captures (if anything) is very slow residual repositioning
+      after the market has already processed the policy change. Published prior is
+      weak-to-nonexistent for a month-delayed post-change drift specifically.
+      The "why not arbed" rationale (slow drift, data-lag moat) is plausible but thin:
+      the fast institutional repositioning happens at the actual announcement; the
+      lagged-data version is a rump claim.
+    testability_note: >
+      BORDERLINE. Verified: 197 total nonzero Δ days for EURUSD_diff over 6540 rows
+      (2001–2026). Post-2010 usable events are a subset. Pooled across 12 pairs,
+      raw event count is large, but cross-pair correlation is severe: a Fed hike
+      lands as one independent policy step across 6 USD pairs simultaneously.
+      Honest effective-N = number of distinct independent central-bank policy steps
+      post-2010, not raw pair×event count. Estimate: Fed (~10 steps 2015–19 + ~11
+      steps 2022–23), ECB, BOJ, BOE, etc. → roughly 50–90 independent policy steps
+      post-2010 across all 8 banks. This is near the QRB's own 120-event UNDERPOWERED
+      threshold when the independence correction is applied. Power is the primary risk.
+      The White block-bootstrap on this event series (already in the falsification
+      sketch) is the right test but requires adequate N — if the bootstrap's effective
+      block count is < 40, p-values are unreliable.
+    cost_note: >
+      Marginal but plausible IF drift exists. A 5-day drift on majors of 50–70 pips
+      would clear a ~2–5 pip round-trip. The concern: QRB-1's "50–70 pips over 5 days"
+      number is borrowed from a general macro context, not from the data-lagged monthly-stale
+      signal specifically. Post-lagged drift (if any) is likely a fraction of the
+      full announcement move, which markets processed weeks earlier. Cost survival
+      is contingent on the drift being real and not just the announcement-day gap
+      that already closed.
+
+  - id: QRB-2
+    name: "Spread-blowout liquidity-regime gate (spread as a risk-off state variable)"
+    verdict: conditional-survive
+    condition: >
+      Advances as OVERLAY/GATE ONLY — not as a standalone alpha claim. The conditional
+      survival applies specifically to the gate application: must be pre-registered as a
+      modifier attached to another approved signal (e.g., any of QRA-5, QRB-1, QRB-3
+      that survive screening), not as an independent strategy entry in the backtest
+      trial ledger. The standalone fade variant (trade when spread is widest, fade the
+      preceding move) is DEAD on cost grounds: acting into the widest-spread bars pays
+      the elevated round-trip cost precisely when gross edge is most uncertain. If QRB-2
+      is submitted as a standalone strategy, kill it. As an overlay, the verdict is survive.
+    dedup: >
+      PASS — clean novel information source. No archived strategy (carry, momentum,
+      MA-crossover, Bollinger-RSI, ORB/tas_ceiling_4h) uses spread_pips as a signal
+      or state variable; all treat it as a cost-only input. Using spread as a REGIME
+      CONDITIONING variable is structurally new. No dedup conflict.
+    base_rate_note: >
+      As a gate: high prior probability of improving cost-adjusted returns — removing
+      trades in the highest-spread (most costly, most-chaotic) environments is
+      mechanically beneficial. No published prior needed; the intuition is sound and
+      testable. As a standalone fade: very low prior probability. The behavioral claim
+      that stress-spread episodes produce tradeable reversion is plausible in theory
+      but faces the exact cost barrier that makes the trades unattractive in practice.
+      The reason the reversion might be "un-arbed" (spread deters participants) is
+      the same reason trading it is expensive. Gate variant: strong prior. Standalone:
+      graveyard-rate prior.
+    testability_note: >
+      Adequate for gate application. EURUSD daily spread data spans 2010–2026, 4237 rows,
+      with 15.9% of days exceeding 2× median spread (~674 days). 4h data adds finer
+      resolution. Gate test is a straightforward before/after comparison on any base signal
+      with or without the gate applied — well-powered given the full daily sample. Standalone
+      fade: high-spread EXTREME events (say, top 2% of spread_z) are ~85 days total over
+      16 years, which is borderline for a robust test (effective-N < 100 for extreme events).
+      Gate is testable; standalone is not well-powered at the extremes.
+    cost_note: >
+      Gate variant: mechanically cost-positive. Removing the highest-spread trades reduces
+      realized round-trip cost; the gate can only improve net returns, not harm them (assuming
+      the suppressed trades had negative or zero net edge). This is the clean, defensible
+      economic case. Standalone fade: must overcome elevated spread at entry (2–10× median,
+      so 4–44 pips on EURUSD) with a next-bar reversion. Even a 20-pip next-bar reversal
+      needs a 10-pip net to clear entry spread alone, before exit cost. Extremely marginal;
+      honest failure mode is that the elevated spread makes all such trades negative EV
+      regardless of the directional signal. Cost analysis correctly identifies gate as the
+      viable variant.
+
+  - id: QRB-3
+    name: "Turn-of-month rebalancing flow (calendar-mechanical, equity-conditioned)"
+    verdict: conditional-survive
+    condition: >
+      Must pre-register EXACTLY ONE window definition (e.g., last 2 + first 1 trading days)
+      and EXACTLY ONE primary pair-set before any return data is examined. Testing multiple
+      window lengths or pair subsets and selecting ex-post consumes the ~190-event budget
+      faster than the bootstrap can correct for. The v1 (fixed long-USD bias) and v2
+      (equity-proxy conditioned) must be declared as PRE-COMPETING hypotheses with their
+      difference tested as a pre-registered contrast — not as a sequential search where v2
+      is tried if v1 fails. The stability-across-halves test (sign consistency 2010–2017
+      vs 2018–2026) is MANDATORY given the McLean-Pontiff decay concern; if the effect
+      flips sign in the second half, it is dead regardless of pooled result.
+    dedup: >
+      PASS — clean new conditioning axis. No archived strategy conditions on day-of-month
+      or the turn-of-month calendar window. Pure calendar-mechanical flow effect is
+      structurally distinct from all archived families (carry conditions on rate levels,
+      momentum on price returns, MA/BB on price bands, ORB on session structure). The
+      mechanism (mechanical index-rebalancing creating non-information-based FX pressure)
+      is documented and distinguishable. Passes dedup easily.
+    base_rate_note: >
+      Carried-forward NHT finding applies here: McLean-Pontiff ~35% post-publication
+      anomaly decay. QRB-3 explicitly cites Melvin & Prins (2015) as the published prior —
+      confirming the effect was documented 11 years ago. The WMR 4pm London fix rebalancing
+      effect is specifically watched and partially traded by FX desks globally. The
+      "non-information-based flow must trade" argument is the textbook justification for
+      persistence, but the degree to which sophisticated counterparties have already
+      compressed the edge is uncertain. The strongest case for survival: truly mechanical
+      hedging flow IS price-insensitive and cannot be fully arbitraged; the weakest case:
+      FX desks front-run the fix window aggressively and the retail-accessible daily-close
+      signal captures only the residual. Honest assessment: a REAL documented prior with
+      real decay risk. This is better than no prior (validates the mechanism) but demands
+      the post-publication stability test.
+    testability_note: >
+      STRONGEST effective-N in this batch. ~190 independent month-turns 2010–2026 with a
+      single pre-registered window definition. If testing ONE hypothesis on ONE pair-set,
+      190 observations is adequately powered (White reality-check block-bootstrap will have
+      reasonable block counts). Multiple-testing budget: testing v1 vs v2 as a pre-registered
+      contrast costs 1 degree of freedom, acceptable. Testing across all 12 pairs without
+      correction would be fatal (multiple testing × 12 pairs × potentially multiple windows
+      = > 50 effective tests on the same 190-event budget). One pre-registered hypothesis,
+      one pair-set: cleanly testable. The QRB falsification sketch correctly mandates this.
+
+    cost_note: >
+      BEST cost profile in this batch. One trade per month per pair, ~2–3 pip round-trip on
+      EURUSD/USDJPY, against documented month-end moves of tens of pips (if the effect is
+      alive). Low turnover = minimal cost drag. The honest risk is effect-size shrinkage
+      post-publication (McLean-Pontiff decay) rather than cost. Even at 50% decay from the
+      documented effect, the residual should exceed a 3-pip round-trip on a 3-day window
+      move. Cost honesty is sound; the QR's risk framing is correct.
+
+part_observations: >
+  All four proposals survive to conditional-survive; none are auto-killed. The dedup
+  archive is clean enough to permit passage on mechanism grounds — the QRs have done
+  good novelty work. The dominant kill risks are: (QRA-5) the 17:00 UTC entry spread
+  penalty making cost survival harder than the QR modeled; (QRB-1) power/independence
+  — the ~197 raw events may collapse to < 60 independent policy steps post-2010 after
+  cross-pair correlation adjustment, tripping the UNDERPOWERED clause; (QRB-2) scope
+  creep — must be held to gate-overlay status, not allowed to masquerade as standalone
+  alpha; (QRB-3) McLean-Pontiff decay from a published-11-years-ago effect that FX
+  desks already watch. The best-powered and cleanest-cost proposal is QRB-3 (turn-of-month);
+  the riskiest on effective-N is QRB-1; the most testable mechanism in novel territory
+  is QRA-5 if the entry-spread condition is met. QRB-2 advances only as an overlay tool.
+  Recommendation to HoQR: prioritize QRB-3 (best power + cost + documented mechanism),
+  then QRA-5 (novel, well-powered, but must resolve 17:00 spread), then QRB-1 (weak
+  power; count independent events first before committing backtest resources), with
+  QRB-2 attached as an overlay to whichever primary signal advances.

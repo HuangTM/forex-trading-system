@@ -11,10 +11,8 @@ Covers:
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -236,7 +234,6 @@ class TestRunTrialIntegration:
         if not data_path.exists():
             pytest.skip("EURUSD daily data not available in this environment")
 
-        import forex_system.harness.run_trial as rt_mod
 
         report1 = run_trial(
             config_path=str(minimal_config),
@@ -331,8 +328,6 @@ backtest:
         if not data_path.exists():
             pytest.skip("EURUSD daily data not available in this environment")
 
-        import pandas as pd
-        import forex_system.harness.run_trial as rt_mod
 
         report = run_trial(
             config_path=str(minimal_config),

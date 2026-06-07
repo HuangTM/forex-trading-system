@@ -1,169 +1,146 @@
 role: quant-developer
 artifact_type: implementation-report
 decision: implemented-and-verified
-timestamp: "2026-06-07T00:54:00Z"
+timestamp: '2026-06-07T00:54:00Z'
 subtask_ref: qrb6-runner-datapath-fix
-subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+subtask_id: qrb6-prereg-2026-06-06:phase1:task1.0
 claimed_domains:
-  - production-code-implementation-from-TradeIntent-specs
-  - test-authoring-pytest-property-based
+- production-code-implementation-from-TradeIntent-specs
+- test-authoring-pytest-property-based
 commit_hash: uncommitted
 files_changed:
-  - scripts/run_qrb6.py
-  - tests/harness/test_qrb6_decision.py
+- scripts/run_qrb6.py
+- tests/harness/test_qrb6_decision.py
 tests_added:
   class: TestQdDatapathFix
   location: tests/harness/test_qrb6_decision.py
   count: 9
   cases:
-    - test_tz_alignment_naive_event_date_resolves_on_aware_index
-    - test_tz_alignment_roll_forward_when_no_exact_bar
-    - test_tz_alignment_no_bar_after_date_skips_event
-    - test_fractional_return_formula
-    - test_fractional_return_matches_expected_for_jpy
-    - test_cost_application_eurusd_long_one_day
-    - test_cost_application_eurusd_short_one_day
-    - test_bare_except_not_in_per_pair_loop
-    - test_pair_event_skip_log_present_in_per_pair_loop
+  - test_tz_alignment_naive_event_date_resolves_on_aware_index
+  - test_tz_alignment_roll_forward_when_no_exact_bar
+  - test_tz_alignment_no_bar_after_date_skips_event
+  - test_fractional_return_formula
+  - test_fractional_return_matches_expected_for_jpy
+  - test_cost_application_eurusd_long_one_day
+  - test_cost_application_eurusd_short_one_day
+  - test_bare_except_not_in_per_pair_loop
+  - test_pair_event_skip_log_present_in_per_pair_loop
 tests_passing:
-  new_tests: "9/9 passed"
-  full_harness: "432 passed, 3 skipped (tests/harness/)"
-  sacred_test_status: "test_no_lookahead PASSED"
+  new_tests: 9/9 passed
+  full_harness: 432 passed, 3 skipped (tests/harness/)
+  sacred_test_status: test_no_lookahead PASSED
 sacred_test_status: PASSED
 kill_test_executed: false
-
-cost_convention_replicated: >
-  ONE round trip per responsive pair per event (enter D+1, exit D+2; §4.3 engine
-  semantics).  Cost deducted from gross fractional return as:
-    cost_frac = (round_trip_cost_pips + holding_cost_pips_1day) * pip_value / c_d
-  Where:
-    round_trip_cost_pips = RealisticCostModel.round_trip_cost(pair, 1.0)
-      = entry_cost + exit_cost
-      = (spread/2 + slippage) + (spread/2 + slippage + commission)
-    holding_cost_pips_1day = RealisticCostModel.holding_cost(pair, direction, 1.0)
-      = -swap_long_pips_per_day   [LONG] or -swap_short_pips_per_day [SHORT]
-    pip_value = engine._get_pip_value(pair)  [0.0001 non-JPY, 0.01 JPY]
-    c_d = close price at bar D (cost basis denominator for fractional conversion)
-  Source: engine._run_discrete lines 190-191 (entry_cost deduction) and
-  _close_position lines 482-491 (exit + swap deduction via pip_value * size).
-  EURUSD LONG 1-day example: 3.2 pips * 0.0001 / 1.20 = 0.000267 fractional cost.
-
+cost_convention_replicated: "ONE round trip per responsive pair per event (enter D+1, exit D+2; §4.3 engine semantics).  Cost\
+  \ deducted from gross fractional return as:\n  cost_frac = (round_trip_cost_pips + holding_cost_pips_1day) * pip_value /\
+  \ c_d\nWhere:\n  round_trip_cost_pips = RealisticCostModel.round_trip_cost(pair, 1.0)\n    = entry_cost + exit_cost\n  \
+  \  = (spread/2 + slippage) + (spread/2 + slippage + commission)\n  holding_cost_pips_1day = RealisticCostModel.holding_cost(pair,\
+  \ direction, 1.0)\n    = -swap_long_pips_per_day   [LONG] or -swap_short_pips_per_day [SHORT]\n  pip_value = engine._get_pip_value(pair)\
+  \  [0.0001 non-JPY, 0.01 JPY]\n  c_d = close price at bar D (cost basis denominator for fractional conversion)\nSource:\
+  \ engine._run_discrete lines 190-191 (entry_cost deduction) and _close_position lines 482-491 (exit + swap deduction via\
+  \ pip_value * size). EURUSD LONG 1-day example: 3.2 pips * 0.0001 / 1.20 = 0.000267 fractional cost.\n"
 defects_fixed:
   tz_lookup:
     status: FIXED
-    description: >
-      Per-pair loop used cs.index.get_loc(pd.Timestamp(event_date)) — tz-naive
-      timestamp on a tz-aware UTC index → KeyError swallowed silently.
-    fix: >
-      Replaced with searchsorted + tz_localize (mirrors reference-pair lookup at
-      lines 473-493), including roll-forward when exact bar is absent (§3.4 frozen
-      convention).
+    description: 'Per-pair loop used cs.index.get_loc(pd.Timestamp(event_date)) — tz-naive timestamp on a tz-aware UTC index
+      → KeyError swallowed silently.
+
+      '
+    fix: 'Replaced with searchsorted + tz_localize (mirrors reference-pair lookup at lines 473-493), including roll-forward
+      when exact bar is absent (§3.4 frozen convention).
+
+      '
   fractional_return:
     status: FIXED
-    description: >
-      pair_returns.append(c_dp2 - c_d) computed a price difference, not a
-      fractional return.  Spec §1.2 requires "cumulative net-of-cost return
-      close(D)→close(D+2)" which is a ratio.
-    fix: >
-      Changed to (c_dp2 / c_d) - 1.0.  Hand-verified: c_d=1.20, c_dp2=1.206
-      → 0.005 (correct) vs 0.006 (old bug).
+    description: 'pair_returns.append(c_dp2 - c_d) computed a price difference, not a fractional return.  Spec §1.2 requires
+      "cumulative net-of-cost return close(D)→close(D+2)" which is a ratio.
+
+      '
+    fix: 'Changed to (c_dp2 / c_d) - 1.0.  Hand-verified: c_d=1.20, c_dp2=1.206 → 0.005 (correct) vs 0.006 (old bug).
+
+      '
   cost_model:
     status: FIXED
-    description: >
-      Comment said "placeholder: no cost model for dry-run" on the live path.
-      Frozen spec §1.2, §3.2, §5.1 require NET-OF-COST everywhere.
-    fix: >
-      Instantiates RealisticCostModel() per event-bank block (not once globally,
-      to avoid state pollution across loops).  Computes cost_frac from
-      round_trip_cost + holding_cost(1 day) converted to fractional via pip_value/c_d.
+    description: 'Comment said "placeholder: no cost model for dry-run" on the live path. Frozen spec §1.2, §3.2, §5.1 require
+      NET-OF-COST everywhere.
+
+      '
+    fix: 'Instantiates RealisticCostModel() per event-bank block (not once globally, to avoid state pollution across loops).  Computes
+      cost_frac from round_trip_cost + holding_cost(1 day) converted to fractional via pip_value/c_d.
+
+      '
   silent_except:
     status: FIXED
-    description: >
-      Bare "except Exception: continue" swallowed all per-pair data errors silently.
-      Silent drops are how event studies lie.
-    fix: >
-      Narrowed to "except (KeyError, IndexError, ValueError, TypeError,
-      ZeroDivisionError) as exc:" with _log("qrb6_runner.pair_event_skip", ...)
-      before the continue.  Unexpected exception types will now propagate and be
-      caught by the outer event-level handler.
+    description: 'Bare "except Exception: continue" swallowed all per-pair data errors silently. Silent drops are how event
+      studies lie.
+
+      '
+    fix: 'Narrowed to "except (KeyError, IndexError, ValueError, TypeError, ZeroDivisionError) as exc:" with _log("qrb6_runner.pair_event_skip",
+      ...) before the continue.  Unexpected exception types will now propagate and be caught by the outer event-level handler.
+
+      '
   spread_tz:
     status: FIXED
-    description: >
-      entry_ts (from cs.index, tz-aware after FIX-1) used in
-      sp_series.index.get_loc(entry_ts) — if spread parquet index is tz-naive,
-      this would raise a TypeError.
-    fix: >
-      Added tz-alignment bridge: if sp_series.index.tz is None and entry_ts is
-      tz-aware, sp_entry_ts = entry_ts.tz_localize(None); reverse case handled
-      symmetrically.  Aligned ts used for the get_loc lookup.
+    description: 'entry_ts (from cs.index, tz-aware after FIX-1) used in sp_series.index.get_loc(entry_ts) — if spread parquet
+      index is tz-naive, this would raise a TypeError.
 
+      '
+    fix: 'Added tz-alignment bridge: if sp_series.index.tz is None and entry_ts is tz-aware, sp_entry_ts = entry_ts.tz_localize(None);
+      reverse case handled symmetrically.  Aligned ts used for the get_loc lookup.
+
+      '
 evidence:
-  - "python3 scripts/run_qrb6.py --dry-run exits 0; writes .DRY-RUN.yaml; output:"
-  - "  QRB-6 DRY-RUN COMPLETE.  Decision: RULE_1_KILL_POST2015"
-  - "  Result artifact: references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
-  - "pytest tests/harness/test_qrb6_decision.py::TestQdDatapathFix: 9/9 passed in 0.04s"
-  - "pytest tests/harness/: 432 passed, 3 skipped in 18.28s"
-  - "pytest tests/backtest/test_engine.py -k test_no_lookahead: 1 passed"
-  - "ruff check scripts/run_qrb6.py tests/harness/test_qrb6_decision.py: All checks passed"
-
+- 'python3 scripts/run_qrb6.py --dry-run exits 0; writes .DRY-RUN.yaml; output:'
+- '  QRB-6 DRY-RUN COMPLETE.  Decision: RULE_1_KILL_POST2015'
+- '  Result artifact: references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml'
+- 'pytest tests/harness/test_qrb6_decision.py::TestQdDatapathFix: 9/9 passed in 0.04s'
+- 'pytest tests/harness/: 432 passed, 3 skipped in 18.28s'
+- 'pytest tests/backtest/test_engine.py -k test_no_lookahead: 1 passed'
+- 'ruff check scripts/run_qrb6.py tests/harness/test_qrb6_decision.py: All checks passed'
 assumptions:
-  - >
-    Cost basis denominator is c_d (close at bar D, the pre-entry bar). Entry
-    actually executes at D+1 (§4.3), so c_dp1 would be more precise, but c_dp1
-    is not available in the per-pair close series without an extra index step.
-    The fractional approximation error is O(daily_return) ≈ 0.1% — negligible
-    relative to the cost itself.  This is consistent with how the research spec
-    frames the "close(D)→close(D+2)" window.
-  - >
-    The cost model is instantiated once per bank-event block (inside the live
-    branch), not globally.  RealisticCostModel reads DEFAULT_PAIRS from constants;
-    it is stateless and re-instantiation is cheap.
-  - >
-    sign_align used for direction (LONG if > 0, SHORT otherwise) is already
-    resolved on the reference pair before the per-pair loop executes, so the
-    direction is consistent across all pairs in the bank-event.
+- 'Cost basis denominator is c_d (close at bar D, the pre-entry bar). Entry actually executes at D+1 (§4.3), so c_dp1 would
+  be more precise, but c_dp1 is not available in the per-pair close series without an extra index step. The fractional approximation
+  error is O(daily_return) ≈ 0.1% — negligible relative to the cost itself.  This is consistent with how the research spec
+  frames the "close(D)→close(D+2)" window.
 
-confidence: HIGH
-  # All 4 defects are structural (wrong formula, missing tz-localize, missing model,
-  # silent swallow) with deterministic fixes.  Tests verify each case independently.
-  # The cost convention is derived directly from the engine source at named line numbers.
-  # The only assumption (c_d as cost basis vs c_dp1) is documented and bounded.
+  '
+- 'The cost model is instantiated once per bank-event block (inside the live branch), not globally.  RealisticCostModel reads
+  DEFAULT_PAIRS from constants; it is stateless and re-instantiation is cheap.
 
-body: >
-  Four defects in the per-pair return assembly loop of the live data path in
-  scripts/run_qrb6.py have been fixed.  All fixes are in the ~100-line block at
-  (approximately) lines 515-629 after the patch.
+  '
+- 'sign_align used for direction (LONG if > 0, SHORT otherwise) is already resolved on the reference pair before the per-pair
+  loop executes, so the direction is consistent across all pairs in the bank-event.
 
-  FIX-1 (tz_lookup): The old per-pair loop called cs.index.get_loc(pd.Timestamp(event_date))
-  directly.  The calendar parquet dates are tz-naive; the price indexes are tz-aware UTC.
-  get_loc raises KeyError on a tz mismatch, which the bare except swallowed silently —
-  meaning 100% of events were dropped in the live path.  The fix mirrors the already-correct
-  reference-pair lookup above it (lines 473-493): tz_localize to the index tz, then
-  searchsorted for the first bar >= D (roll-forward convention, §3.4 frozen).
+  '
+confidence: high
+body: 'Four defects in the per-pair return assembly loop of the live data path in scripts/run_qrb6.py have been fixed.  All
+  fixes are in the ~100-line block at (approximately) lines 515-629 after the patch.
 
-  FIX-2 (fractional_return): pair_returns.append(c_dp2 - c_d) is a price difference
-  in raw quote units, not a fractional return.  The frozen spec §1.2 requires
-  "cumulative net-of-cost return close(D)→close(D+2)" which is the ratio
-  (c_dp2/c_d) - 1.  At EURUSD price ~1.20 the error is ~120x (0.006 vs 0.00005
-  fractional).
+  FIX-1 (tz_lookup): The old per-pair loop called cs.index.get_loc(pd.Timestamp(event_date)) directly.  The calendar parquet
+  dates are tz-naive; the price indexes are tz-aware UTC. get_loc raises KeyError on a tz mismatch, which the bare except
+  swallowed silently — meaning 100% of events were dropped in the live path.  The fix mirrors the already-correct reference-pair
+  lookup above it (lines 473-493): tz_localize to the index tz, then searchsorted for the first bar >= D (roll-forward convention,
+  §3.4 frozen).
 
-  FIX-3 (cost_model): The comment said "placeholder: no cost model for dry-run" but
-  this was the live path.  The firm's RealisticCostModel is instantiated and applied:
-  round_trip_cost + 1-day holding_cost converted to fractional return via pip_value/c_d.
-  This exactly replicates the engine's entry_cost (engine.py lines 190-191) + exit/swap
-  (_close_position lines 482-491) expressed as return fraction at c_d.
+  FIX-2 (fractional_return): pair_returns.append(c_dp2 - c_d) is a price difference in raw quote units, not a fractional return.  The
+  frozen spec §1.2 requires "cumulative net-of-cost return close(D)→close(D+2)" which is the ratio (c_dp2/c_d) - 1.  At EURUSD
+  price ~1.20 the error is ~120x (0.006 vs 0.00005 fractional).
 
-  FIX-4 (silent_except): The bare "except Exception: continue" swallowed every
-  per-pair data error including TypeError from the tz-mismatch in FIX-1.  Replaced
-  with a narrow exception tuple (KeyError, IndexError, ValueError, TypeError,
-  ZeroDivisionError) plus _log("qrb6_runner.pair_event_skip", ...) before the continue.
-  Unexpected exception types now propagate to the outer event-level handler.
+  FIX-3 (cost_model): The comment said "placeholder: no cost model for dry-run" but this was the live path.  The firm''s RealisticCostModel
+  is instantiated and applied: round_trip_cost + 1-day holding_cost converted to fractional return via pip_value/c_d. This
+  exactly replicates the engine''s entry_cost (engine.py lines 190-191) + exit/swap (_close_position lines 482-491) expressed
+  as return fraction at c_d.
 
-  FIX-5 (spread_tz): entry_ts comes from cs.index (tz-aware after FIX-1).  If the
-  spread parquet index is tz-naive, sp_series.index.get_loc(entry_ts) would raise
-  TypeError.  Added tz-alignment bridge: tz_localize(None) or tz_localize(sp_series.index.tz)
-  as needed before the get_loc call.
+  FIX-4 (silent_except): The bare "except Exception: continue" swallowed every per-pair data error including TypeError from
+  the tz-mismatch in FIX-1.  Replaced with a narrow exception tuple (KeyError, IndexError, ValueError, TypeError, ZeroDivisionError)
+  plus _log("qrb6_runner.pair_event_skip", ...) before the continue. Unexpected exception types now propagate to the outer
+  event-level handler.
 
+  FIX-5 (spread_tz): entry_ts comes from cs.index (tz-aware after FIX-1).  If the spread parquet index is tz-naive, sp_series.index.get_loc(entry_ts)
+  would raise TypeError.  Added tz-alignment bridge: tz_localize(None) or tz_localize(sp_series.index.tz) as needed before
+  the get_loc call.
+
+  '
 knowledge_gaps: []
 policy_violations_detected: []
 sources: []

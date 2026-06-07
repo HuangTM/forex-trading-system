@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
 from forex_system.harness.sweep import (
     _coerce_value,

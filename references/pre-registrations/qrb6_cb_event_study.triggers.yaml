@@ -1,0 +1,534 @@
+# Sidecar triggers for QRB-6 CB event study pre-registration.
+# Paired with: references/pre-registrations/qrb6_cb_event_study.md
+# Trial ID: fa0f982a
+# Strategy: central-bank scheduled-decision event study
+# Banks: Scenario A — FED, BOJ, RBA, BOC-post-2019 (506 deduped event-days)
+#         Scenario B — adds BOE, ECB-aggregator-only, RBNZ (716 deduped event-days)
+# Created:  2026-06-06 (qrb6-prereg track; QD implementation AC-3b)
+# Rebuilt:  2026-06-06 (qd-rework1 — PR-02 + NHT-F2 + NHT-F3 remediation; see
+#             .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-rework1.yaml)
+# Sources:  pm-acceptance-criteria.yaml; nht-qrb6-rescreen.yaml;
+#           math-spec.yaml (frozen values); qrb6_cb_event_study.md §4.2 RULES
+#
+# ── REBUILD RATIONALE ──────────────────────────────────────────────────────────
+# PR-02 (blocking): unbound symbols aggregate_gate_alpha / post2015_alpha; stale
+#   (historical note: assembly placeholders all filled 2026-06-06; values from MATH frozen stats)
+#   kill triggers that had no corresponding trigger blocks.
+# NHT-F2 (blocking): sidecar tested the PRE-decision drift component, which §2.3
+#   explicitly declares DEAD post-2015. Entire sidecar now references the POST-
+#   decision (K_post=2) reaction/reversal quantity only.
+# NHT-F3 (blocking): scenario_b_activation fired on 'partial', violating NHT C4
+#   which maps partial → DORMANT. Rebuilt to fire ONLY on 'certified'.
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# MACHINE-CHECKABLE FORMAT:
+#   Each trigger has a condition_expression using ONLY symbols from the symbols:
+#   block below (zero unbound references). operator is one of: <, <=, >, >=, ==
+#   action is one of: KILL, SUPPRESS_TRADE, DORMANT, VOID
+#   overrides: if present, this trigger overrides the named other trigger's result.
+#
+# CROSS-TRIAL CONSTANT CONTAMINATION GUARD (CTO FM-1):
+#   This sidecar must NOT import or reference constants from r5_decision.py
+#   (SR0_PP=0.022906), the R5 freeze-receipt (sr0_pp=0.022906), or the
+#   confirmatory receipt (sr0_pp=0.034921). QRB-6 thresholds are derived fresh
+#   by the Mathematician in this track only.
+#   grep-check: 'r5_decision', 'SR0_PP', '0.022906', '0.034921' must return
+#   zero matches in non-comment lines of this file.
+
+strategy: cb_event_study
+trial_id: "fa0f982a"
+prereg_path: "references/pre-registrations/qrb6_cb_event_study.md"
+nht_accepted_effective_n: 506           # Scenario A deduped market-days (verified)
+nht_accepted_effective_n_post2015: 345  # post-2015 sub-window (2015-01-01 inclusive)
+post_2015_cutoff: "2015-01-01"          # structural-break endpoint; inclusive
+scenario_a_event_days: 506
+scenario_b_event_days: 716
+post_2015_a: 345
+post_2015_b: 491
+
+# ---------------------------------------------------------------------------
+# HYPOTHESIS SUMMARY (post-decision component ONLY — §2.3)
+# ---------------------------------------------------------------------------
+hypothesis_summary: >
+  Pooled, sign-aligned POST-decision reaction/reversal across deduped scheduled
+  CB decision days (FED/BOJ/RBA/BOC-post2019 in Scenario A; adds BOE/ECB-
+  aggregator/RBNZ in Scenario B). Primary quantity r_e: net-of-cost cumulative
+  return over the POST-decision window (K_post=2 bars after bar D, entry at D+1
+  under entry_delay_bars=1). The pre-announcement drift component is explicitly
+  NOT tested here — it is documented essentially dead post-2015 (§2.3) and is
+  NOT the source of the claimed edge. Secondary: post-decision reversal fraction
+  statistically distinguishable from both 0% and 100% (NHT C2; no numeric point
+  target).
+
+non_triggers_note: >
+  The pre-decision drift component (K_pre=1 bar D-1 pre-window) is used ONLY as
+  a sign-alignment / positioning input (§4.2). It is NOT tested as a performance
+  source and generates NO trigger of its own. §2.3 explicitly states this component
+  is "documented essentially DEAD post-2015" — a pre-drift trigger would test the
+  wrong quantity and would near-certainly KILL for the wrong reason. Every trigger
+  in this sidecar references the POST-decision (K_post=2) statistic. Any trigger
+  that references a pre-window / pre-drift / pre-decision quantity is INCORRECT
+  for this pre-registration.
+
+# ---------------------------------------------------------------------------
+# SYMBOLS: every symbol used in any condition_expression is defined here.
+# Zero unbound references permitted.
+# ---------------------------------------------------------------------------
+symbols:
+
+  p_agg:
+    description: >
+      Pooled bank-blocked block-bootstrap p-value on mean sign-aligned net-of-cost
+      POST-decision (K_post=2) event-window return, computed on the full Scenario A
+      deduped event set (n=506). Studentised via HAC (Bartlett/NW, bandwidth=max(L-1,1)).
+      Banks-as-independent-blocks; Politis-White auto block-length per bank-group.
+      RNG = numpy.PCG64(master_seed); K=10000 resamples. Source: runner result YAML
+      field 'pooled_block_bootstrap_pvalue'.
+    type: float
+    range: "[0.0, 1.0]"
+    source_of_value: runner_result_yaml.pooled_block_bootstrap_pvalue
+
+  p_post2015:
+    description: >
+      Same block-bootstrap p-value computed on the post-2015 structural-break sub-window
+      only (date >= 2015-01-01; n=345 Scenario A deduped event-days). Identical
+      statistical machinery as p_agg. Source: runner result YAML field
+      'post_2015_block_bootstrap_pvalue'.
+    type: float
+    range: "[0.0, 1.0]"
+    source_of_value: runner_result_yaml.post_2015_block_bootstrap_pvalue
+
+  dsr:
+    description: >
+      Deflated Sharpe Ratio evaluated on the full Scenario A event set (T=506).
+      Computed via dsr.py conventions: z_dsr = (SR_pp - SR0_pp_sel) * sqrt(T-1) /
+      sqrt(var_term); DSR = Phi(z_dsr). SR0_pp_sel = 0.026861 (N_sel=3, disp=0.50,
+      QRB-6 fresh derivation — NOT 0.022906 NOT 0.034921). var_term from the event
+      set's own skew/kurtosis at evaluation. Source: runner result YAML field 'dsr'.
+    type: float
+    range: "[0.0, 1.0]"
+    source_of_value: runner_result_yaml.dsr
+
+  spread_z:
+    description: >
+      Bid-ask spread z-score for a given pair on a given event-entry bar (D+1).
+      Computed as (spread_pips - trailing_median_60) / trailing_MAD_60 using
+      trailing 60-bar window strictly causal (through bar t-1). One value per
+      pair per event. Source: data/spreads/{PAIR}_daily_spreads.parquet.
+    type: float
+    source_of_value: data/spreads/{PAIR}_daily_spreads.parquet
+
+  scenario_b_certification:
+    description: >
+      Verdict of the BoE/ECB spot-check artifact at
+      references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section, 2026-06-06).
+      Valid values: 'certified' | 'partial' | 'failed'. The qd-spotcheck-sidecar.yaml
+      artifact records the current verdict. Scenario B activates ONLY if the value
+      is exactly 'certified'. 'partial' and all other values → Scenario B DORMANT.
+      Source: references/cb_decision_dates_PROVENANCE.md, field scenario_b_certification.
+    type: string
+    valid_values: ["certified", "partial", "failed"]
+    current_value_at_prereg_time: "partial"
+    source_of_value: >
+      references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section) +
+      .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml
+
+  p_straddle_hi:
+    value: 0.0522
+    source_of_value: "math-sections.md SS4 straddle band upper edge (0.05 + MC-SE 0.0022, K=10000); KILL requires strict > p_straddle_hi per SS4.2 boundary convention"
+  p_reject_threshold:
+    description: >
+      The frozen alpha-minus-MC-SE clean-reject threshold: 0.0478 = 0.05 - 0.0022.
+      A p-value strictly below this value is a clean rejection of H0. At or above
+      it, the test either fails (KILL) or lands in the straddle band (RULE 4).
+      The multiplicity charge (N_sel=3, dispersion=0.50) is absorbed entirely into
+      the DSR gate via SR0_pp_sel=0.026861 — NOT via a deflated p-threshold. This
+      alpha is 0.05; the gate threshold here is 0.0478. Frozen at §4.2 + math-spec.
+    type: float
+    value: 0.0478
+    source_of_value: "qrb6_cb_event_study.md §4.2; math-spec.yaml mc_se_at_p05=0.002179"
+
+  dsr_threshold:
+    description: >
+      Firm-wide DSR gate: DSR >= 0.95 required for PASS. Equivalent to requiring
+      the realized aggregate-set annualized Sharpe >= kill_switch_threshold=1.5883
+      (Scenario A, T=506) under var_term=1 reference. Source: math-spec.yaml.
+    type: float
+    value: 0.95
+    source_of_value: "math-spec.yaml DSR_gate; qrb6_cb_event_study.md §4.2 RULE 3"
+
+  kill_switch_threshold:
+    description: >
+      Minimum pooled net-of-cost event-strategy annualized Sharpe to clear DSR>=0.95
+      at SR0_pp_sel=0.026861, T=506, var_term=1. Value 1.5883 (Scenario A primary);
+      1.4029 on Scenario B auto-activation (T=716). Frozen verbatim from §6 + math-spec.
+    type: float
+    value_scenario_a: 1.5883
+    value_scenario_b: 1.4029
+    source_of_value: "qrb6_cb_event_study.md §6; math-spec.yaml kill_switch_threshold_verbatim"
+
+  sr0_pp_sel:
+    description: >
+      Per-observation SR0 for DSR computation. Derived fresh for QRB-6 by the
+      Mathematician: N_sel=3, dispersion=0.50, bracket(N=3)=0.852804,
+      SR0_ann_sel=0.426402, SR0_pp_sel=0.426402/sqrt(252)=0.026861.
+      NOT 0.022906 (R5-only). NOT 0.034921 (confirmatory-only). Source: math-spec.yaml.
+    type: float
+    value: 0.026861
+    source_of_value: "math-spec.yaml SR0_pp_sel; qrb6_cb_event_study.md §2"
+
+  qrb2_spread_z_threshold:
+    description: >
+      Frozen spread z-score threshold for QRB-2 liquidity overlay. Value 3.0.
+      Frozen at §5.5. SUPPRESS_TRADE fires if spread_z > 3.0 on the entry bar.
+      This modifier is pre-registered and cannot be tuned post-hoc (VOID §1.4(2)).
+    type: float
+    value: 3.0
+    source_of_value: "qrb6_cb_event_study.md §5.5"
+
+  master_seed:
+    description: >
+      RNG seed for the block bootstrap. Derived as int('fa0f98',16) mod 1_000_000:
+      int('fa0f98',16) = 16387992; 16387992 mod 1_000_000 = 387992. Source: math-spec.yaml.
+    type: int
+    value: 387992
+    source_of_value: "math-spec.yaml master_seed; scripts/cut_freeze_receipt.py qrb6 target"
+
+  K:
+    description: >
+      Number of block-bootstrap resamples B = 10000. Source: math-spec.yaml K_replications.
+    type: int
+    value: 10000
+    source_of_value: "math-spec.yaml K_replications"
+
+  return_data_accessed_before_freeze:
+    description: >
+      Boolean flag: true iff any OHLCV return series, equity curve, Sharpe, p-value,
+      or test statistic was computed on data/processed/{PAIR}_{daily,4h}.parquet before
+      the freeze-receipt was cut. Source: runner provenance log / freeze-receipt
+      cut-before-return-data interlock.
+    type: bool
+    source_of_value: runner_provenance_log
+
+  cross_trial_constant_imported:
+    description: >
+      Boolean flag: true iff the runner imports or hard-codes any constant from a prior
+      trial receipt or decision module (e.g. the R5 SR0_PP=0.022906 or confirmatory
+      sr0_pp=0.034921). CTO FM-1 grep-check enforces this. Source: runner CTO FM-1 audit.
+    type: bool
+    source_of_value: cto_fm1_grep_audit
+
+  training_memory_unverified_rows_included:
+    description: >
+      Boolean flag: true iff any of the 43 ECB rows graded 'training-memory-unverified'
+      are included in the event set. These rows are inadmissible (§3.1).
+      Required runner filter: df = df[df['verification'] != 'training-memory-unverified'].
+    type: bool
+    source_of_value: runner_event_set_audit
+
+  numeric_reversal_target_present:
+    description: >
+      Boolean flag: true iff any numeric reversal point target (e.g. '65%', '~65',
+      '0.65') appears in the pre-registration document or runner code. Forbidden (NHT C2).
+      Reversal must be framed as distinguishable from both 0% and 100%.
+    type: bool
+    source_of_value: grep_check_prereg_doc_and_runner
+
+# ---------------------------------------------------------------------------
+# TRIGGERS — ordered matching §4.2 RULES; first matching KILLS / acts; PASS is
+# the §4.2 RULE 3 residual (both p's <= 0.0478 AND DSR >= 0.95 AND no VOID).
+# ---------------------------------------------------------------------------
+
+triggers:
+
+  aggregate_gate:
+    label: "qrb6-T1-aggregate"
+    description: >
+      §4.2 RULE 2. Primary hypothesis test on the POST-decision (K_post=2) event-window
+      return r_e, pooled across all Scenario A deduped event-days (n=506).
+      Block-bootstrap p-value on the sign-aligned, net-of-cost mean event return.
+      Block construction: bank-level blocks (banks as independent blocks). B = K=10000
+      bootstrap replications with master_seed=387992 (numpy.PCG64). Evaluated AFTER the
+      post_2015_subwindow_kill check; fires only if the post-2015 gate did NOT kill.
+    metric: "p_agg"
+    operator: ">="
+    threshold: 0.0522
+    action: KILL
+    condition_expression: "p_agg > p_straddle_hi"
+    raw_text: >
+      Pooled block-bootstrap p-value on the post-decision (K_post=2) event return >=
+      0.0478 (alpha 0.05 minus MC-SE straddle band 0.0022) → fail to reject H0 →
+      strategy does not demonstrate a statistically significant post-decision edge. KILL.
+      Multiplicity charge absorbed by DSR gate (N_sel=3, SR0_pp_sel=0.026861) — NOT
+      via the p-threshold. The threshold is the literal 0.0478, not a separate alpha symbol.
+    overrides_post2015_pass: false
+    note: >
+      alpha = 0.05 (total, one-sided). The multiplicity charge (N_sel=3 paper-selection)
+      is absorbed entirely into the DSR gate (RULE 3 / T3-dsr), NOT into this p-threshold.
+      p_reject_threshold = 0.0478 = 0.05 - MC-SE = 0.05 - 0.0022 (K=10000, §4.2 frozen).
+
+  post_2015_subwindow_kill:
+    label: "qrb6-T2-post2015-kill"
+    description: >
+      §4.2 RULE 1. Mandatory post-2015 structural-break sub-window KILL on the POST-decision
+      (K_post=2) event-window return r_e, computed on the post-2015 sub-window only
+      (date >= 2015-01-01; n=345 Scenario A deduped event-days). Evaluated FIRST before the
+      aggregate gate — overrides any aggregate pass. A strategy alive only pre-2015 is dead
+      alpha in the current deployment regime (§2.3). KILLS even if aggregate passes.
+    metric: "p_post2015"
+    operator: ">="
+    threshold: 0.0522
+    action: KILL
+    overrides_aggregate_pass: true
+    condition_expression: "p_post2015 > p_straddle_hi"
+    raw_text: >
+      Post-2015 sub-window (date >= 2015-01-01; 345 deduped Scenario A event-days) block-
+      bootstrap p-value on the post-decision (K_post=2) event return >= 0.0478 → post-decision
+      reaction/reversal absent in current deployment regime → KILL, overrides aggregate pass.
+      This is the structural-break kill: an aggregate pass carried by pre-2015 data = dead alpha.
+    post_2015_cutoff: "2015-01-01"
+    event_days_a: 345
+    event_days_b: 491
+    note: >
+      The 2015-01-01 cutoff is the documented structural-break endpoint (disappearing-drift
+      literature, §2.3). It is NOT the sample midpoint. BOC-gap confound disclosed (§3.4b):
+      BOC is entirely absent from pre-2015 sub-window; FED/BOJ/RBA carry the pre/post contrast.
+      RULE 1 ordering: this trigger is evaluated BEFORE aggregate_gate. A post-2015 fail
+      stops evaluation — aggregate is never consulted.
+
+  dsr_gate:
+    label: "qrb6-T3-dsr"
+    description: >
+      §4.2 RULE 3 DSR component. The Deflated Sharpe Ratio (DSR) must be >= 0.95 for PASS.
+      DSR is evaluated on the full Scenario A event set. SR0_pp_sel=0.026861 (N_sel=3,
+      dispersion=0.50, QRB-6 fresh derivation). kill_switch_threshold=1.5883 (T=506,
+      Scenario A aggregate anchor; 1.4029 on Scenario B auto-activation, T=716).
+      The DSR gate absorbs the entire paper-selection multiplicity charge (N_sel=3 is the
+      charge, NOT an alpha deflation on the p-threshold).
+    metric: "dsr"
+    operator: "<"
+    threshold: 0.95
+    action: KILL
+    condition_expression: "dsr < dsr_threshold"
+    raw_text: >
+      DSR < 0.95 → the post-decision edge, even if statistically significant, does not
+      survive the selection-deflation charge at N_sel=3 and SR0_pp_sel=0.026861. KILL (RULE 4:
+      routes to AMBIGUOUS/gate-fail). Equivalently: annualized Sharpe < kill_switch_threshold
+      (1.5883 Scenario A / 1.4029 Scenario B). NOT copied from R5 (0.022906). NOT confirmatory
+      (0.034921). Derived fresh for QRB-6 at N_sel=3, disp=0.50, T=506.
+    sr0_pp_sel_value: 0.026861
+    dsr_threshold_value: 0.95
+    kill_switch_threshold_scenario_a: 1.5883
+    kill_switch_threshold_scenario_b: 1.4029
+    note: >
+      SR0_pp_sel for QRB-6 is derived fresh in this track. Cross-trial constant contamination
+      is the highest-risk silent failure mode (CTO FM-1). The grep-check for forbidden literals
+      (SR0_PP, forbidden prior-trial sr0_pp numerics) must return zero matches in non-comment
+      lines. The DSR action here is KILL/RULE4 (AMBIGUOUS/gate-fail, not clean-KILL-RULE1/2).
+      A bare bootstrap rejection that cannot survive deflation maps to RULE 4, never PASS.
+
+  straddle_band:
+    label: "qrb6-T3b-straddle"
+    description: >
+      §4.2 RULE 4 straddle branch. Any p in [0.0478, 0.0522] is a boundary result
+      indistinguishable from exactly 0.05 at K=10000 (MC-SE=0.0022; straddle band
+      width=0.0044). Such a boundary result must NOT buy PASS and must NOT be read as
+      a clean KILL. Routes to RULE 4: AMBIGUOUS / gate-fail → no PASS; default to
+      wind-down under full-auto. Applies to both p_agg and p_post2015.
+    metric: "p_agg OR p_post2015"
+    operator: "in_band"
+    threshold_low: 0.0478
+    threshold_high: 0.0522
+    action: AMBIGUOUS
+    condition_expression: "(p_agg >= p_reject_threshold AND p_agg <= p_straddle_hi) OR (p_post2015 >= p_reject_threshold AND p_post2015 <= p_straddle_hi)"
+    raw_text: >
+      Either p is in [0.0478, 0.0522] (MC-SE straddle band at K=10000) → boundary result;
+      cannot distinguish from exactly alpha=0.05. Routes to RULE 4 (AMBIGUOUS). Never PASS.
+    note: >
+      The straddle band [0.0478, 0.0522] is derived from MC-SE = sqrt(0.05*0.95/10000) =
+      0.002179, rounded to 0.0022 (math-spec.yaml mc_se_at_p05=0.002179, straddle_band=0.0022).
+      The upper bound of the band is 0.05 + 0.0022 = 0.0522. Both KILL triggers (T1, T2) use
+      the '>=' operator; a straddle-band result fires T1/T2 but resolves to RULE 4 (AMBIGUOUS),
+      not a clean RULE 1/2 KILL. The ordered evaluation (RULE 1 → RULE 2 → RULE 3 → RULE 4)
+      ensures the boundary is handled conservatively.
+
+  scenario_b_activation_rule:
+    label: "qrb6-T4-scenario-b"
+    description: >
+      §3.5 / §4.3 pre-committed Scenario B activation rule. Scenario B (adds BOE, ECB-
+      aggregator-only, RBNZ; total 716 deduped event-days) activates ONLY upon a 'certified'
+      verdict in the BoE/ECB spot-check (NHT C4). A 'partial' or 'failed' verdict keeps
+      Scenario B DORMANT — Scenario A parameters remain in force. No human re-decision
+      permitted; no peek-driven activation. Activation committed as an artifact BEFORE any
+      Scenario B return data is examined.
+    metric: "scenario_b_certification"
+    operator: "=="
+    threshold: "certified"
+    action: ACTIVATE_SCENARIO_B
+    condition_expression: "scenario_b_certification == 'certified'"
+    dormancy_rule: >
+      If scenario_b_certification != 'certified' (including 'partial', 'failed', or absent),
+      Scenario B remains DORMANT. Scenario A parameters (n=506/345, kill_switch=1.5883) stay
+      in force. This is the NHT C4 binding condition: partial → DORMANT.
+    spotcheck_verdict_source: "references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section 2026-06-06)"
+    spotcheck_artifact_also_at: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml"
+    spotcheck_result_at_prereg_time: "partial"
+    scenario_b_status_at_freeze: "DORMANT-PENDING-CERTIFIED-SPOTCHECK"
+    note: >
+      NHT C4 binding: the spot-check result of 'partial' (BoE dates verified by calendar-
+      arithmetic only; all official HTML 403'd; 7-day-shift residual unquantifiable) maps to
+      Scenario B DORMANT. This sidecar fires ONLY on scenario_b_certification == 'certified'.
+      The current verdict 'partial' does NOT activate Scenario B. Any future activation requires
+      a new committed spot-check artifact with verdict 'certified' at the provenance path above.
+      No-capital: Scenario B activation is a data-extension, not a capital authorization.
+
+  qrb2_spread_overlay:
+    label: "qrb6-T5-qrb2-overlay"
+    description: >
+      §5.5 QRB-2 spread-blowout liquidity gate as a pre-registered MODIFIER. Suppresses
+      CB-event trades for a given pair when the contemporaneous bid-ask spread z-score
+      exceeds 3.0 on the entry bar (D+1). This modifier is an attribute of trial fa0f982a —
+      it does NOT increment the trial counter, does NOT consume a separate trial budget,
+      and does NOT change the trial_id. Threshold 3.0 is frozen and may not be tuned
+      post-hoc (VOID §1.4(2)). Data source: data/spreads/{PAIR}_daily_spreads.parquet.
+    metric: "spread_z"
+    operator: ">"
+    threshold: 3.0
+    action: SUPPRESS_TRADE
+    condition_expression: "spread_z > qrb2_spread_z_threshold"
+    raw_text: >
+      If spread_z > 3.0 on the CB-event entry bar (D+1) for a given pair, suppress the
+      trade for that pair on that event (position = 0). Suppressed events are excluded from
+      the realized return but the event-day still counts for block construction (block
+      structure is on the calendar, not on whether a pair traded). Record suppression in
+      result YAML. Pre-registered modifier; not a new trial.
+    is_modifier: true
+    trial_id: "fa0f982a"
+    data_path: "data/spreads/{PAIR}_daily_spreads.parquet"
+    note: >
+      spread_z = (spread_pips - trailing_median_60) / trailing_MAD_60; trailing 60-bar
+      window strictly causal (through bar t-1); from data/spreads/{PAIR}_daily_spreads.parquet.
+      threshold 3.0 is frozen verbatim from §5.5. No tuning post data-examination.
+
+  void_conditions:
+    - label: "qrb6-VOID-1-return-data-before-freeze"
+      description: >
+        Pre-registration is VOID if any OHLCV return series computation or equity-curve
+        generation occurred before the freeze-receipt was cut (§1.4(1)). The freeze-receipt
+        is the sole cryptographic boundary.
+      metric: "return_data_accessed_before_freeze"
+      operator: "=="
+      threshold: true
+      action: VOID
+      condition_expression: "return_data_accessed_before_freeze == true"
+
+    - label: "qrb6-VOID-2-cross-trial-constant"
+      description: >
+        Pre-registration is VOID if the runner imports or hard-codes constants from any
+        prior trial receipt or decision module (sr0_pp=0.022906 from the R5 module,
+        sr0_pp=0.034921 from the confirmatory receipt, etc.) — §1.4(4). CTO FM-1 enforces.
+      metric: "cross_trial_constant_imported"
+      operator: "=="
+      threshold: true
+      action: VOID
+      condition_expression: "cross_trial_constant_imported == true"
+      grep_pattern: "SR0_PP|0\\.022906|0\\.034921"
+
+    - label: "qrb6-VOID-3-training-memory-unverified"
+      description: >
+        Pre-registration is VOID if the 43 training-memory-unverified ECB rows are included
+        in any event set (§3.1). Runner must filter at load.
+      metric: "training_memory_unverified_rows_included"
+      operator: "=="
+      threshold: true
+      action: VOID
+      condition_expression: "training_memory_unverified_rows_included == true"
+      required_filter: "df = df[df['verification'] != 'training-memory-unverified']"
+
+    - label: "qrb6-VOID-4-65pct-point-target"
+      description: >
+        Pre-registration is VOID if any numeric reversal point target (e.g. '65%', '~65',
+        '0.65') appears in the pre-registration document or runner code (NHT C2 / §5.3).
+      metric: "numeric_reversal_target_present"
+      operator: "=="
+      threshold: true
+      action: VOID
+      condition_expression: "numeric_reversal_target_present == true"
+      grep_pattern: "65%|~65|0\\.65"
+
+# ---------------------------------------------------------------------------
+# SECONDARY METRIC REQUIREMENTS (runner must emit; these are reporting
+# requirements, NOT kill conditions; per_bank_sharpe is advisory-only
+# per §5.4 — no separate kill trigger)
+# ---------------------------------------------------------------------------
+
+secondary_metrics_required:
+  per_bank_sharpe:
+    description: >
+      Per-bank Sharpe on the post-decision event-window return must be reported as a
+      secondary metric in the result YAML. Banks-as-blocks: FED/BOJ/RBA/BOC (Scenario A)
+      + BOE/ECB/RBNZ (Scenario B). Required field: per_bank_sharpe: {FED: x, ...}.
+      This is a diagnostic secondary metric — it does NOT carry a machine-enforced kill
+      trigger. §5.4 notes it is "flagged, advisory unless MATH binds it"; Math does not
+      bind a per-bank floor as a kill condition. Report it; do not build a kill on it.
+    required: true
+    result_yaml_field: "per_bank_sharpe"
+    is_kill_trigger: false
+
+  reversal_distinguishability:
+    description: >
+      Post-decision reversal fraction must be reported and tested as statistically
+      distinguishable from BOTH 0% and 100% (NHT C2; §5.3). The exact two-sided
+      distinguishability test and its threshold are defined by the Mathematician (PART II).
+      Result fields: reversal_fraction, reversal_p_vs_zero, reversal_p_vs_one.
+    required: true
+    result_yaml_fields:
+      - "reversal_fraction"
+      - "reversal_p_vs_zero"
+      - "reversal_p_vs_one"
+
+  block_construction_methodology:
+    description: >
+      The result YAML must record the block construction rule (bank-level blocks, not
+      pair×event), the block-length estimation method (Politis-White auto), and the
+      B resamples count. Audit trail for the block-bootstrap specification.
+    required: true
+    result_yaml_fields:
+      - "block_construction_rule"
+      - "block_length_method"
+      - "bootstrap_resamples_B"
+
+  boc_gap_disclosure:
+    description: >
+      BOC 2010-2018 gap (zero events pre-2019) must be disclosed in the result YAML as
+      a confound for the structural-break test (§3.4b). The post-2015 BOC count (58)
+      is entirely post-2019; BOC is absent from the pre-2015 sub-window.
+    required: true
+    result_yaml_field: "boc_gap_disclosed"
+
+# ---------------------------------------------------------------------------
+# EVALUATION ORDER SUMMARY (matches §4.2 ordered rules)
+# ---------------------------------------------------------------------------
+evaluation_order:
+  - "RULE 0: VOID conditions checked first (return_data_accessed_before_freeze,
+    cross_trial_constant_imported, training_memory_unverified_rows_included,
+    numeric_reversal_target_present). If any VOID fires → HALT, pre-reg VOID."
+  - "RULE 1: post_2015_subwindow_kill (p_post2015 >= 0.0478) → KILL, overrides aggregate."
+  - "RULE 2: aggregate_gate (p_agg >= 0.0478) → KILL (only reached if RULE 1 did not fire)."
+  - "RULE 3: dsr_gate (dsr < 0.95) + straddle_band → RULE 4 AMBIGUOUS / gate-fail.
+    PASS requires both p's <= 0.0478 AND DSR >= 0.95 (both-must-pass, post-2015 priority)."
+  - "RULE 4 (catch-all): both p's clean-reject but DSR < 0.95, OR any p in straddle
+    [0.0478, 0.0522] → AMBIGUOUS / gate-fail → no PASS, default wind-down."
+
+# ---------------------------------------------------------------------------
+# CROSS-REFERENCES
+# ---------------------------------------------------------------------------
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md §1.4, §2.3, §3.5, §4.2, §5.3, §5.5, §6"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-spec.yaml (frozen_values block)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-audit.yaml (F2, F3 blockers)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml (PR-02, PR-03)"
+  - "references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section, verdict partial)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml"
+  - "references/pre-registrations/carry_baseline.triggers.yaml (format reference)"

@@ -1,0 +1,235 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: qrb6-prereg-qd-rework1
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+
+commit_hash: uncommitted
+
+files_changed:
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml: REBUILT from scratch
+     (PR-02 + NHT-F2 + NHT-F3 remediation; see sidecar_rebuild_summary below)"
+  - "scripts/cut_freeze_receipt.py line 90: wrong comment fixed (PR-03); value 387992 unchanged"
+
+tests_added: []  # existing test suite covers the rebuilt sidecar; no new tests required
+
+tests_passing:
+  tests_run: 352
+  passed: 352
+  failed: 0
+  skipped: 14
+  blocked: 0
+  suite: "tests/harness/ (includes test_qrb6_freeze_receipt.py full suite)"
+  ruff: clean
+  yaml_parse: OK
+  note: >
+    352 passed / 14 skipped (skipped = post-cut receipt tests that legitimately skip pre-AC-8).
+    Sacred test status confirmed passing (included in harness run).
+
+sacred_test_status: pass
+kill_test_executed: false
+
+sidecar_rebuild_summary:
+
+  symbols_bound: true
+  symbols_count: 16
+  symbols_list:
+    - p_agg            # pooled POST-decision (K_post=2) block-bootstrap p-value, n=506
+    - p_post2015       # same, post-2015 sub-window only (n=345)
+    - dsr              # Deflated Sharpe Ratio on full Scenario A event set
+    - spread_z         # bid-ask spread z-score for pair on event entry bar
+    - scenario_b_certification   # spot-check verdict: 'certified' | 'partial' | 'failed'
+    - p_reject_threshold         # frozen 0.0478 = 0.05 - 0.0022 (with source of value)
+    - dsr_threshold              # frozen 0.95 (with source of value)
+    - kill_switch_threshold      # frozen 1.5883 (Scenario A) / 1.4029 (Scenario B)
+    - sr0_pp_sel                 # frozen 0.026861 (QRB-6 fresh; NOT 0.022906 NOT 0.034921)
+    - qrb2_spread_z_threshold    # frozen 3.0 (§5.5)
+    - master_seed                # frozen 387992 (int('fa0f98',16)=16387992 mod 1e6)
+    - K                          # frozen 10000
+    - return_data_accessed_before_freeze   # VOID-1 boolean
+    - cross_trial_constant_imported        # VOID-2 boolean
+    - training_memory_unverified_rows_included  # VOID-3 boolean
+    - numeric_reversal_target_present      # VOID-4 boolean
+  unbound_symbols: 0
+  pr02_unbound_symbols_fixed:
+    - "aggregate_gate_alpha: removed; condition_expression now uses p_reject_threshold
+       (defined in symbols block, value 0.0478, source cited)"
+    - "post2015_alpha: removed; condition_expression uses p_reject_threshold"
+    - "qrb2_overlay [FROZEN-AT-ASSEMBLY] note: removed; threshold 3.0 is already the
+       frozen value from §5.5; no placeholder language anywhere in rebuilt sidecar"
+
+  component: post-decision-only
+  component_detail: >
+    Every trigger and the hypothesis_summary reference the POST-decision (K_post=2)
+    event-window return r_e only. The pre-decision drift component (K_pre=1) is explicitly
+    called out as dead (non_triggers_note block) and generates no trigger anywhere.
+    NHT-F2 fully remediated: the rebuilt sidecar cannot be driven to test the pre-drift
+    dead component.
+
+  c4_dormancy: enforced
+  c4_dormancy_detail: >
+    scenario_b_activation_rule condition_expression is exactly:
+      scenario_b_certification == 'certified'
+    The 'partial' verdict recorded at prereg time does NOT satisfy this condition.
+    The dormancy_rule field explicitly states: 'partial', 'failed', or absent → DORMANT.
+    scenario_b_status_at_freeze: DORMANT-PENDING-CERTIFIED-SPOTCHECK.
+    The spotcheck verdict source is the real artifact path
+    (references/cb_decision_dates_PROVENANCE.md SPOT-CHECK section +
+    .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml),
+    not a phantom path. NHT-F3 fully remediated.
+
+  triggers_list:
+    - aggregate_gate            # §4.2 RULE 2: p_agg >= p_reject_threshold → KILL
+    - post_2015_subwindow_kill  # §4.2 RULE 1: p_post2015 >= p_reject_threshold → KILL (overrides aggregate); evaluated FIRST
+    - dsr_gate                  # §4.2 RULE 3/4: dsr < dsr_threshold → KILL/RULE4 (gate-fail)
+    - straddle_band             # §4.2 RULE 4: p in [0.0478, 0.0522] → AMBIGUOUS (never PASS)
+    - scenario_b_activation_rule  # §3.5/§4.3: fires ONLY on scenario_b_certification=='certified'
+    - qrb2_spread_overlay       # §5.5: spread_z > 3.0 → SUPPRESS_TRADE (pre-registered modifier)
+    - void_conditions           # §1.4: 4 VOID conditions (return-data-before-freeze, cross-trial-constant, TMU-rows, 65%-point-target)
+  triggers_not_present_and_why:
+    - "reversal-distinguishability kill: §5.4 / §5.3 frame this as a reportable secondary
+       metric ('flagged, advisory unless MATH binds it'); Math did not bind a machine-enforced
+       kill threshold on it — it is in secondary_metrics_required, not triggers. PR-02 observed
+       the doc §7 claimed this existed; corrected: the claim was loose doc language, not a
+       trigger block the Math ever pinned."
+    - "per-bank-sharpe floor kill: same reasoning — secondary_metrics_required advisory only;
+       no numeric kill floor was registered by the Mathematician in math-spec.yaml."
+  frozen_values_unchanged:
+    p_reject_threshold: 0.0478
+    dsr_threshold: 0.95
+    sr0_pp_sel: 0.026861
+    kill_switch_threshold_a: 1.5883
+    kill_switch_threshold_b: 1.4029
+    master_seed: 387992
+    K: 10000
+    qrb2_spread_z_threshold: 3.0
+
+  pr03_comment_fix:
+    file: "scripts/cut_freeze_receipt.py"
+    line: 90
+    old_comment: "fa0f98 (hex) = 16256920 → 256920. Set at assembly by orchestrator."
+    new_comment: "fa0f98 (hex) = 16387992 → 387992. Set at assembly by orchestrator."
+    value_on_line_91: 387992   # unchanged; was already correct
+    note: >
+      Comment-only fix. The code value 387992 was and remains correct.
+      The wrong intermediate "16256920 → 256920" is the same hex-drift pattern the
+      confirmatory track already caught and froze a rule against. Fixed.
+
+firewall-self-review: |
+  Execution-Researcher Firewall check (self-attestation):
+  1. No return/performance data was computed or accessed. All work is structural
+     (YAML rewrite, comment fix, test runs against field-spec constants only).
+  2. No frozen constants were changed. The rebuild is a structural remediation;
+     every numeric value (0.0478, 0.95, 0.026861, 1.5883, 1.4029, 387992, 10000, 3.0)
+     is carried verbatim from math-spec.yaml / §4.2.
+  3. No cross-trial constant imported. The sidecar grep-check passes (SR0_PP,
+     0.022906, 0.034921 absent from non-comment YAML lines — test confirms).
+  4. The symbols block is the single source of truth for every condition_expression
+     symbol. Zero unbound references remain.
+  5. kill_test_executed: false. No statistical computation performed.
+
+deviations-from-instructions:
+  - "straddle_band trigger added (not in the instruction's named trigger set): this
+     is required for complete §4.2 RULE 4 coverage. The instruction listed 6 triggers;
+     §4.2 makes the straddle band an explicit RULE 4 branch. Added as qrb6-T3b-straddle
+     to ensure the sidecar is exhaustive. Alternative: the evaluation_order summary covers
+     it without a separate trigger block. Chose a separate block for machine-readability."
+  - "reversal-distinguishability and per-bank-sharpe NOT encoded as kill triggers (see
+     triggers_not_present_and_why). §5.4 doc language was loose ('per_bank_sharpe floor
+     breach ... flagged, advisory unless MATH binds it'); Math did not bind a numeric floor.
+     Encoded as secondary_metrics_required (reporting) not triggers (kill). This resolves
+     the PR-02 finding correctly: the missing triggers PR-02 cited are advisory-only, not
+     machine-kill conditions."
+
+evidence:
+  - "python3 yaml.safe_load on rebuilt sidecar: OK; 7 trigger keys; 16 symbols"
+  - "pytest tests/harness/ -q: 352 passed, 14 skipped, 0 failed"
+  - "ruff check scripts/cut_freeze_receipt.py: All checks passed"
+  - "grep 'r5_decision\\|0\\.022906\\|0\\.034921' non-comment lines of rebuilt sidecar: 0 matches (test confirms)"
+  - "condition_expression symbols cross-check: every symbol in every condition_expression
+     is defined in the symbols block (manual audit: p_agg, p_post2015, p_reject_threshold,
+     dsr, dsr_threshold, spread_z, qrb2_spread_z_threshold, scenario_b_certification)"
+  - "scenario_b_activation_rule condition_expression: 'scenario_b_certification == certified'
+     (verified by reading rebuilt file)"
+  - "scripts/cut_freeze_receipt.py line 90 comment: 'fa0f98 (hex) = 16387992 → 387992'
+     (verified correct; line 91 value 387992 unchanged)"
+
+assumptions:
+  - "The instruction's trigger-set ('aggregate_gate, post_2015_subwindow_kill (override-first),
+     dsr_gate, straddle_band, scenario_b_activation_rule, qrb2_spread_overlay (suppress, 3.0),
+     void_conditions[]') is satisfied by the 7 trigger keys in the rebuild."
+  - "reversal-distinguishability and per-bank-sharpe kill triggers were NOT in §4.2 as frozen
+     machine-kill conditions; they were in §5.4 doc prose as advisory. The PR-02 §7 doc claim
+     that they 'exist in the sidecar' was the drift, not an absence of design intent."
+  - "The straddle_band trigger (T3b) was added for exhaustiveness; it is not a new condition,
+     just an explicit encoding of the §4.2 RULE 4 straddle branch."
+
+confidence: high
+
+body: |
+  ## QD Rework 1 — Sidecar Rebuild (PR-02 + NHT-F2 + NHT-F3)
+
+  All three blocking findings from the independent PR review (PR-02) and NHT audit (F2, F3)
+  are remediated in this rebuild. The sidecar was rewritten from scratch, not patched.
+
+  ### What changed (structural; no frozen values altered)
+
+  **PR-02: Unbound symbols + stale [FROZEN-AT-ASSEMBLY] notes**
+  The condition_expressions previously referenced `aggregate_gate_alpha` and `post2015_alpha`
+  — symbols that were never defined anywhere. The rebuild introduces a top-level `symbols:`
+  block defining every symbol used in any condition_expression with its source-of-value.
+  Both unbound symbols are replaced by `p_reject_threshold` (value 0.0478, source cited).
+  All [FROZEN-AT-ASSEMBLY] placeholder language is gone.
+
+  **NHT-F2: Sidecar was testing the dead pre-drift component**
+  The previous sidecar's hypothesis_summary, aggregate_gate.description, and raw_text all
+  framed the primary quantity as "pre-window / pre-decision drift return" — the component
+  §2.3 explicitly declares dead post-2015. The rebuild rewrites hypothesis_summary to the
+  POST-decision (K_post=2) reaction/reversal quantity throughout, adds a `non_triggers_note`
+  explicitly banning pre-drift triggers, and every trigger references the post-decision
+  statistic only.
+
+  **NHT-F3: scenario_b_activation fired on 'partial', violating C4**
+  The previous condition_expression was "spotcheck_result IN ['partial', 'certified']" —
+  directly contradicting NHT C4 which maps partial → DORMANT. The rebuild's condition is
+  exactly `scenario_b_certification == 'certified'`. The dormancy_rule field states
+  explicitly that 'partial', 'failed', and absent → DORMANT. The spotcheck artifact path
+  is now the real path (PROVENANCE.md + qd-spotcheck-sidecar.yaml), not a phantom YAML.
+  scenario_b_status_at_freeze: DORMANT-PENDING-CERTIFIED-SPOTCHECK.
+
+  **PR-03: Wrong comment in cut_freeze_receipt.py**
+  Line 90 comment corrected from "16256920 → 256920" to "16387992 → 387992". Value unchanged.
+
+  ### What was not encoded as kill triggers (and why)
+  PR-02 cited §7 doc claims for reversal-distinguishability and per-bank-sharpe kill triggers.
+  §5.4 frames these as "flagged, advisory unless MATH binds it" — the Mathematician's
+  math-spec.yaml binds no numeric floor on either. They are correctly in secondary_metrics_required
+  (reporting obligations), not triggers. The doc §7 language was loose; the design intent is advisory.
+
+  ### Test result
+  352 passed, 14 skipped, 0 failed. Ruff clean. YAML parses. Zero unbound symbols.
+  Sacred test included and passing.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md §1.4, §2.3, §3.5, §4.2, §5.3, §5.4, §5.5, §6"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-spec.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-audit.yaml (F2, F3)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml (PR-02, PR-03)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml"
+  - "references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section)"
+  - "references/pre-registrations/carry_baseline.triggers.yaml (format reference)"
+  - "tests/harness/test_qrb6_freeze_receipt.py"
+  - "scripts/cut_freeze_receipt.py"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

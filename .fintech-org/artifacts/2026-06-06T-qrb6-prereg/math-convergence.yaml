@@ -1,0 +1,316 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-06T23:59:00Z"
+subtask_ref: qrb6-prereg-math-convergence
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+no-capital-instruction: true
+
+claimed_domains:
+  - formal-modeling-and-derivations
+  - probability-measure-and-filtration-correctness
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPERSESSION DECLARATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+superseded:
+  old_4_4: true
+  old_4_4_description: >
+    The NHT-F5 COMPANION §4.4 block in math-rework1-patches.md (which froze F_{D-1} filtration,
+    excluded bar D from the sign, and pinned ret_{D-1}=0→sign_align_e=+1 as the degenerate
+    convention) is SUPERSEDED in its entirety before it was ever applied to the document.
+    That ruling has been retracted in debate-r1-math.yaml and is replaced by the FINAL §4.4
+    authored in math-convergence-patches.md PATCH C-03. Do NOT apply the old block.
+  boundary_patches_stand: true
+  boundary_patches_description: >
+    PR-04 (all sub-patches) from math-rework1-patches.md — the §4.2 RULE 1/2/3/4 inequality
+    fixes, the exhaustiveness gloss update, and the §4.3 table row split — are UNCHANGED and
+    STAND. They are filtration-invariant boundary-convention fixes. Apply them as written in
+    math-rework1-patches.md without modification.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONVERGED DESIGN (binding, frozen)
+# ─────────────────────────────────────────────────────────────────────────────
+
+converged_design:
+  object: >
+    y_e = sign(close(D,e) - close(D-1,e)) * R_post,e
+    where R_post,e = bank-event equal-weight net-of-cost cumulative return close(D)→close(D+2)
+    on the responsive pairs (§3.2 mapping).
+  null: >
+    H0: E[y_e] <= 0
+    Unconditional expectation of the signed-product scalar. NOT a conditional null conditioned
+    on the direction of bar D. The bootstrap recentering d_e = y_e - mean(y) imposes this
+    unconditional null correctly on the null distribution.
+  window_engine_semantics: >
+    Signal computed at bar D (F_D-measurable; sign_align_e = sign(close(D)-close(D-1))).
+    Entry at bar D+1 (entry_delay_bars=1; engine-enforced, test_no_lookahead invariant).
+    Position held during bars D+1 and D+2 (K_post=2).
+    Exit at close of D+2.
+    P&L = net-of-cost cumulative return close(D) to close(D+2).
+    Bar-D return is the SIGNAL, consumed at formation; it is NOT part of the realized P&L.
+    This single phrasing supersedes any alternative window description (e.g., "[D+1 close...
+    D+K_post close]") that appears in earlier draft artifacts; §4.4 and §1.2 echo it identically.
+  degenerate: >
+    ret_D = close(D) - close(D-1) = 0 (floating-point equality) -> sign_align_e = 0,
+    position FLAT, event EXCLUDED from the realized return average.
+    Event-day INCLUDED in block count (counts as a calendar block-day for bootstrap).
+    Runner implementation: numpy.sign(ret_D); zero->0.0->FLAT with explicit branch.
+    Unit test on synthetic zero-ret_D event REQUIRED pre-freeze.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN CONSTANTS (unchanged by convergence)
+# ─────────────────────────────────────────────────────────────────────────────
+
+frozen_constants_unchanged:
+  N_sel: 3
+  SR0_pp_sel: 0.026861
+  DSR_gate: 0.95
+  kill_switch_threshold_scenario_a: 1.5883
+  kill_switch_threshold_scenario_b: 1.4029
+  K_replications: 10000
+  master_seed: 387992
+  straddle_lower: 0.0478
+  straddle_upper: 0.0522
+  pass_threshold_strict: "p < 0.0478"
+  kill_threshold_strict: "p > 0.0522"
+  note: >
+    ALL frozen constants are filtration-invariant. The PW block-length algorithm,
+    bootstrap recentering, and +1/+1 p-value convention are series-agnostic and
+    unaffected by the shift from F_{D-1} to F_D filtration.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSUMPTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+assumptions:
+  - >
+    The QR's §5.0 (qr-rework1-patches.md PATCH A4) correctly pins the engine-semantics window
+    (entry D+1, K_post=2) and the sign rule (sign(close(D)-close(D-1))). §4.4 and §1.2 adopt
+    and echo that convention identically.
+  - >
+    The HAC SE (Newey-West, Bartlett kernel, reality_check.py:58-88) is a consistent estimator
+    of the long-run variance of the y_e series regardless of which filtration is used to form
+    sign_align_e. PW selects L empirically from the observed y_e autocorrelation structure;
+    no manual adjustment is needed when the filtration changes from F_{D-1} to F_D.
+  - >
+    The bootstrap recentering d_e = y_e - mean(y) correctly imposes H0: E[y_e] = 0 on the
+    null distribution for any stationary series y_e with finite mean. The bar-D signed-product
+    series y_e = sign(ret_D)*r_post is stationary under standard FX return assumptions.
+  - >
+    The unconditional null H0: E[y_e] <= 0 is valid for the signed product. Under the bar-D
+    construction, sign(ret_D) and r_post share the post-announcement price process; however,
+    this is the INTENDED economic object (the firm is betting on continuation, not on an
+    unconditional post-event return). The bootstrap imposes the unconditional null by
+    recentering, not by assuming independence of sign(ret_D) and r_post.
+  - >
+    The frequency of exact-zero daily ret_D in liquid FX OHLCV data is near-negligible;
+    the FLAT/exclusion convention for the degenerate case has no material effect on the statistic.
+  - >
+    Bar D is the first bar whose close reflects the central-bank decision (§4.1 convention,
+    verified from the daily bar timestamp structure). This convention is conservative and applies
+    uniformly across all banks regardless of intraday announcement timing.
+
+assumptions_identified:
+  - >
+    The entire signed-product construction rests on the no-peek guarantee: no OHLCV return
+    series has been examined before the freeze-receipt is cut (AC-4 / §1.4(1)). If any return
+    data was accessed before freeze, the one-shot run is VOID; this assumption cannot be
+    verified by the mathematician alone and depends on the governance chain.
+  - >
+    sign(ret_D) uses the SAME pair's close prices as the P&L measurement. For the equal-weight
+    bank-event, the QR's §5.0 specifies the sign is taken on "the mapped leg" and applied as
+    a single sign_align_e scalar to all responsive pairs. This equal-weighting convention is
+    frozen in §3.2 and assumed correctly implemented by the runner.
+  - >
+    The bar-D signed-product y_e = sign(ret_D)*r_post will generally exhibit different
+    autocorrelation structure than sign(ret_{D-1})*r_post because ret_D carries short-term
+    FX momentum/mean-reversion autocorrelation. PW adapts correctly; the block-length L may
+    differ from what it would have been under F_{D-1}, but the algorithm is data-adaptive
+    and no calibration is needed.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE REGIMES
+# ─────────────────────────────────────────────────────────────────────────────
+
+failure_regimes:
+  - >
+    Market mean-reversion of the bar-D reaction: if the true DGP involves partial unwind of
+    the bar-D move (market overshoots and reverses), E[y_e] < 0 under both H0 and the
+    continuation H1. The test correctly kills (p > 0.0522) because reversal IS the case where
+    the signed-product strategy loses money. This is a feature, not a bug: the test
+    distinguishes continuation from reversal correctly.
+  - >
+    Mechanical autocorrelation vs exploitable alpha: if the market drifts in the same direction
+    as bar D for mechanical/flow reasons unrelated to exploitable alpha, E[y_e] > 0 and the
+    test passes — but the edge may not persist OOS. This is the fundamental limitation of the
+    signed-product construction, already disclosed in the 13-18% power figures and the
+    post-2015 KILL requirement. The design cannot distinguish tradeable continuation from
+    mechanical autocorrelation within a single pre-registered test; the post-2015 sub-window
+    kill provides the structural-break guard.
+  - >
+    Large L from heavy event-to-event autocorrelation reduces effective n and widens HAC SE,
+    further lowering power below the 13-18% iid bound. Applies identically under bar-D
+    filtration as under F_{D-1}; the PW adapts to the observed y_e autocorrelation.
+  - >
+    If runner applies F_{D-1} filtration instead of bar-D (implementation error): the hypothesis
+    under test silently changes to the dead pre-drift component. Runner unit tests MUST verify
+    the correct close(D) - close(D-1) computation on a synthetic event before freeze.
+    The §4.4.4 contract is the runner's authoritative implementation spec.
+  - >
+    Straddle boundary: p in [0.0478, 0.0522] -> RULE 4 (AMBIGUOUS, no PASS). This applies
+    identically regardless of filtration choice; inherited from PR-04 (STANDS).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ALTERNATIVE METHODS (F_{D-1} — considered and rejected)
+# ─────────────────────────────────────────────────────────────────────────────
+
+alternative_methods:
+  F_D1_rejected:
+    description: >
+      F_{D-1} filtration: sign_align_e = sign(ret_{D-1}) = sign(close(D-1) - close(D-2)).
+      Uses the direction of the bar immediately before the decision-reflecting bar.
+    considered_in: "math-rework1.yaml (mathematician's initial ruling, now retracted)"
+    rejection_reason_primary: economic_incoherence
+    rejection_reason_detail: >
+      §2.3 explicitly states the pre-announcement drift component is "documented essentially
+      DEAD post-2015." F_{D-1} filtration makes sign_align_e the direction of the pre-event
+      move — exactly the dead component. The registered H1 (§2.1) is "post-decision
+      reaction/reversal structure," not "pre-event trend continuation." Adopting F_{D-1}
+      would test whether the dead signal predicts post-announcement returns — an internally
+      inconsistent and economically incoherent hypothesis given §2.3's explicit framing.
+    rejection_reason_secondary: >
+      The statistical mechanics are NOT the rejection reason. The HAC/bootstrap is equally
+      valid under F_{D-1} (PW adapts; recentering is correct for any stationary y_e). The
+      conditional vs unconditional null distinction is relevant but not decisive: F_{D-1} yields
+      a cleaner independence structure (sign(ret_{D-1}) is more plausibly independent of
+      post-announcement returns under H0), but this statistical cleanliness is irrelevant when
+      the sign is drawn from a dead signal.
+    concession_conditions_for_reverting: >
+      Would revert ONLY if: (1) evidence that §2.1's hypothesis was always intended as
+      pre-event trend continuation (contradicting §2.3's "dead" declaration, which would be a
+      fatal internal inconsistency), OR (2) a mathematical proof that bootstrap recentering
+      fails to impose H0 for the signed product y_e = sign(ret_D)*r_post, OR (3) evidence
+      that the runner cannot implement bar-D sign without examining return data (which would
+      trigger VOID §1.4(1)). None of these conditions exist.
+    status: REJECTED_FINAL
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROOF SKETCH / FORMAL JUSTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+proof_sketch_or_reference:
+  no_lookahead_proof: >
+    sign_align_e = sign(close(D) - close(D-1)) is a deterministic function of two daily
+    closes, both known at the close of bar D. Under entry_delay_bars=1, the trade entry
+    executes at bar D+1. The post-window return runs from D+1 forward. No bar is
+    simultaneously a sign-input bar and a realized-return bar. Formally: the signal sigma_e
+    is F_D-measurable (sigma(close(D), close(D-1)) ⊂ F_D); the P&L r_post,e is
+    F_{D+2}-measurable and its support does not include bar D. The mandatory delay
+    (entry_delay_bars=1) creates the required measurability separation. The sacred test
+    test_no_lookahead in tests/backtest/test_engine.py enforces this mechanically.
+  unconditional_null_validity: >
+    H0: E[y_e] <= 0 is a well-formed unconditional moment condition on the scalar y_e.
+    Bootstrap recentering d_e = y_e - mean(y) subtracts the sample mean, imposing
+    E[d_e] = 0 under H0 on each bootstrap resample. The studentized mean t* = sqrt(n)*
+    mean(d*)/omega_hat(d*) then has a null distribution centered at 0 by construction.
+    This recentering argument holds for any stationary series y_e with finite mean and
+    does not require independence between sign(ret_D) and r_post,e. The one-sided test
+    (count of t*_b >= t_obs) is a valid test of H0: E[y_e] <= 0 under the bank-blocked
+    stationary bootstrap.
+  hac_se_validity: >
+    The Newey-West HAC SE omega_hat = hac_se_nw(y, bandwidth=max(L-1,1)) is a consistent
+    estimator of the asymptotic variance of sqrt(n)*mean(y) for any covariance-stationary
+    series y with finite fourth moments. The PW algorithm selects L empirically from the
+    observed autocorrelation function of y_e; it is series-agnostic (it does not know or
+    care which filtration was used to form sign_align_e). No calibration or correction is
+    needed when the filtration changes from F_{D-1} to F_D.
+  power_unchanged: >
+    Power calculations (13-18% across four n's, §5) are derived from SR_pp*sqrt(n) at the
+    planning effect size SR_plan = SR0_ann_sel = 0.4264. These depend only on n, alpha, and
+    the planning Sharpe — none of which change with the filtration choice. Power figures
+    carry forward identically from math-spec.yaml.
+
+numerical_question_routed: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVIDENCE
+# ─────────────────────────────────────────────────────────────────────────────
+
+evidence:
+  - >
+    references/pre-registrations/qrb6_cb_event_study.md §2.1 (~line 67):
+    "post-decision reaction/reversal structure" — the registered H1 is post-announcement.
+    The bar-D sign aligns with this; F_{D-1} does not.
+  - >
+    references/pre-registrations/qrb6_cb_event_study.md §2.3 (~lines 77-79):
+    "the PRE-announcement drift component is documented essentially DEAD post-2015" —
+    the decisive economic reason to reject F_{D-1} filtration as the sign source.
+  - >
+    .fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-math.yaml:
+    Mathematician's ROUND-1 position paper. Formally retracts the F_{D-1} ruling,
+    provides the full derivation (steps 1-6), and converges to bar-D signed product.
+    Read and confirmed.
+  - >
+    .fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-qr.yaml:
+    QR's ROUND-1 position. Consistent with bar-D signed product from the economic side;
+    statistically defers to the mathematician. The QR's proposed-resolution OPTION C
+    (declare conditional-continuation hypothesis explicitly) is the converged outcome.
+    Read and confirmed.
+  - >
+    .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-rework1-patches.md PATCH A4:
+    QR's §5.0 pin — sign_align_e = sign(close(D)-close(D-1)); no-look-ahead proof;
+    FLAT/exclusion degenerate convention; engine-semantics window. Read and confirmed.
+  - >
+    .fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-rework1-patches.md:
+    The NHT-F5 COMPANION §4.4 block (F_{D-1} filtration) — the superseded prior ruling.
+    Read and confirmed; retracted in full per this artifact.
+  - >
+    src/forex_system/harness/reality_check.py:58-88 (hac_se_nw), :152-343 (PW+PPW),
+    :403-446 (stationary bootstrap), :557,962 (+1/+1 p-value convention).
+    HAC/bootstrap machinery is series-agnostic; no modification required for filtration change.
+
+confidence: high
+
+body: >
+  The converged design is formally sound. The retraction of F_{D-1} is economically decisive
+  (bar D-1's direction proxies the pre-announcement drift, documented dead post-2015 in §2.3;
+  using it as the alignment signal embeds a ghost) and statistically unproblematic (bar-D
+  filtration does not require new derivations — PW adapts, recentering is valid, unconditional
+  null is correctly imposed). The signed-product y_e = sign(close(D)-close(D-1))*R_post,e is a
+  well-defined per-event scalar with a valid unconditional null H0: E[y_e] <= 0 and a legitimate
+  one-sided test via the studentized mean with HAC SE and bank-blocked stationary bootstrap
+  (recentering d_e = y_e - mean(y) imposes H0 on the bootstrap distribution for any stationary
+  series, regardless of the dependence structure between sign(ret_D) and r_post,e).
+
+  The signal/execution separation (bar-D return is signal, not P&L; entry D+1 under
+  entry_delay_bars=1; P&L from D+1 to D+2) is the load-bearing no-lookahead guarantee. The
+  engine's test_no_lookahead invariant enforces it mechanically.
+
+  All frozen constants (N_sel=3, SR0_pp_sel=0.026861, DSR>=0.95, kill_switch 1.5883/1.4029,
+  K=10000, seed=387992, straddle [0.0478,0.0522]) are filtration-invariant and carry forward
+  unchanged from math-spec.yaml.
+
+  Three document patches are produced (C-01 through C-03 against the pre-reg; C-04 against the
+  §5.0 compatibility flag after QR's PATCH A4). PR-04 boundary patches from math-rework1-patches.md
+  stand unchanged. The old §4.4 insertion (NHT-F5 COMPANION, F_{D-1}) is superseded before
+  application. Decision: SOUND.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md (§1.1, §1.2, §2.1, §2.3, §4.3)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-math.yaml (my Round-1 position, retraction of F_{D-1})"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-qr.yaml (QR's Round-1 position)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-rework1-patches.md (PATCH A4 §5.0 sign rule)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-rework1-patches.md (PR-04 STANDS; NHT-F5 §4.4 SUPERSEDED)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-spec.yaml (frozen constants, unchanged)"
+  - "src/forex_system/harness/reality_check.py (hac_se_nw, PW, bootstrap, +1/+1 p-value)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

@@ -1,0 +1,345 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-06T03:30:00Z"
+subtask_ref: qrb6-prereg-pr-cycle2
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+cycle: 2
+
+# ---------------------------------------------------------------------------
+# CLOSURE VERIFICATION — cycle-1 findings PR-01 through PR-05
+# ---------------------------------------------------------------------------
+
+closure_verification:
+
+  PR-01:
+    verdict: closed
+    severity_was: blocking
+    evidence: >
+      Exhaustive grep for '[MATH]' in qrb6_cb_event_study.md returns EXACTLY ONE
+      match: line 170 in the §5 preamble, which reads "no live [MATH] token remains,
+      no alternative charge mechanism is described" — a self-referential prose statement
+      explicitly describing the absence of live tokens, acceptable per the cycle-2 charter.
+      No live placeholder remains in §5.1–§5.7. The §5 preamble (line 170) also now
+      explicitly states the charge mechanism: multiplicity absorbed via DSR gate ONLY,
+      "NO registered post-multiplicity-charge alpha of ~0.0025 — that earlier draft framing
+      is SUPERSEDED by §4.2 and does not appear here." No absorbed-into-alpha mechanism
+      present anywhere in §5. §5 mirrors §4.2 correctly for the charge locus (DSR gate).
+    tool_result: "grep '[MATH]' returns 1 match (line 170 preamble only); grep 'absorbed.*alpha|post-multiplicity-charge alpha|~0.00' returns zero matches outside line 170's explicit negation."
+    residual_flag: none
+
+  PR-02:
+    verdict: closed
+    severity_was: blocking
+    evidence: >
+      (1) Unbound symbols: ALL condition_expressions in the rebuilt sidecar now reference
+      ONLY symbols defined in the symbols: block. The old unbound 'aggregate_gate_alpha'
+      and 'post2015_alpha' are gone. T1 uses 'p_agg > p_straddle_hi', T2 uses
+      'p_post2015 > p_straddle_hi', T3 uses 'dsr < dsr_threshold', T4 uses
+      '(p_agg >= p_reject_threshold AND p_agg <= p_straddle_hi) OR (...)'. All symbols
+      (p_straddle_hi=0.0522, p_reject_threshold=0.0478, dsr_threshold=0.95) are defined
+      under symbols:. Zero unbound references detected.
+      (2) Stale [FROZEN-AT-ASSEMBLY] notes: Rebuilt sidecar header confirms all placeholders
+      were filled. The qrb2_overlay_threshold note is gone. No FROZEN-AT-ASSEMBLY stale text
+      present in condition_expressions or threshold fields.
+      (3) Missing triggers: The old reversal-distinguishability KILL and per-bank-sharpe floor
+      KILLs were flagged absent in cycle-1. In cycle-2: the per-bank-sharpe is correctly placed
+      under secondary_metrics_required with is_kill_trigger=false (matching doc §5.4: "advisory
+      unless MATH binds it; no numeric floor registered as a hard gate"). The
+      reversal_distinguishability sits under secondary_metrics_required (reporting requirement,
+      not a kill trigger). The §7 doc claim at line 605 says "reversal-distinguishability sub-claim"
+      is sidecar-encoded — it IS present, under secondary_metrics_required. The cycle-1 complaint
+      was that it was absent as a trigger; it was redesignated a reporting requirement, consistent
+      with §5.4's "KILL the reversal sub-claim" being a secondary/diagnostic kill (not a primary
+      gate), and the sidecar's VOID-4 condition covers the 65% point-target prohibition. This
+      redesignation is internally consistent with §5.4 prose. No longer a blocking defect.
+      (4) Three-way threshold consistency verified:
+        doc: sr0_pp_sel=0.026861, dsr_threshold=0.95, kill_switch=1.5883, K=10000, seed=387992, spread_z_threshold=3.0
+        sidecar: sr0_pp_sel.value=0.026861, dsr_threshold.value=0.95, kill_switch.value_scenario_a=1.5883, K.value=10000, master_seed.value=387992, qrb2_spread_z_threshold.value=3.0
+        receipt: sr0_pp=0.026861, dsr_threshold=0.95, kill_switch_threshold=1.5883, K=10000, master_seed=387992
+      All nine values three-way consistent across doc/sidecar/receipt. The spread_z_threshold=3.0
+      is present in doc and sidecar but absent from the receipt fields dict; doc §7 (line 599)
+      claims the receipt records it. This is a minor gap but not blocking (the value is frozen
+      in the doc and sidecar; the receipt's omission does not threaten the freeze interlock).
+    tool_result: >
+      grep 'condition_expression' in triggers.yaml shows 11 expressions; all symbols verified
+      present in symbols: block. grep 'FROZEN-AT-ASSEMBLY|aggregate_gate_alpha|post2015_alpha'
+      returns zero non-comment matches (one comment in rebuild-rationale header only, acceptable).
+    residual_flag: >
+      MINOR-OPEN: The reversal-distinguishability sub-claim is categorized as a reporting
+      requirement, not a kill trigger, while §5.4 calls it a "KILL." Doc §7 calls it
+      "machine-encoded" but the sidecar places it under secondary_metrics_required. This
+      is internally consistent within the rebuilt artifact (§5.4 frames it as a secondary/
+      diagnostic, §7 prose is slightly aspirational about "machine-encoding"), but creates a
+      loose end if a runner reads §5.4 literally. Not blocking under the "secondary/diagnostic"
+      reading but worth tightening at the runner-implementation stage.
+
+  PR-03:
+    verdict: closed
+    severity_was: major
+    evidence: >
+      scripts/cut_freeze_receipt.py line 90 now reads:
+        "# fa0f98 (hex) = 16387992 → 387992. Set at assembly by orchestrator."
+      The erroneous "16256920 -> 256920" intermediate is gone. The comment now correctly
+      states 16387992 → 387992, matching the live code value on line 91 (387992).
+      Arithmetic independently verified: int('fa0f98', 16) = 16387992;
+      16387992 mod 1_000_000 = 387992 (python3 exact).
+    tool_result: "grep '16387992|387992' cut_freeze_receipt.py shows lines 90-91 consistent; grep '16256920|256920' returns zero matches."
+    residual_flag: none
+
+  PR-04:
+    verdict: closed
+    severity_was: minor
+    evidence: >
+      §4.2 RULE bodies now use strict inequalities consistently:
+      RULE 1: fires iff "p_post2015 > 0.0522" (strict, above straddle band).
+      RULE 2: fires iff "p_agg > 0.0522" (strict, above straddle band).
+      RULE 3: fires iff "p_post2015 < 0.0478" AND "p_agg < 0.0478" (strict, both below band).
+      RULE 4: catch-all, explicitly including the CLOSED straddle [0.0478, 0.0522] including
+              boundary values 0.0478 and 0.0522.
+      Exhaustiveness gloss (line 459): "Ordered disjoint conditions: {technical-fail} →
+      {p_post2015 > 0.0522: KILL} → {p_agg > 0.0522: KILL} → {both p's < 0.0478 ∧ DSR≥0.95:
+      PASS} → {else: AMBIGUOUS}. ... PASS requires strict < 0.0478; KILL requires strict > 0.0522.
+      This inequality appears once per rule body — no other representation of the threshold exists
+      in this document."
+      Sidecar triggers: T1 condition_expression "p_agg > p_straddle_hi" (0.0522, strict >) ✓;
+      T2 "p_post2015 > p_straddle_hi" (0.0522, strict >) ✓.
+      §4.3 table: split into three rows with PASS strict threshold (< 0.0478), KILL strict
+      threshold (> 0.0522), and straddle AMBIGUOUS row.
+    tool_result: >
+      grep '> 0.0522|> 0.0478' in §4.2 confirms RULE 1/2 use > 0.0522; grep '< 0.0478' confirms
+      RULE 3; exhaustiveness gloss at line 459 restates. Sidecar condition_expressions verified.
+    residual_flag: >
+      SEE NEW FINDING NF-01 BELOW. PR-04 closed §4.2; however the §5 QR mirror
+      (§5.1, §5.2, §5.4) was NOT updated to match. §5.1/§5.2 still say "p > 0.0478 → KILL"
+      which conflicts with the §4.2-RULE 1/2 convention of > 0.0522. This is a NEW DEFECT
+      in the patched region (see NF-01), not a residual of PR-04 since PR-04 was scoped to §4.2.
+
+  PR-05:
+    verdict: closed
+    severity_was: minor
+    evidence: >
+      (1) Doc §4.1 (line 137): the phantom citation is explicitly retracted —
+          "there is no competing CLAUDE.md timestamp note (an earlier draft assumption referenced
+          a '21:00-UTC CLAUDE.md note' that does NOT exist — it originated from a dispatch prompt,
+          not CLAUDE.md, and is struck)."
+      (2) qr-prereg-draft.yaml (line 130): similarly retracted —
+          "There is NO CLAUDE.md 21:00-UTC note — the earlier '21:00-UTC CLAUDE.md' reference
+          was a phantom citation (it came from a dispatch prompt, not CLAUDE.md) and is struck;
+          the index check is the sole and sufficient evidence."
+      Both locations: phantom citation is explicitly corrected (not merely deleted — the
+      correction explains the origin of the error, which is better documentation than simple
+      removal). No "supersedes the CLAUDE.md 21:00-UTC note" phrase appears anywhere.
+    tool_result: "grep 'supersedes.*CLAUDE|CLAUDE.*21:00' in both files returns zero matches in the offending framing; only the correction prose appears."
+    residual_flag: none
+
+# ---------------------------------------------------------------------------
+# NEW FINDINGS — patched regions only (§5.0/§5.7 insertions, §4.4, §1.1/§1.2,
+#               sidecar)
+# ---------------------------------------------------------------------------
+
+new_findings:
+
+  - id: NF-01
+    severity: major
+    location: "qrb6_cb_event_study.md §5.1 (line 188), §5.2 (line 192), §5.4 (lines 200-201)"
+    category: doc-internal-inconsistency / §5-vs-§4.2-threshold-mismatch
+    observation: >
+      §5.1, §5.2, and §5.4 use "p > 0.0478" as the KILL threshold. However, §4.2 (after
+      PR-04 was applied) establishes KILL fires iff p > 0.0522 (strict, above the straddle
+      band), with the closed band [0.0478, 0.0522] routing to RULE 4 AMBIGUOUS. The §5 sections
+      were not updated to match §4.2's post-PR-04 boundary convention. Specifically:
+        - §5.1 (line 188): "FAILS (KILL) if the … p-value … is > 0.0478" — then immediately
+          acknowledges "A p in the straddle band [0.0478, 0.0522] is neither a clean reject nor
+          a clean KILL (→ RULE 4, §5.7)." These two statements are contradictory within §5.1
+          itself: the first asserts p > 0.0478 = KILL; the second asserts p in [0.0478, 0.0522]
+          is NOT a KILL. The correct reading is the second (the straddle routes to AMBIGUOUS),
+          but the first sentence will be read as the KILL boundary by a runner.
+        - §5.2 (line 192): "p_post2015 > 0.0478 … → KILLED" — same mismatch; should be
+          "p_post2015 > 0.0522" with the [0.0478,0.0522] band → RULE 4 AMBIGUOUS.
+        - §5.4 (lines 200-201): bullet list states "p_post2015 > 0.0478 → KILL" and
+          "p_agg > 0.0478 → KILL" — should be > 0.0522 for clean KILL vs > 0.0478 for
+          the straddle/AMBIGUOUS branch.
+      §4.2 is stated as the authoritative functional (§5 preamble: "§4.2 is the authoritative
+      decision functional and these §5 criteria are its prose mirror"). But any runner reading
+      §5 in isolation will implement > 0.0478 as KILL, discarding the RULE 4 straddle. A
+      p in [0.0478, 0.0522] under the §5 reading would KILL; under the authoritative §4.2
+      reading it is AMBIGUOUS/gate-fail. These lead to different firm actions (RETIRED vs
+      wind-down/confirmatory-option). The defect is in the unpatched QR PART I §5 mirror;
+      §4.2 (PART II) is correct.
+    inference: >
+      At run time, if the runner reads §5 as the implementation spec, a straddle-band result
+      produces the wrong outcome (KILL rather than AMBIGUOUS). This is a prose mismatch, not
+      a sidecar defect (the sidecar correctly uses > p_straddle_hi = 0.0522 for KILL triggers).
+      The §5 prose mirror must be updated to match §4.2 boundary convention throughout.
+    recommended-action-class: >
+      Update §5.1/§5.2/§5.4 to replace "p > 0.0478 → KILL" with "p > 0.0522 → KILL; p in
+      [0.0478, 0.0522] → RULE 4 AMBIGUOUS (not KILL)." The straddle caveat at the end of §5.1
+      is correct and should be promoted into the first sentence's threshold statement.
+    owning-role: quant-researcher (QR PART I mirror of MATH §4.2 boundary)
+    blocks-freeze: true
+
+  - id: NF-02
+    severity: observation
+    location: "qrb6_cb_event_study.md §5.0 (line 178), §4.4.1 (line 498)"
+    category: supersession-note (verified adequate)
+    observation: >
+      §5.0 (line 178) retains the phrasing "The traded position over the post-window
+      [D+1 close … D+K_post close] is LONG sign_align_e." The cycle-2 charter asked
+      whether this phrasing defers to §4.4's engine-semantics supersession note.
+      Verified: §4.4.1 (line 498) explicitly states "This phrasing supersedes any alternative
+      window description (e.g., '[D+1 close … D+K_post close]') that might appear in earlier
+      draft artifacts; the engine executes the entry_delay_bars=1 shift mechanically, and the
+      return is close(D)→close(D+2) as a result."
+      The supersession is explicit and cross-references the exact phrasing used in §5.0. The
+      §5.0 text is not wrong — "[D+1 close … D+K_post close]" at K_post=2 is equivalent to
+      "close(D+1) to close(D+2)" and is consistent with §4.4.1's authoritative engine semantics.
+      The phrasing is a notation variant, not a contradiction, and §4.4.1 explicitly covers it.
+    inference: "No action required. The supersession note in §4.4.1 is adequate and explicit."
+    recommended-action-class: none
+    owning-role: quant-researcher (information only)
+    blocks-freeze: false
+
+  - id: NF-03
+    severity: observation
+    location: "qrb6_cb_event_study.md §5.0/§5.1/§1.2/§1.3: signed-product object"
+    category: new-hypothesis-identity check (verified clean)
+    observation: >
+      NEW §5.0 and PART II §1.2 insertions: every occurrence of the tested object now uses
+      the signed-product form. Checked exhaustively:
+        - §5.0 (new): "y_e = sign(close(D,e) − close(D−1,e)) · R_post,e" (line 276-278); confirmed.
+        - §5.1 (new): "H0: E[net post-decision event-window return] ≤ 0" — this uses the
+          pre-signed prose form; §5.0 preamble establishes this is y_e. Acceptable.
+        - §1.2 (patched): explicit signed-product y_e = sign(close(D,e) − close(D−1,e)) · R_post,e;
+          unconditional null H0: E[y_e] ≤ 0 stated.
+        - §1.1 (patched): "post-announcement reaction direction — specifically sign(close(D)−close(D−1))."
+        - §4.4 (new): machine-readable YAML contract with filtration=F_D, bar_D_is_signal_not_PnL=true,
+          H0: "E[y_e] <= 0 where y_e = sign(close(D)-close(D-1)) * R_post,e."
+        - §5.7 DSR gate (new): mentions "both p-gates cleanly rejecting" — no unsigned mean return claim.
+      Grep for "mean event return" in doc returns §1.3 heading "studentized mean event-window return
+      with HAC SE" (this refers to the HAC SE formula, not an unsigned alternative to y_e; it is
+      the statistical notation for mean(y_e) in the studentized statistic). No residual unsigned
+      "mean event return" claim conflicts with the signed-product definition.
+    inference: "No unsigned-mean-event-return residual claim found. §5.0/§5.7/§4.4/§1.2 are mutually consistent on the signed-product object."
+    recommended-action-class: none
+    owning-role: null-hypothesis-tester (information only)
+    blocks-freeze: false
+
+  - id: NF-04
+    severity: observation
+    location: "qrb6_cb_event_study.triggers.yaml secondary_metrics_required.reversal_distinguishability vs doc §5.4"
+    category: kill-vs-reporting-req loose-end (noted, not blocking)
+    observation: >
+      Doc §5.4 (line 202) states "reversal_fraction indistinguishable from 0% OR from 100%
+      → KILL the reversal sub-claim (§5.3)." The sidecar places reversal_distinguishability
+      under secondary_metrics_required (is_kill_trigger: false). Doc §7 (line 605) says
+      "reversal-distinguishability sub-claim" is "machine-encoded" in the sidecar. The sidecar
+      encodes the RESULT FIELDS required (reversal_fraction, reversal_p_vs_zero, reversal_p_vs_one)
+      but does NOT encode a KILL trigger that fires on failure. A runner implementing strictly from
+      the sidecar will REPORT the reversal fields but may not KILL on reversal-sub-claim failure.
+      The doc §5.4 and §7 claim more than the sidecar delivers. PR-02 cycle-1 closure accepts
+      this redesignation as "secondary/diagnostic" — confirmed acceptable under §5.4's framing
+      ("KILL the reversal sub-claim" refers to a sub-claim verdict, not a primary gate; it is not
+      an override of the primary or post-2015 gates). Flagged for runner-implementation guidance.
+    inference: >
+      Not blocking at pre-reg freeze stage. The reversal distinguishability test is a secondary
+      diagnostic, not a primary gate. The result fields must be emitted and the kill-the-sub-claim
+      logic must be implemented in the runner (even if not in the sidecar trigger block). Document
+      this expectation in runner spec.
+    recommended-action-class: document-in-runner-spec (not a pre-reg defect)
+    owning-role: quant-developer (runner implementation)
+    blocks-freeze: false
+
+# ---------------------------------------------------------------------------
+# SUMMARY
+# ---------------------------------------------------------------------------
+
+claimed_domains:
+  - independent-design-review
+  - spec-vs-implementation-drift-detection
+
+contamination_check: >
+  Self-clean. No OHLCV return series, equity curve, Sharpe, p-value, or test statistic was
+  computed. All arithmetic was deterministic (python3 int arithmetic and standard-normal
+  quantiles only, run against pre-frozen constants). No R5 or confirmatory constant was imported
+  into my reasoning; R5/confirmatory values appear only as guard-text references I verified
+  were absent from QRB-6 live fields.
+
+evidence:
+  - "grep '[MATH]' qrb6_cb_event_study.md returns exactly 1 match (line 170, preamble self-reference only). PR-01 closed."
+  - "grep 'aggregate_gate_alpha|post2015_alpha|FROZEN-AT-ASSEMBLY' triggers.yaml returns zero non-comment matches. PR-02 unbound-symbols closed."
+  - "grep '16387992|387992' cut_freeze_receipt.py lines 90-91: comment now reads fa0f98 (hex) = 16387992 → 387992. PR-03 closed."
+  - "python3: int('fa0f98',16)=16387992; %1_000_000=387992. PR-03 arithmetic verified."
+  - "§4.2 RULE 1/2 use > 0.0522; exhaustiveness gloss uses > 0.0522; §4.3 table split. PR-04 closed."
+  - "doc §4.1 line 137 and qr-prereg-draft line 130 both explicitly retract the phantom citation. PR-05 closed."
+  - "grep '> 0.0478' in §5.1/§5.2/§5.4 vs '> 0.0522' in §4.2 RULE 1/2: confirmed inconsistency. NF-01 new defect."
+  - "§4.4.1 line 498 explicitly supersedes '[D+1 close … D+K_post close]' phrasing: NF-02 resolved."
+  - "Sidecar condition_expressions verified: all 11 expressions use only symbols-defined names. Three-way threshold consistency: all 9 key constants match across doc/sidecar/receipt."
+
+assumptions:
+  - "§4.2 is the authoritative decision functional as stated in the §5 preamble. NF-01 is a §5 prose mirror error, not a §4.2 error."
+  - "The reversal-distinguishability sub-claim is correctly categorized as secondary/diagnostic per §5.4; the 'KILL the reversal sub-claim' language means a sub-claim-level verdict, not a primary gate override."
+  - "The runner implementation will use §4.2 (not §5 prose) as the decision-logic spec for the KILL threshold, which is the stated intent. NF-01 is a documentation hazard, not yet a runner hazard."
+
+confidence: high
+
+body: |
+  ## Principal Reviewer verdict: APPROVE-WITH-CONDITIONS (cycle 2)
+
+  ### Cycle-1 closure status: PR-01 CLOSED, PR-02 CLOSED, PR-03 CLOSED, PR-04 CLOSED, PR-05 CLOSED.
+
+  All five cycle-1 blocking/major/minor conditions are addressed. The assembly-state
+  inconsistencies that drove the cycle-1 APPROVE-WITH-CONDITIONS verdict have been resolved:
+  §5 carries no live [MATH] placeholders, the sidecar is fully bound with zero unbound symbols,
+  the hex-seed comment is corrected, §4.2 uses consistent strict boundary convention, and the
+  phantom CLAUDE.md citation is struck from both locations.
+
+  ### New blocking finding from patched regions: NF-01
+
+  The §5 QR PART I prose mirror was NOT updated to match §4.2's post-PR-04 boundary convention.
+  §5.1, §5.2, and §5.4 still state "p > 0.0478 → KILL" while §4.2 RULE 1/2 now correctly
+  state "p > 0.0522 → KILL" (with the closed straddle [0.0478, 0.0522] routing to RULE 4
+  AMBIGUOUS, not KILL). This is internally contradictory within §5.1 itself (the first sentence
+  says > 0.0478 is KILL; the next sentence acknowledges [0.0478, 0.0522] is NOT a KILL). A
+  runner implementing from §5 will produce the wrong outcome for straddle-band results.
+
+  The sidecar is NOT affected (T1/T2 correctly use > p_straddle_hi = 0.0522). The defect is
+  confined to the §5 prose mirror.
+
+  Fix required: update §5.1/§5.2/§5.4 to replace "p > 0.0478 → KILL" with "p > 0.0522 → KILL;
+  p in [0.0478, 0.0522] → RULE 4 AMBIGUOUS (not KILL)" — matching the now-authoritative §4.2
+  text. The straddle caveat already present in §5.1 is correct and should be promoted.
+
+  ### Non-blocking observations:
+
+  - NF-02: §5.0's "[D+1 close … D+K_post close]" phrasing is explicitly superseded by §4.4.1.
+    Adequate — no action needed.
+  - NF-03: All §5/§4.4/§1.2 occurrences of the tested object now use the signed-product form
+    y_e = sign(close(D)−close(D−1)) · R_post,e. No unsigned "mean event return" residual claim.
+    Clean.
+  - NF-04: Reversal distinguishability is under secondary_metrics_required (not a kill trigger)
+    while §5.4 calls it a sub-claim KILL. Acceptable at pre-reg stage; runner spec must implement
+    the sub-claim verdict logic explicitly.
+
+  ### Condition for freeze (blocking):
+
+  1. (NF-01) Update §5.1, §5.2, and §5.4 KILL threshold statements from "p > 0.0478 → KILL"
+     to "p > 0.0522 → KILL; p in [0.0478, 0.0522] → RULE 4 AMBIGUOUS." One targeted patch,
+     owning role: quant-researcher, to bring §5 into alignment with §4.2.
+
+  No capital is authorized by this review or by a QRB-6 PASS.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md (verified lines 137,170,178,188,192,200-203,219,223,451,453,457,459,498)"
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml (verified condition_expressions, symbols block, threshold values)"
+  - "scripts/cut_freeze_receipt.py (verified lines 88-107, especially lines 90-91)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-convergence-patches.md"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml (cycle-1 findings)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-prereg-draft.yaml (line 130)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-rework1-patches.md (PR-04 scope verification)"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,140 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: "2026-06-06T20:30:00Z"
+
+subtask_ref: qrb6-prereg-qr-rework1
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+
+no-capital-instruction: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# QR rework-1: closes the QR-owned blockers/material findings in the QRB-6
+# pre-registration assembly. Patches authored at
+# .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-rework1-patches.md
+# (11 doc patches A1-A11 + 4 draft-yaml patches B1-B4). No return data examined.
+# ──────────────────────────────────────────────────────────────────────────────
+
+sign_mapping_pinned:
+  rule: >
+    sign_align_e = sign( close(D) - close(D-1) ) measured on the bank-event's mapped
+    leg (the per-bank reference pair, §3.2 ordering; the same scalar is applied to every
+    responsive pair so the bank-event stays one sign-aligned unit). The traded position
+    over the post-window [D+1 close .. D+K_post close] is LONG sign_align_e — i.e. the
+    strategy bets the initial reaction realized within bar D CONTINUES through the
+    K_post=2 window. close(D)=close(D-1) (measure-zero tie) -> sign_align_e=0 -> FLAT
+    (excluded from realized return, event-day still counts as a block-day).
+  basis: >
+    One mechanical, no-runtime-judgment rule computable from data the firm HAS. The firm
+    has NO survey/consensus/expectations feed, so a 'surprise vs consensus' /
+    'decision vs expectation' sign is NOT computable and is rejected. Rate-change sign is
+    derivable for only some banks and is dominated by HOLDS post-2015, so it is rejected
+    as the primary mechanism. The calendar carries only {bank, currency, date}. The
+    realized-initial-reaction (the bar-D return, close(D) vs close(D-1)) IS computable for
+    every bank-event from the price data, and continuing it is the registered alpha:
+    post-announcement reaction continuation, NOT pre-event reversal, NOT mean-reversion.
+  lookahead_analysis: >
+    sign_align_e uses close(D) and close(D-1), both known at the close of bar D. Entry
+    executes at D+1 under entry_delay_bars=1 (the sacred test_no_lookahead invariant). The
+    realized post-window return runs from D+1 forward and does NOT include the D-1->D bar
+    used to form the sign. The bar-D return (the initial reaction) is the SIGNAL, consumed
+    at signal-formation time; it is NOT part of realized P&L. No bar is both a sign-input
+    and a realized-return bar without the mandatory entry_delay_bars shift => zero
+    look-ahead into the D+1 entry. The genre's silent leak (treating bar D as PRE-decision
+    so the announcement reaction sneaks into the realized window) is closed by §4.1's
+    'bar D is the first decision-reflecting bar' convention combined with this rule. This
+    is NOT a data-driven fit (no parameter estimated from returns; deterministic function
+    of two adjacent closes) but it IS a function of price, so it is flagged for the
+    Mathematician's parallel compatibility sign-off (PART II §1.3-1.4 studentization
+    unaffected; one-sided H1:E[r_e]>0 correct under continuation). MATH sign-off: PENDING.
+
+claimed_domains:
+  - hypothesis-formulation-and-pre-registration
+  - falsification-criteria-design
+  - data-snooping-and-look-ahead-prevention
+
+evidence:
+  - "references/pre-registrations/qrb6_cb_event_study.md §5.1/5.2/5.3/5.4/5.6 — SEVEN live [MATH primary alpha]/[MATH] tokens located and substituted (patches A2,A3,A5,A6,A8) with the fixed p<=0.0478 gate + DSR>=0.95 gate."
+  - "references/pre-registrations/qrb6_cb_event_study.md §4.2 RULES 0-4 (lines 418-434) — the authoritative two-gate functional: fixed p<=0.0478 per gate, multiplicity charged via DSR (N_sel=3, SR0_pp_sel=0.026861) ONLY, kill_switch 1.5883. §5 patches conform to this verbatim."
+  - "references/pre-registrations/qrb6_cb_event_study.md §2.3 (lines 77-79) — pre-drift documented DEAD post-2015; §5.0 (new, patch A4) pins every §5 criterion to the post-decision K_post=2 component and states no pre-drift criterion exists (NHT-F2)."
+  - "references/pre-registrations/qrb6_cb_event_study.md §7 line 533 — 'qrb6_triggers.yaml' corrected to 'qrb6_cb_event_study.triggers.yaml' (patch A10, NHT-F4)."
+  - "pr-review.yaml PR-05 + nht-audit.yaml assumptions[4]: CLAUDE.md '21:00-UTC note' does not exist (grep returns nothing per PR-05 evidence line 136); 00:00-UTC verified from EURUSD_daily index. Phantom citation struck in doc §4.1 (patch A9) and qr-prereg-draft.yaml line 127 (patch B1)."
+  - "nht-audit.yaml F6 + §1.4(5)/§7: runner not yet pinned; permitted-pre-freeze-changes clause added (patch A11) per R5 STEP-4 runner precedent with hash-matching receipt interlock + freeze-cut-after-runner-commit ordering."
+  - "qr-prereg-draft.yaml lines 87,90 (PRIMARY/POST2015 [MATH primary alpha] tokens) + line 83 (metric placeholder) + line 67 (post_window) substituted (patches B2,B3,B4)."
+
+assumptions:
+  - "The authoritative gating model is PART II §4.2 (alpha 0.05; fixed p<=0.0478 per gate; multiplicity charged via DSR/N_sel=3 ONLY; kill_switch 1.5883/1.4029). The §5 'absorbed-into-the-primary-alpha (~0.0025)' prose is legacy QR-PART-I draft wording, SUPERSEDED — confirmed by PR-01, NHT-F1, and the math-spec all encoding p<=0.0478 + DSR. My patches strike it; this matches 3-of-4 artifacts and the firm's DSR-charging precedent."
+  - "The sidecar (qrb6_cb_event_study.triggers.yaml) is being rebuilt in parallel by QD to test the SAME post-decision K_post=2 quantity (NHT-F2/F3 are QD/orchestrator-owned); my §5.0 + §7 patches assert the doc-side quantity so doc and sidecar converge. F1 (sidecar live notes) and F3 (Scenario-B partial-activates) are NOT QR-owned and are out of scope for this rework — flagged for QD/orchestrator."
+  - "The new §5.7 DSR-gate block is placed before §5.6 in source order so §5.1/§5.4 cross-refs resolve; if the orchestrator wants strict ascending numbering, relabel §5.5b and update three cross-refs (flagged non-blocking in patch A7)."
+  - "The realized-initial-reaction-continuation sign rule pins PART II §1.1 sign_align_e; MATH compatibility sign-off runs in parallel and is marked PENDING in both the doc and this artifact. If MATH rejects continuation in favor of a different a-priori sign, §5.0 + B3/B4 must be re-pinned jointly."
+  - "K_pre=1, K_post=2, spread_z_threshold=3.0, post_2015_cutoff 2015-01-01, and the 506/345 (716/491) counts are unchanged by this rework (binding from prior NHT rescreen)."
+
+confidence: high
+
+body: |
+  ## QR REWORK-1 — closing the QR-owned QRB-6 pre-registration findings
+
+  Independent review (PR-01, NHT-F1/F2/F4/F5/F6) found MY sections in a self-contradictory
+  hybrid: §5 carried seven live [MATH]/[MATH primary alpha] tokens AND described an
+  'absorbed-into-the-primary-alpha (~0.0025)' charge that PART II §4.2 had already superseded
+  (the charge lives in the DSR gate; the p-gates use the fixed 0.0478 band). I produced 15
+  exact-anchor patches (11 to the freeze-object doc, 4 to the draft yaml) at
+  qr-rework1-patches.md. No return data was examined.
+
+  ### What each patch closes
+  - PR-01 / NHT-F1 (blocking — alpha double-specified + live tokens): patches A1,A2,A3,A5,A6,A8
+    rewrite §5's criteria to STATE the PART II values directly — p_agg <= 0.0478 and
+    p_post2015 <= 0.0478 (fixed gate, KILL if > 0.0478, post-2015 evaluated FIRST with
+    overrides_aggregate_pass), DSR >= 0.95 at SR0_pp_sel=0.026861, kill_switch 1.5883 — and a
+    NEW §5.7 (A7) states the DSR gate as the SOLE locus of the N_sel=3 selection charge,
+    striking the absorbed-into-alpha mechanism. Every §5 [MATH] token is gone; §4.2 is
+    cross-referenced as authoritative. B2 mirrors this in the draft yaml.
+  - NHT-F2 (blocking — hypothesis identity): NEW §5.0 (A4) + A3 + B3/B4 make every criterion
+    UNAMBIGUOUSLY test the POST-decision K_post=2 reaction quantity, and state explicitly that
+    NO pre-drift criterion exists anywhere; the pre-window K_pre=1 is the sign INPUT only. The
+    sidecar is noted as being rebuilt in parallel to match.
+  - NHT-F5 (material — sign rule unpinned): §5.0 (A4) + B3/B4 FREEZE the sign rule:
+    sign_align_e = sign(close(D)-close(D-1)), position = LONG sign_align_e (continuation), with
+    the full no-look-ahead proof (sign known at close(D), entry at D+1, bar-D return is signal
+    not P&L) and the explicit statement that the strategy then claims continuation of the
+    initial reaction. Survey/expectation and rate-change-sign rules are rejected with reasons
+    (no feed exists; holds dominate). Flagged for MATH compatibility sign-off (parallel).
+  - NHT-F4 (material — sidecar path): A10 fixes qrb6_triggers.yaml -> qrb6_cb_event_study.triggers.yaml
+    and tightens the §7 completeness claim.
+  - PR-05 (minor — phantom citation): A9 (doc §4.1) + B1 (draft ~127) replace the
+    non-existent 'CLAUDE.md 21:00-UTC note' with the verified 00:00-UTC convention and its
+    actual evidence (the EURUSD_daily index check).
+  - NHT-F6 (material — runner not pinned): A11 adds the permitted-pre-freeze-changes clause:
+    the QRB-6 one-shot runner is the ONE named permitted pre-freeze code object, pinned by the
+    freeze commit + a hash-matching receipt interlock (refuses without prereg_sha256 +
+    code_commit match); freeze-cut explicitly ordered after the runner commit; no other
+    post-freeze code change permitted.
+
+  ### Out of QR scope (flagged, not patched here)
+  - NHT-F1's sidecar-side live notes ('[FROZEN-AT-ASSEMBLY] e.g. 0.0025'), NHT-F2's sidecar
+    primary-metric rewrite, and NHT-F3 (Scenario-B 'partial' -> activate vs C4 DORMANT) are
+    QD/orchestrator-owned sidecar+provenance fixes. My doc-side §5.0/§7 patches assert the
+    target so the rebuilt sidecar converges; the sidecar edits themselves are not mine to make.
+  - PR-03 (master_seed comment arithmetic) and PR-04 (boundary >=/> prose) are QD- and
+    Math-owned respectively.
+
+  ### Decision
+  APPROVE my reworked QR sections for re-review/consensus. The §5 hybrid is resolved: zero live
+  tokens, one charge mechanism (DSR-only), one tested quantity (post-decision K_post=2), one
+  pinned sign rule with a no-look-ahead proof. Remaining open items are QD/Math/orchestrator
+  -owned and flagged. No capital is authorized.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md (full, 538 lines — §4.1, §4.2, §5, §7 patched)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml (PR-01, PR-05)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-audit.yaml (F1, F2, F4, F5, F6)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-prereg-draft.yaml (B1-B4 patched)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

@@ -1,0 +1,181 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound-with-caveats
+timestamp: "2026-06-06T23:30:00Z"
+subtask_ref: qrb6-prereg-math-spec
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+
+claimed_domains:
+  - formal-modeling-and-derivations
+  - numerical-method-selection-and-stability
+  - convergence-and-error-analysis
+
+no-capital-instruction: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FROZEN VALUES (the load-bearing contract; full derivations in math-sections.md)
+# ─────────────────────────────────────────────────────────────────────────────
+frozen_values:
+  null_hypothesis: "H0: E[r_e] <= 0 (studentized mean event-window net return, deduped bank-event unit)"
+  alpha_one_sided_total: 0.05
+  statistic: "t = sqrt(n) * mean(r) / omega_hat; omega_hat = hac_se_nw(r, bandwidth=max(L-1,1)) [reality_check.py:58-88]"
+  block_length_rule: "Politis-White (2004)+PPW(2009) per bank-group; L_group=max(1,ceil(L_pw)); L_pool=max_g L_group"
+  bootstrap_scheme: "banks-as-independent-blocks: within-bank stationary circular block bootstrap, concatenated across G bank-groups; blocks never cross a bank boundary (circular wrap within-bank only)"
+  K_replications: 10000
+  mc_se_at_p05: 0.002179   # sqrt(0.05*0.95/10000); straddle band rounded to 0.0022
+  straddle_band: 0.0022
+  master_seed: 387992      # int('fa0f98',16)=16387992; 16387992 mod 1_000_000 = 387992
+  rng: "numpy.PCG64"
+  scipy_required: true
+
+  N_sel: 3                 # paper-selection charge (NOT data-selection); re-derived, not imported
+  dispersion_plugin_ann: 0.50   # planning Sharpe dispersion; re-derived for paper-selection (NOT R5's 0.426385)
+  bracket_N3: 0.852804     # property of N only; equals R5 bracket(N=3) as a consistency check
+  SR0_ann_sel: 0.426402
+  SR0_pp_sel: 0.026861
+  DSR_gate: 0.95
+
+  scenario_a:
+    n_aggregate: 506
+    n_post2015: 345
+    kill_switch_threshold_ann: 1.5883   # T=506 aggregate anchor (DECLARED verbatim value)
+    power_aggregate: 0.149
+    power_post2015: 0.126
+  scenario_b:
+    n_aggregate: 716
+    n_post2015: 491
+    kill_switch_threshold_ann: 1.4029   # T=716 aggregate anchor (auto-activation, pre-frozen)
+    power_aggregate: 0.177
+    power_post2015: 0.147
+
+  kill_switch_threshold_verbatim: 1.5883   # Scenario A primary; 1.4029 on Scenario-B auto-activation
+
+  two_gate_rule_oneliner: >
+    Ordered/exhaustive: RULE0 technical-fail -> RULE1 KILL if p_post2015 > 0.0478 (overrides aggregate)
+    -> RULE2 KILL if p_agg > 0.0478 -> RULE3 PASS iff both p<=0.0478 AND DSR>=0.95 (=> ann Sharpe>=1.5883)
+    -> RULE4 else (AMBIGUOUS/gate-fail, no PASS). Both-must-pass: post-2015 fail KILLS even on aggregate pass.
+
+# ─────────────────────────────────────────────────────────────────────────────
+assumptions:
+  - "The QR pins the event-window length convention (pre/post bars) in parallel (AC-1c/d); my statistic is parameterized by it but value-frozen once the bar-counts are fixed. The frozen numbers (SR0, kill_switch, power) do NOT depend on the window length — only on n, alpha, N_sel, dispersion, T."
+  - "The deduped bank-event-day is the unit of observation (NHT banks-as-blocks). Each deduped event-day carries a single bank label per the QR dedup rule; same-day co-decisions are already deduped in the NHT 506/716 counts."
+  - "var_term=1 is the frozen reference for the declared kill_switch_threshold; the runner recomputes var_term with the event-set's own skew/kurtosis at evaluation. Because SR_pp is small (~0.10), var_term~1 and the two-pass correction is < 0.001 (confirmatory precedent)."
+  - "Planning power at SR_plan = SR0_ann_sel (selection-deflated benchmark), not a snooped Sharpe (none exists; nothing backtested)."
+  - "iid-event power is an UPPER bound; high event-to-event autocorrelation (large PW L) reduces effective n and realized power."
+  - "Scenario-A is the frozen primary; Scenario-B parameters are pre-frozen for C4-gated auto-activation with NO live recompute (only the n-pair and pre-frozen kill_switch swap)."
+
+assumptions-identified:
+  - "The 11 generated proposals were NEVER backtested — no return data harvested in selection (verified: AC-4 no_return_data_examination_before_freeze; nht-qrb6-rescreen counts came from a calendar groupby, not performance). This is the FOUNDATION of the N_sel=3 election and the single most load-bearing assumption: if any QRB strategy's returns HAD been examined pre-freeze, N_sel must rise."
+  - "The 2-finalist (QRB-6 vs QRB-3) comparison used calendar event-count/testability, NOT either strategy's returns. If the finalist decision peeked at returns, the selection becomes a data-selection and N_sel is understated."
+  - "The CB-decision event-study idea-family is ONE correlated family (its effective independent dimension collapses to a low single digit), not 11 independent bets — this justifies charging far below honest-N=11."
+  - "Bank labels in the parquet are clean and the dedup rule assigns exactly one bank per deduped event-day (NHT-confirmed bank column; assumed not re-verified here)."
+  - "Politis-White on calendar-sparse event-day series is applied on the event-INDEX ordering (events sorted by date), not calendar-day lags — the conventional event-study HAC treatment."
+
+failure-regimes:
+  - "If event returns are heavily autocorrelated event-to-event (regime persistence in CB-decision drift), PW returns a large L per bank-group -> few effective blocks per bank, especially BOC (58 events post-2019) and RBNZ (11) -> wide HAC SE -> realized power below the ~13-18% iid figure. Per-bank secondary tests on BOC/RBNZ are underpowered by construction (NHT-acknowledged)."
+  - "var_term <= 0 (extreme negative skew x large SR) -> DSR=0 (gate FAIL, not technical failure; dsr.py:187-195). Carried verbatim."
+  - "If a same-day multi-bank co-decision dedup assigns an event to the wrong bank-group, the block structure is mildly mis-specified; impact is second-order (22/506 in Scenario A) and does not bias the pooled mean."
+  - "Straddle: p in [0.0478, 0.0522] -> RULE 4 (no PASS, no clean KILL). At K=10000 this band is narrow (MC-SE 0.0022)."
+  - "A pre-2015-only effect (drift disappeared post-2015) -> RULE 1 KILL regardless of aggregate strength. This is the designed-for failure regime (NHT structural-break)."
+
+alternative-methods:
+  rejected_N_sel:
+    - "N_sel=1 (unsnooped, no charge): REJECTED — understates firm-wide false-discovery exposure across the informed funnel; over-deflation is safe-if-wrong for a kill test."
+    - "N_sel=11 (honest generated-proposal count): REJECTED — the 11 were never backtested and are heavily correlated framings; conflates hypothesis-space size with realized-statistic multiplicity; also double-charges the single eventual look."
+    - "N_sel=41 (org trial counter): REJECTED — mixes unrelated trials sharing no selection event with QRB-6; wrong denominator for a single pre-registered structure (the firm's honest-N discipline rejects the org-wide BLdP n_trials reading)."
+    - "N_sel=6 (copy R5-confirmatory): REJECTED — R5's 6 absorbed a best-of-36-BACKTESTS argmax with no QRB analogue; copying it imports a data-selection burden that did not occur and violates no_cross_trial_constant_imports in spirit."
+  rejected_dispersion:
+    - "sqrt(Var)=0.426385 (R5/confirmatory observed-look SD): REJECTED — that value is the SD over two OBSERVED look-Sharpes {0.80,0.197}; QRB-6 has NO observed per-proposal Sharpes (paper-selection). Importing it would be a cross-trial constant import AND a fabricated provenance. Re-derived 0.50 from the published event-study magnitude band instead."
+  alternative_statistic:
+    - "Asymptotic-normal p-value: REJECTED — event returns plausibly fat-tailed/autocorrelated at n in the hundreds; asymptotic-normal over-rejects. Bank-blocked stationary bootstrap elected (consistency with R5/confirmatory falsifier family)."
+  alternative_power_plan:
+    - "Plan at snooped ~0.7 Sharpe: REJECTED — no snooped figure exists and it would overstate power. Sensitivity at 0.7 shown for context (~26% at n=506) — still underpowered."
+
+proof-sketch-or-reference:
+  seed_arithmetic: >
+    master_seed = int(first 6 hex of stem 'fa0f982a', base 16) mod 1e6.
+    'fa0f98': f=15,a=10,0=0,f=15,9=9,8=8.
+    15*16^5 + 10*16^4 + 0*16^3 + 15*16^2 + 9*16^1 + 8*16^0
+    = 15*1048576 + 10*65536 + 0 + 15*256 + 9*16 + 8
+    = 15728640 + 655360 + 0 + 3840 + 144 + 8
+    = 16387992.
+    16387992 mod 1000000 = 387992. => master_seed = 387992.
+    (Mirrors the confirmatory's frozen hex-mod RULE after its hand-hex-drift catch; stem 'fa0f982a' has no leading decimal run so the hex-mod rule governs.)
+  SR0_derivation: >
+    BLdP (2014) SR0_ann = sqrt(Var[SR_n]) * [(1-g)*Zinv(1-1/N) + g*Zinv(1-1/(N*e))], g=Euler-Mascheroni.
+    N_sel=3: Zinv(2/3)=0.430727, Zinv(0.877374)=1.161957, bracket=0.852804 (= R5 bracket(N=3), an N-only property).
+    disp=0.50 => SR0_ann=0.426402, SR0_pp=0.426402/sqrt(252)=0.026861.
+  kill_switch_derivation: >
+    DSR=0.95 => z_dsr=Zinv(0.95)=1.644854. var_term=1 reference.
+    SR_pp = SR0_pp + z_dsr/sqrt(T-1).
+    T=506: SR_pp=0.026861+1.644854/22.472205=0.100056; SR_ann=0.100056*15.874508=1.588337 => 1.5883.
+    T=716: SR_pp=0.026861+1.644854/26.74883=0.088354; SR_ann=1.402907 => 1.4029.
+  power_derivation: >
+    lambda = SR_pp*sqrt(n); power = Phi(lambda - 1.644854).
+    n=506: lambda=0.604219, power=0.149. n=345: 0.498918, 0.126. n=716: 0.718746, 0.177. n=491: 0.595196, 0.147.
+  references:
+    - "Bailey & Lopez de Prado (2014) Deflated Sharpe Ratio (dsr.py:1-32 docstring + :46-207)"
+    - "Politis & White (2004) + PPW (2009) automatic block length (reality_check.py:152-343)"
+    - "Politis & Romano (1994) stationary bootstrap (reality_check.py:403-446)"
+    - "Hansen (2005) SPA / White (2000) Reality Check HAC studentization (reality_check.py:788-995)"
+    - "R5 frozen prereg sec 7.3.6 ordered decision functional (r5_carry_universe_kill_test.md:1019-1087) — pattern only"
+    - "R5-confirmatory PART II (r5_confirmatory_vol_target_carry_usdjpy.md:235-498) — pattern + the OTHER-TRIAL constants 0.034921/0.426385 that are forbidden to import"
+
+numerical-question-routed: >
+  QD to confirm via scipy.stats.norm (orchestrator NormalDist anchors already cross-checked):
+  (1) Zinv(0.666667)=0.430727, Zinv(0.877374)=1.161957, bracket(N=3)=0.852804;
+  (2) SR0_ann_sel=0.426402, SR0_pp_sel=0.026861 at disp=0.50;
+  (3) int('fa0f98',16)=16387992 -> master_seed=387992;
+  (4) kill_switch: T=506 -> 1.588337 (1.5883); T=716 -> 1.402907 (1.4029);
+  (5) power: n in {506,345,716,491} -> {0.149,0.126,0.177,0.147};
+  (6) MC-SE sqrt(0.05*0.95/10000)=0.002179.
+  All deterministic scipy.stats.norm.ppf/.cdf; no return data involved.
+
+evidence:
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml:170-211 (BINDING counts 506/345, 716/491; banks-as-blocks; TMU inadmissible)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pm-acceptance-criteria.yaml:178-219 (no_cross_trial_constant_imports; kill_switch_threshold_verbatim_required; AC-2)"
+  - "src/forex_system/harness/reality_check.py:58-88 (hac_se_nw), :152-343 (Politis-White+PPW), :403-446 (stationary block bootstrap), :527 (R5a master_seed-direct), :557,962 (+1/+1 p)"
+  - "src/forex_system/harness/dsr.py:46-104 (expected_max_sr/BLdP bracket), :179-203 (var_term + z_dsr + DSR=Phi(z))"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md:1019-1087 (7.3.6 ordered decision functional — pattern)"
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md:331-471 (N_conf election + SR0 + kill_switch derivation — pattern; constants are OTHER-TRIAL, NOT imported)"
+
+confidence: high
+
+body: >
+  AC-2 frozen statistics for QRB-6, authored before any return-data examination. The load-bearing
+  freeze is the selection charge: QRB-6 is a PAPER-selected survivor (11 proposals -> 9 -> rubric -> 2
+  finalists), fundamentally unlike R5's best-of-36-BACKTESTS. No realized Sharpe was harvested in
+  selection, so the DSR multiplicity charge is small: I elect N_sel=3 (the one real one-shot look plus
+  ~2 effective soft-prior framings of one correlated event-study family), explicitly rejecting N=1
+  (anti-conservative), N=11 (conflates hypothesis-space with realized-statistic multiplicity), N=41
+  (org counter, wrong denominator), and N=6 (R5-confirmatory copy, imports a non-existent data-selection
+  burden). Dispersion: no per-proposal Sharpes exist, so R5's observed-look 0.426385 is inadmissible
+  (cross-trial import + fabricated provenance); I re-derive a planning dispersion 0.50 from the published
+  event-study magnitude band. These give SR0_ann_sel=0.426402, SR0_pp_sel=0.026861. Bootstrap is
+  banks-as-independent-blocks (within-bank stationary circular blocks concatenated across bank-groups),
+  K=10000, master_seed=387992 (int('fa0f98',16) mod 1e6, digit-by-digit shown), numpy.PCG64, scipy
+  required. The decision rule is a 7.3.6-style ordered/exhaustive two-gate functional with the post-2015
+  structural-break KILL evaluated FIRST (overrides aggregate pass) and PASS requiring both p's clean
+  (<=0.0478) AND DSR>=0.95. Scenario-B parameters are pre-frozen for C4-gated auto-activation with no
+  live recompute. Power is honestly LOW (~13-18%) at the selection-deflated planning Sharpe across all
+  four n's. kill_switch_threshold=1.5883 (Scenario A aggregate, T=506; 1.4029 Scenario B, T=716) — derived
+  fresh, far above SR0 because T is short. decision: sound-with-caveats — the single material caveat is
+  that the entire N_sel=3 election rests on the verified fact that NO QRB returns were examined in
+  selection; if that is ever falsified, the charge must rise. Numerics routed to QD for scipy confirmation.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pm-acceptance-criteria.yaml"
+  - "src/forex_system/harness/reality_check.py"
+  - "src/forex_system/harness/dsr.py"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md"
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

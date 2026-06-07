@@ -1,0 +1,253 @@
+role: principal-reviewer
+artifact_type: quality-gate-review
+decision: approve
+timestamp: "2026-06-06T08:45:00Z"
+subtask_ref: qrb6-prereg-pr-qgr
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+cycle: 3 (co-signature)
+
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+
+rubric_applied: independent-design-review
+
+# ---------------------------------------------------------------------------
+# CYCLE-2 BLOCKING CONDITION — NF-01 CLOSURE VERIFICATION
+# ---------------------------------------------------------------------------
+
+closure_verification:
+  nf_01:
+    verdict: verified
+    prior_finding: >
+      §5.1 (line 188), §5.2 (line 192), §5.4 (lines 200-201) carried "p > 0.0478 → KILL"
+      prose, contradicting §4.2's post-PR-04 boundary convention of strict > 0.0522 for KILL.
+    exact_inequality_read:
+      line_188: >
+        "The structure FAILS (KILL) iff the pooled bank-blocked stationary-block-bootstrap
+        p-value … is **strictly `> 0.0522`** — above the MC-indistinguishability straddle
+        band (PART II §4.2 RULE 2)."
+      line_192: >
+        "If the post-2015 sub-window does NOT cleanly reject — i.e. **`p_post2015 > 0.0522`**
+        (strictly above the straddle band's upper edge) — the structure is **KILLED**"
+      line_200: >
+        "`p_post2015 > 0.0522` (strictly, above the straddle band) → **KILL**,
+        overrides_aggregate_pass: true"
+      line_201: >
+        "`p_agg > 0.0522` (strictly, above the straddle band) → **KILL** (no aggregate edge)"
+    old_prose_absent: >
+      grep for '> 0.0478.*KILL|KILL.*> 0.0478|0.0478.*→ KILL' on
+      qrb6_cb_event_study.md returns zero matches in §5.1/§5.2/§5.4. The
+      old contradictory framing is completely absent.
+    straddle_caveat_consistent: >
+      All three sections now pair the KILL boundary with an explicit straddle-band note:
+      "p in [0.0478, 0.0522] → AMBIGUOUS (RULE 4, never KILL, never PASS)."
+      The previously self-contradictory §5.1 sentence structure is resolved.
+    tool_result: >
+      grep -n '0\.0522' qrb6_cb_event_study.md confirms lines 188, 192, 200, 201 all
+      use > 0.0522 as the KILL threshold. grep '> 0.0478.*KILL|KILL.*0.0478' returns zero
+      matches. NF-01 blocking condition is fully satisfied.
+
+# ---------------------------------------------------------------------------
+# RUNNER SPOT-CHECK — NEW FILES CREATED AFTER CYCLE-2
+# ---------------------------------------------------------------------------
+
+runner_spot_check:
+
+  boundary_convention:
+    verdict: pass
+    evidence: >
+      evaluate_decision() at qrb6_decision.py lines 637-705 implements the §4.2 ordered
+      functional exactly:
+        RULE 0  (line 683): technical_failure check fires unconditionally.
+        RULE 1  (line 688): "if p_post2015 > p_kill_threshold" — strict > (parameterised
+                 from receipt; comment "Fires iff p_post2015 > 0.0522 (strict; above straddle band)").
+        RULE 2  (line 693): "if p_agg > p_kill_threshold" — strict > (same).
+        RULE 3  (line 699): "if p_post2015 < p_reject_threshold and p_agg < p_reject_threshold
+                 and dsr >= dsr_threshold" — strict < for both p's, >= for DSR.
+        RULE 4  (line 705): unconditional return RULE_4_AMBIGUOUS (catch-all).
+      Docstring (lines 652-656) explicitly states: "PASS requires STRICT p < p_reject_threshold
+      (= 0.0478) for BOTH p's. KILL requires STRICT p > p_kill_threshold (= 0.0522) for the
+      triggering p. p in [p_reject_threshold, p_kill_threshold] → RULE 4 AMBIGUOUS (closed band).
+      Exact boundary values 0.0478 and 0.0522 → RULE 4 (not PASS, not KILL)."
+      Truth-table tests verify all four boundary cases explicitly:
+        test_rule4_fires_when_p_in_straddle_band_lower: p=0.0478 → RULE_4 (closed lower boundary)
+        test_rule4_fires_when_p_agg_in_straddle_band_lower: p_agg=0.0478 → RULE_4
+        test_rule4_fires_when_p_in_straddle_band_upper: p=0.0522 → RULE_4 (not KILL; strict >)
+        test_rule4_fires_when_p_agg_at_upper_boundary: p_agg=0.0522 → RULE_4
+      Post-2015 priority verified:
+        test_post2015_kill_priority_over_rule2: p_post2015=0.60, p_agg=0.80 → RULE_1 (not RULE_2)
+      DSR boundary:
+        test_dsr_exactly_095_with_clean_p_is_pass: dsr=0.95 exactly → RULE_3 (>= semantics correct)
+        test_dsr_just_below_095_with_clean_p_is_rule4: dsr=0.9499 → RULE_4
+
+  cross_trial_constants:
+    verdict: pass
+    evidence: >
+      grep for '0.022906' and '0.034921' in qrb6_decision.py returns exactly two matches:
+      module docstring lines 13-14 — these are FORBIDDEN-list guard warnings in string
+      literals, NOT numeric assignments. No float assignment uses either value anywhere
+      in the file.
+      grep in scripts/run_qrb6.py returns zero matches for either constant.
+      The _EXPECTED_SR0_PP_SEL guard constant is 0.026861 (QRB-6-ONLY, labelled),
+      clearly distinct from both forbidden values.
+      Tests TestNoCrossTrialConstants verify this at the code-line level:
+        test_decision_module_no_r5_literal: strips comments/docstrings, greps for
+          regex '[=\(,\s]0\.022906(?=[\s\),;])' in code — asserts no matches.
+        test_decision_module_no_confirmatory_literal: same pattern for 0.034921.
+        test_runner_no_r5_literal / test_runner_no_confirmatory_literal: same for runner.
+      Docstring-only appearances are acceptable per the FORBIDDEN-list guard convention.
+
+  refusal_tested:
+    verdict: pass
+    evidence: >
+      TestReceiptInterlock class (test_qrb6_decision.py lines 413-485) tests three paths:
+      (a) test_no_receipt_live_run_exits_nonzero: invokes run_qrb6.py --ceo-ack with no
+          receipt present; asserts returncode != 0. Tests the subprocess refusal path.
+      (b) test_no_receipt_live_run_prints_refusal: same invocation; asserts 'REFUSED' or
+          'freeze-receipt' appears in combined stdout+stderr. The _REFUSAL_MESSAGE constant
+          in run_qrb6.py (lines 95-116) contains both strings.
+      (c) test_check_receipt_constants_exits_on_mismatch: passes a bad_receipt with
+          sr0_pp=0.022906 (the forbidden R5 literal); asserts SystemExit with code != 0.
+          Directly tests the check_receipt_constants() RULE 0 path.
+      (d) test_check_receipt_constants_passes_on_correct_values: verifies the interlock
+          does NOT exit on a correctly-valued receipt (no false positive).
+      Both the subprocess-level refusal (missing receipt, no --ceo-ack) and the
+      constant-mismatch refusal (wrong sr0_pp) are explicitly tested.
+
+# ---------------------------------------------------------------------------
+# APPROVE / REJECT GATES
+# ---------------------------------------------------------------------------
+
+approve_when_check:
+  - condition: "NF-01 §5.1/§5.2/§5.4 KILL threshold corrected to strict > 0.0522"
+    satisfied: true
+    evidence: "lines 188, 192, 200, 201 all read > 0.0522; old > 0.0478 prose absent (verified grep)"
+  - condition: "evaluate_decision() implements closed-straddle boundary convention"
+    satisfied: true
+    evidence: "qrb6_decision.py lines 688, 693, 699, 705 — strict inequalities match §4.2 exactly"
+  - condition: "No R5-only (0.022906) or confirmatory (0.034921) constants in code paths"
+    satisfied: true
+    evidence: "grep returns zero code-path matches in both qrb6_decision.py and run_qrb6.py"
+  - condition: "No-receipt refusal is tested"
+    satisfied: true
+    evidence: "TestReceiptInterlock: subprocess exits nonzero; refusal message verified; constant-mismatch SystemExit tested"
+  - condition: "All cycle-2 closure conditions remain closed (PR-01 through PR-05)"
+    satisfied: true
+    evidence: "No regressions detected in the patched regions; cycle-2 closures hold"
+
+reject_when_check:
+  - condition: "Any KILL boundary still reads > 0.0478 in §5.1/§5.2/§5.4"
+    triggered: false
+    evidence: "Exhaustive grep finds zero matches for the old prose pattern"
+  - condition: "R5-only or confirmatory SR0 value used as float literal in QRB-6 code"
+    triggered: false
+    evidence: "grep -n '0.022906|0.034921' in qrb6_decision.py: two docstring-only matches (acceptable); zero in runner"
+  - condition: "evaluate_decision() uses >= threshold for KILL or <= threshold for PASS (wrong direction)"
+    triggered: false
+    evidence: "RULE 1/2: strict >; RULE 3: strict < for p, >= for DSR — all correct"
+  - condition: "Boundary values 0.0478 or 0.0522 route to PASS or KILL instead of AMBIGUOUS"
+    triggered: false
+    evidence: "Tests confirm 0.0478 and 0.0522 both route to RULE_4_AMBIGUOUS"
+  - condition: "Runner can execute live computation without a freeze-receipt"
+    triggered: false
+    evidence: "_validate_receipt() calls sys.exit(1) on missing receipt; tested by TestReceiptInterlock"
+
+# ---------------------------------------------------------------------------
+# CONTAMINATION CHECK
+# ---------------------------------------------------------------------------
+
+contamination_check: >
+  Self-clean. No OHLCV return series, equity curve, Sharpe ratio, p-value, or test
+  statistic was computed by this reviewer. The dry-run test stub exercises pipeline
+  structure, not real return data. All numeric verification was text-pattern matching
+  and structural code reading only. No R5 or confirmatory constants were imported into
+  this reviewer's reasoning; their appearances in the reviewed files were verified as
+  docstring guard-text only.
+
+# ---------------------------------------------------------------------------
+# EVIDENCE
+# ---------------------------------------------------------------------------
+
+evidence:
+  - "qrb6_cb_event_study.md line 188: KILL threshold reads 'strictly > 0.0522' (§5.1 primary gate). Read directly."
+  - "qrb6_cb_event_study.md line 192: KILL threshold reads 'p_post2015 > 0.0522 (strictly)' (§5.2 post-2015 gate). Read directly."
+  - "qrb6_cb_event_study.md lines 200-201: Both bullet entries read '> 0.0522 → KILL' with straddle caveat (§5.4). Read directly."
+  - "grep '> 0.0478.*KILL|KILL.*0.0478' on qrb6_cb_event_study.md: zero matches. Old NF-01 prose absent."
+  - "qrb6_decision.py lines 688, 693: RULE 1/2 use strict > p_kill_threshold (parameterised). Read directly."
+  - "qrb6_decision.py line 699: RULE 3 uses strict < p_reject_threshold for both p's, >= dsr_threshold. Read directly."
+  - "qrb6_decision.py lines 652-656: docstring explicitly states closed-band, boundary → RULE 4 convention. Read directly."
+  - "test_qrb6_decision.py lines 152-191: four explicit boundary-value tests (0.0478 lower, 0.0522 upper, both p/agg). Read directly."
+  - "qrb6_decision.py lines 13-14: 0.022906 and 0.034921 appear in docstring FORBIDDEN-list only. Read directly."
+  - "scripts/run_qrb6.py: grep for 0.022906 and 0.034921 returns zero matches. Verified."
+  - "test_qrb6_decision.py lines 413-485: TestReceiptInterlock covers no-receipt subprocess refusal + constant-mismatch SystemExit. Read directly."
+  - "scripts/run_qrb6.py lines 95-116: _REFUSAL_MESSAGE contains 'REFUSED' and 'freeze-receipt' strings for test assertions. Read directly."
+
+# ---------------------------------------------------------------------------
+# FINDINGS (this cycle)
+# ---------------------------------------------------------------------------
+
+findings:
+  - id: "none"
+    note: >
+      All three spot-check targets pass. No new defects detected in the reviewed scope
+      (evaluate_decision boundary convention, cross-trial constant cleanliness,
+      no-receipt refusal test coverage). NF-01 closure is clean.
+
+# ---------------------------------------------------------------------------
+# ASSUMPTIONS, CONFIDENCE, BODY
+# ---------------------------------------------------------------------------
+
+assumptions:
+  - >
+    This review covers (a) NF-01 closure in the doc, (b) evaluate_decision boundary
+    implementation and its truth-table tests, (c) absence of cross-trial constants as
+    code-path numerics, and (d) no-receipt refusal test coverage. It does not re-audit
+    PR-01 through PR-05 (those closures are inherited from cycle-2 and are assumed stable).
+  - >
+    The truth-table tests in test_qrb6_decision.py are the functional specification of
+    evaluate_decision(). Their coverage is sufficient for boundary-convention verification.
+    End-to-end integration tests against real return data are out of scope for this review
+    (prohibited by no-capital rule; dry-run covers structure only).
+  - >
+    The _code_lines_only() docstring-stripping logic in TestNoCrossTrialConstants is a
+    reasonable approximation; the independent grep-based verification above is the primary
+    evidence for absence of cross-trial constants.
+
+confidence: high
+
+body: |
+  ## Principal Reviewer CO-SIGNATURE (cycle 3): APPROVE
+
+  NF-01, the single blocking condition from cycle-2, is fully closed. All three patched
+  §5 sections (§5.1 line 188, §5.2 line 192, §5.4 lines 200-201) now state the correct
+  KILL boundary: strict p > 0.0522. The old "p > 0.0478 → KILL" prose is absent throughout
+  (grep-verified zero matches). The straddle-band AMBIGUOUS routing is stated consistently
+  in all three sections and is internally coherent with the RULE 4 catch-all.
+
+  The three runner spot-checks are all clean. evaluate_decision() implements the §4.2
+  boundary convention exactly — RULE 1/2 use strict > p_kill_threshold, RULE 3 uses
+  strict < p_reject_threshold for both p's with >= for DSR, and RULE 4 is the unconditional
+  catch-all. The truth-table tests explicitly verify both boundary values (0.0478, 0.0522)
+  route to RULE_4_AMBIGUOUS, post-2015 priority fires before aggregate, and DSR exact-0.95
+  is a PASS not a gate-fail. No R5-only (0.022906) or confirmatory (0.034921) constant
+  appears as a numeric literal in any code path; docstring guard-text mentions are acceptable.
+  Both the subprocess-level refusal (no receipt, no --ceo-ack) and the constant-mismatch
+  RULE 0 path are explicitly tested with exit-code assertions.
+
+  The pre-registration artifact set (doc, sidecar, runner, tests) is internally consistent
+  with the frozen §4.2 decision functional. No new defects detected. Quality gate cleared.
+  No capital is authorized by this review or by any QRB-6 outcome.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md (lines 188, 192, 200-201, 455-459)"
+  - "src/forex_system/harness/qrb6_decision.py (lines 1-19, 637-705)"
+  - "scripts/run_qrb6.py (lines 1-116, 734-889)"
+  - "tests/harness/test_qrb6_decision.py (lines 1-777)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml (NF-01 prior finding)"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

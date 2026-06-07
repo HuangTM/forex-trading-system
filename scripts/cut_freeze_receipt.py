@@ -4,7 +4,7 @@ Computes SHA-256 of the pre-registration file AS-IS ON DISK (no embedded hash;
 the doc NEVER contains its own hash — see §FREEZE BLOCK and Item 2(b) patches).
 Captures the current git HEAD commit as the pinned code commit.
 
-Supports two targets via --target:
+Supports three targets via --target:
 
   r5           (default) — R5 kill-test pre-registration
                 prereg:  references/pre-registrations/r5_carry_universe_kill_test.md
@@ -15,6 +15,15 @@ Supports two targets via --target:
   confirmatory — R5-confirmatory vol_target_carry:USDJPY pre-registration (trial f2fb41fd)
                 prereg:  references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md
                 receipt: references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+                NOTE: The confirmatory receipt already exists (frozen 2026-06-06).
+                      --target confirmatory --cut will REFUSE (write-once guard).
+
+  qrb6         — QRB-6 CB event study pre-registration (trial fa0f982a)
+                prereg:  references/pre-registrations/qrb6_cb_event_study.md
+                receipt: references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml
+                NOTE: All fields were filled at assembly from MATH AC-2 (formerly [FROZEN-AT-ASSEMBLY]; the
+                      orchestrator substitutes exact values from MATH frozen-stats (AC-2)
+                      at consensus assembly (AC-7). --cut is ONLY valid post-consensus.
 
 The receipt is idempotent-safe: it REFUSES to overwrite an existing receipt (per-target).
 Overwriting would break the integrity guarantee — receipts are write-once.
@@ -60,6 +69,43 @@ import yaml
 # guard for any look-runner that reads the receipt.
 
 _TARGETS: dict[str, dict[str, Any]] = {
+    "qrb6": {
+        "prereg_path": Path("references/pre-registrations/qrb6_cb_event_study.md"),
+        "receipt_path": Path(
+            "references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml"
+        ),
+        # QRB-6 constants — sourced from MATH frozen-stats artifact (AC-2) at assembly.
+        # All fields below were orchestrator-filled at assembly from the MATH frozen-stats artifact
+        # substitutes exact values from the Mathematician's derivation at consensus (AC-7).
+        # (verified zero placeholder strings remain; values cross-checked scipy-exact 2026-06-06).
+        #
+        # CROSS-TRIAL CONTAMINATION GUARD (CTO FM-1):
+        #   SR0_PP=0.022906 is R5-ONLY (N=3).
+        #   confirmatory sr0_pp=0.034921 is for trial f2fb41fd (N_conf=6).
+        #   QRB-6 sr0_pp is derived FRESH by the Mathematician in this track.
+        #   Any runner MUST read sr0_pp from THIS receipt — NOT from r5_decision.SR0_PP.
+        "fields": {
+            "trial_id": "fa0f982a",
+            # master_seed rule: int(first 6 hex chars of trial_id stem, base 16) mod 1_000_000
+            # fa0f98 (hex) = 16387992 → 387992. Set at assembly by orchestrator.
+            "master_seed": 387992,  # int('fa0f98', 16) % 1_000_000; MATH AC-2(e)
+            "K": 10000,            # bootstrap resamples B; MATH AC-2(e)
+            "sr0_pp": 0.026861,       # QRB-6 per-obs SR0; MATH AC-2(g); NOT 0.022906 NOT 0.034921
+            "n_sel": 3,        # number of proposals in selection pool; MATH AC-2(b)
+            "dsr_threshold": 0.95,                  # firm-wide DSR gate; same as R5/confirmatory
+            "alpha": 0.05,                          # pre-multiplicity-charge alpha; MATH AC-2(d) applies charge
+            "scenario_a_event_days": 506,           # Scenario A deduped market-days; verified
+            "scenario_b_event_days": 716,           # Scenario B deduped market-days; verified
+            "post_2015_a": 345,                     # post-2015 Scenario A; structural-break sub-window
+            "post_2015_b": 491,                     # post-2015 Scenario B; structural-break sub-window
+            "kill_switch_threshold": 1.5883,  # fresh derivation; MATH AC-2(g)
+            "scipy_required": True,                 # scipy.stats required; no approximation
+            "sr0_note": (
+                "QRB-6 constants ONLY — NOT R5 (0.022906) NOT confirmatory (0.034921); "
+                "any runner MUST read THIS receipt"
+            ),
+        },
+    },
     "r5": {
         "prereg_path": Path("references/pre-registrations/r5_carry_universe_kill_test.md"),
         "receipt_path": Path(
@@ -156,7 +202,9 @@ def main() -> None:
         help=(
             "Which pre-registration to freeze. "
             "'r5' (default) = r5_carry_universe_kill_test (receipt already exists; --cut REFUSES). "
-            "'confirmatory' = r5_confirmatory_vol_target_carry_usdjpy (trial f2fb41fd)."
+            "'confirmatory' = r5_confirmatory_vol_target_carry_usdjpy (trial f2fb41fd; receipt exists; --cut REFUSES). "
+            "'qrb6' = qrb6_cb_event_study (trial fa0f982a; receipt not yet cut; "
+            "all qrb6 fields assembly-filled from MATH AC-2; verified before --cut)."
         ),
     )
     parser.add_argument(

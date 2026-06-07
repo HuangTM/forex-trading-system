@@ -1,0 +1,307 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-06T23:55:00Z"
+subtask_ref: qrb6-prereg-pr-review
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection
+
+artifact_under_review:
+  primary:
+    - "references/pre-registrations/qrb6_cb_event_study.md (538 lines; QR PART I + Math PART II)"
+    - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml (machine-encoded kill conditions)"
+  diff:
+    - "scripts/cut_freeze_receipt.py (qrb6 target added)"
+    - "tests/harness/test_qrb6_freeze_receipt.py (NEW)"
+    - "references/cb_decision_dates_PROVENANCE.md (SPOT-CHECK section appended)"
+  supporting_numbers_only:
+    - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/{math-spec.yaml, qr-prereg-draft.yaml, qd-spotcheck-sidecar.yaml}"
+    - "data/rates/cb_decision_dates.parquet (calendar facts)"
+
+rubrics_applied:
+  - "review-plan SKILL (mode: design-doc / pre-registration; high-risk: irreversible freeze + face-validity contract)"
+  - "probability-statistics SKILL (BLdP DSR, bracket, HAC/block-bootstrap, power, MC-SE)"
+  - "python SKILL (cut_freeze_receipt.py + test review)"
+  - "load-bearing traces 1-6 from PR charter"
+
+findings:
+
+  - id: PR-01
+    severity: blocking
+    location: "qrb6_cb_event_study.md §5.1, §5.2, §5.3, §5.4, §5.6 (lines 174,178,182,186,187,189,202)"
+    category: doc-internal-inconsistency / live-placeholder
+    observation: >
+      QR PART I §5 still carries SEVEN live `[MATH primary alpha]` / `[MATH]` placeholders. These
+      are not yet substituted, yet Math PART II §4.2 has ALREADY resolved the gating model to a
+      FIXED p-threshold (p <= 0.0478 = alpha 0.05 - MC-SE band) with the multiplicity charge
+      absorbed into the DSR gate (N_sel=3), NOT into a "registered post-multiplicity-charge alpha"
+      on the p-value scale. §5 describes a DIFFERENT gating model ("the registered post-multiplicity
+      alpha ... absorbed by the Mathematician into this alpha") than the one PART II froze.
+    inference: >
+      The doc is the SHA-256 freeze object. Acceptance hard-constraint requires zero live
+      placeholders and doc<->sidecar<->receipt identity. §5's [MATH] slots are both (a) unfilled
+      placeholders and (b) semantically inconsistent with the frozen PART II decision rule. Freezing
+      as-is hashes a self-contradictory contract: a runner reading §5 would look for an alpha-on-p
+      charge that PART II §4.2 says does not exist.
+    evidence: "grep of qrb6_cb_event_study.md lines 174/178/182/186-189/202 vs §4.2 RULES 1-4 (p<=0.0478 fixed; DSR>=0.95 absorbs charge)"
+    recommended-action-class: substitute-placeholders-and-reconcile-gating-language
+    owning-role: quant-researcher (with mathematician sign-off on §5<->§4.2 reconciliation)
+
+  - id: PR-02
+    severity: blocking
+    location: "qrb6_cb_event_study.triggers.yaml lines 64-75, 87-94, 116, 163-177; vs §7 doc claim (line 533)"
+    category: doc<->sidecar drift / unbound-symbol / live-placeholder
+    observation: >
+      The sidecar is internally inconsistent and drifts from the doc on three counts:
+      (1) aggregate_gate / post_2015_subwindow_kill carry a numeric `threshold: 0.0478` BUT their
+      `condition_expression` references unbound symbols `aggregate_gate_alpha` / `post2015_alpha`
+      that are never defined, and the `note` still says "[FROZEN-AT-ASSEMBLY] ... (e.g. 0.0025)" —
+      i.e. the sidecar simultaneously asserts the gate is 0.0478 (fixed band) AND an unfilled
+      registered alpha (~0.0025). These are mutually exclusive gating models.
+      (2) The doc §7 (line 533) asserts "Every prose kill condition here has a corresponding
+      machine-readable entry there ... reversal-distinguishability ... the per-bank secondary metric
+      floor" — but the sidecar `triggers:` block contains NO reversal-distinguishability kill and NO
+      per_bank_sharpe-floor kill (per_bank_sharpe appears only under secondary_metrics_required, not
+      as a trigger). The §5.4 reversal KILL and per-bank floor are unencoded.
+      (3) qrb2_overlay_threshold.note still says "[FROZEN-AT-ASSEMBLY] will be replaced with the
+      exact frozen threshold value" while threshold:3.0 is already filled.
+    inference: >
+      Acceptance hard-constraint "the sidecar's condition_expressions match the doc's RULES (ordered,
+      exhaustive, no overlap)" FAILS: the condition_expressions reference symbols that do not resolve,
+      and two prose kill conditions have no sidecar entry, contradicting the doc's own §7 completeness
+      claim. The sidecar is a SKELETON that was partially numeric-filled, leaving a hybrid that cannot
+      be machine-evaluated as written.
+    evidence: "triggers.yaml lines 69,74-75,94,116,176; doc line 533; grep 'reversal' in triggers -> only VOID-4 point-target ban, no distinguishability KILL"
+    recommended-action-class: complete-sidecar-substitution-and-add-missing-triggers
+    owning-role: quant-developer (orchestrator assembly step AC-7)
+
+  - id: PR-03
+    severity: major
+    location: "scripts/cut_freeze_receipt.py line 90"
+    category: misleading-stale-comment / arithmetic-error
+    observation: >
+      The qrb6 master_seed comment reads "fa0f98 (hex) = 16256920 -> 256920". This arithmetic is
+      WRONG. int('fa0f98',16) = 16387992, and 16387992 mod 1e6 = 387992. The actual code value on
+      line 91 is correct (387992); only the comment is wrong. The wrong intermediate (16256920 ->
+      256920) is the SAME class of hand-hex drift the confirmatory track previously caught and froze
+      a rule against.
+    inference: >
+      The receipt's master_seed VALUE is correct, so the run is not corrupted. But this is a
+      load-bearing reproducibility constant and the comment directly contradicts the value an auditor
+      would re-derive; it re-introduces exactly the drift pattern the firm already burned a cycle on.
+      Verified independently: NormalDist/arithmetic both give 387992 (charter trace 1).
+    evidence: "python3: int('fa0f98',16)=16387992; %1e6=387992. Comment string '16256920 -> 256920' on line 90 contradicts value 387992 on line 91."
+    recommended-action-class: fix-comment-to-match-derivation
+    owning-role: quant-developer
+
+  - id: PR-04
+    severity: minor
+    location: "qrb6_cb_event_study.md §4.2 RULES 1-3 (lines 423-428); triggers.yaml aggregate_gate.operator '>='"
+    category: boundary-case / mutual-exclusivity-claim
+    observation: >
+      §4.2 claims the ordered rules are "mutually-exclusive, exhaustive ... no boundary case buys
+      PASS". RULE 1/2 fire KILL iff "p >= 0.05 - MC-SE (i.e. p > 0.0478)" — the formula uses >= but
+      the parenthetical gloss uses >. RULE 3 PASS requires "p <= 0.0478". At EXACTLY p = 0.0478 the
+      >= form makes RULE 2 fire (KILL) while the <= form makes RULE 3 eligible (PASS). The ordered
+      "first match stops" evaluation DOES resolve this safely to KILL (conservative), and the sidecar
+      operator ">=" matches the KILL reading. So the OUTCOME is safe, but the doc's explicit
+      "mutually-exclusive ... disjoint" claim is technically false at the measure-zero boundary, and
+      the >=/> gloss mismatch is a latent ambiguity.
+    inference: >
+      Outcome is safe (ties resolve to the conservative non-PASS branch as intended). This is a
+      precision defect in the prose's self-description, not a functional gate error. Flagged so the
+      "disjoint by construction" wording is corrected to "disjoint via ordered short-circuit; the
+      boundary p=0.0478 resolves to KILL".
+    evidence: "doc lines 424 (RULE1 '>= 0.05-MC-SE i.e. > 0.0478'), 428 (RULE3 'p <= 0.0478'); triggers operator '>='"
+    recommended-action-class: tighten-boundary-prose-to-match-ordered-semantics
+    owning-role: mathematician
+
+  - id: PR-05
+    severity: minor
+    location: "qr-prereg-draft.yaml line 127; qrb6_cb_event_study.md §4.1 line 137"
+    category: unverifiable-claim / stale-reference
+    observation: >
+      qr-draft assumption states "the 00:00-UTC daily-bar convention ... supersedes the CLAUDE.md
+      21:00-UTC note for THIS dataset". No "21:00-UTC" note exists in CLAUDE.md (grep returns
+      nothing). The 00:00-UTC convention itself IS independently verified (EURUSD_daily index: all
+      hour-of-day=0, tz=UTC, terminus 2026-04-06) and the doc §4.1 is correct. Only the qr-draft's
+      pointer to a non-existent CLAUDE.md note is stale.
+    inference: >
+      The bar-timestamp FACT in the frozen doc is correct and verified; the defect is confined to a
+      supporting artifact's reference to a note that is not present. No freeze impact, but the
+      "supersedes X" framing is unsupported and should be dropped or corrected.
+    evidence: "grep '21:00' CLAUDE.md -> no match; python: EURUSD_daily hours={0}, tz=UTC, terminus 2026-04-06"
+    recommended-action-class: drop-or-correct-stale-claude-md-reference
+    owning-role: quant-researcher
+
+  - id: PR-06
+    severity: observation
+    location: "qrb6_cb_event_study.md §5 (power); math-spec.yaml power_* fields"
+    category: power-disclosure (no fix required)
+    observation: >
+      Power is honestly disclosed as ~13-18% across all four n's at the planning effect SR_plan=0.4264
+      (verified: n=506->0.149, n=345->0.126, n=716->0.177, n=491->0.147). The design correctly frames
+      a non-rejection as uninformative-as-evidence-of-no-edge while still not licensing further spend.
+      This is a strength, not a defect: the underpowered kill-test is disclosed, not hidden.
+    inference: "No action. Recorded so consensus reads the ~13-18% power as a known, accepted property of the one-trial budget."
+    evidence: "python: Phi(SR_pp*sqrt(n) - 1.644854) for SR_pp=0.026861 reproduces all four figures to 3dp."
+    recommended-action-class: none
+    owning-role: head-of-quant-research (acceptance of low-power kill test)
+
+  - id: PR-07
+    severity: observation
+    location: "scenario_b_activation_rule (triggers + doc §3.5); qd-spotcheck-sidecar.yaml"
+    category: scenario-b-dormancy (verified correct)
+    observation: >
+      Scenario B is correctly DORMANT: spot-check verdict = partial (BoE calendar-arithmetic only,
+      all official sources 403'd; cannot exclude 7-day shifts), so scenario_b_status_at_freeze =
+      PENDING-PARTIAL-SPOTCHECK. There is no manual activation path; activation is gated solely on a
+      future committed certification artifact. This matches the acceptance hard-constraint
+      scenario_b_only_by_precommitted_activation (spot-check partial -> B dormant). NOTE: the sidecar
+      activation condition admits result IN ['partial','certified'], but the recorded verdict keeps B
+      PENDING on 'partial' — the dormancy is enforced by status, not by the result-set membership;
+      that is acceptable but slightly loose (a future 'partial' could be misread as activating).
+    inference: "Dormancy holds. Flag the 'partial'-admitting condition_expression as a thing to tighten when B is eventually addressed, but it does not block this freeze."
+    evidence: "qd-spotcheck-sidecar.yaml scenario_b_certification: partial; triggers line 140 condition admits 'partial'; status PENDING-PARTIAL-SPOTCHECK"
+    recommended-action-class: none-now (tighten-on-future-B-activation)
+    owning-role: null-hypothesis-tester
+
+  - id: PR-08
+    severity: observation
+    location: "event-set integrity (parquet cross-check)"
+    category: counts-and-phantom-pair-fix (verified complete)
+    observation: >
+      Independently reproduced from data/rates/cb_decision_dates.parquet: Scenario A verified-official
+      FED/BOJ/RBA/BOC = 528 raw bank-events -> 506 deduped market-days -> 345 post-2015; Scenario B =
+      716 deduped / 491 post-2015; all 58 BOC events are post-2019 (BOC absent pre-2015, confound
+      correctly disclosed §3.4b); 43 training-memory-unverified ECB rows present and correctly
+      excluded. The phantom-pair fix (GBPAUD/EURAUD/AUDNZD/EURCAD/GBPCAD removed) is COMPLETE in BOTH
+      the doc §3.2 and qr-prereg-draft.yaml; the 12-pair inventory matches data/processed exactly.
+    inference: "Event-set integrity PASSES. All counts and the phantom-pair remediation verify against the parquet."
+    evidence: "pandas groupby on parquet reproduces 506/345/716/491; BOC year-range 2019-2026; 12 pairs match data/processed/*_daily.parquet"
+    recommended-action-class: none
+    owning-role: null-hypothesis-tester
+
+  - id: PR-09
+    severity: observation
+    location: "cross-trial contamination + r5/confirmatory immutability"
+    category: contamination-check (verified clean)
+    observation: >
+      No live import/reuse of R5 (0.022906) or confirmatory (0.034921) constants in the new
+      doc/sidecar/script as VALUES. All occurrences are guard/distinction text ("NOT R5...", "NOT
+      0.022906 NOT 0.034921") — admissible sr0_note guards, required by spec. The qrb6 receipt
+      target's sr0_pp=0.026861, kill_switch=1.5883, master_seed=387992, K=10000, N_sel=3 are all
+      freshly derived and arithmetic-verified. R5 and confirmatory receipt targets are byte-unchanged
+      in the diff (only the qrb6 block + docstring added); test_qrb6_freeze_receipt.py pins their
+      immutability (sr0_pp 0.022906 / 0.034921 frozen). bracket(N=3)=0.852804 coincides with R5 but is
+      an N-only property (consistency check, not import) — confirmed.
+    inference: "Contamination-check PASSES. The doc<->receipt VALUE identity holds for every frozen constant I re-derived."
+    evidence: "git diff cut_freeze_receipt.py shows only additive qrb6 block; arithmetic trace 1 all-exact; grep contamination hits are all guard-text/N-only-property"
+    recommended-action-class: none
+    owning-role: quant-developer
+
+coverage-statement: >
+  Covered all six charter load-bearing traces. TRACE 1 (constants/arithmetic): re-derived seed 387992,
+  SR0_ann 0.426402, SR0_pp 0.026861, bracket(3) 0.852804, kill 1.5883@T=506 / 1.4029@T=716, MC-SE
+  straddle [0.0478,0.0522]@K=10000, power {0.149,0.126,0.177,0.147} — ALL EXACT via statistics.NormalDist.
+  TRACE 2 (doc<->sidecar<->receipt consistency): FAILED on live placeholders + unbound symbols + missing
+  triggers (PR-01, PR-02). TRACE 3 (event-set integrity): PASSES, counts and phantom-pair fix verified
+  against parquet (PR-08). TRACE 4 (cross-trial contamination): PASSES, guards present, receipts untouched
+  (PR-09). TRACE 5 (bar-assignment / no-lookahead): bar-D=00:00-UTC convention verified from index;
+  entry_delay_bars=1 logic internally consistent; no off-by-one found; one stale CLAUDE.md reference
+  (PR-05). TRACE 6 (freeze verifiability): receipt-before-data-examination interlock + --cut guard +
+  write-once + kill_switch 1.5883 verbatim in doc — all present. Did NOT examine any OHLCV return series
+  (hard constraint honored). Did NOT compute any Sharpe/return; only calendar/index/schema reads and
+  deterministic norm-quantile arithmetic.
+
+contamination-check: >
+  Self-clean. I examined ZERO return/price data; all my computations are deterministic standard-normal
+  quantiles and pandas groupby on the decision-date calendar + daily-bar INDEX timestamps only (no OHLCV
+  column read). No R5/confirmatory constant was imported into my reasoning; the value coincidences
+  (bracket 0.852804) are N-only mathematical properties, independently re-derived. Context was
+  stance-stripped per the self-check note.
+
+time_spent_reasoning: "~40 minutes (3 primary reads, full arithmetic re-derivation, parquet cross-check, 6-trace pass)"
+
+evidence:
+  - "python3 statistics.NormalDist re-derivation of every PART II constant — all exact to stated dp (trace 1)"
+  - "pandas on data/rates/cb_decision_dates.parquet: 506/345 (A), 716/491 (B), BOC 2019-2026, 43 TMU rows (trace 3)"
+  - "pandas on data/processed/EURUSD_daily.parquet index: hour-of-day={0}, tz=UTC, terminus 2026-04-06 (trace 5)"
+  - "git diff scripts/cut_freeze_receipt.py: additive qrb6 block only; r5/confirmatory targets unchanged (trace 4)"
+  - "grep: 7 live [MATH] placeholders in doc §5; unbound aggregate_gate_alpha/post2015_alpha in sidecar; reversal KILL absent from triggers block (traces 2)"
+  - "data/spreads/{PAIR}_daily_spreads.parquet exist (spread_z overlay data present)"
+
+assumptions:
+  - "The orchestrator's AC-7 assembly step will substitute the §5 [MATH] slots and sidecar [FROZEN-AT-ASSEMBLY] notes BEFORE the SHA-256 is taken; PR-01/PR-02 are conditions that MUST close at that step, not necessarily a rejection of the design."
+  - "The frozen decision rule is PART II §4.2 (p<=0.0478 fixed + DSR>=0.95), and §5's alpha-on-p language is legacy QR-PART-I wording to be reconciled to it (not a competing live model)."
+  - "Bank labels in the parquet are clean and the dedup assigns one bank per market-day (NHT-confirmed; I verified the COUNTS reproduce but did not re-audit per-row bank assignment)."
+
+confidence: high
+
+body: |
+  ## Principal Reviewer verdict: APPROVE-WITH-CONDITIONS
+
+  The QRB-6 pre-registration is a well-constructed, honest, underpowered one-shot kill test. The
+  statistical contract is sound and every load-bearing constant re-derives EXACTLY (seed 387992,
+  SR0 0.426402/0.026861, bracket(3) 0.852804, kill 1.5883/1.4029, MC-SE band [0.0478,0.0522], power
+  13-18%). The event-set integrity is clean: the 506/345 and 716/491 counts reproduce from the parquet,
+  BOC is correctly all-post-2019 with its confound disclosed, the 43 TMU rows are excluded, and the
+  phantom-pair fix is complete in both the doc and the QR draft. Cross-trial contamination is absent —
+  the R5/confirmatory literals appear only as guard text, the receipts are byte-unchanged, and
+  bracket(3)=0.852804 is an N-only coincidence, not an import. Scenario B is correctly dormant on a
+  partial spot-check with no manual activation path. The no-lookahead bar-D=00:00-UTC / entry_delay=1
+  logic is internally consistent with no off-by-one.
+
+  The design is APPROVABLE. It is NOT yet FREEZE-READY. Two BLOCKING conditions stem from the same
+  root cause: the artifact was assembled with the SKELETON sidecar and QR-PART-I §5 partially
+  numeric-filled, leaving the document and sidecar in a hybrid state that contradicts the frozen
+  PART II decision rule.
+
+  ### Conditions for freeze (both BLOCKING, both close at AC-7 assembly):
+  1. (PR-01) Substitute the seven live `[MATH]` placeholders in doc §5 and reconcile §5's
+     "registered post-multiplicity alpha on p" language to the frozen PART II §4.2 model
+     (fixed p<=0.0478 band + DSR>=0.95 absorbs the N_sel=3 charge). A freeze hashes a
+     self-contradictory contract otherwise.
+  2. (PR-02) Complete the sidecar: bind aggregate_gate_alpha/post2015_alpha (or rewrite the
+     condition_expressions to the literal 0.0478), remove the "[FROZEN-AT-ASSEMBLY] (e.g. 0.0025)"
+     notes, and ADD the reversal-distinguishability KILL and per-bank-floor entries that doc §7
+     CLAIMS already exist in the sidecar but do not.
+
+  ### Should-fix before freeze:
+  3. (PR-03, major) Fix the wrong master_seed comment in cut_freeze_receipt.py:90
+     ("16256920 -> 256920" must be "16387992 -> 387992"). The VALUE is correct; the comment
+     re-introduces the exact hex-drift pattern the confirmatory track already burned a cycle on.
+  4. (PR-04, minor) Tighten §4.2's "mutually-exclusive/disjoint" prose: the boundary p=0.0478 is
+     non-disjoint between RULE 2 (>=) and RULE 3 (<=); ordered short-circuit resolves it safely to
+     KILL, but the "disjoint by construction" claim is false at the boundary and the >=/> gloss
+     mismatch should be made consistent.
+  5. (PR-05, minor) Drop the qr-draft's "supersedes the CLAUDE.md 21:00-UTC note" — no such note
+     exists; the 00:00-UTC fact is correct on its own.
+
+  None of these is a design flaw. The hypothesis framing (post-decision reaction/reversal, pre-drift
+  conceded dead), the banks-as-blocks unit, the mandatory post-2015 kill evaluated FIRST, the
+  paper-selection N_sel=3 derivation (correctly NOT R5's data-selection N=6), and the freeze interlock
+  are all correct and well-argued. Fix the assembly-state inconsistencies (PR-01/02) and correct the
+  stale seed comment (PR-03), and this is freeze-ready. No capital is authorized by this review or by a
+  QRB-6 PASS.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md"
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml"
+  - "scripts/cut_freeze_receipt.py"
+  - "tests/harness/test_qrb6_freeze_receipt.py"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/{math-spec.yaml, qr-prereg-draft.yaml, qd-spotcheck-sidecar.yaml}"
+  - "data/rates/cb_decision_dates.parquet"
+  - "data/processed/EURUSD_daily.parquet (index only)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

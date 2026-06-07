@@ -1,0 +1,424 @@
+role: head-of-quant-research
+artifact_type: quality-gate-review
+decision: approve
+timestamp: "2026-06-06T26:00:00Z"
+subtask_ref: qrb6-prereg-hoqr-qgr
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - strategy-kill-decisions
+rubric_applied: alpha-direction-and-research-prioritization
+
+# ============================================================================
+# FINDINGS SUMMARY
+# ============================================================================
+
+findings:
+
+  - id: QGR-F1
+    severity: observation
+    domain: hypothesis-identity
+    finding: >
+      The pre-registration's §5.0 / §1.2 frozen tested object — y_e = sign(close(D)−close(D−1)) ×
+      R_post,e — is the strategy I picked through the two-finalist process. The sign rule
+      converged to bar-D (not F_{D-1}) via formal debate (debate-r1-math.yaml; debate-r1-qr.yaml).
+      The debate was theory-driven: F_{D-1} was correctly rejected because it would embed the
+      documented-dead pre-drift component (§2.3) as the alignment signal while claiming to test the
+      alive post-announcement component. Bar-D continuation is the honest framing. The §4.4.2
+      considered-and-rejected documentation is present and auditable. No concern; confirming the
+      strategy identity is intact as picked.
+
+  - id: QGR-F2
+    severity: observation
+    domain: review-trail-integrity
+    finding: >
+      The review trail is complete and coherent. PR cycle-1 closed two blocking findings (PR-01:
+      live [MATH] placeholders in §5; PR-02: unbound sidecar symbols + missing triggers) plus PR-03
+      major (wrong master_seed comment 16256920→256920, corrected to 16387992→387992). NHT cycle-1
+      audit found F1–F6; NHT cycle-2 delta audit verified all closed. The NF-01 finding from PR
+      cycle-2 (§5 prose mirror said "p > 0.0478 → KILL" while §4.2 authoritative functional
+      correctly uses "> 0.0522" with straddle [0.0478,0.0522] → AMBIGUOUS) was the one genuine
+      assembly-state defect in the settled v2 doc. Verified closed: §5.1/§5.2/§5.4 now use
+      "> 0.0522" for KILL and explicitly route the straddle band to RULE 4 AMBIGUOUS
+      (pre-reg §5.1 lines 188, 200–201; §5.4 lines 200–203 verified directly).
+
+  - id: QGR-F3
+    severity: advisory
+    domain: f3-residuals
+    finding: >
+      Two documentation residuals from NHT F3 persist in §3.5 of the doc: (a) the frozen
+      activation rule names a non-existent artifact path (qd-boe-ecb-spotcheck.yaml; the real
+      file is qd-spotcheck-sidecar.yaml in .fintech-org/artifacts/2026-06-06T-qrb6-prereg/); and
+      (b) the §3.5 prose does not contain "verdict == 'certified'" — it gates on completion-and-commit
+      without naming the verdict value. Both residuals are documentation quality defects: the
+      MACHINE-EXECUTABLE sidecar correctly enforces certified-only activation
+      (triggers.yaml line 366: condition_expression "scenario_b_certification == 'certified'";
+      dormancy_rule explicitly names "partial → DORMANT, NHT C4 binding condition"). The exploitable
+      forking path (auto-activate on partial) is closed in the sidecar. The doc-side residuals
+      should be reconciled before the freeze-receipt SHA is cut (freeze pre-flight item, not a
+      blocking defect at this review stage). Runner implementation will use the sidecar as the
+      machine-executable gate.
+
+  - id: QGR-F4
+    severity: observation
+    domain: runner
+    finding: >
+      The QD runner (qd-runner.yaml) reports 60 tests passing, dry-run verified, cross-trial
+      constant guard (FM-1) present, receipt interlock verified (exit 1 without receipt). One
+      noted deviation: post-2015 bootstrap uses master_seed+1 rather than master_seed (to avoid
+      correlated bootstrap samples across the two p-values). This is conservative and standard
+      practice; the pre-reg specifies master_seed for the bootstrap but does not separately pin
+      a post-2015 seed. Advisory: if the freeze-receipt is cut before pinning a separate post-2015
+      seed, the runner's master_seed+1 convention becomes de facto frozen. The runner commit must
+      exist and be pinned in the freeze-receipt before the receipt is cut (NHT F6 ordering clause,
+      verified present in §7 of the doc). As of this review, scripts/run_qrb6.py EXISTS (qd-runner
+      reports it as committed; tests/harness/test_qrb6_decision.py 60/60 passing), satisfying the
+      mandatory pre-freeze step.
+
+  - id: QGR-F5
+    severity: advisory
+    domain: reversal-sub-claim-encoding
+    finding: >
+      NF-04 (PR cycle-2) and its cycle-2 delta-audit counterpart note that the reversal
+      distinguishability sub-claim sits under secondary_metrics_required (is_kill_trigger: false)
+      in the sidecar, while §5.4 prose says "KILL the reversal sub-claim." The accepted reading —
+      confirmed by both PR and NHT — is that "KILL the reversal sub-claim" refers to a sub-claim
+      verdict, not a primary gate override. The runner spec must implement the sub-claim verdict
+      logic explicitly and emit the required fields (reversal_fraction, reversal_p_vs_zero,
+      reversal_p_vs_one). Not a freeze blocker but must be addressed in the runner implementation.
+
+# ============================================================================
+# APPROVE-WHEN CHECKLIST
+# ============================================================================
+
+approve_when_check:
+
+  - item: hypothesis_identity_frozen_as_picked
+    status: satisfied
+    evidence: >
+      §5.0 pins y_e = sign(close(D)−close(D−1)) × R_post,e as the tested object, identical to
+      the post-announcement continuation hypothesis I picked. §4.4 contains the Signal/Execution
+      Separation Contract with the considered-and-rejected F_{D-1} record (§4.4.2). Debate
+      convergence artifacts confirm Math sign-off (debate-r1-math.yaml: position=converge-to-D-as-signed-product).
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:172-184,484-523"
+
+  - item: scenario_a_event_set_verified_official_only_506_345
+    status: satisfied
+    evidence: >
+      §3.1 pins 506 deduped event-days (full) / 345 post-2015. PR cycle-1 independently reproduced
+      these counts from data/rates/cb_decision_dates.parquet (pandas groupby). QD runner reports
+      calendar_counts_verified: scenario_a_deduped=506, post_2015_deduped=345. TMU exclusion
+      filter verbatim in §3.1 and runner. Phantom pairs removed.
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:88-94; .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml:76-78"
+
+  - item: scenario_b_dormant_partial_ne_certified
+    status: satisfied
+    evidence: >
+      sidecar scenario_b_certification = 'partial' (qd-spotcheck-sidecar.yaml:28); sidecar
+      condition_expression = "scenario_b_certification == 'certified'" (triggers.yaml:366);
+      dormancy_rule: "partial → DORMANT, NHT C4 binding condition." Scenario B is DORMANT.
+      No manual activation path exists. Verified by NHT delta-audit F3 closure.
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml:28; references/pre-registrations/qrb6_cb_event_study.triggers.yaml:364-383"
+
+  - item: honest_power_disclosure_13_18_pct
+    status: satisfied
+    evidence: >
+      §5.2 power values: n=506→0.149, n=345→0.126, n=716→0.177, n=491→0.147. Arithmetic
+      verified by PR cycle-1 (NormalDist) and accepted by NHT. Honestly framed: "KILL is
+      the expected outcome." Decision map routes RULE 4 to wind-down under full-auto with no
+      silent keep-spending door. Power disclosure is a STRENGTH per PR-06.
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:543-557"
+
+  - item: kill_switch_1_5883_freshly_derived_not_imported
+    status: satisfied
+    evidence: >
+      kill_switch_threshold = 1.5883 derived fresh at N_sel=3, disp=0.50, SR0_pp=0.026861,
+      T=506 (verbatim derivation §6 lines 567-577). Not R5's 0.767; not confirmatory's 1.2906.
+      PR-09 (cycle-1): no live import of R5/confirmatory constants; guard-text citations only.
+      All occurrences of 0.022906 and 0.034921 are negative guards (TestNoCrossTrialConstants
+      in runner 5/5 pass).
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:561-587"
+
+  - item: n_sel_3_paper_selection_not_r5_data_selection
+    status: satisfied
+    evidence: >
+      §2.2 derives N_sel=3 as 1 real one-shot Sharpe look + ~2 effective soft-prior framings.
+      Explicitly distinguishes from R5's N=6 (best-of-36-BACKTESTS argmax — an argmax that has
+      no analogue here because QRB-6 was never backtested). NHT DSR assessment: verdict
+      "HONEST_AND_DEFENSIBLE_with_one_disclosed_load_bearing_assumption." Bias direction:
+      over-deflation (harder PASS) = safe for a kill test. Sign-rule multiplicity adjudicated:
+      covered by N_sel=3 (nht-delta-audit.yaml:184-242).
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:313-337; .fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-delta-audit.yaml:184-242"
+
+  - item: post_2015_kill_evaluated_first_overrides_aggregate
+    status: satisfied
+    evidence: >
+      §4.2 RULE 1 fires before RULE 2/3. post_2015_subwindow_kill.overrides_aggregate_pass: true
+      in sidecar. "Both-must-pass restated" (§4.2 line 461). NHT F8 positive finding: functional
+      is sound; post-2015 kill "genuinely binds and short-circuits before the aggregate."
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:447-462; references/pre-registrations/qrb6_cb_event_study.triggers.yaml (T2 block)"
+
+  - item: no_65pct_point_target_registered
+    status: satisfied
+    evidence: >
+      §5.3 explicitly states "NO ~65% point target appears anywhere in this document or the sidecar."
+      The reversal sub-claim is framed as "distinguishable from BOTH 0% and 100%." NHT C2 assumption
+      in nht-delta-audit.yaml: "C2 (no 65% target) is HONORED: grep finds '65' only in
+      target-NEGATIONS." VOID-4 sidecar guard backstops.
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:194-196; .fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-delta-audit.yaml assumptions"
+
+  - item: void_conditions_complete_and_machine_enforceable
+    status: satisfied
+    evidence: >
+      §1.4 lists 5 VOID conditions. Runner implements RULE 0 TECHNICAL_FAILURE covering: data
+      integrity/provenance fault, TMU-row leak, freeze-receipt mismatch, cross-trial constant import.
+      Receipt interlock: runner refuses live run without receipt (TestReceiptInterlock 4/4 pass).
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:52-60; .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml:34-50"
+
+  - item: boc_gap_confound_disclosed
+    status: satisfied
+    evidence: >
+      §3.4b discloses BOC is entirely absent from the pre-2015 sub-window (all 58 BOC events
+      are post-2019). The structural break comparison therefore has asymmetric bank composition
+      for BOC. Disclosed as a confound; FED/BOJ/RBA carry the pre/post-2015 contrast.
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:121-123"
+
+# ============================================================================
+# REJECT-WHEN CHECKLIST
+# ============================================================================
+
+reject_when_check:
+
+  - item: live_math_placeholder_in_falsification_section
+    triggered: false
+    evidence: >
+      grep '[MATH]' in doc returns exactly 1 match at line 170 — the §5 preamble self-referential
+      statement "no live [MATH] token remains." Zero live placeholders in §5.1/§5.2/§5.3/§5.4/§5.6.
+      PR-01 closed (cycle-1). NHT F1 closed (cycle-2 delta-audit).
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml:14-30; nht-delta-audit.yaml:29-50"
+
+  - item: cross_trial_constant_import
+    triggered: false
+    evidence: >
+      No live import of R5 0.022906 or confirmatory 0.034921 constants into QRB-6 fields.
+      bracket(N=3)=0.852804 coincides with R5 but is an N-only mathematical property — correctly
+      framed as a consistency check. TestNoCrossTrialConstants: 5/5 pass (qd-runner.yaml:24).
+      PR-09: contamination-check PASSES.
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml:188-204"
+
+  - item: scenario_b_partial_auto_activates
+    triggered: false
+    evidence: >
+      sidecar condition_expression requires "scenario_b_certification == 'certified'". Current
+      value is 'partial'. Scenario B status = DORMANT-PENDING-CERTIFIED-SPOTCHECK. NHT C4 honored.
+      NHT F3 closed in cycle-2 delta-audit (sidecar fix confirmed). Two doc-side residuals in §3.5
+      are advisory pre-flight items, not exploitable auto-activation paths.
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-delta-audit.yaml:77-114"
+
+  - item: wrong_hypothesis_tested_dead_pre_drift_component
+    triggered: false
+    evidence: >
+      NHT F2 closed. Sidecar rebuild header explicitly references NHT-F2 as blocking (triggers.yaml
+      lines 13-22). hypothesis_summary: "POST-decision window (K_post=2 bars after bar D)... pre-
+      announcement drift component is explicitly NOT tested here." non_triggers_note: "pre-drift
+      trigger would test the wrong quantity." Doc §5.0: "NO pre-drift criterion exists anywhere in
+      this document or its sidecar."
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.triggers.yaml:52-71; qrb6_cb_event_study.md:172-184"
+
+  - item: sign_rule_unfrozen_runtime_judgment
+    triggered: false
+    evidence: >
+      §5.0 contains FROZEN sign-alignment rule as a verbatim block-quote: "sign_align_e =
+      sign(close(D)−close(D−1))." §4.4 Signal/Execution Separation Contract. NHT F5 closed.
+      Sign-rule multiplicity adjudicated: covered by N_sel=3 (nht-delta-audit.yaml:184-242).
+    evidence_file: "references/pre-registrations/qrb6_cb_event_study.md:172-184,484-523"
+
+  - item: straddle_band_mishandled_0478_reads_as_kill
+    triggered: false
+    evidence: >
+      After NF-01 rework: §5.1 uses "> 0.0522" for KILL threshold with the straddle band
+      [0.0478,0.0522] explicitly routed to RULE 4 AMBIGUOUS (line 188). §5.2 and §5.4 corrected
+      identically. Sidecar triggers T1/T2 use "p_agg > p_straddle_hi" where p_straddle_hi=0.0522.
+      PR cycle-2 NF-01: blocks-freeze=true; closure verified in cycle-2 body (PR-04 and NF-01
+      both closed).
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml:90-117,146-180"
+
+  - item: runner_unpinned_or_interlock_absent
+    triggered: false
+    evidence: >
+      scripts/run_qrb6.py EXISTS (qd-runner.yaml confirms). §7 of doc explicitly orders freeze-receipt
+      cut AFTER runner commit (NHT-F6 ordering closure). Receipt interlock: runner exits 1 without
+      receipt (TestReceiptInterlock verified). NHT F6: fixed-in-spec; runner creation complete.
+    evidence_file: ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml:36-43; qrb6_cb_event_study.md:603"
+
+# ============================================================================
+# PRIOR CONDITIONS CHECK
+# ============================================================================
+
+prior_conditions_check:
+
+  post_2015_kill:
+    condition: >
+      post-2015 sub-window structural break test is MANDATORY and is evaluated FIRST,
+      overriding any aggregate-window pass. This was RULE 1 in the design and an override-first
+      requirement from hoqr-qrb6-rescreen.yaml ("Post-2015 sub-window structural break test is
+      mandatory (not advisory)").
+    verdict: honored
+    evidence: >
+      §5.2 and §4.2 RULE 1: "evaluated BEFORE any aggregate-pass test"; "overrides_aggregate_pass: true."
+      Runner computes p_post2015 and writes it to result YAML BEFORE the decision functional fires.
+      Sidecar T2 block: post_2015_subwindow_kill with overrides_aggregate_pass: true. 345 deduped
+      post-2015 event-days verified from parquet (qd-runner.yaml calendar_counts_verified).
+    evidence_file: >
+      references/pre-registrations/qrb6_cb_event_study.md:190-192,447-452;
+      .fintech-org/artifacts/2026-06-06T-qrb6-prereg/hoqr-qrb6-rescreen.yaml (scenario_a.first_candidate_bar_check.caveat)
+
+  qrb2_overlay:
+    condition: >
+      QRB-2 (spread_z >= 3.0 → suppress-entry) attaches to QRB-6 as a pre-registered modifier;
+      spread_z_threshold = 3.0 frozen.
+    verdict: honored
+    evidence: >
+      §5.5 freezes spread_z definition, trailing window N=60, threshold=3.0, suppress-entry
+      semantics (position=0; event-day still counts as block-day). Sidecar qrb2_overlay_threshold
+      symbol: value=3.0, is_kill_trigger with suppress-entry condition. QD runner:
+      TestSpreadSuppression 4/4 pass. Frozen constant not imported from any prior trial
+      (derived from the QRB-2 design, not R5/confirmatory).
+    evidence_file: >
+      references/pre-registrations/qrb6_cb_event_study.md:207-213;
+      .fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml:57 (three-way threshold consistency verified)
+
+  qrb3_runner_up:
+    condition: >
+      QRB-3 is queued as runner-up and advances to the subsequent wave on a QRB-6 post-2015 KILL.
+      Specifically: hoqr-qrb6-rescreen.yaml states "If QRB-6 fails its mandatory post-2015
+      structural break test, QRB-3 advances immediately to pre-registration without re-scoring."
+    verdict: honored
+    evidence: >
+      §5.4 line 205: "QRB-3 (queued runner-up) advances to a subsequent wave only on a post-2015 KILL."
+      §1.2 line 24: "QRB-3 is the queued runner-up; it does NOT register here and advances only if
+      QRB-6 fails its mandatory post-2015 kill (§5.2)." hoqr-qrb6-rescreen.yaml runner_up_disposition:
+      "QRB-3 is QUEUED as the next candidate for the subsequent wave... If QRB-6 fails its mandatory
+      post-2015 structural break test, QRB-3 advances immediately." The pre-reg is consistent with
+      the rescreen on this condition. One precision note: §5.4 says "advances... only on a post-2015
+      KILL" while the rescreen says "advances if QRB-6 fails" (which includes any KILL). These are
+      materially equivalent given the post-2015 kill is the most-likely terminal state and is
+      explicitly called out by both. The graduation map (§5.6) does not separately enumerate
+      QRB-3 advancement; it covers only the PASS action. The §5.4 retirement-trigger bullet is the
+      governing text.
+    evidence_file: >
+      references/pre-registrations/qrb6_cb_event_study.md:24,205,221-224;
+      .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-qrb6-rescreen.yaml:425-435
+
+# ============================================================================
+# EVIDENCE (load-bearing)
+# ============================================================================
+
+evidence:
+  - "references/pre-registrations/qrb6_cb_event_study.md (full, 610 lines) — primary pre-reg"
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml — machine sidecar"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml — PR cycle-1 (2 blocking findings; approve-with-conditions)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml — PR cycle-2 (all PR-01..05 closed; NF-01 new blocking, closed in settled v2)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-audit.yaml — NHT cycle-1 (material_concern; 3 blocking F1-F3 + 3 material F4-F6)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-delta-audit.yaml — NHT cycle-2 (SURVIVES; all F1-F6 closed; sign-rule multiplicity adjudicated covered-by-N_sel-3)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml — QD runner (60 tests / 412 harness / sacred test PASS; receipt interlock verified)"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-qrb6-rescreen.yaml — my prior pick (A 4.36 / B 4.48; QRB-3 runner-up 4.02)"
+
+assumptions:
+  - >
+    The §3.5 doc residuals (F3: wrong artifact path qd-boe-ecb-spotcheck.yaml; missing verdict
+    gate in binding prose) are advisory pre-flight items, not blocking. The sidecar's certified-only
+    condition_expression is the authoritative machine-executable gate and is correct. These must
+    be reconciled before the freeze-receipt SHA is cut.
+  - >
+    The runner's post-2015 bootstrap uses master_seed+1 (deviation from pre-reg, which pins only
+    master_seed). This is conservative (avoids correlated samples) and standard practice. If the
+    freeze-receipt is cut before pinning a separate post-2015 seed, the master_seed+1 convention
+    becomes de facto frozen. Acceptable but should be acknowledged in the freeze pre-flight.
+  - >
+    The no-backtest claim (foundation of N_sel=3) is verified by absence-of-evidence-of-peek plus
+    role attestations and the VOID §1.4(1) machinery, not by a positive cryptographic proof. The
+    claim-verifier on this point is RULE 0 / receipt interlock. If any QRB return was examined
+    pre-freeze (undetected), N_sel=3 would understate — this residual risk is the single material
+    assumption underlying the multiplicity charge.
+  - >
+    I have not computed any OHLCV return series, equity curve, Sharpe, or test statistic. All
+    evidence cited is from calendar/schema reads, grep-level text checks, and the review artifacts.
+    This is a pre-freeze quality-gate review; the pre-reg's p-value face-validity depends on the
+    freeze-receipt being cut before any return data is examined (AC-4, VOID §1.4(1)).
+
+confidence: high
+confidence_note: >
+  HIGH on all six checklist items: each is directly evidenced by verbatim text in the settled v2
+  doc, the rebuilt sidecar, the PR cycle-2 closure record, and the NHT delta-audit. HIGH on the
+  three prior-condition checks: all three are honored by literal text in the frozen pre-reg and
+  the qd-runner. MEDIUM on the advisory pre-flight items (F3 doc residuals, master_seed+1
+  deviation): these are documentation-quality and implementation-convention questions, not design
+  defects.
+
+body: |
+  ## HoQR Final Quality-Gate Review — QRB-6 Pre-Registration (trial fa0f982a)
+
+  ### Decision: APPROVE
+
+  The QRB-6 CB-decision event-study pre-registration is the strategy I picked through the
+  ratified two-finalist process (hoqr-qrb6-rescreen.yaml: QRB-6 at A=4.36/B=4.48 vs QRB-3
+  at 4.02). The pre-registration as assembled in v2 (ASSEMBLED v3 doc header, post-NF-01 rework)
+  correctly specifies that strategy, frozen honestly, with all blocking findings from the two
+  PR cycles and two NHT audit cycles closed.
+
+  The hypothesis identity is intact. The tested object — y_e = sign(close(D)−close(D−1)) ×
+  R_post,e, the post-announcement initial-reaction continuation over K_post=2 bars — is
+  exactly the alive component, not the documented-dead pre-FOMC drift. The sign-rule debate
+  (F_{D-1} considered and rejected on economic grounds, documented in §4.4.2) converged
+  correctly to the bar-D construction; the NHT adjudicated the sign-rule multiplicity as
+  covered by N_sel=3.
+
+  The statistical contract is internally consistent across doc, sidecar, and receipt:
+  p_reject threshold 0.0478 (strict) / KILL threshold 0.0522 (strict) / straddle [0.0478,0.0522]
+  → AMBIGUOUS; kill_switch_threshold 1.5883 (Scenario A, T=506); master_seed 387992; K=10000;
+  N_sel=3; SR0_pp_sel=0.026861. Power is honestly disclosed at ~13–18%, with the KILL as the
+  explicitly acknowledged most-likely terminal state.
+
+  The mandatory post-2015 structural-break kill is correctly placed as RULE 1, evaluated before
+  the aggregate gate, with overrides_aggregate_pass: true in the sidecar. The QRB-2 spread_z
+  overlay (threshold=3.0, suppress-entry) is frozen. QRB-3 advances only on a post-2015 KILL.
+
+  Two pre-flight items must be resolved before the freeze-receipt SHA is cut: (1) §3.5 doc
+  prose should be reconciled to the correct artifact path and should add "verdict == 'certified'"
+  to the activation condition (advisory; sidecar is the authoritative gate and already correct);
+  (2) the runner's master_seed+1 convention for the post-2015 sub-window bootstrap should be
+  acknowledged. Neither blocks this approval. No capital is authorized by this review or by a
+  QRB-6 PASS.
+
+knowledge_gaps:
+  - >
+    The freeze-receipt has not yet been cut (no FREEZE-RECEIPT.yaml exists for qrb6 in
+    references/pre-registrations/ at the time of this review). This review approves the
+    pre-reg spec; the freeze-receipt cut is the next mandatory step (CEO sign-off → receipt cut).
+  - >
+    The post-2015 survival of the post-announcement reaction component in FX (as distinct from
+    the pre-FOMC equity drift documented by Lucca-Moench 2015) has not been empirically verified
+    at this firm. The test will answer it; the honest base-rate expectation is KILL.
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md"
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pr-review-cycle2.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-audit.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-delta-audit.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-qrb6-rescreen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-spec.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-math.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/debate-r1-qr.yaml"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

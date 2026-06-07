@@ -1,0 +1,585 @@
+---
+# PM Acceptance Criteria — QRB-6 Pre-Registration Track
+# Track: qrb6-prereg-2026-06-06
+# Authored before any return-data examination. No backtest executed. No performance data accessed.
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-06T22:00:00Z"
+
+subtask_ref: qrb6-prereg
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+
+task_statement: >
+  Author, review, and crypto-freeze the full pre-registration for QRB-6 (central-bank
+  scheduled-decision event study on firm FX pairs), consuming BC-1 (the firm's single
+  authorized trial).
+
+deliverable_type: spec-completion
+deadline: "2026-06-07T23:59:00Z"
+
+no-capital-instruction: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# INSTRUMENT UNIVERSE
+# Banks and pair mapping as proposed in qr-b-proposals.yaml QRB-6 and confirmed by
+# nht-qrb6-rescreen.yaml (Scenario A verified-official banks; Scenario B adds aggregator tier).
+# ──────────────────────────────────────────────────────────────────────────────
+instrument_universe:
+  primary_event_set: "Scenario A — verified-official tier only (default for frozen pre-registration)"
+  scenario_a_banks:
+    FED:
+      pairs: [EURUSD, GBPUSD, USDJPY, USDCAD, AUDUSD, NZDUSD]
+      event_count_post2015_deduped: 89        # verified from nht-qrb6-rescreen.yaml
+    BOJ:
+      pairs: [USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY]
+      event_count_post2015_deduped: 97
+    RBA:
+      pairs: [AUDUSD, AUDJPY, GBPAUD, EURAUD, AUDNZD]
+      event_count_post2015_deduped: 117
+    BOC:
+      pairs: [USDCAD, CADJPY, EURCAD, GBPCAD]
+      event_count_post2015_deduped: 58        # 2019-2026 only; 2010-2018 entirely absent
+  total_scenario_a_deduped_event_days: 506   # verified from nht-qrb6-rescreen.yaml
+  total_post2015_deduped_event_days:   345   # the structural-break sub-window count; adequate
+  scenario_b_extension:
+    status: pre-committed automatic activation
+    condition: >
+      Activates upon completion of BoE/ECB spot-check protocol per NHT C4 condition
+      (nht-qrb6-rescreen.yaml), WITHOUT requiring a new pre-registration.
+      Adds: BOE (158 events), ECB aggregator-years (102 events), RBNZ (11 events, 2024+).
+    additional_deduped_event_days_total: 716   # verified
+    additional_post2015_deduped:         491
+  excluded_always: >
+    ECB training-memory-unverified tier (43 rows, years 2010/2017/2018/2020/2021) —
+    INADMISSIBLE per nht-qrb6-rescreen.yaml; cannot be promoted without Bloomberg/Refinitiv
+    or official ECB Governing Council minutes index cross-check.
+  dataset_path: "data/rates/cb_decision_dates.parquet"   # 842 rows; committed git 62421b6
+  provenance_path: "references/cb_decision_dates_PROVENANCE.md"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HARD CONSTRAINTS (machine-checkable)
+# Any criterion where done_when is verifiable by automated check or direct artifact inspection.
+# ──────────────────────────────────────────────────────────────────────────────
+hard_constraints:
+
+  no_return_data_examination_before_freeze:
+    description: >
+      No OHLCV return series, equity-curve computation, or performance metric may be
+      computed or examined before the freeze-receipt is cut and committed to git.
+      The freeze-receipt is the cryptographic boundary: examination before that
+      boundary voids the pre-registration.
+    source: cto-advisory.yaml (FM-2 / condition C1); NHT dissent (portfolio precondition)
+    enforcement: >
+      Orchestrator must confirm freeze-receipt exists in git before any data-access
+      command touching processed/{PAIR}_{daily,4h}.parquet for return computation.
+
+  scenario_a_event_set_default:
+    description: >
+      The frozen pre-registration uses Scenario A (verified-official tier, 506 deduped
+      event-days, 345 post-2015) as the PRIMARY event set. The 2015-01-01 cutoff
+      is the structural-break boundary convention, pinned verbatim in the pre-reg.
+      Scenario B is a pre-committed extension, not a parallel registerable test.
+    source: nht-qrb6-rescreen.yaml (dissent_statement, C4); hoqr-qrb6-rescreen.yaml
+    enforcement: >
+      The pre-registration document and .triggers.yaml sidecar must cite
+      nht_accepted_effective_n: 506 and nht_accepted_effective_n_post2015: 345
+      as the registered event counts. The boundary convention must be stated as
+      "post_2015_cutoff: 2015-01-01 (inclusive)".
+
+  scenario_b_only_by_precommitted_activation:
+    description: >
+      Scenario B (716/491 deduped event-days, adds aggregator-grade tier) activates
+      ONLY upon documented completion of the BoE/ECB spot-check specified in
+      nht-qrb6-rescreen.yaml condition C4. Activation is automatic and does not
+      require a new pre-registration, but DOES require the spot-check result to be
+      committed as an artifact before any Scenario B return data is examined.
+      The spot-check is part of this track's QD workload (ideally completed before
+      freeze so the scenario question is settled at freeze time).
+    source: nht-qrb6-rescreen.yaml (C4, dissent_statement); hoqr-qrb6-rescreen.yaml (caveat)
+    enforcement: >
+      If the spot-check is not completed before the freeze-receipt is cut, the
+      frozen pre-reg must explicitly declare the Scenario B extension is PENDING
+      C4 completion. No Scenario B return data may be accessed until C4 is documented.
+
+  training_memory_grade_inadmissible:
+    description: >
+      The 43 ECB rows with verification_grade='training-memory-unverified' are
+      INADMISSIBLE and must not appear in any event set used in the registered test.
+      They may not be relabeled or mixed into the aggregator-only tier without
+      Bloomberg/Refinitiv or official ECB minutes index cross-check.
+    source: nht-qrb6-rescreen.yaml (grade_admissibility_ruling.training_memory_unverified)
+    enforcement: >
+      The QD runner must filter the parquet at load time:
+      df = df[df['verification'] != 'training-memory-unverified']
+      This filter must be present verbatim in the runner code and tested.
+
+  no_65pct_point_target:
+    description: >
+      The ~65% post-announcement FX reversal figure is UNVERIFIED (sourced from a
+      WebSearch summary; WebFetch to NY Fed and ResearchGate returned 403 during
+      the kickoff wave). This figure must NOT appear as a pre-registered numeric
+      point target in the pre-registration document or .triggers.yaml. The reversal
+      test must be framed as "statistically distinguishable from both 0% and 100%
+      directional bias" without specifying a point estimate derived from this source.
+    source: nht-screen.yaml (QRB-6 condition 2); nht-qrb6-rescreen.yaml (C2)
+    enforcement: >
+      NHT audit explicitly checks that no numeric reversal target appears in the
+      pre-reg text or sidecar. Presence of "65%" or "~65%" as a registered target
+      is a blocking finding at NHT-audit and principal-reviewer stages.
+
+  post_2015_subwindow_kill_mandatory:
+    description: >
+      A mandatory post-2015 sub-window (2015-01-01 to end-of-sample) kill test
+      must be included in the pre-registration. An aggregate-only pass with a
+      post-2015 sub-window fail = KILL. The NHT carried-forward finding is that
+      the pre-announcement drift "essentially disappeared after 2015" — a strategy
+      that is alive only pre-2015 is dead alpha in the current deployment regime.
+      The 2015-01-01 cutoff is NOT the sample midpoint; it is the documented
+      structural-break endpoint and must be stated as such in the pre-reg.
+    source: nht-screen.yaml (QRB-6 condition 1); nht-qrb6-rescreen.yaml (C1, verified counts)
+    enforcement: >
+      The .triggers.yaml sidecar must encode this kill condition explicitly:
+        post_2015_aggregate_kill:
+          condition: "post_2015_result fails primary hypothesis test"
+          action: KILL
+          overrides_aggregate_pass: true
+      The runner must compute the post-2015 sub-window result separately and
+      write it to the result YAML before the decision functional fires.
+
+  banks_as_blocks:
+    description: >
+      Multi-bank pooling must treat banks as INDEPENDENT BLOCKS, not as individual
+      observations. Within a single bank-event, the affected pairs (e.g., 6 USD-cross
+      pairs on a FED decision day) share a common currency factor and are NOT
+      independent. The unit of observation is the BANK-EVENT (or deduped market-day),
+      not the pair×event. The block-bootstrap must use bank-level blocks. Per-bank
+      Sharpe must be reported as a secondary metric.
+    source: nht-screen.yaml (QRB-6 condition 3); nht-qrb6-rescreen.yaml (cross_pair_discount_note)
+    enforcement: >
+      MATH frozen statistics must specify block construction methodology explicitly.
+      The runner must pass bank-level block labels to the bootstrap function.
+      The result YAML must contain per_bank_sharpe as a required field.
+
+  qrb2_overlay_preregistered_modifier:
+    description: >
+      QRB-2 (spread-blowout liquidity gate) attaches to QRB-6 as a PRE-REGISTERED
+      modifier, not a separate trial. It suppresses CB-event trades when spread_z
+      exceeds a pre-registered threshold (threshold must be pinned in the pre-reg
+      and .triggers.yaml before freeze — it cannot be tuned post-hoc). This overlay
+      does NOT increment the trial counter and does NOT consume a separate trial budget.
+      Uses data from data/spreads/{PAIR}_daily_spreads.parquet.
+    source: hoqr-qrb6-rescreen.yaml (overlays_unchanged); cro-advisory.yaml (task description)
+    enforcement: >
+      The pre-registration must declare the spread_z threshold as a named, frozen
+      constant. The .triggers.yaml sidecar must document the overlay as a modifier
+      attribute of the QRB-6 trial, not as a separate trial_id entry.
+
+  no_cross_trial_constant_imports:
+    description: >
+      The QRB-6 runner script must NOT import or hard-code constants from r5_decision.py
+      (SR0_PP = 0.022906), the R5 confirmatory receipt (sr0_pp = 0.034921), or any
+      other prior trial's pre-registered thresholds. Cross-trial constant contamination
+      is the highest-risk silent failure mode in a multi-trial harness. QRB-6 has its
+      own pre-registered thresholds, derived fresh by the Mathematician in this track.
+    source: cto-advisory.yaml (FM-1 / condition C2)
+    enforcement: >
+      QD runner code review must confirm: grep for 'r5_decision', 'SR0_PP', 'sr0_pp',
+      '0.022906', '0.034921' in the runner must return zero matches.
+      The Mathematician's derivation in this track is the sole authoritative source
+      for QRB-6's kill_switch_threshold and alpha values.
+
+  triggers_sidecar_required:
+    description: >
+      All kill conditions must be machine-encoded in a .triggers.yaml sidecar file,
+      not stated only in prose. The falsification_evaluator must be able to evaluate
+      every kill condition without human interpretation. Conditions include: primary
+      hypothesis p-value threshold, post-2015 sub-window kill, aggregate-pass/post2015-fail
+      overriding kill, spread_z overlay threshold, and per-bank secondary metric floor.
+    source: cto-advisory.yaml (condition C3); task description (hard rules)
+    enforcement: >
+      NHT audit and principal reviewer both check that every kill condition in the
+      pre-registration prose has a corresponding machine-readable entry in
+      .triggers.yaml. Any prose condition without a sidecar encoding is a blocking finding.
+
+  kill_switch_threshold_verbatim_required:
+    description: >
+      The pre-registration document must carry a verbatim kill_switch_threshold:
+      field, derived fresh by the Mathematician in this track (not carried over from
+      any prior trial, not approximated). The derivation must account for: the
+      11-proposal portfolio selection multiplicity charge, the 2-finalist comparison
+      charge, the chosen alpha (alpha must be explicitly stated and registered),
+      the power calculation at 506/345 events, and the banks-as-blocks bootstrap.
+      This threshold is frozen at the moment the freeze-receipt is cut.
+    source: task description (hard rules); cto-advisory.yaml (C2 generalised to QRB-6)
+    enforcement: >
+      cut_freeze_receipt.py must hash the pre-reg document including the
+      kill_switch_threshold: field. If this field is absent, the SHA-256 of the
+      pre-reg changes between draft and final and the receipt is invalid.
+      Principal reviewer verifies the field exists and cites the MATH derivation artifact.
+
+  one_trial_only:
+    description: >
+      BC-1: the firm's single authorized trial (CRO constraint). The trial registers
+      at the authoring spawn (spawn-agent step 3 per charter) when the freeze-receipt
+      is cut. No second trial may be registered in this track. QRB-3 is queued as
+      runner-up for a subsequent wave if QRB-6 fails its post-2015 structural break
+      test; it does NOT register in this wave.
+    source: cro-advisory.yaml (BC-1-hard-cap, BC-3-no-double-spend)
+    enforcement: >
+      Orchestrator must confirm trial counter increments by exactly 1 (from 40 to 41)
+      when the freeze-receipt is cut. Any increment > 1 is a violation.
+
+  r5_and_confirmatory_immutable:
+    description: >
+      The two frozen receipts for R5 and the R5-confirmatory track are immutable.
+      No file modification, no import, no git amend may touch:
+        references/pre-registrations/r5_carry_universe_kill_test.FREEZE-RECEIPT.yaml
+          (SHA-256: c7780f3d...; code_commit: 350cbd4b...)
+        references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+          (SHA-256: c40c6ad7...; code_commit: f0d10546...)
+    source: cto-advisory.yaml (blast_radius_to_frozen_artifacts)
+    enforcement: >
+      git diff --name-only for the QRB-6 track must return zero matches on either
+      receipt path. Write-once guard in cut_freeze_receipt.py enforces this
+      at the code level; reviewer confirms at PR time.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ACCEPTANCE CRITERIA
+# Each criterion has an id, description, owner, and done_when condition.
+# The one-shot RUN is OUT OF SCOPE for this track pending CEO ack.
+# ──────────────────────────────────────────────────────────────────────────────
+criteria:
+
+  - id: AC-1
+    description: >
+      Quant Researcher (QR) authors the full pre-registration document covering:
+      (a) hypothesis statement (pre-decision drift + post-announcement asymmetry);
+      (b) exact pair×bank event mapping per instrument_universe above;
+      (c) pre-window and post-window length convention in bars, both pre-registered
+          ex-ante (no scanning over N);
+      (d) entry/exit window convention with explicit entry_delay_bars compliance;
+      (e) primary falsification criterion (pooled block-bootstrap p-value threshold,
+          referenced to MATH frozen stats; NO 65% point target);
+      (f) post-2015 sub-window kill condition stated as mandatory;
+      (g) QRB-2 spread_z overlay threshold field (frozen constant, pre-registered);
+      (h) BOC 2010-2018 gap disclosed as a confound in the structural break test;
+      (i) trial_id echoed from the orchestrator's spawn registration;
+      (j) kill_switch_threshold: field verbatim from MATH derivation;
+      (k) Scenario B declared as a pre-committed automatic extension (not a new trial).
+    owner: quant-researcher
+    done_when: >
+      A pre-registration .md (or .yaml) artifact exists at
+      .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-prereg-qrb6.{md,yaml}
+      and contains all sub-items (a)-(k). NHT audit (AC-5) confirms NHT condition C2
+      is cleared (no 65% point target) upon reading the artifact.
+
+  - id: AC-2
+    description: >
+      Mathematician (MATH) produces frozen statistics covering:
+      (a) event-study statistic specification (exact form: mean cumulative return
+          over the pre-window across deduped event-days, sign-aligned per pair×bank);
+      (b) multiplicity/selection charge for a candidate picked from an 11-proposal
+          portfolio + 2-finalist comparison (QRB-6 vs QRB-3) — methodology must be
+          stated and the charge applied to the registered alpha;
+      (c) banks-as-blocks bootstrap specification (block construction rule, B replications,
+          block-length estimation method consistent with Politis-White precedent from R5);
+      (d) registered alpha (post-multiplicity-charge);
+      (e) K (number of bootstrap replications) and master_seed rule;
+      (f) power at 506 total / 345 post-2015 deduped event-days;
+      (g) fresh kill_switch_threshold derivation — not imported from any prior trial.
+    owner: mathematician
+    done_when: >
+      A MATH frozen-stats artifact exists at
+      .fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-frozen-stats-qrb6.yaml
+      containing all sub-items (a)-(g). The kill_switch_threshold: value in this
+      artifact matches verbatim the field in the QR pre-registration document (AC-1j).
+
+  - id: AC-3
+    description: >
+      Quant Developer (QD) completes:
+      (a) BoE/ECB spot-check vs official minutes for ≥5 randomly sampled BoE years
+          (2010-2024) per nht-qrb6-rescreen.yaml C4 — documented in a spot-check
+          artifact; if C4 is not cleared before freeze, Scenario B extension is marked
+          PENDING in the pre-registration and no Scenario B data may be accessed;
+      (b) .triggers.yaml sidecar file encoding ALL kill conditions in machine-readable
+          form (see hard constraints: triggers_sidecar_required);
+      (c) cut_freeze_receipt.py: add a 'qrb6' target entry consistent with the
+          established _TARGETS pattern, pointing to the QRB-6 pre-registration artifact;
+      (d) runner contract stub — a placeholder runner script (NOT executed in this
+          track; execution is gated on CEO ack for the one-shot run) that demonstrates
+          the correct gate structure (--i-am-runner + --freeze-receipt required,
+          receipt validation, no cross-trial constant imports, training-memory filter,
+          banks-as-blocks block labels) — conditional on freeze completion.
+    owner: quant-developer
+    done_when: >
+      (a) Spot-check artifact at .fintech-org/artifacts/2026-06-06T-qrb6-prereg/
+          qd-boe-ecb-spotcheck.yaml (or PENDING marker if C4 not cleared);
+      (b) .triggers.yaml at references/pre-registrations/qrb6_triggers.yaml
+          with all kill conditions from AC-1;
+      (c) cut_freeze_receipt.py diff shows exactly one new 'qrb6' key added to _TARGETS,
+          no modification to 'r5' or 'confirmatory' keys;
+      (d) Runner stub at scripts/run_qrb6.py (marked STUB — DO NOT RUN without
+          CEO ack and freeze-receipt) with training-memory filter and no cross-trial
+          constant imports.
+
+  - id: AC-4
+    description: >
+      All three role deliverables (AC-1, AC-2, AC-3) exist on disk before the NHT
+      audit begins. No return data examined, no backtest run, no performance metric
+      computed at any point before the freeze-receipt is cut.
+    owner: orchestrator
+    done_when: >
+      AC-1, AC-2, AC-3 are all marked done. Orchestrator confirms no data-access
+      command touching processed/{PAIR}*.parquet for return computation has been
+      issued since the track began. git log shows no commits modifying
+      data/results/ or any result YAML during this track.
+
+  - id: AC-5
+    description: >
+      NHT audit reviews all deliverables (AC-1, AC-2, AC-3) and produces an audit
+      artifact confirming or dissenting on:
+      (i) NHT C2 cleared (no 65% point target in pre-reg language);
+      (ii) NHT C4 status (BoE/ECB spot-check result or PENDING);
+      (iii) post-2015 kill condition correctly encoded in .triggers.yaml;
+      (iv) banks-as-blocks block construction specified correctly in MATH stats;
+      (v) training-memory-unverified filter present in runner stub;
+      (vi) no cross-trial constant imports in runner stub.
+      NHT dissent is append-only; NHT may not modify prior artifacts.
+    owner: null-hypothesis-tester
+    done_when: >
+      NHT audit artifact at .fintech-org/artifacts/2026-06-06T-qrb6-prereg/
+      nht-audit-qrb6.yaml with decision: survives or decision: dissent.
+      If dissent: the blocking finding must be resolved (pre-reg amended, sidecar
+      updated) and NHT re-audits before proceeding to AC-6.
+
+  - id: AC-6
+    description: >
+      Principal Reviewer (PR) conducts the review wave, confirming:
+      (i) pre-registration is internally consistent (hypothesis, event set, statistic,
+          kill conditions all align);
+      (ii) kill_switch_threshold field present and matches MATH derivation;
+      (iii) no return data was examined before freeze (process integrity);
+      (iv) .triggers.yaml sidecar covers all kill conditions in prose;
+      (v) QRB-2 overlay threshold is pre-registered (not discoverable post-hoc);
+      (vi) R5 and confirmatory frozen receipts are untouched (git diff confirms);
+      (vii) runner stub has correct gate structure and no forbidden imports.
+    owner: principal-reviewer
+    done_when: >
+      PR review artifact at .fintech-org/artifacts/2026-06-06T-qrb6-prereg/
+      pr-review-qrb6.yaml with decision: approve or approve-with-conditions.
+      Conditions (if any) must be resolved before freeze.
+
+  - id: AC-7
+    description: >
+      CONSENSUS artifact produced by PM (this role), ratified by HoQR and NHT,
+      confirming all criteria AC-1 through AC-6 are satisfied. The consensus is the
+      final gate before the freeze-receipt is cut.
+    owner: pm
+    done_when: >
+      Consensus artifact at .fintech-org/artifacts/2026-06-06T-qrb6-prereg/
+      pm-qrb6-prereg-consensus.yaml with decision: ratified, signed by PM, HoQR, NHT.
+      The consensus artifact references the SHA-256 of the pre-registration document
+      (computed before the freeze-receipt is cut).
+
+  - id: AC-8
+    description: >
+      Crypto-freeze: cut_freeze_receipt.py --target qrb6 --cut is executed POST-CONSENSUS
+      (after AC-7). The freeze-receipt commits the SHA-256 of the pre-registration
+      document and the current code_commit to git. Trial counter increments from 40 to 41.
+      This is the only moment at which the trial is registered per BC-1.
+    owner: quant-developer
+    done_when: >
+      references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml exists in git,
+      contains a valid SHA-256 of the pre-registration artifact, and git log shows the
+      receipt committed AFTER the consensus artifact (AC-7). Trial counter at
+      .fintech-org/trials.jsonl confirms exactly 41 lines.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ONE-SHOT RUN — OUT OF SCOPE
+# ──────────────────────────────────────────────────────────────────────────────
+out_of_scope:
+  - id: OOS-1
+    item: >
+      The one-shot backtest run (execution of the QRB-6 runner against OHLCV data).
+      This is a separate post-freeze STEP requiring an explicit CEO ack. It is not
+      part of this track's deliverables. The runner stub (AC-3d) is a contract
+      placeholder only; executing it before CEO ack and freeze-receipt violates
+      the pre-registration integrity.
+  - id: OOS-2
+    item: >
+      Promotion of the ECB training-memory-unverified dates (43 rows) to any admissible
+      tier. This requires Bloomberg/Refinitiv or official ECB Governing Council minutes
+      index cross-check — out of scope for this track's timeline.
+  - id: OOS-3
+    item: >
+      QRB-3 pre-registration. QRB-3 is the queued runner-up; it does NOT register in
+      this wave. It advances only if QRB-6 fails its mandatory post-2015 structural
+      break test.
+  - id: OOS-4
+    item: >
+      The 2028 confirmatory runner and supplementary receipt build. BC-4 gives this
+      priority claim on single-track bandwidth. QRB-6 track work must not displace
+      or delay this obligation.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SCHEDULING CRITERION
+# ──────────────────────────────────────────────────────────────────────────────
+scheduling_criterion: >
+  BC-4 (cro-advisory.yaml): the 2028-10-06 frozen confirmatory test runner and
+  supplementary receipt build has PRIORITY claim on single-track bandwidth. If
+  QRB-6 pre-registration work threatens that deadline, QRB-6 yields. This is a
+  precondition for any timeline planning by the orchestrator.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ROLES STAFFED
+# ──────────────────────────────────────────────────────────────────────────────
+roles_staffed:
+  - role: pm
+    model: sonnet
+    rationale: >
+      Chief of Staff / wave coordinator. Authors this acceptance-criteria artifact,
+      authors the final consensus (AC-7), and manages track sequencing.
+  - role: quant-researcher
+    model: opus
+    rationale: >
+      Authors the pre-registration document (AC-1): hypothesis, pair×bank mapping,
+      entry/exit window convention, falsification criteria, retirement triggers.
+      Echoes the trial_id registered at orchestrator spawn.
+  - role: mathematician
+    model: opus
+    rationale: >
+      Produces frozen statistics (AC-2): event-study statistic, multiplicity/selection
+      charge for 11-portfolio + 2-finalist selection, banks-as-blocks bootstrap,
+      alpha, K, seed rule, power at 506/345 events, fresh kill_switch_threshold.
+  - role: quant-developer
+    model: sonnet
+    rationale: >
+      Executes BoE/ECB spot-check (AC-3a), authors .triggers.yaml sidecar (AC-3b),
+      adds 'qrb6' receipt target (AC-3c), and authors runner contract stub (AC-3d).
+      Conditional: runner is a stub only in this track; execution is post-freeze CEO-gated.
+  - role: null-hypothesis-tester
+    model: opus
+    rationale: >
+      Independent audit (AC-5) of all deliverables. Dissent append-only. Checks
+      C2 (no 65% target), C4 (spot-check status), sidecar encoding, banks-as-blocks,
+      training-memory filter, cross-trial imports.
+  - role: principal-reviewer
+    model: opus
+    rationale: >
+      Review wave (AC-6): internal consistency of pre-registration, kill_switch_threshold
+      presence, process integrity (no return data before freeze), frozen receipts untouched.
+
+# ──────────────────────────────────────────────────────────────────────────────
+wraps_invocation_of: []
+
+evidence:
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml"
+    note: "QRB-6 proposal section read in full; hypothesis, structure, pair×bank mapping, falsification sketch confirmed."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-qrb6-rescreen.yaml"
+    note: >
+      Final recommendation: QRB-6. Scenario A (4.36), Scenario B (4.48). Runner-up QRB-3
+      queued for wave N+2. NHT binding conditions, BOC gap confound disclosure,
+      and Scenario B BOE sensitivity all read.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml"
+    note: "QRB-6 row (lines 429-478): conditions C1-C3 verbatim. Dissent-statement portfolio preconditions."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml"
+    note: >
+      Grade admissibility ruling; verified counts (Scenario A: 506/345; Scenario B: 716/491);
+      prior conditions C1-C5 status; clean path recommendation read.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/cto-advisory.yaml"
+    note: >
+      Option B QRB-6 architecture conditions C1-C5; FM-1 (cross-trial constant contamination);
+      FM-2 (pre-registration data snooping); FM-4 (DSR denominator premature increment) read.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/cro-advisory.yaml"
+    note: >
+      BC-1 (one-trial hard cap), BC-3 (no double-spend), BC-4 (2028 confirmatory bandwidth
+      priority), BC-6 (pre-reg immutability) read. size_multiplier=0.0 advisory noted
+      but CEO override ("go ahead and push it") authorizes BC-1 consumption on this track.
+  - path: "data/rates/cb_decision_dates.parquet"
+    note: "Existence confirmed; 842 rows; committed git 62421b6. Event counts from nht-qrb6-rescreen.yaml verified-counts section (not re-queried here — accepted from NHT artifact)."
+  - path: "references/cb_decision_dates_PROVENANCE.md"
+    note: "Provenance document existence confirmed; verification grades, corrections CORR-001/002, gap years read via nht-qrb6-rescreen.yaml evidence section."
+
+assumptions:
+  - >
+    The CEO authorization "go ahead and push it" overrides the CRO's size_multiplier=0.0
+    advisory for this specific track. BC-1 authorizes exactly one trial; this track
+    consumes it. The CRO advisory's risk flags (post-2015 structural break,
+    multiplicity denominator pressure) are pre-registered kill conditions, not blockers.
+  - >
+    The trial counter is at 40 (confirmed by CTO advisory: "wc -l .fintech-org/trials.jsonl = 40").
+    The freeze-receipt cut increments it to 41.
+  - >
+    QRB-3 runner-up status (4.02 weighted total, first-candidate bar CLEARS) is preserved
+    per hoqr-qrb6-rescreen.yaml. It does not register in this wave.
+  - >
+    The Politis-White block-length machinery in src/forex_system/harness/reality_check.py
+    is reused for the banks-as-blocks bootstrap; block construction by bank label is the
+    extension. The MATH role is responsible for specifying any sparse-series handling
+    adjustments needed for the event-study return series.
+  - >
+    "No backtest in the authoring/review waves" means: no OHLCV return computation,
+    no equity-curve generation, no Sharpe estimation from the OHLCV data. Row-count
+    and schema inspection of cb_decision_dates.parquet (already done by NHT and HoQR
+    in the prior wave) does not constitute a prohibited return examination.
+
+confidence: high
+
+body: |
+  ## PM Acceptance Criteria — QRB-6 Pre-Registration Track
+
+  This is the PM's Wave 1 (structured acceptance-criteria) artifact for the
+  qrb6-prereg-2026-06-06 track. It is written before any return-data examination and
+  before any sub-role is dispatched.
+
+  ### Context
+
+  QRB-6 is a central-bank scheduled-decision event study: a pre-decision drift +
+  post-announcement reversal strategy on the firm's FX pairs, triggered by the acquired
+  CB decision calendar (data/rates/cb_decision_dates.parquet, 842 rows, committed 62421b6).
+  It was selected through a ratified two-finalist process (QRB-6 vs QRB-3) per
+  hoqr-qrb6-rescreen.yaml. The firm's single authorized trial (BC-1) is spent here.
+
+  ### Critical path
+
+  AC-1 (QR pre-reg draft) and AC-2 (MATH frozen stats) are the primary blockers; both
+  must complete before AC-5 (NHT audit) can begin. AC-3 (QD work) can proceed in parallel
+  with AC-1/AC-2 for the spot-check and sidecar sub-tasks, but the receipt target (AC-3c)
+  and runner stub (AC-3d) depend on AC-2 (for the kill_switch_threshold constant).
+
+  ### Process integrity
+
+  The freeze-receipt (AC-8) is the sole cryptographic boundary between the authoring/review
+  wave and the one-shot run. Nothing that touches OHLCV return data may execute before that
+  boundary. The runner stub (AC-3d) exists to establish the correct gate structure and verify
+  no forbidden imports — it is not a license to run.
+
+  ### Scenario B
+
+  The BoE/ECB spot-check (AC-3a) determines whether Scenario B activates at freeze time
+  or remains PENDING. If the spot-check is not completed before consensus (AC-7), the
+  frozen pre-registration declares Scenario B PENDING C4 completion. The one-shot run
+  (post-freeze, CEO-gated) then uses Scenario A unless C4 is cleared first.
+
+  ### Scheduling constraint
+
+  BC-4: the 2028 confirmatory runner bandwidth priority is non-negotiable. This track
+  must not displace it.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-qrb6-rescreen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/cto-advisory.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/cro-advisory.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pm-kickoff-consensus.yaml"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

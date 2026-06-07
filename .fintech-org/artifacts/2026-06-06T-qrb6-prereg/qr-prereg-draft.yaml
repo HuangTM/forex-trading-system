@@ -1,0 +1,200 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: "2026-06-07T02:45:00Z"
+
+subtask_ref: qrb6-prereg-qr-draft
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+trial-count-at-spawn: 41
+
+no-capital-instruction: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AC-1 deliverable: the QRB-6 pre-registration DRAFT (PART I, QR-owned).
+# Document: references/pre-registrations/qrb6_cb_event_study.md (DRAFT status).
+# PART II (statistic/null, multiplicity charge, bootstrap, alpha/K/seed, power,
+# kill_switch_threshold derivation) is MATH-owned, merged at assembly.
+# ──────────────────────────────────────────────────────────────────────────────
+
+hypothesis: >
+  Around scheduled central-bank rate decisions, the affected currency's pairs exhibit
+  a sign-aligned post-decision reaction/reversal structure that earns a net-of-cost edge
+  statistically distinguishable from zero on the pooled banks-as-blocks event set — and
+  that edge persists in the post-2015 sub-window, not only in the pre-2015 regime.
+
+alpha_source: >
+  Scheduled rate decisions are pre-announced uncertainty-resolution events. Risk-averse
+  participants and hedgers pay to de-risk into the binary and buy back after (a documented
+  risk-compensation premium — pre-FOMC drift, Lucca-Moench 2015); the announcement drives
+  a reaction (repricing) and partial reversal as the premium is paid out and over-positioned
+  participants unwind. Counterparties on the other side: hedgers de-risking into the event,
+  and participants who AVOID the announcement window because realized vol/spreads spike (so
+  any structure is under-arbitraged exactly when it is hardest and most expensive to act on).
+  Persistence is structural, not informational: the calendar is a permanent anchor (~8
+  decisions/yr/bank) and a risk-compensation interpretation does not self-arbitrage away.
+  HONEST DECAY: the PRE-announcement drift component is documented essentially DEAD post-2015
+  (the 2015 structural-break endpoint); H1 is therefore framed on the post-decision
+  reaction/reversal component, and the post-2015 sub-window is a mandatory KILL test.
+
+universe:
+  primary_scenario: "Scenario A — verified-official tier ONLY (FED all years, BOJ all years, RBA all years, BOC 2019+)"
+  effective_n: 506            # deduped event-days, full window (nht_accepted_effective_n)
+  effective_n_post2015: 345   # deduped event-days post-2015 (nht_accepted_effective_n_post2015)
+  unit_of_observation: bank-event (deduped market-day) — NOT pair x event
+  post_2015_cutoff: "2015-01-01 (inclusive)"   # documented structural-break endpoint, NOT sample midpoint
+  same_day_multi_bank: "counted as ONE market day for dedup (22 overlaps in A); each bank's currency reaction still measured on its own mapped pairs"
+  pair_bank_map:
+    # CORRECTION (orchestrator-detected): pair map corrected to verified data inventory.
+    # Phantom pairs removed: GBPAUD, EURAUD, AUDNZD (RBA), EURCAD, GBPCAD (BOC).
+    # Verified inventory: {AUDJPY, AUDUSD, CADJPY, EURGBP, EURJPY, EURUSD, GBPJPY, GBPUSD, NZDJPY, NZDUSD, USDCAD, USDJPY}.
+    FED:  { currency: USD, pairs: [EURUSD, GBPUSD, USDJPY, USDCAD, AUDUSD, NZDUSD], pair_count: 6, post2015_events: 89 }
+    BOJ:  { currency: JPY, pairs: [USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY], pair_count: 6, post2015_events: 97 }
+    RBA:  { currency: AUD, pairs: [AUDUSD, AUDJPY], pair_count: 2, post2015_events: 117 }
+    BOC:  { currency: CAD, pairs: [USDCAD, CADJPY], pair_count: 2, post2015_events: 58 }
+    pair_count_note: "Pair counts are uneven across banks: FED 6, BOJ 6, RBA 2, BOC 2. Per-event weighting rule (PINNED): for each bank-event, the bank-event observation = equal-weight average of sign-aligned net-of-cost returns across that event's responsive pairs. No bank-level weight correction for count asymmetry — the unit of observation is the bank-event, not the pair. Frozen; not tunable post-hoc (VOID §1.4(2))."
+  inadmissible_excluded: "43 ECB rows graded training-memory-unverified (years 2010/2017/2018/2020/2021); runner filters df[df['verification'] != 'training-memory-unverified']"
+  boc_gap_confound: "BOC has ZERO events pre-2019; all 58 BOC events are post-2015. Pre-2015 sub-window has no BOC. Disclosed as a structural-break-test confound; FED/BOJ/RBA carry the pre/post contrast."
+
+windows:
+  timestamp_convention: >
+    Daily bars timestamped 00:00:00 UTC (verified from processed parquet index; tz-aware UTC).
+    Announcements are intraday at bank-local times but all fall within UTC calendar day D, so
+    bar D (00:00-UTC-stamped OHLC for UTC day D) is the FIRST daily bar whose close reflects the
+    decision for EVERY bank. Treating bar D uniformly as the first decision-reflecting bar is the
+    conservative no-leak choice (daily data cannot resolve intraday timing).
+  pre_window: "K_pre = 1 bar (bar D-1) — sign-alignment / positioning input ONLY, not the claimed-edge source"
+  post_window: "K_post = 2 bars after the decision is realized — the claimed-edge window (sign-aligned cumulative net return from close of D to close of D+K_post). sign_align_e = sign(close(D)-close(D-1)); position = LONG sign_align_e = CONTINUATION of the initial reaction. The pre-window K_pre=1 is the sign INPUT only, never a tested return; no pre-drift criterion exists."
+  no_scan: "ONE frozen K_pre, ONE frozen K_post; no scanning over N"
+  entry_exit: >
+    entry_delay_bars = 1 (no-lookahead sacred invariant): sign formed through close of bar D
+    (decision-reflecting bar), entry executes at D+1, post-window held K_post=2 bars, exit at
+    frozen post-window end (no discretionary/trailing exit). The post-decision window begins at
+    the CLOSE of bar D; no bar before D may carry decision information.
+  weekends_holidays: "decision dates are official weekday announcement dates; if a window endpoint has no trading bar, use next available daily bar (no synthetic bar)."
+  scenario_b:
+    status: "pre-committed AUTOMATIC extension of THIS trial — NOT a new trial, NOT a separate test"
+    activation_rule: >
+      Activates iff the BoE/ECB spot-check artifact (qd-boe-ecb-spotcheck.yaml; NHT C4) is
+      completed and committed. No human re-decision, no peek. If not completed before freeze,
+      pre-reg declares Scenario B PENDING C4; no Scenario-B return data accessed until C4 committed.
+    extends_to: "BOE(158)->GBP pairs, ECB-aggregator(102)->EUR pairs, RBNZ(11)->NZD pairs; 716 deduped (491 post-2015)"
+
+metric: "r_e = sign_align_e * (net-of-cost cumulative K_post=2 POST-decision return from close of D to close of D+K_post, on the bank-event's responsive pairs, equal-weight averaged). sign_align_e = sign(close(D) - close(D-1)) on the mapped leg — realized-initial-reaction CONTINUATION (no survey/expectations feed exists; rate-change sign rejected, holds dominate post-2015). No look-ahead: sign known at close(D); entry at D+1 (entry_delay_bars=1); bar-D return is signal not P&L. Studentization/bootstrap frozen in PART II §1.3-1.4, §3; MATH compatibility sign-off PENDING (parallel)."
+
+falsification_criteria:
+  - id: PRIMARY
+    form: "pooled banks-as-blocks stationary-block-bootstrap p-value for H0:E[net POST-decision K_post=2 return]<=0 > 0.0478 (fixed gate alpha 0.05 - MC-SE 0.0022, K=10000) -> KILL. Multiplicity (N_sel=3) charged via DSR gate ONLY, NOT on this p-threshold (PART II 4.2)."
+    machine_checkable: true
+  - id: POST2015_KILL
+    form: "post_2015 sub-window (date>=2015-01-01, 345 deduped days) SAME post-decision primary p > 0.0478 -> KILL; overrides_aggregate_pass: true; evaluated FIRST (PART II 4.2 RULE 1)"
+    machine_checkable: true
+    mandatory: true
+  - id: DSR_SELECTION_GATE
+    form: "PASS requires DSR >= 0.95 at SR0_pp_sel=0.026861 (N_sel=3, disp=0.50), equiv aggregate-set ann Sharpe >= kill_switch_threshold 1.5883 (A) / 1.4029 (B). DSR<0.95 with both p clean -> no PASS (RULE 4). SOLE locus of the 11-proposal + 2-finalist selection charge."
+    machine_checkable: true
+  - id: REVERSAL_ASYMMETRY
+    form: "reversal fraction statistically indistinguishable from 0% OR from 100% -> KILL reversal sub-claim. NO 65% point target registered (unverified)."
+    machine_checkable: true
+  - id: PER_BANK_SHARPE_FLOOR
+    form: "per_bank_sharpe (secondary metric) below [MATH] floor -> flagged (advisory unless MATH binds)"
+    machine_checkable: true
+  - id: QRB2_SPREAD_Z_OVERLAY
+    form: >
+      spread_z = (spread_pips - trailing_median_60) / trailing_MAD_60 from data/spreads/{PAIR}_daily_spreads.parquet,
+      strictly causal; if spread_z > spread_z_threshold=3.0 on entry bar D+1, SUPPRESS the CB-event entry for that pair
+      (position=0). Pre-registered modifier of QRB-6: does NOT increment trial counter, does NOT consume a separate trial.
+    machine_checkable: true
+  - id: KILL_SWITCH_THRESHOLD
+    form: "pooled metric < kill_switch_threshold (= [VALUE FROM MATHEMATICIAN], derived fresh; NO cross-trial import) -> gate FAIL, cannot PASS"
+    machine_checkable: true
+
+claimed_domains:
+  - hypothesis-formulation-and-pre-registration
+  - falsification-criteria-design
+  - data-snooping-and-look-ahead-prevention
+
+evidence:
+  - "data/rates/cb_decision_dates.parquet — schema verified: columns [bank, currency, date, scheduled, verification, source_tier]; 842 rows; verification grades {verified-official:528, aggregator-only:271, training-memory-unverified:43} (pandas value_counts, no returns read)"
+  - "references/cb_decision_dates_PROVENANCE.md:39,294,352,420 — FED/BOJ/RBA verified-official all years; BOC verified-official 2019-2026 with 2010-2018 entirely absent (anti-fabrication)"
+  - "references/cb_decision_dates_PROVENANCE.md:89,337,408,465 — announcement-time facts: FED 14:00 ET, BOC 09:45 ET, BOJ end-of-MPM JST, RBA ~14:30 AEST, RBNZ 14:00 NZST"
+  - "data/processed/EURUSD_daily.parquet — index-only inspection: tz-aware UTC DatetimeIndex, all hour-of-day=0 (00:00 UTC daily-bar convention); terminus 2026-04-06 (no OHLCV/return values read)"
+  - "data/spreads/EURUSD_daily_spreads.parquet — schema verified: columns [spread_pips, hour, day_of_week]; tz-aware UTC DatetimeIndex (no return values read)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pm-acceptance-criteria.yaml:30-58,254-276 — instrument_universe pair x bank map; AC-1 sub-items (a)-(k)"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml:131-211,378-391 — verified counts 506/345 (A) and 716/491 (B); grade admissibility; C2/C4 conditions"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml:316-372 (QRB-6); :126-156 (QRB-2 spread_z definition)"
+  - ".fintech-org/trials.jsonl — trial fa0f982a registered at spawn; 41 lines (trial-count-at-spawn=41)"
+
+assumptions:
+  - "Trial fa0f982a registers at authoring spawn (charter step 3; R5/confirmatory precedent), NOT at receipt-cut. PM AC placed registration at receipt-cut; charter wins; conflict surfaced for consensus (matches trials.jsonl spawn note)."
+  - "The 00:00-UTC daily-bar convention is verified directly from the EURUSD_daily parquet index (all hour-of-day=0, tz-aware UTC, terminus 2026-04-06). There is NO CLAUDE.md 21:00-UTC note — the earlier '21:00-UTC CLAUDE.md' reference was a phantom citation (it came from a dispatch prompt, not CLAUDE.md) and is struck; the index check is the sole and sufficient evidence."
+  - "Banks-as-blocks: the bank-event (deduped market-day) is the independent unit; pair x event is NOT independent (shared currency factor). Block construction by bank label; power stated in bank-events."
+  - "The Politis-White block-length machinery (src/forex_system/harness/reality_check.py) is reused for the banks-as-blocks bootstrap; block construction by bank label is the extension. MATH owns any sparse-series adjustment."
+  - "Row-count / schema / index-timestamp / calendar inspection is data inventory, NOT a prohibited return examination (consistent with NHT/HoQR prior-wave boundary)."
+  - "K_pre=1 and K_post=2 are QR-elected frozen window lengths; MATH may co-sign or adjust the sign-alignment rule but the no-scan, one-frozen-length commitment is binding."
+  - "spread_z trailing window N=60 daily bars and spread_z_threshold=3.0 are QR-frozen pre-registered constants; not tuned post-hoc."
+
+confidence: medium
+
+body: |
+  ## QR PART I — QRB-6 pre-registration DRAFT (AC-1)
+
+  This is the Quant Researcher's AC-1 deliverable: the QRB-6 pre-registration DRAFT at
+  references/pre-registrations/qrb6_cb_event_study.md, with MATH-owned PART II left as
+  placeholders for assembly. It is authored before any FX return series is examined.
+
+  ### What is frozen here (QR-owned)
+  - Preamble & confirmatory-grade contract: trial fa0f982a echoed; full lineage
+    (kickoff -> HoQR two-finalist pick -> CRO BC-1 sequencing -> calendar acquisition ->
+    NHT re-screen 506/345); five VOID conditions (early peek, parameter drift, Scenario-B
+    manual activation, cross-trial constant import, wrong-trial-id/freeze-mismatch).
+  - Hypothesis (1 sentence) framed on the post-decision reaction/reversal component (the
+    part expected ALIVE), with the honest statement that the pre-announcement drift is
+    documented dead post-2015 and the post-2015 sub-window is a hard KILL.
+  - Event set & universe at CONF-grade exactness: Scenario A verified-official only
+    (506/345); the exact pair x bank map; same-day multi-bank = one market day; the
+    2015-01-01 (inclusive) structural-break boundary; the BOC 2010-2018 gap confound
+    disclosed; Scenario B as a pre-committed automatic extension (no peek, no new trial).
+  - Trading-window convention: 00:00-UTC daily-bar fact verified from the index; the
+    honest statement that bar D is the first decision-reflecting bar for every bank;
+    K_pre=1 / K_post=2 frozen with no scanning; entry_delay_bars=1 no-lookahead compliance.
+  - Falsification criteria (machine-checkable): primary block-bootstrap p (threshold = MATH);
+    mandatory post-2015 KILL overriding aggregate pass; reversal distinguishable from BOTH
+    0% and 100% with NO 65% point target; retirement triggers; the QRB-2 spread_z overlay
+    (definition source data/spreads/, frozen threshold 3.0, suppress-entry semantics) as a
+    pre-registered modifier.
+  - kill_switch_threshold: verbatim field with [VALUE FROM MATHEMATICIAN].
+  - Freeze mechanics: external write-once receipt (cut_freeze_receipt.py --target qrb6),
+    receipt-before-any-return-data-examination boundary, the .triggers.yaml sidecar reference.
+
+  ### Two paths at freeze
+  - Scenario A (primary, default-frozen): 506/345 deduped event-days, verified-official only.
+  - Scenario B (pre-committed automatic extension): activates iff the BoE/ECB C4 spot-check
+    artifact is committed; otherwise PENDING and no Scenario-B return data is touched.
+
+  ### Open items for MATH (PART II)
+  Statistic/null formalization; the 11-portfolio + 2-finalist multiplicity charge and the
+  registered post-charge alpha; banks-as-blocks block-bootstrap (block construction,
+  Politis-White block length, B, master_seed); power at 506/345; and the fresh
+  kill_switch_threshold derivation (no cross-trial import). These fill every [MATH] /
+  [VALUE FROM MATHEMATICIAN] placeholder.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md (this draft, authored)"
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md (format precedent: contract/VOID/kill_switch/sidecar conventions)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-qrb6-rescreen.yaml"
+  - "data/rates/cb_decision_dates.parquet (schema/grades only)"
+  - "references/cb_decision_dates_PROVENANCE.md"
+  - "data/spreads/EURUSD_daily_spreads.parquet (schema only)"
+  - "data/processed/EURUSD_daily.parquet (index/timestamp only — no returns)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

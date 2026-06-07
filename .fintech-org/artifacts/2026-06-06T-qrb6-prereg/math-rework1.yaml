@@ -1,0 +1,158 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: qrb6-prereg-math-rework1
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+claimed_domains:
+  - formal-modeling-and-derivations
+  - convergence-and-error-analysis
+
+boundary_convention:
+  description: >
+    The straddle band [0.0478, 0.0522] is CLOSED. Both endpoints and all interior values route
+    to RULE 4 (AMBIGUOUS). PASS requires p strictly < 0.0478 (strict less-than on both gates).
+    KILL requires p strictly > 0.0522 (strict greater-than). These inequalities appear once per
+    rule body in §4.2 and are echoed identically in the §4.3 table and the exhaustiveness gloss.
+    No other representation of the boundary exists in the document.
+  exact_inequalities:
+    PASS_condition: "p_post2015 < 0.0478 AND p_agg < 0.0478 (both strict)"
+    KILL_post2015: "p_post2015 > 0.0522 (strict)"
+    KILL_aggregate: "p_agg > 0.0522 (strict)"
+    STRADDLE_band: "[0.0478, 0.0522] CLOSED — routes to RULE 4 (AMBIGUOUS)"
+    boundary_at_0.0478: "routes to RULE 4, not PASS, not KILL"
+    boundary_at_0.0522: "routes to RULE 4, not PASS, not KILL"
+  pr04_prior_defect: >
+    RULE 1/2 used '>= 0.0478' in formula context and '> 0.0478' in gloss context; RULE 3
+    used '<= 0.0478'; at exactly p=0.0478 RULE 3 fired (PASS) while straddle semantics said
+    AMBIGUOUS — mutually contradictory. Fixed by raising KILL threshold to strict > 0.0522
+    and tightening PASS to strict < 0.0478, so boundary falls to RULE 4 unconditionally.
+
+sign_mapping_contract:
+  filtration: "F_{D-1} — sign_align_e is formed from information available through and including the close of bar D-1 only"
+  hypothesis_statement_requirement: >
+    The pre-reg freezes the UNCONDITIONAL post-event hypothesis: H0: E[r_e] <= 0, where
+    sign_align_e in F_{D-1}. If the QR's sign-mapping rule uses bar D's own return sign,
+    the hypothesis becomes a CONDITIONAL continuation (E[r_e | sign(ret_D)] <= 0), which
+    materially changes the statistic's sampling distribution, the HAC SE bias properties,
+    and the bootstrap recentering validity. A bar-D-using rule requires the pre-registration
+    to be re-opened before the freeze-receipt is cut (VOID §1.4(2) of the pre-reg).
+  bar_D_excluded_from_sign_align: true
+  entry_delay_bars: 1
+  K_post: 2
+  post_window_return_covers: "close of bar D to close of bar D+2 (two holding bars: D+1 and D+2)"
+  degenerate_case:
+    trigger: "ret_{D-1} = 0 (floating-point equality)"
+    convention: "sign_align_e = +1 (long bias; event INCLUDED, not excluded)"
+    implementation: "numpy.sign(ret_{D-1}) with zero→+1 mapping via explicit branch or clip"
+    runner_unit_test_required: true
+    rationale: >
+      Exact-zero daily returns are near-negligible in liquid FX at daily precision;
+      convention has no material effect on the statistic. +1 chosen over 0 (exclude, adds
+      sample-size noise) and over -1 (short bias, contradicts the positive directional hypothesis).
+
+assumptions:
+  - "sign_align_e is determined from F_{D-1} (bar D-1 close and earlier); bar D's own return is NOT an input to sign_align_e"
+  - "The event-window return r_e = sign_align_e * cumulative_net_return(D+1..D+2) is the outcome variable; sign_align_e is a fixed multiplier at the time of measurement"
+  - "The no-lookahead invariant (entry_delay_bars=1) ensures bar D's OHLC is observable at entry bar D+1; the filtration constraint is a hypothesis-coherence requirement, not a data-availability constraint"
+  - "At K=10000, MC-SE at p=0.05 is sqrt(0.05*0.95/10000) = 0.002179; the straddle half-width rounds to 0.0022; straddle band = [0.0478, 0.0522] is correct and unchanged by the boundary fix"
+  - "The straddle band boundaries 0.0478 = 0.05 - 0.0022 and 0.0522 = 0.05 + 0.0022 are computed at K=10000 and are n-invariant (MC-SE depends only on K and p, not on the event count)"
+  - "The ordered rule evaluation (RULE 0 → 1 → 2 → 3 → 4) guarantees mutual exclusivity and exhaustiveness; each case satisfies exactly one rule at any realized p-pair"
+
+assumptions_identified:
+  - "Zero-return degenerate case is near-negligible in liquid FX daily data — this is an empirical claim about the data; the frozen convention handles it regardless, but the runner unit test verifies it is handled correctly"
+  - "bar D's return being 'in F_{D-1}' is impossible by construction (bar D has not closed at D-1); the filtration ruling is therefore not an additional assumption but a tautological consequence of the timestamp convention in §4.1"
+  - "The conditional-vs-unconditional hypothesis distinction (§4.4.2) is stated for clarity of the QR's rule; the frozen statistic is the unconditional one regardless"
+
+failure_regimes:
+  - failure: "QR's sign-mapping rule uses sign(ret_D) — bar D's own return"
+    consequence: "Statistic measures conditional continuation, not unconditional post-event edge; HAC SE bias and bootstrap recentering properties change; pre-reg must be re-opened; VOID §1.4(2)"
+    detection: "Code review of the runner's sign_align computation before freeze-receipt"
+  - failure: "Runner maps zero ret_{D-1} to sign_align_e = 0 (flat) or excludes the event"
+    consequence: "Sample size reduction and/or statistical bias; degenerate case has non-zero probability in edge cases (e.g. bank holiday with zero-gap open=close); the frozen +1 convention must be enforced"
+    detection: "Runner unit test with synthetic zero-return event-day (required pre-freeze)"
+  - failure: "§4.2 RULES still carry the pre-patch inequalities (> 0.0478 for KILL, <= 0.0478 for PASS)"
+    consequence: "At boundary p=0.0478, RULE 3 fires (PASS) when the straddle semantics require RULE 4 (AMBIGUOUS); the decision functional is internally inconsistent"
+    detection: "PR-04 patch in math-rework1-patches.md must be applied to the pre-reg before consensus"
+  - failure: "§4.3 table's 'p-reject threshold' row still reads 'p <= 0.0478' after the rule bodies are patched"
+    consequence: "Inconsistency between the table and the rule bodies; runner implementer may code the table threshold and silently contradict the rules"
+    detection: "The §4.3 table row patch (three-row replacement) must be applied alongside the §4.2 rule body patch"
+
+alternative_methods:
+  - method: "Raise KILL threshold to >= 0.0478 (inclusive) and lower PASS threshold to < 0.0478 — keep straddle only in RULE 4 description"
+    verdict: "Equivalent outcome; the patch chosen (KILL strict > 0.0522, PASS strict < 0.0478) is cleaner because it makes the straddle band mechanically unreachable by RULES 1-3, so RULE 4 catches it without special-casing"
+  - method: "Insert an explicit RULE 1.5 (STRADDLE) between RULES 1 and 2, evaluated before the aggregate gate"
+    verdict: "Also correct; rejected as unnecessarily complex — adding a sixth named rule when the straddle falls naturally to RULE 4 (catch-all) adds structure without adding information"
+  - method: "Use F_D filtration (bar D's return available) for sign_align_e — bar D is already closed before entry"
+    verdict: "Informationally permissible but changes the hypothesis to a conditional continuation; changes what H0 means; not compatible with the frozen unconditional statistic in §§1-3; requires pre-reg re-open"
+
+proof_sketch_or_reference: >
+  PR-04 (boundary fix): The straddle band [0.0478, 0.0522] is the set of p-values
+  within one MC-SE of alpha=0.05 at K=10000. At K=10000, MC-SE = sqrt(p(1-p)/K) ≈
+  sqrt(0.05*0.95/10000) = 0.002179, rounded to 0.0022. Band = [0.05-0.0022, 0.05+0.0022]
+  = [0.0478, 0.0522]. With KILL firing on strict p > 0.0522 and PASS requiring strict
+  p < 0.0478, every p in [0.0478, 0.0522] fails both conditions and falls to RULE 4
+  (catch-all). The five-way partition {technical-fail} ∪ {p_post > 0.0522} ∪
+  {p_post ≤ 0.0522 AND p_agg > 0.0522} ∪ {p_post < 0.0478 AND p_agg < 0.0478 AND DSR≥0.95}
+  ∪ {else} covers the real line [0,1]² × DSR-space exhaustively and the sets are disjoint
+  by ordered evaluation (each rule's antecedent conditions out all prior rules).
+
+  NHT-F5 (filtration contract): the sign_align_e = f(F_{D-1}) assumption is load-bearing
+  for the unconditional H0 in §1.2. The proof is by construction: if sign_align_e in F_{D-1}
+  then r_e = sign_align_e * g(F_{D+2} \ F_D) where g is the K_post-window cumulative return.
+  Under H0: E[r_e] = E[sign_align_e] * E[g] when sign_align_e and g are independent
+  (pre-event sign independent of post-event return under the null of no edge). If instead
+  sign_align_e = sign(ret_D) in F_D, then r_e = sign(ret_D) * g where ret_D and g share
+  the post-decision information; the expectation E[r_e | F_D] differs from E[r_e] and the
+  studentized mean's null distribution shifts — the bootstrap recentering d_e = r_e - mean(r)
+  is no longer correctly zeroing the conditional mean.
+
+numerical_question_routed: ""
+
+evidence:
+  - "§4.2 of qrb6_cb_event_study.md (pre-patch): RULE 1 uses 'p_post2015 > 0.0478'; RULE 3 uses 'p ≤ 0.0478'; at p=0.0478 RULE 1 does not fire and RULE 3 fires → boundary buys PASS — directly verified by reading the document"
+  - "§3.3 of qrb6_cb_event_study.md: MC-SE at p=0.05, K=10000 = 0.00218; straddle = [0.0478, 0.0522] — stated in the document, consistent with standard formula"
+  - "§1.1 of PART II: 'sign_align_e is the a-priori directional hypothesis (pre-decision drift direction registered ex-ante per the QR hypothesis; NO data-driven sign fit)' — directly states F_{D-1} filtration; bar D is not mentioned as an input"
+  - "§4.3 of qrb6_cb_event_study.md: 'entry_delay_bars = 1', entry at D+1; K_post=2 bars — directly verified"
+  - "§4.1 of qrb6_cb_event_study.md: bar D is the first bar whose close reflects the decision; bar D-1 is strictly pre-decision — directly verified"
+
+confidence: high
+
+body: >
+  Two rework items addressed.
+
+  PR-04 (boundary precision): The pre-patch §4.2 contains a genuine internal contradiction.
+  At p=0.0478 exactly, RULE 1 (firing on p > 0.0478) does not fire, and RULE 3 (requiring
+  p <= 0.0478) does fire — so the boundary buys PASS. But the straddle-band semantics in
+  RULE 4 and §3.3 explicitly state that p=0.0478 is MC-indistinguishable from alpha=0.05
+  and must NOT buy PASS. The fix raises the KILL threshold to strict > 0.0522 and tightens
+  the PASS threshold to strict < 0.0478. Every p in [0.0478, 0.0522] — including exact
+  boundaries — then falls through RULES 1–3 and lands in RULE 4 (AMBIGUOUS/catch-all).
+  The five-rule structure is mutually exclusive and exhaustive. The inequality appears once
+  per rule body and is echoed identically in the exhaustiveness gloss and the §4.3 table.
+  No special-case language is needed: the straddle is mechanically unreachable by RULES 1–3.
+
+  NHT-F5 companion — sign-mapping compatibility contract (new §4.4): the QR's sign-mapping
+  rule must use only information in F_{D-1} (through close of bar D-1). This is already
+  implied by §1.1's "a-priori directional hypothesis (pre-decision drift direction; NO
+  data-driven sign fit)" but is not stated as an explicit contractual constraint visible to
+  the runner implementer. The new §4.4 makes it explicit: (a) filtration = F_{D-1}; bar D's
+  own return is excluded from sign_align_e; (b) if bar D's return sign were used, the
+  hypothesis changes to a conditional continuation — the unconditional H0 in §1.2 becomes
+  incorrect, the HAC SE and bootstrap recentering properties change, and the pre-reg must be
+  re-opened; (c) degenerate case (ret_{D-1}=0) → sign_align_e = +1; event included; runner
+  must implement and unit-test the zero-return branch before freeze-receipt. The section is
+  provided as both prose and a machine-readable YAML contract block for the runner implementer.
+  Decision: sound. Both patches are required before consensus ratification and freeze-receipt.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources: []
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

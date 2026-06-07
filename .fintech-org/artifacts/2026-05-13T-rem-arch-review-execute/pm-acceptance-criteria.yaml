@@ -1,0 +1,560 @@
+---
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: 2026-05-13T01:00:00Z
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0
+
+evidence:
+  - path: docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+    note: "CEO-ratified source (ratified 2026-05-13T00:30:00Z, Option B); consolidated
+      remediation backlog table and per-finding file:line citations"
+  - path: docs/decisions/CONSENSUS-SUMMARY_2026-05-12_arch_review_multi_strategy.md
+    note: "Status line confirms ratification timestamp; 3 top-risks and open items
+      enumerated"
+  - path: .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/nht-null-test-report.yaml
+    note: "NHT-ARCH-2 (Liskov, REM-1), NHT-ARCH-3 (duplication, REM-2),
+      NHT-ARCH-5 (per-strategy no-lookahead — OUT OF SCOPE this wave)"
+  - path: .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml
+    note: "CRO-Q1 (REM-5), CRO-Q3 (REM-6), CRO-Q4 (REM-7); BC-9-N4-COND-1..6"
+  - path: .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cto-architecture-review.yaml
+    note: "CTO-Major-1 (strategy_id field / REM-1), CTO-Major-2 (BaseRunner / REM-2),
+      CTO-Minor-1 (stagger / REM-4)"
+  - path: .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/principal-reviewer-review-report.yaml
+    note: "PR-F-001 (Liskov), PR-F-002 (duplication); both upheld by PR independent
+      verdict in CONSENSUS § PR adjudication"
+
+assumptions:
+  - "CEO ratification of Option B at 2026-05-13T00:30:00Z is authoritative per
+    CONSENSUS-SUMMARY status line; this dispatch proceeds on that basis"
+  - "The 6/10 strategy count for Liskov-violating __init__ overrides is NHT-verified
+    against codebase at review time; QD must re-verify count has not changed"
+  - "The 71.3% duplication figure (557 changed lines / 1943 total) was independently
+    reproduced by PR in CONSENSUS § PR adjudication; accepted as correct"
+  - "The CRO per-strategy allocation fairness RULE is not yet specified; CRO will
+    author that rule as a typed sub-artifact in wave-2 before QD implements REM-5"
+  - "REM-1 precedes REM-5: the strategy_id field must exist in Position before the
+    per-strategy allocation rule can key off it; ordering is enforced"
+  - "Commit and push deferred to CEO per hard-constraint 10; orchestrator stages
+    commit artifacts only"
+
+confidence: high
+
+body: >
+  Author acceptance-criteria for the engineering execution wave covering
+  REM-1, REM-2, REM-4, REM-5, REM-6, REM-7 from the ratified
+  arch-review CONSENSUS. Scope: Liskov fix, BaseRunner extraction,
+  config stagger, per-strategy allocation rule, Saxo 429 hardening,
+  drawdown ladder dual-instance.
+
+knowledge_gaps:
+  - id: KG-QD-1
+    topic: "Whether Position type currently has any strategy-identifying field that
+      partially satisfies AGG-4, or whether types.py:67-76 is the complete field
+      list as cited by CTO; QD must confirm before REM-1 implementation begins"
+    originating_role: pm
+    suggested_resolution: "QD reads src/forex_system/core/types.py:67-76 on task
+      start and confirms 6-field enumeration before patching"
+  - id: KG-QD-2
+    topic: "Whether create_strategy() call-sites beyond run_falsification_trial.py
+      exist (KG-PR-1 from review session was unresolved); all call-sites must be
+      updated for REM-1 to be complete"
+    originating_role: pm
+    suggested_resolution: "QD runs grep -r 'create_strategy' src/ scripts/ before
+      patching to enumerate all call-sites"
+  - id: KG-QD-3
+    topic: "Exact per-strategy fairness rule for REM-5 is not yet authored; CRO
+      must emit a typed rule sub-artifact before QD can implement exposure_aggregator
+      changes; if CRO sub-artifact is absent, REM-5 is blocked"
+    originating_role: pm
+    suggested_resolution: "CRO produces per-strategy allocation rule sub-artifact
+      at wave-2 start; PM gates QD on REM-5 until CRO artifact is present"
+  - id: KG-QD-4
+    topic: "Target module path for BaseRunner is specified as
+      src/forex_system/paper/base_runner.py (or similar) — the 'or similar' is
+      ambiguous; CTO must confirm canonical path before REM-2 extraction begins
+      to avoid rename churn"
+    originating_role: pm
+    suggested_resolution: "CTO emits a one-line path decision at wave-2 start"
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+# ── PM acceptance-criteria extension fields ─────────────────────────────────
+
+task-statement: >
+  Implement REM-1 Liskov fix, REM-2 BaseRunner extraction, REM-4 stagger,
+  REM-5 allocation rule, REM-6 Saxo 429 hardening, REM-7 drawdown dual-layer.
+
+deliverable-type: spec-completion
+
+deadline: 2026-05-20T23:59:59Z
+
+instrument-universe:
+  - EURUSD
+  - USDJPY
+  - GBPUSD
+
+hard-constraints:
+  - "paper_only: true — no live capital; fintech-org rule 1"
+  - "no_paper_loop_start_by_orchestrator: true — paper loop start is operator
+    action only; orchestrator MUST NOT invoke run_paper_trading_*.py"
+  - "preserves_no_lookahead_sacred_test: true — tests/backtest/test_engine.py::test_no_lookahead
+    MUST continue to pass after every change; failure is an immediate blocker"
+  - "bc8_lift_cond_1_through_7_preserved: true — BC-8-LIFT-COND-1..7 risk envelope
+    (kill switch, drawdown contract, account-key parity, heartbeat watchdog, fcntl
+    dispatch lock, JPY-correlated cap, swap accrual) MUST be preserved through
+    REM-2 BaseRunner extraction; integration test fixture required before
+    extraction is considered complete"
+  - "bc9_n4_cond_1_through_6_addressed_within_rem_scope: true — REM-1 closes
+    BC-9-N4-COND-1 (per-strategy fairness, strategy_id field); REM-5 closes
+    BC-9-N4-COND-1 (allocation rule); REM-6 closes BC-9-N4-COND-2 (Saxo
+    rate-limit); REM-7 closes BC-9-N4-COND-3 (drawdown dual-layer); wave-2 CRO
+    MUST verify collective coverage of COND-1..3 before signing off"
+  - "cro_oversight_on_rem_5_and_rem_7: true — QD MUST NOT merge REM-5 or REM-7
+    without CRO sign-off on the typed sub-artifact for each"
+  - "cto_oversight_on_rem_1_and_rem_2: true — QD MUST NOT merge REM-1 or REM-2
+    without CTO sign-off on the typed sub-artifact for each"
+  - "pr_blocking_findings_must_be_resolved_or_deferred_to_queue: true — any
+    Principal Reviewer blocking finding from wave-3 must be (a) fixed before
+    merge or (b) explicitly deferred to a named queue entry with CEO acknowledgment;
+    silent override is forbidden"
+  - "nht_dissent_append_only: true — NHT structural-skeptic record in
+    .agent-accountability/dissents/ is append-only and may not be modified by
+    any role including PM"
+  - "commit_and_push_deferred_to_ceo: true — orchestrator may stage commits but
+    MUST NOT push to origin; push is CEO-only action; this preserves the Wave-10
+    history-rewrite caveat (4 historic commits with account-key literals remain
+    in ancestry; CEO decides push timing)"
+
+criteria:
+
+  - id: REM-1
+    title: "Strategy ABC Liskov violation fix — type-system"
+    sources: ["AGG-4", "NHT-ARCH-2", "PR-F-001", "CTO-Major-1",
+              "CRO-BC-9-N4-COND-1"]
+    closes: ["NHT-ARCH-2", "PR-F-001", "AGG-1", "AGG-4", "BC-9-N4-COND-1 (partial)"]
+    files_to_modify:
+      - path: src/forex_system/core/interfaces.py
+        lines_cited: "35 (Strategy ABC __init__ signature)"
+        change: >
+          Extend Strategy ABC __init__ to accept an optional keyword argument
+          (e.g., rate_data=None or a typed factory-parameter dataclass) so all
+          construction paths are expressible through the single ABC contract
+          without a second-positional-argument override. CTO must approve the
+          exact signature at wave-2.
+      - path: src/forex_system/strategies/registry.py
+        lines_cited: "31 (create_strategy factory)"
+        change: >
+          Update factory to pass the new optional parameter through the
+          construction path; eliminate the inspect.signature dual-path pattern
+      - path: scripts/run_falsification_trial.py
+        lines_cited: "439-474 (_SELF_LOADING_RATE_STRATEGIES allowlist +
+          inspect.signature bypass)"
+        change: >
+          Remove _SELF_LOADING_RATE_STRATEGIES allowlist and the reflection-based
+          dual-path construction; replace with the unified ABC contract
+      - path: src/forex_system/core/types.py
+        lines_cited: "67-76 (Position fields)"
+        change: >
+          Add strategy_id field to Position (and Trade if absent); this is the
+          prerequisite for REM-5 per-strategy allocation keying; CTO confirms
+          exact field type (str | UUID | enum)
+      - path: "src/forex_system/strategies/<all 6 violating overrides>"
+        lines_cited: "6 of 10 strategy __init__ overrides (exact files to be
+          enumerated by QD via grep on task start)"
+        change: >
+          Update to use the corrected ABC signature; remove second-positional-arg
+          pattern from all 6 overrides
+    tests_required:
+      - id: REM-1-T1
+        description: >
+          Params-only construction path: construct every registered strategy
+          via create_strategy(name, params) WITHOUT a rate_data argument; assert
+          all 10 strategies instantiate without TypeError. This test MUST fail
+          today (before the fix) for the 6 violating strategies.
+        failure_before_fix: true
+      - id: REM-1-T2
+        description: >
+          Params+rate_data construction path: construct every strategy that
+          requires rate_data via the unified ABC contract (using the new optional
+          keyword); assert identical behavior to the pre-fix reflection path.
+          This test validates the fix is not a regression on carry/vol strategies.
+        failure_before_fix: false
+      - id: REM-1-T3
+        description: >
+          Reflection-bypass deleted: assert that _SELF_LOADING_RATE_STRATEGIES
+          and inspect.signature are absent from run_falsification_trial.py
+          after the fix (grep-based assertion in the test suite or a lint rule).
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        At strategy construction time, log a structured line with strategy_name,
+        strategy_id, construction_path (params_only | params_and_rate_data) so
+        post-hoc reconstruction can confirm which path fired. Level: INFO.
+    oversight_required: CTO
+    effort_days: 1
+    ordering: "MUST complete before REM-5 (strategy_id required by allocation rule)"
+
+  - id: REM-2
+    title: "BaseRunner extraction from paper scripts — architecture extraction"
+    sources: ["AGG-2", "NHT-ARCH-3", "PR-F-002", "CTO-Major-2"]
+    closes: ["NHT-ARCH-3", "PR-F-002", "CTO-Major-2", "AGG-2"]
+    files_to_modify:
+      - path: scripts/run_paper_trading_vt.py
+        lines_cited: "1005 LoC total; 557 changed lines (71.3% duplicated)"
+        change: >
+          Extract all BC-8-LIFT-COND-1..7 risk-envelope sections (kill switch
+          hook, drawdown contract instantiation, account-key parity gate,
+          heartbeat watchdog registration, fcntl dispatch lock, JPY-correlated
+          cap wiring, swap accrual call) into BaseRunner. Retain only the
+          vol_target_carry strategy-specific logic in this script. Script should
+          shrink by ~70% after extraction.
+      - path: scripts/run_paper_trading_carry_fred.py
+        lines_cited: "938 LoC total; 557 changed lines (71.3% duplicated)"
+        change: >
+          Same extraction as run_paper_trading_vt.py; retain only
+          carry_fred-specific logic. Script should shrink by ~70% after
+          extraction.
+      - path: "src/forex_system/paper/base_runner.py (new; CTO to confirm canonical path)"
+        lines_cited: "new file"
+        change: >
+          Implement PaperRunnerBase class (or equivalent) containing all
+          BC-8-LIFT-COND-1..7 risk-envelope logic as shared, tested,
+          single-source-of-truth methods. CTO must approve class name and module
+          path at wave-2 start (see KG-QD-4).
+    tests_required:
+      - id: REM-2-T1
+        description: >
+          Paper-loop regression fixture: instantiate BaseRunner (or both
+          concrete subclasses) with a mocked Saxo client and synthetic OHLCV
+          feed; execute one bar cycle; assert no exception and assert that all
+          7 BC-8-LIFT-COND properties hold (kill switch reachable, drawdown
+          contract active, account-key parity enforced, heartbeat watchdog
+          registered, fcntl lock acquired, JPY cap applied, swap accrual called).
+          This is the NHT-1 gap from the review session. MUST exist before
+          extraction is merged.
+        failure_before_fix: true
+      - id: REM-2-T2
+        description: >
+          BC-8-LIFT-COND integration unit: parametrize the 7 conditions
+          individually; each condition has a failure injection path that asserts
+          the system enters a safe-halt state rather than continuing without the
+          guard. This prevents silent drift across future N-strategy additions.
+        failure_before_fix: false
+      - id: REM-2-T3
+        description: >
+          LoC regression test (informational): after extraction, assert that
+          run_paper_trading_vt.py and run_paper_trading_carry_fred.py each have
+          fewer than 350 LoC (approximately 70% reduction target). This is a
+          CI check, not a hard gate, but must be documented.
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        BaseRunner.__init__ emits a structured startup log line listing which
+        BC-8-LIFT-COND guards are active (as a list of string IDs) so an operator
+        reviewing logs can confirm all 7 guards fired at launch. Level: INFO.
+      - >
+        Each guard's entry and exit must log strategy_id + condition_id +
+        outcome so post-incident reconstruction can determine which guard
+        intervened. Level: INFO.
+    oversight_required: CTO
+    effort_days_range: [3, 10]
+    effort_note: >
+      Effort estimate unresolved: CTO estimates 3 days; NHT estimates 1-2 weeks.
+      Adjudication deferred to CTO wave-2 estimate review. PM accepts the range;
+      deadline is 2026-05-20.
+    ordering: "Can start in parallel with REM-1; REM-4 may begin after REM-2 commits"
+
+  - id: REM-4
+    title: "Config dispatch-stagger to avoid 4-strategy bar-close burst collision"
+    sources: ["AGG-12", "CTO-Minor-1"]
+    closes: ["CTO-Minor-1", "AGG-12"]
+    files_to_modify:
+      - path: config/default.yaml
+        lines_cited: "dispatch_interval_seconds (or equivalent key; QD confirms
+          current key name)"
+        change: >
+          Add per-strategy dispatch offsets (stagger_offset_seconds: [0, 30, 60,
+          90] or equivalent) so strategies do not all poll at bar-close in the
+          same second. CTO confirms the offset values and config key structure.
+    tests_required:
+      - id: REM-4-T1
+        description: >
+          Unit test: given 4 strategy dispatch times computed from the staggered
+          config, assert that no two strategies share the same dispatch second
+          within a single 1800-second interval. Must also assert that the
+          stagger offsets do not shift any strategy's dispatch past the bar-close
+          window (configurable tolerance, e.g., ±5 minutes of close).
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        At dispatch time, log strategy_id + scheduled_dispatch_time +
+        actual_dispatch_time + offset_applied so cycle-skip investigations can
+        confirm stagger is respected. Level: DEBUG.
+    oversight_required: none (trivial; CTO is informed, not approving)
+    effort_days: 0.5
+    ordering: "Can start after REM-2 commits (config lives alongside paper scripts)"
+
+  - id: REM-5
+    title: "Per-strategy allocation rule in exposure_aggregator"
+    sources: ["AGG-5", "CRO-Q1", "CRO-BC-9-N4-COND-1"]
+    closes: ["CRO-Q1", "AGG-5", "BC-9-N4-COND-1 (with REM-1)"]
+    dependency: "REM-1 MUST complete first — strategy_id field on Position must
+      exist before exposure_aggregator can key per-strategy caps"
+    files_to_modify:
+      - path: src/forex_system/risk/exposure_aggregator.py
+        lines_cited: "46, 121-130, 148-216"
+        change: >
+          Replace last-write-wins under lock with a per-strategy fairness rule
+          authored by CRO (see KG-QD-3). The CRO sub-artifact must be present
+          at wave-2 before QD touches this file. The rule MUST be keyed on
+          strategy_id (added in REM-1) not on pair (current proxy).
+    tests_required:
+      - id: REM-5-T1
+        description: >
+          Property test (no-starvation): simulate 4 strategies each submitting
+          exposure requests in round-robin order; assert that no single strategy
+          receives zero allocation across N consecutive rounds where N is
+          configurable (default N=4). Test MUST fail today (last-write-wins
+          allows a first-mover to consume the entire budget).
+        failure_before_fix: true
+      - id: REM-5-T2
+        description: >
+          JPY-budget fairness test: 4 strategies each requesting 15% of JPY
+          budget; assert the allocated shares sum to ≤15% total and each
+          strategy receives a non-zero share (exact distribution determined by
+          CRO rule sub-artifact).
+        failure_before_fix: true
+      - id: REM-5-T3
+        description: >
+          Regression: existing 2-strategy vol_target_carry + carry_fred behavior
+          is preserved (aggregate exposure cap not breached) after the fairness
+          rule is applied.
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        Each exposure request must log strategy_id + requested_exposure +
+        allocated_exposure + cap_applied + fairness_rule_version so post-hoc
+        reconstruction can determine why a strategy was capped. Level: INFO.
+    oversight_required: CRO
+    effort_days: 1
+    ordering: "Blocked on REM-1 (strategy_id) and CRO rule sub-artifact"
+
+  - id: REM-6
+    title: "Saxo 429 / rate-limit hardening in SaxoClient"
+    sources: ["AGG-6", "CRO-Q3", "CRO-BC-9-N4-COND-2"]
+    closes: ["CRO-Q3", "AGG-6", "BC-9-N4-COND-2"]
+    files_to_modify:
+      - path: src/forex_system/saxo/client.py
+        lines_cited: "67-74, 94-110, 155, 211, 220, 230, 394"
+        change: >
+          (a) Replace bare raise_for_status() at lines 155, 211, 220, 230 with
+          a retry wrapper that inspects response.status_code == 429, reads
+          Retry-After header (or defaults to exponential backoff if absent), and
+          retries up to a configurable max (default 3). (b) Add startup jitter
+          (random delay 0–30s) to SaxoClient.__init__ so N=4 strategies do not
+          all open sessions simultaneously. (c) Implement a shared rate-limit
+          token bucket (thread-safe or process-safe, CTO decides) seeded at
+          120 req/min; all request methods deduct from the bucket before
+          issuing. (d) Update lines 67-74 and 94-110 to hook into the bucket.
+    tests_required:
+      - id: REM-6-T1
+        description: >
+          Mocked-server integration test: configure a mock Saxo server that
+          returns HTTP 429 with a Retry-After: 2 header on the first request
+          and HTTP 200 on the second; assert SaxoClient retries exactly once,
+          respects the header delay (within ±100ms tolerance), and the caller
+          receives the 200 response without raising. Test MUST fail today
+          (raise_for_status propagates 429 as unhandled HTTPError).
+        failure_before_fix: true
+      - id: REM-6-T2
+        description: >
+          Token-bucket rate test: simulate 4 concurrent strategy threads each
+          issuing 60 requests; assert total elapsed time ≥ 60 seconds (120
+          req/min shared bucket enforced) and assert no 429 is raised against
+          the mock server configured to rate-limit at 120/min.
+        failure_before_fix: false
+      - id: REM-6-T3
+        description: >
+          Startup jitter regression: instantiate SaxoClient 10 times in rapid
+          succession; assert that the distribution of startup delays has a
+          non-zero standard deviation (i.e., jitter is actually random, not
+          constant). Deterministic assertion: max(delays) - min(delays) > 1s.
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        Every 429 response must log request_url + retry_after_header_value +
+        retry_attempt_number + strategy_id at WARN level so rate-limit
+        frequency can be tracked in production.
+      - >
+        Token-bucket state (current_tokens, refill_rate, last_refill_time)
+        must be logged at DEBUG level at each request deduction for post-hoc
+        replay.
+    oversight_required: CTO (informed); CRO (verifies BC-9-N4-COND-2 closure)
+    effort_days_range: [1, 2]
+    ordering: "Can run in parallel with REM-5; no ordering dependency"
+
+  - id: REM-7
+    title: "Drawdown ladder dual-instance: per-strategy + aggregate"
+    sources: ["AGG-7", "CRO-Q4", "CRO-BC-9-N4-COND-3"]
+    closes: ["CRO-Q4", "AGG-7", "BC-9-N4-COND-3"]
+    files_to_modify:
+      - path: src/forex_system/risk/drawdown_contract.py
+        lines_cited: "42-46 (_peak_equity per-instance), 116-127, 129-216"
+        change: >
+          (a) Introduce AggregateDrawdownContract (or equivalent, CTO names it)
+          as a second DrawdownContract instance keyed to the combined book equity
+          across all strategies. (b) Both paper scripts (post-REM-2 BaseRunner)
+          must instantiate BOTH a per-strategy DrawdownContract and the aggregate
+          AggregateDrawdownContract. (c) Aggregate instance thresholds: CRO
+          specifies in wave-2 sub-artifact (expected: lower than per-strategy
+          thresholds to catch correlated shocks). (d) Aggregate instance triggers
+          regardless of per-strategy path — i.e., 4 strategies each at 8%
+          individual DD but aggregate at 18% MUST fire the aggregate kill-switch
+          even if no per-strategy threshold is breached.
+    tests_required:
+      - id: REM-7-T1
+        description: >
+          LTCM-class scenario test: simulate 4 strategies each at 8% per-strategy
+          drawdown (below any per-strategy threshold, e.g., 10%); aggregate
+          book equity at 18% (above aggregate threshold, e.g., 15%). Assert
+          aggregate DrawdownContract fires kill-switch. Assert per-strategy
+          DrawdownContracts do NOT fire. This scenario MUST produce the wrong
+          behavior today (no aggregate instance exists; aggregate DD bypasses
+          the ladder).
+        failure_before_fix: true
+      - id: REM-7-T2
+        description: >
+          Per-strategy isolation test: simulate strategy-A at 12% DD (above
+          per-strategy threshold); other strategies flat. Assert strategy-A's
+          DrawdownContract fires and halts strategy-A. Assert AggregateDrawdown-
+          Contract does NOT fire (aggregate book <15%). Verifies the two layers
+          are independent.
+        failure_before_fix: false
+      - id: REM-7-T3
+        description: >
+          Dual-trigger test: simulate strategy-A at 12% DD AND aggregate at 18%
+          DD simultaneously. Assert BOTH per-strategy and aggregate contracts
+          fire. Assert kill-switch log contains two trigger events with distinct
+          contract_type labels (per_strategy vs aggregate).
+        failure_before_fix: false
+    observability_boundaries:
+      - >
+        Each DrawdownContract trigger must emit a structured kill-switch-reason
+        log line with: contract_type (per_strategy | aggregate), strategy_id
+        (null for aggregate), current_drawdown_pct, threshold_pct, peak_equity,
+        current_equity, timestamp. Level: CRITICAL.
+      - >
+        Aggregate contract equity update must log at DEBUG: aggregate_equity,
+        aggregate_peak, current_aggregate_drawdown_pct, contributing_strategies
+        (list) so post-hoc reconstruction can verify the aggregate tracker was
+        receiving correct inputs.
+    oversight_required: CRO
+    effort_days: 1
+    ordering: "Can run in parallel with REM-5 and REM-6; BaseRunner (REM-2) is
+      the natural home for aggregate contract instantiation, so REM-7 code review
+      should coordinate with REM-2 merge timing"
+
+out-of-scope:
+  - "REM-3 (ML lifecycle interface, ModelServingInterface ABC) — DEFERRED
+    indefinitely per Option B; ml/ subdirectory greenfield is multi-month work"
+  - "REM-8 (kill-switch Property-4 live test at N=2) — OPERATOR-EXECUTED; requires
+    running paper session and deliberate kill-switch trigger; not orchestrator-doable;
+    defer to a separate ops runbook"
+  - "REM-9 (per-strategy no-lookahead probe) — gates strategy #3 paper deploy;
+    deferred to the strategy-#3 dispatch wave"
+  - "REM-10 (ML kill-switch + risk plumbing greenfield) — multi-month; deferred
+    with REM-3"
+  - "Strategy #3 (intraday-classical) algorithm selection — separate research
+    dispatch (Path P3 per CEO resume memory)"
+  - "Strategy #4 (ML) any work — DEFERRED per Option B"
+  - "Push to origin/main — CEO-only action; orchestrator does not push"
+  - "History rewrite of 4 historic commits with account-key literals — deferred;
+    CEO decides timing per Wave-10 caveat"
+  - "AGG-4 Position.strategy_id field addition beyond the type-system change
+    (any portfolio-level walk-forward, per AGG-13) — separate dispatch"
+  - "AGG-14 orchestrator redaction process gap (PR-F-005) — process change for
+    orchestrator layer, not code; out of scope for QD"
+  - "AGG-11 (kill-switch Property-4) — same as REM-8 exclusion"
+  - "AGG-13 (portfolio-level walk-forward) — separate multi-week dispatch"
+
+roles-staffed:
+  - role: cto
+    rationale: >
+      Oversight on REM-1 (ABC signature decision, exact field type for
+      strategy_id) and REM-2 (canonical BaseRunner path + class name,
+      effort adjudication). Also surfaces any execution-firewall violation
+      or tech-debt veto. Must approve wave-2 sub-artifacts for REM-1 and
+      REM-2 before QD implementation.
+    oversight_domains: [REM-1, REM-2]
+
+  - role: cro
+    rationale: >
+      Oversight on REM-5 (per-strategy allocation fairness rule must be
+      authored as a typed sub-artifact before QD touches exposure_aggregator)
+      and REM-7 (aggregate drawdown thresholds must be specified before QD
+      extends drawdown_contract.py). Also verifies collective coverage of
+      BC-9-N4-COND-1..3 by REM-1/5/6/7 at wave-2 close. Receives ONLY
+      structured fields (task-statement stripped per pm.md CRO dispatch rule).
+    oversight_domains: [REM-5, REM-7]
+    bc9_coverage_check: [BC-9-N4-COND-1, BC-9-N4-COND-2, BC-9-N4-COND-3]
+
+  - role: quant-developer
+    rationale: >
+      Sole implementer — the ONLY role permitted to write Python touching the
+      trading path. Implements REM-1, REM-2, REM-4, REM-5, REM-6, REM-7 in
+      the ordering specified. Does NOT start paper loop. Does NOT push. Does NOT
+      proceed on REM-5 until CRO allocation-rule sub-artifact is present.
+    implements: [REM-1, REM-2, REM-4, REM-5, REM-6, REM-7]
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Structural skeptic for the wave. Asks whether each REM fix actually
+      closes the failure mode cited (Liskov, duplication, Knight-Capital-class
+      drift, LTCM-class aggregate-DD blind spot) versus cosmetic patches.
+      Specifically: does removing the _SELF_LOADING_RATE_STRATEGIES allowlist
+      actually fix the contract, or does it just move the reflection bypass?
+      Does BaseRunner extraction actually create single-source-of-truth, or
+      does duplication re-emerge across new script variants? Dissent is
+      append-only; NHT cannot be overridden by other roles.
+    structural_focus:
+      - "REM-1: does the ABC fix seal the contract or relocate the leak?"
+      - "REM-2: does BaseRunner extraction hold under N=3 script addition or
+        does the pattern repeat?"
+      - "REM-7: does the aggregate contract fire BEFORE per-strategy contracts
+        mask the signal in the LTCM scenario?"
+
+  - role: principal-reviewer
+    rationale: >
+      Wave-3 code/test/observability review on QD artifacts. Receives REDACTED
+      wave-2 artifacts (decision/body/assumptions/confidence stripped per
+      pm.md independence rule; AGG-14 / PR-F-005 is this task's guard).
+      Blocking findings must be resolved before merge or explicitly deferred
+      to queue with CEO acknowledgment.
+    wave: 3
+    receives_redacted: true
+
+wraps_invocation_of: []
+
+anti-patterns-flagged:
+  - "Roles answering a different question than asked (e.g., CTO deciding the
+    per-strategy allocation rule — that is CRO's domain)"
+  - "Hidden scope expansion: 'while we're at it let's also fix REM-9 / REM-3'
+    — explicitly blocked by out-of-scope list"
+  - "Acceptance criteria changing after QD work begins — PM veto authority;
+    any scope change requires CEO acknowledgment"
+  - "Any softening of NHT dissent in wave-2 or wave-3 summaries — PM rejects
+    that consensus artifact"
+  - "Unstructured prose in CRO sub-artifacts — CRO will reject the dispatch
+    if structured fields are absent"
+  - "QD proceeding on REM-5 without the CRO allocation-rule sub-artifact
+    present — PM gates this explicitly"
+  - "QD merging REM-2 before REM-2-T1 (paper-loop regression fixture) passes
+    — the NHT-1 gap must be closed before extraction is considered done"

@@ -1,0 +1,359 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: survives  # survives = ratified-for-rerun; the one binding correction (FLAG A KILL=0.0422) is a numeric freeze fix, not a re-derivation, and is upheld in-line below
+timestamp: '2026-06-07T15:30:00Z'
+subtask_ref: qrb6-remediation-ratify
+subtask_id: 'qrb6-prereg-2026-06-06:phase1:task1.0'
+trial_id: fa0f982a
+claimed_domains:
+  - replication-protocol-design
+  - p-hacking-and-data-snooping-detection
+  - structural-skepticism-on-any-claim
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. MECHANICAL COST RULE  →  math-remediation-spec.yaml
+# ═══════════════════════════════════════════════════════════════════════════════
+cost_rule_ruling:
+  mechanical: yes
+  gameable: no
+  verdict: SURVIVES
+  rule_restated: >
+    frozen_spread_pips[P] = round(median(df["spread_pips"]), 2) over the FULL daily-spread
+    parquet (no date filter); slippage=0.50 and commission=0.50 uniform-constant for all 12
+    pairs; swap retains config/default.yaml for the existing 3 and applies a -1.5 pips/day
+    both-direction default for the 9 new pairs; USDCAD raw 45.00 ÷ 10 = 4.50 (fractional-pip
+    unit fix). Written once to config/cost_freeze_{ISO8601}.yaml, no override after write.
+  mechanical_basis: >
+    Every input is a deterministic function of on-disk data plus a single disclosed constant.
+    median() is zero-discretion; the uniform 0.50/0.50 constants remove all per-pair freedom;
+    the only judgment calls (USDCAD ÷10 and the -1.5 swap) are BOTH directionally pinned toward
+    KILL (higher cost ⇒ lower net return ⇒ higher p_post). There is no post-exposure knob that
+    can LOWER cost on any pair, which is the only direction that could manufacture a false PASS.
+  spot_checks:
+    # NHT independently re-read each parquet THIS session (cost inventory only; no return data).
+    # python3 pd.read_parquet(...)["spread_pips"].median(), round 2dp. All match the spec table.
+    - pair: USDCAD
+      nht_median: 45.00
+      spec_raw_median: 45.00
+      spec_corrected: 4.50
+      n_rows: 4237
+      match: yes
+      note: 'raw confirmed 45.00; ÷10 unit fix applied → 4.50 (see swap/usdcad ruling)'
+    - pair: EURUSD
+      nht_median: 2.20
+      spec_value: 2.20
+      n_rows: 4237
+      match: yes
+    - pair: USDJPY
+      nht_median: 2.40
+      spec_value: 2.40
+      n_rows: 4245
+      match: yes
+    - pair: AUDJPY
+      nht_median: 6.40
+      spec_value: 6.40
+      n_rows: 4237
+      match: yes
+    - pair: GBPJPY
+      nht_median: 7.00
+      spec_value: 7.00
+      n_rows: 4245
+      match: yes
+    - pair: EURGBP
+      nht_median: 5.00
+      spec_value: 5.00
+      n_rows: 4237
+      match: yes
+      note: 'Scenario-B-only pair; cost entry is a harmless superset, not used in the Scenario-A re-run'
+    - pair: CADJPY
+      nht_median: 5.70
+      spec_value: 5.70
+      n_rows: 4246
+      match: yes
+    - pair: AUDUSD
+      nht_median: 1.63
+      spec_value: 1.63
+      n_rows: 4237
+      match: yes
+    - pair: NZDUSD
+      nht_median: 4.20
+      spec_value: 4.20
+      n_rows: 4237
+      match: yes
+  spot_checks_summary: '9/9 independently re-computed medians match the spec table to 2 d.p. (task asked for ≥3; 9 done). Zero discrepancies.'
+  swap_default_ok: yes
+  swap_default_basis: >
+    -1.5 pips/day is NOT cherry-picked — it is the worst (most adverse) swap value present in any
+    of the 3 existing pairs (USDJPY short = -1.5) applied symmetrically to BOTH directions of all
+    9 new pairs. "Worst-of-existing applied to both legs" is a one-line mechanical rule with no free
+    parameter and a defensible conservative provenance. A genuinely cherry-picked value would be one
+    chosen to nudge the result; -1.5-both-ways is strictly the most cost-punishing choice available
+    from the existing data, i.e. the OPPOSITE of gaming. Total swap burden per event (2-day hold,
+    both legs adverse) = 3.0 pips, small vs. signal scale and directionally safe. ACCEPTED as a
+    disclosed conservative assumption (no measured Saxo swap data for these pairs in repo).
+  usdcad_unit_fix_ok: yes
+  usdcad_basis: >
+    Raw 45.00 at pip=0.0001 ⇒ 0.0045 price-spread ≈ 45× ECN, market-implausible. ÷10 → 4.50 is
+    consistent with wide-retail USDCAD and with the fractional-pip (points) storage hypothesis.
+    The fix is directionally NEUTRAL-to-conservative: if the ÷10 were wrong (45 really were pips),
+    costs would be ~10× larger and the gate even harder to PASS, so the fix cannot manufacture a
+    false PASS. CAVEAT (knowledge gap, non-blocking): the ÷10 is inferred from a market-norm sanity
+    check, not from reading the ingestion code. It is the single weakest mechanical link, but its
+    error direction is safe.
+  gameability_quantification: >
+    NHT independently sanity-checked Math's bias-analysis claim that the cost lever cannot move the
+    verdict across threshold. Recorded gap = t_kill 1.626 − t_obs_post 0.787 = 0.839 t-units;
+    max cost-lever shift ≈ 0.31 t-units (≈37% of the gap). Back-solving Math's sensitivity formula
+    Δt = √n·Δm/s at n=345, s=1% reproduces 0.31 from a ~1.67 bps mean-return shift, which is the
+    right order of magnitude for a ~10-pip cost spread averaged across 6 pairs over a fraction of
+    events. CONFIRMED at order-of-magnitude: no single cost choice (even chosen adversarially, having
+    SEEN p_post=0.2158) is large enough to cross the kill boundary. This is the structural reason the
+    cost rule is not gameable EVEN THOUGH the firm has already seen the void statistic.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. EXTRA-LOOK PENALTY  →  math-remediation-spec.yaml §extra_look_penalty + 2 orchestrator flags
+# ═══════════════════════════════════════════════════════════════════════════════
+extra_look_penalty_ruling:
+
+  # ── FLAG A (arithmetic) ────────────────────────────────────────────────────
+  flag_a_kill_threshold: 0.0422
+  flag_a_ruling: ORCHESTRATOR-UPHELD — Math's 0.0400 is WRONG; correct KILL threshold = 0.0422
+  flag_a_basis: >
+    The ORIGINAL frozen band is documented as SYMMETRIC ±MC_SE around the center: 0.0478 = 0.05 −
+    0.0022 and 0.0522 = 0.05 + 0.0022 (verified verbatim at math-rework1.yaml:60). The convention
+    is band = [center − MC_SE, center + MC_SE], with PASS strict < lower and KILL strict > upper.
+    The new center is alpha_look2 = 0.039995 ≈ 0.0400. Applying the SAME convention:
+      lower (p_reject)  = 0.039995 − 0.0022 = 0.037795 ≈ 0.0378   ✓ (matches Math)
+      upper (KILL)      = 0.039995 + 0.0022 = 0.042195 ≈ 0.0422   ✗ (Math wrote 0.0400)
+    Math set the UPPER bound equal to the center (0.0400) instead of center + MC_SE. That collapses
+    the straddle band to one-sided [0.0378, 0.0400] and is a half-width slip — it would mis-route a
+    p_post in (0.0400, 0.0422] to KILL when the original convention routes it to RULE-4 AMBIGUOUS.
+    NHT independently recomputed 0.042195 in python3 this session. The orchestrator's FLAG A is
+    correct and is UPHELD. FROZEN straddle band = [0.0378, 0.0422]; KILL fires strict p > 0.0422.
+
+  # ── FLAG B (method) ────────────────────────────────────────────────────────
+  flag_b_method: full-look
+  flag_b_ruling: >
+    FREEZE the FULL-LOOK treatment at t1=0.50 with the simple OBF incremental nominal
+    alpha_look2 = 0.05 − spend1 = 0.039995. Both sub-questions resolved CONSERVATIVELY:
+  flag_b_basis: >
+    (i) SHOULD THE VOID RUN COUNT AS A FULL LOOK?  Two readings:
+        (a) conservative/full-look — the data WAS accessed and a statistic WAS formed (p_post=0.2158),
+            so spend alpha as if it were a genuine interim look (what Math did);
+        (b) partial/leak-is-weak — Math's own bias analysis shows the leak is weakly informative
+            (230 of the events were fully UNREVEALED; every computed event changes in a clean re-run
+            because 9/12 pairs were zero-imputed and the CLEAN statistic was NEVER observed), so a
+            full-look penalty over-charges.
+        STEELMAN OF (b): the void statistic is genuinely near-uninformative — t1 could be argued as
+        low as 0.25 (3/12 pairs had real cost data), which at OBF gives p_reject 0.0473 ≈ the original
+        0.0478, i.e. almost no penalty. So (b) is not a strawman.
+        RULING: freeze (a) FULL-LOOK at t1=0.50 anyway. Rationale — this is a KILL gate and the firm
+        has ALREADY SEEN the void direction (p_post unfavourable). When the analyst has seen the data,
+        the burden of proof must run AGAINST leniency; the tightest defensible gate is the honest one.
+        t1=0.50 is the most alpha the OBF framework will defensibly spend at look-1 for a first-of-two
+        look (t1>0.50 would over-penalize the wrong way). This is the conservative, non-gameable freeze.
+    (ii) SIMPLE SUBTRACTION vs EXACT LAN-DEMETS TERMINAL NOMINAL?  The carry confirmatory precedent
+        (math-conf-final-qgr.yaml:34, verified) used 2-sided sfLDOF with spend1=0.005575 and a
+        TERMINAL NOMINAL p ≤ 0.048246 — the exact boundary-crossing nominal, which is LOOSER than a
+        naive 0.05−spend1 because it credits the positive correlation between the two overlapping-data
+        statistics. Therefore the simple incremental subtraction (0.039995) is CONSERVATIVE (tighter)
+        relative to the exact Lan-DeMets terminal nominal for the QRB-6 information timing. Adopting
+        the tighter value for a KILL gate is the safe error direction. ACCEPTED. (Note: the carry
+        number used a DIFFERENT, 2-sided spending function and different info timing, so it is a
+        precedent for the METHOD FAMILY, not a number to transplant. The 1-sided spend1=0.010005 is
+        the correct QRB-6 value, independently reproduced by NHT.)
+  frozen_p_reject: 0.0378
+  frozen_kill_threshold: 0.0422
+  frozen_straddle_band: '[0.0378, 0.0422]  (PASS strict p < 0.0378; KILL strict p > 0.0422; [0.0378,0.0422] → RULE-4 AMBIGUOUS)'
+  arithmetic_independently_verified: >
+    NHT python3 this session (scipy.stats.norm): z_alpha(1-sided,0.05)=1.644854; b1=z/√0.5=2.326174;
+    spend1=1−Φ(2.326174)=0.010005; alpha_look2=0.039995; MC_SE=√(0.05·0.95/10000)=0.002179≈0.0022;
+    p_reject=0.037795≈0.0378; KILL=0.042195≈0.0422. Sensitivity table (t1=0.25→0.0473, 0.33→0.0456,
+    0.50→0.0378, 0.75→0.0190) reproduced exactly. Math's lower bound 0.0378 is RIGHT; only the upper
+    bound was slipped.
+  n_sel_unchanged: yes
+  dsr_unchanged: yes
+  orthogonality_ruling: >
+    AGREE with Math: N_sel=3 (selection-space multiplicity, argmax-over-proposals charge) and the OBF
+    look-penalty (temporal/sequential multiplicity, same-data-accessed-twice charge) are orthogonal
+    axes. They multiply; neither subsumes the other. The void run does NOT increment N_sel: it
+    harvested no VALID realized Sharpe for cross-proposal selection (the statistic was on corrupted
+    data) and was a technical failure, not a deliberate interim selection. Charging it to BOTH N_sel
+    and the p-gate would be double-counting the SAME look. DSR gate stays 0.95 / SR0_pp 0.026861.
+    CONFIRMED: no double-count; the OBF p-gate tightening (0.0478→0.0378 reject / 0.0522→0.0422 kill)
+    is the complete and only adjustment for the extra look.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. GAP-CLOSURE FIXES  →  qd-remediation-fixes.yaml + scripts/run_qrb6.py + cut_freeze_receipt.py
+# ═══════════════════════════════════════════════════════════════════════════════
+fixes_ruling:
+  exclude_not_impute:
+    verdict: CONFIRMED
+    evidence: >
+      scripts/run_qrb6.py:836-844 (live) and :631-641 (dry-run): empty pair_returns → `continue`,
+      event EXCLUDED from y_e, NEVER assigned 0.0. The void's zero-imputation line is GONE. Two
+      distinct paths: event_excluded_all_pairs_suppressed (§5.5 legitimate, no counter) vs cost/data
+      gap (increments n_event_cost_or_data_gap). Pair-level cost gap also emits a loud warnings.warn
+      (:731-737) and a structured log. NHT read the source directly.
+  manifest_interlock:
+    verdict: CONFIRMED
+    evidence: >
+      scripts/run_qrb6.py:100 _COST_MANIFEST_PATH, :109-112 _QRB6_REGISTERED_PAIRS (11 pairs),
+      :153 _load_cost_manifest → RULE_0_TECHNICAL_FAILURE if manifest absent (:186-189) or any
+      registered pair missing (:221-231); live positivity gate RULE_0 if any spread_pips==0
+      (:474-485). RealisticCostModel is wired to manifest-loaded _pair_infos (:814), not bare
+      DEFAULT_PAIRS. Manifest SHA + path recorded in result YAML. The Mathematician CANNOT run live
+      on an unfilled (zero-spread) manifest.
+  coverage_gate:
+    verdict: CONFIRMED
+    evidence: >
+      scripts/cut_freeze_receipt.py:203 _assert_qrb6_cost_coverage, called at :377 inside
+      `if args.target == "qrb6"` (:375), BEFORE prereg_sha256. Gate 1 presence (:250-260
+      sys.exit(1)) + Gate 2 positivity spread_pips>0 (:262-276 sys.exit(1)). A receipt CANNOT be
+      cut on a manifest with any missing or zero-spread registered pair. Interlock chain:
+      manifest gate → receipt gate → CEO-ack gate → run. Backed by 25 committed tests
+      (tests/harness/test_qrb6_cost_coverage.py per qd-remediation-fixes.yaml; QD reports 457 harness
+      + sacred test_no_lookahead 9/9 green — NOT re-run by NHT this session, see knowledge_gaps).
+  eleven_pair_universe:
+    verdict: CONFIRMED-CORRECT
+    evidence: >
+      _QRB6_REGISTERED_PAIRS = {EURUSD,GBPUSD,USDJPY,USDCAD,AUDUSD,NZDUSD,EURJPY,GBPJPY,AUDJPY,
+      CADJPY,NZDJPY} = 11 (run_qrb6.py:109-112). Scenario-A banks = FED,BOJ,RBA,BOC (:381).
+      EURGBP correctly EXCLUDED — it is a Scenario-B-only (BOE/ECB) pair, not in any Scenario-A
+      bank's pair list (:108 comment + bank-pair map). The cost-freeze manifest carries 12 entries
+      as a harmless SUPERSET; only the 11 are gated for the Scenario-A re-run.
+  remaining_silent_path:
+    verdict: NONE-MATERIAL
+    detail: >
+      Five independent enforcement layers (manifest-loader coverage, live positivity gate, per-event
+      cost-gap counter+WARNING, counter-in-result-YAML, freeze-receipt gate) make a SILENT cost gap
+      structurally impossible: any gap is either a hard RULE_0 exit or a loud, auditable counter.
+      Residual NON-silent risks (acknowledged, do NOT block re-run): (a) the USDCAD ÷10 inference is
+      not code-verified, but its error direction is KILL-safe; (b) if the QRB-6 block bootstrap does
+      not drop degenerate zero-variance (RBA/BOC) blocks, that affects interpretability of a KILL,
+      not the existence of a silent cost gap — carried forward from the bias-analysis knowledge gap.
+      No remaining path produces a HIDDEN cost corruption.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DECISION
+# ═══════════════════════════════════════════════════════════════════════════════
+rerun_authorized:
+  yes_no: yes
+  conditions:
+    - 'BINDING FREEZE CORRECTION (FLAG A): the frozen KILL threshold is 0.0422, NOT Math''s 0.0400. Freeze the straddle band as [0.0378, 0.0422] (PASS strict <0.0378; KILL strict >0.0422; band → RULE-4 AMBIGUOUS). Math''s spec lines 228-232/250 must be corrected to 0.0422 before the prereg/receipt is cut. This is a numeric typo fix, not a re-derivation — it does not reopen the design.'
+    - 'The cost-freeze manifest config/cost_freeze_qrb6.yaml must be filled by the Mathematician with the mechanical-rule values (spread medians as verified, slippage=commission=0.50, swap per rule, USDCAD=4.50) — the live positivity gate RULE_0 enforces this automatically; the re-run physically cannot start on the zero-placeholder manifest.'
+    - 'The cut_freeze_receipt coverage gate must pass (all 11 registered pairs present + positive) before the freeze-receipt is cut — already enforced in code.'
+    - 'No new selection occurs at re-run (N_sel stays 3, DSR stays 0.95/SR0_pp 0.026861). If the re-run changes the hypothesis or pair set, this ratification is VOID and the look-penalty must be re-derived.'
+  authorization_scope: >
+    This ratifies the remediation PACKAGE (mechanical cost rule + extra-look penalty + gap-closure
+    fixes) as the honest gate, per nht-run-integrity-adjudication.yaml, and AUTHORIZES the trial
+    fa0f982a clean re-run against the FROZEN gate [PASS <0.0378, KILL >0.0422, DSR≥0.95]. It does NOT
+    pre-judge the re-run outcome.
+
+dissent-statement: ''  # No dissent. The single correction (FLAG A KILL=0.0422) is an upheld arithmetic fix, freezable in-line, not a design objection. Ratified-for-rerun with that value frozen.
+
+severity: low  # one numeric freeze correction (0.0400→0.0422); everything else verified clean
+contamination-check: >
+  No lookahead introduced by the remediation. The cost rule reads spread parquet medians over the
+  full file (no date-conditioning on the event window), so cost is not a function of the realized
+  event return. The extra-look penalty TIGHTENS the gate (anti-snooping), and the exclude-not-impute
+  fix REMOVES the ~50.7% fabricated-zero contamination that voided the original run. The firm HAS seen
+  the void statistic (p_post=0.2158); the gameability quantification (cost lever 0.31 << gap 0.839 t)
+  shows no cost knob can flip the verdict, neutralizing the seen-data contamination risk.
+
+evidence:
+  - type: parquet-read
+    claim: '9 spread medians independently re-computed match spec table to 2dp'
+    detail: 'USDCAD 45.00(n4237) EURUSD 2.20(n4237) USDJPY 2.40(n4245) AUDJPY 6.40(n4237) GBPJPY 7.00(n4245) EURGBP 5.00(n4237) CADJPY 5.70(n4246) AUDUSD 1.63(n4237) NZDUSD 4.20(n4237)'
+    method: 'python3 pd.read_parquet(data/spreads/{PAIR}_daily_spreads.parquet)[spread_pips].median(), round 2dp, this session'
+  - type: closed-form-recompute
+    claim: 'OBF: spend1=0.010005, alpha_look2=0.039995, p_reject=0.0378, KILL(sym)=0.0422, MC_SE=0.002179'
+    method: 'python3 scipy.stats.norm this session'
+  - type: file-read
+    claim: 'Original frozen band SYMMETRIC ±MC_SE: 0.0478=0.05-0.0022, 0.0522=0.05+0.0022'
+    file: '.fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-rework1.yaml:60'
+  - type: file-read
+    claim: 'Carry confirmatory precedent used Lan-DeMets sfLDOF terminal nominal p<=0.048246 (looser than simple subtraction)'
+    file: '.fintech-org/artifacts/2026-06-06T-r5-confirmatory/math-conf-final-qgr.yaml:34'
+  - type: file-read
+    claim: 'exclude-not-impute live + dry-run'
+    file: 'scripts/run_qrb6.py:631-641,836-844'
+  - type: file-read
+    claim: 'manifest RULE_0 interlock + live positivity gate'
+    file: 'scripts/run_qrb6.py:153,186-189,221-231,474-485'
+  - type: file-read
+    claim: 'coverage gate presence+positivity, called for qrb6 before receipt'
+    file: 'scripts/cut_freeze_receipt.py:203,250-276,375-377'
+  - type: file-read
+    claim: '11 registered Scenario-A pairs, EURGBP excluded as Scenario-B-only'
+    file: 'scripts/run_qrb6.py:108-112,381'
+  - type: file-read
+    claim: 'cost-lever bias claim: gap 0.839 t-units, max cost shift ~0.31 t-units'
+    file: '.fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-bias-analysis.yaml:24-26,82'
+
+assumptions:
+  - 'QD test counts (457 harness + 25 coverage + 9 sacred green, ruff clean) are taken from qd-remediation-fixes.yaml as reported; NHT verified the SOURCE implementing every gate but did not re-execute the pytest suite this session (verification was scoped to source-truth + arithmetic + cost inventory per the READ-only + arithmetic-only instruction).'
+  - 'The void statistic context (p_agg=0.0791, p_post=0.2158, t_obs_post=0.787, dsr=0.768) is taken from math-bias-analysis.yaml and the task brief; not independently recomputed (return-data computation is forbidden this session).'
+  - 'USDCAD ÷10 unit fix is inferred from market-norm sanity, not from reading the ingestion pipeline; its error direction is KILL-safe.'
+
+confidence: high
+confidence_calibration: >
+  HIGH on cost-rule mechanicalness and non-gameability (9/9 medians independently verified; cost-lever
+  order-of-magnitude confirmed). HIGH on FLAG A (the ±MC_SE convention is documented verbatim and the
+  arithmetic independently reproduces 0.0422). HIGH on the three fixes (read every gate in source).
+  MODERATE on FLAG B's exactness — the simple-subtraction-vs-Lan-DeMets choice is provably in the
+  conservative direction, but the precise terminal nominal for the QRB-6 correlation structure was not
+  numerically solved (it is looser, so the frozen 0.0378/0.0422 is a safe over-tightening, not a risk).
+
+body: |
+  RATIFICATION GATE — QRB-6 remediation package, trial fa0f982a. Per my own
+  nht-run-integrity-adjudication.yaml, the clean re-run is authorized ONLY after a mechanical
+  cost rule and an extra-look penalty are ratified and frozen. This is that gate.
+
+  DELIVERABLE 1 — COST RULE: MECHANICAL, NOT GAMEABLE. SURVIVES.
+  I independently re-computed 9 of the 12 spread medians from the daily parquet files (cost
+  inventory only, no return data). All 9 match the spec table to 2 d.p. with the stated row counts.
+  The rule is a deterministic function of on-disk data plus two disclosed constants (0.50 slip,
+  0.50 comm) and two disclosed adjustments (USDCAD ÷10, -1.5 swap), every one of which is pinned
+  toward KILL. There is no post-exposure knob that can LOWER any pair's cost — the only direction
+  that could fake a PASS. The -1.5 swap is "worst-of-existing applied both ways," the opposite of
+  cherry-picking. I sanity-checked Math's bias claim: the cost lever moves the statistic ~0.31
+  t-units against a 0.839 t-unit gap to the kill boundary (~37%), so even an adversary who has seen
+  p_post=0.2158 cannot push the verdict across threshold by choosing costs. Non-gameable confirmed.
+
+  DELIVERABLE 2 — EXTRA-LOOK PENALTY: two orchestrator flags, ruled definitively.
+  FLAG A (arithmetic): UPHELD. The original frozen band is SYMMETRIC ±MC_SE around its center
+  (0.0478 = 0.05−0.0022, 0.0522 = 0.05+0.0022; math-rework1.yaml:60). By that same convention the
+  new band is [0.039995−0.0022, 0.039995+0.0022] = [0.0378, 0.0422]. Math wrote the upper bound as
+  0.0400 (the center itself) — a half-width slip. The correct FROZEN KILL threshold is 0.0422, not
+  0.0400. I reproduced 0.042195 in python3. Math's LOWER bound 0.0378 is correct.
+  FLAG B (method): freeze FULL-LOOK at t1=0.50 with the simple OBF incremental nominal. (i) The void
+  run is treated as a full look even though the leak is only weakly informative — because this is a
+  KILL gate and the firm has seen the data, leniency must be resisted; t1=0.50 is the most alpha
+  defensibly spent at look-1. (ii) Simple subtraction (0.039995) is CONSERVATIVE relative to the
+  exact Lan-DeMets terminal nominal: the carry confirmatory precedent shows the terminal nominal
+  (p≤0.048246 there) is LOOSER than naive subtraction because it credits the two looks' positive
+  correlation. Over-tightening is the safe direction for a kill gate. FROZEN: p_reject 0.0378,
+  KILL 0.0422, band [0.0378, 0.0422]. N_sel stays 3, DSR stays 0.95/SR0_pp 0.026861 — selection and
+  temporal multiplicity are orthogonal; the void run earns no N_sel increment (no valid realized
+  Sharpe harvested). No double-count. AGREE.
+
+  DELIVERABLE 3 — GAP-CLOSURE FIXES: all three confirmed in source, silent cost-gap impossible.
+  exclude-not-impute (run_qrb6.py:836-844/:631-641): zero-imputation line gone, empty events
+  `continue`. manifest interlock (:153,:186-231,:474-485): absent/incomplete/zero-spread manifest →
+  RULE_0. coverage gate (cut_freeze_receipt.py:203,:250-276,:375-377): receipt refuses to cut unless
+  all 11 registered pairs are present and positive. 11-pair Scenario-A universe correct; EURGBP
+  rightly excluded as Scenario-B-only. Five enforcement layers; no HIDDEN cost-corruption path remains.
+
+  VERDICT: SURVIVES = ratified-for-rerun, with the binding freeze correction that KILL = 0.0422.
+
+knowledge_gaps:
+  - 'pytest suite (457+25+9) not re-executed by NHT this session — taken as reported by QD; source of every gate was read and verified.'
+  - 'USDCAD ÷10 unit fix not code-verified against the ingestion pipeline (error direction is KILL-safe).'
+  - 'Whether the QRB-6 block bootstrap drops degenerate zero-variance (RBA/BOC) blocks — affects KILL interpretability, not silent-gap existence.'
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

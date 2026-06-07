@@ -95,6 +95,21 @@ _DRY_RUN_RESULT_PATH = Path(
 _CALENDAR_PATH = Path("data/rates/cb_decision_dates.parquet")
 _PROCESSED_DATA_DIR = Path("data/processed")
 _SPREADS_DATA_DIR = Path("data/spreads")
+# Fix 2: frozen cost manifest path — Mathematician authors values; loader wires here.
+# If absent → RULE_0_TECHNICAL_FAILURE (same discipline as missing receipt).
+_COST_MANIFEST_PATH = Path("config/cost_freeze_qrb6.yaml")
+
+# QRB-6 registered pair universe (§3.2, frozen, 11 unique Scenario A pairs).
+# This is the ground-truth universe for the cost-coverage gate (Fix 3).
+# FED: EURUSD, GBPUSD, USDJPY, USDCAD, AUDUSD, NZDUSD (6)
+# BOJ: USDJPY, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY (6)
+# RBA: AUDUSD, AUDJPY (2)
+# BOC: USDCAD, CADJPY (2)
+# Unique union = 11 pairs (EURGBP is Scenario B only; not in any Scenario A bank).
+_QRB6_REGISTERED_PAIRS: frozenset[str] = frozenset({
+    "EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "NZDUSD",
+    "EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "NZDJPY",
+})
 
 # Refusal message (printed to stderr when no receipt or no --ceo-ack)
 _REFUSAL_MESSAGE = (
@@ -133,6 +148,115 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _load_cost_manifest(manifest_path: Path) -> tuple[dict, str]:
+    """Load the QRB-6 frozen cost manifest and return a PairInfo dict.
+
+    Fix 2 (remediation 2026-06-07): per-pair costs come from a frozen manifest
+    at config/cost_freeze_qrb6.yaml authored by the Mathematician under a
+    mechanical rule ratified by NHT.  Hardcoding costs or reading DEFAULT_PAIRS
+    is FORBIDDEN here — it would expose only the 3 original pairs.
+
+    Interlock:
+      - If the manifest file is absent → RULE_0_TECHNICAL_FAILURE.
+      - If a registered QRB-6 pair is absent from the manifest → RULE_0_TECHNICAL_FAILURE.
+      - If a registered pair has spread_pips == 0.0 and the manifest is not marked
+        as a test stub → loud WARNING (placeholder not yet filled by Mathematician;
+        RULE_0 in live mode).
+
+    The manifest sha256 is logged for audit traceability.
+
+    Parameters
+    ----------
+    manifest_path:
+        Absolute path to config/cost_freeze_qrb6.yaml.
+
+    Returns
+    -------
+    dict[str, PairInfo]
+        Mapping of UPPERCASE pair symbol → PairInfo (same type as DEFAULT_PAIRS).
+    """
+    from forex_system.core.types import PairInfo
+
+    if not manifest_path.exists():
+        _log(
+            "qrb6_runner.cost_manifest_missing",
+            manifest_path=str(manifest_path),
+            action="RULE_0_TECHNICAL_FAILURE",
+        )
+        print(
+            f"RULE_0_TECHNICAL_FAILURE: cost manifest not found: {manifest_path}\n"
+            "The Mathematician must author config/cost_freeze_qrb6.yaml before the "
+            "remediated re-run is authorized.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    manifest_sha = _sha256_file(manifest_path)
+    _log(
+        "qrb6_runner.cost_manifest_loaded",
+        manifest_path=str(manifest_path),
+        manifest_sha256=manifest_sha,
+    )
+
+    with open(manifest_path) as fh:
+        manifest = yaml.safe_load(fh)
+
+    raw_pairs = manifest.get("pairs", [])
+    pair_dict: dict[str, PairInfo] = {}
+    for entry in raw_pairs:
+        sym = str(entry["symbol"]).upper()
+        pair_dict[sym] = PairInfo(
+            symbol=sym,
+            pip_value=float(entry["pip_value"]),
+            spread_pips=float(entry["spread_pips"]),
+            slippage_pips=float(entry["slippage_pips"]),
+            commission_pips=float(entry["commission_pips"]),
+            swap_long_pips_per_day=float(entry["swap_long_pips_per_day"]),
+            swap_short_pips_per_day=float(entry["swap_short_pips_per_day"]),
+        )
+
+    # Coverage gate: every registered pair must appear in the manifest.
+    missing = _QRB6_REGISTERED_PAIRS - set(pair_dict.keys())
+    if missing:
+        _log(
+            "qrb6_runner.cost_manifest_coverage_fail",
+            missing_pairs=sorted(missing),
+            registered_pairs=sorted(_QRB6_REGISTERED_PAIRS),
+            manifest_pairs=sorted(pair_dict.keys()),
+            action="RULE_0_TECHNICAL_FAILURE",
+        )
+        print(
+            f"RULE_0_TECHNICAL_FAILURE: cost manifest missing pairs: {sorted(missing)}\n"
+            "Every QRB-6 registered pair must have a non-zero cost entry.\n"
+            f"Manifest: {manifest_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Positivity gate: spread_pips must be > 0 for every registered pair in live mode.
+    # (In test-stub manifests, zeros are acceptable for the unit tests; the live gate
+    # is applied separately inside _run_pipeline for live runs.)
+    zero_spread = [
+        sym for sym in _QRB6_REGISTERED_PAIRS
+        if pair_dict[sym].spread_pips <= 0.0
+    ]
+    if zero_spread:
+        _log(
+            "qrb6_runner.cost_manifest_zero_spread_pairs",
+            zero_spread_pairs=sorted(zero_spread),
+            note="placeholder_values_not_yet_authored_by_mathematician",
+            level="WARNING",
+        )
+        # This is a WARNING at load time; the live gate enforces positivity.
+
+    _log(
+        "qrb6_runner.cost_manifest_ok",
+        pairs_loaded=sorted(pair_dict.keys()),
+        manifest_sha256=manifest_sha,
+    )
+    return pair_dict, manifest_sha
 
 
 def _validate_receipt(receipt_path: Path) -> dict:
@@ -274,6 +398,7 @@ def _make_stub_returns(
 def _run_pipeline(
     receipt: dict,
     dry_run: bool,
+    cost_manifest_path: Path | None = None,
 ) -> dict:
     """Execute the full QRB-6 pipeline.
 
@@ -283,6 +408,8 @@ def _run_pipeline(
         Validated freeze-receipt dict (constants already interlock-checked).
     dry_run:
         If True, use synthetic stub data and skip data/processed reads.
+    cost_manifest_path:
+        Override cost manifest path (for testing; defaults to _COST_MANIFEST_PATH).
 
     Returns
     -------
@@ -313,8 +440,13 @@ def _run_pipeline(
     sr0_pp: float = float(receipt["sr0_pp"])
     dsr_threshold: float = float(receipt["dsr_threshold"])
     spread_z_threshold: float = float(receipt["spread_z_threshold"])  # NO silent default — guard-checked
-    p_kill_threshold: float = float(receipt.get("p_straddle_hi", 0.0522))
-    p_reject_threshold: float = float(receipt.get("p_reject_threshold", 0.0478))
+    # Hard-key lookups — NO silent fallbacks (RULE-0 if field missing).
+    # Silent defaults (get("p_straddle_hi", 0.0522) / get("p_reject_threshold", 0.0478))
+    # were the exact same class of bug that caused the spread_z void; removed here.
+    # The receipt carries these fields (OBF extra-look penalty applied 2026-06-07;
+    # former void-run values 0.0522 / 0.0478 are NOT acceptable fallbacks).
+    p_kill_threshold: float = float(receipt["p_straddle_hi"])
+    p_reject_threshold: float = float(receipt["p_reject_threshold"])
     kill_switch_threshold: float = float(receipt["kill_switch_threshold"])
 
     _log(
@@ -329,6 +461,45 @@ def _run_pipeline(
         kill_switch_threshold=kill_switch_threshold,
         source="freeze_receipt",
     )
+
+    # --- Fix 2: Load frozen cost manifest (RULE_0 if absent or incomplete) ---
+    # In dry-run, manifest loading is skipped; costs are not applied to synthetic data.
+    # In live mode, the manifest MUST be present and complete for all 12 registered pairs.
+    # After the Mathematician's mechanical cost rule is committed, ZERO pairs should hit
+    # the data/cost-gap path — any that do are a LOUD WARNING with a counter in the result.
+    _manifest_sha: str = "DRY_RUN_NO_MANIFEST"
+    _pair_infos: dict = {}  # populated in live mode
+    if not dry_run:
+        _mpath = cost_manifest_path if cost_manifest_path is not None else _COST_MANIFEST_PATH
+        _pair_infos, _manifest_sha = _load_cost_manifest(_mpath)
+
+        # Live-mode positivity gate: spread_pips must be > 0 for all registered pairs.
+        # A zero spread means the Mathematician has not yet filled in the value.
+        zero_spread_pairs = [
+            sym for sym in _QRB6_REGISTERED_PAIRS
+            if _pair_infos[sym].spread_pips <= 0.0
+        ]
+        if zero_spread_pairs:
+            _log(
+                "qrb6_runner.cost_manifest_positivity_fail",
+                zero_spread_pairs=sorted(zero_spread_pairs),
+                action="RULE_0_TECHNICAL_FAILURE",
+                note="Mathematician must fill spread_pips > 0 for all 12 pairs before live run",
+            )
+            print(
+                f"RULE_0_TECHNICAL_FAILURE: spread_pips == 0 for pairs: {sorted(zero_spread_pairs)}\n"
+                "These are PLACEHOLDER values — the Mathematician has not yet authored the "
+                "mechanical cost rule for these pairs.  The runner refuses to proceed.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        _log(
+            "qrb6_runner.cost_manifest_live_gate_passed",
+            manifest_sha256=_manifest_sha,
+            n_pairs=len(_pair_infos),
+            pairs=sorted(_pair_infos.keys()),
+        )
 
     # --- Step 1: Event-set construction (always reads calendar; structure only) ---
     _log("qrb6_runner.event_set_build_start", calendar_path=str(_CALENDAR_PATH))
@@ -415,13 +586,23 @@ def _run_pipeline(
     # --- Step 3: Assemble y_e series per bank ---
     # Each bank-event → sign_align on reference pair → y_e = sign * mean_net_return
     # Pair returns: net-of-cost close(D) → close(D+2), entered at D+1.
-    # Cost model placeholder: in live mode, costs come from the cost module;
-    # in dry-run, returns are used as-is (synthetic data has no meaningful costs).
+    # Fix 1 (remediation 2026-06-07): EXCLUSION, NOT ZERO-IMPUTATION.
+    #   If pair_returns is empty for an event (any reason), the event is EXCLUDED
+    #   from the y_e series — NEVER assigned mean_return=0.0.
+    #   Two distinct exclusion reasons:
+    #     event_excluded_all_pairs_suppressed — all pairs suppressed by spread_z (§5.5);
+    #       the event-day still counts as a block-day (§5.5 frozen rule). No counter.
+    #     event_excluded_data_or_cost_gap — data missing or cost config absent; this
+    #       should NEVER happen after the Mathematician completes the manifest; each
+    #       occurrence increments n_event_cost_or_data_gap (surfaced in result YAML).
+    # Fix 2 (remediation 2026-06-07): costs loaded from frozen manifest, not DEFAULT_PAIRS.
 
     y_e_by_bank: dict[str, list[float]] = {bank: [] for bank in _SCENARIO_A_BANKS}
     y_e_by_bank_post2015: dict[str, list[float]] = {bank: [] for bank in _SCENARIO_A_BANKS}
     n_degenerate_total = 0
     n_suppressed_total = 0
+    # Fix 1 counter: events excluded due to cost/data gap (should be 0 post-remediation)
+    n_event_cost_or_data_gap = 0
 
     for i, row in event_set.iterrows():
         bank = str(row["bank"])
@@ -452,10 +633,19 @@ def _run_pipeline(
                     continue
                 pair_returns.append(ret_post)
 
-            if pair_returns:
-                mean_return = float(np.mean(pair_returns))
-            else:
-                mean_return = 0.0
+            # Fix 1: EXCLUDE, not zero-impute.
+            if not pair_returns:
+                # All pairs suppressed by spread_z (dry-run has no cost gaps).
+                # Event excluded; still counts as a block-day (§5.5).
+                _log(
+                    "qrb6_runner.event_excluded_all_pairs_suppressed",
+                    event_date=str(event_date),
+                    bank=bank,
+                    is_post2015=is_post2015,
+                )
+                continue  # Do NOT append y_e; do NOT zero-impute.
+
+            mean_return = float(np.mean(pair_returns))
 
         else:
             # Live mode: look up closes in the parquet data
@@ -513,6 +703,8 @@ def _run_pipeline(
                 continue
 
             # Per-pair returns (equal-weight)
+            # Fix 2 (remediation 2026-06-07): costs loaded from frozen manifest (_pair_infos),
+            # NOT from RealisticCostModel() which reads DEFAULT_PAIRS (only 3 pairs).
             # Cost model: ONE round trip per event per pair (enter D+1, exit D+2).
             # Convention mirrors engine's _run_discrete: deduct entry_cost + exit_cost
             # (= round_trip_cost) plus 1-day holding_cost, all in pips, converted to
@@ -524,10 +716,33 @@ def _run_pipeline(
             from forex_system.core.types import Direction
             from forex_system.backtest.engine import _get_pip_value
 
-            _cost_model = RealisticCostModel()
+            # Fix 2: use manifest-loaded pair_infos, not DEFAULT_PAIRS.
+            # _pair_infos is populated at pipeline start from _load_cost_manifest().
+            _cost_model = RealisticCostModel(pair_configs=_pair_infos)
             pair_returns = []
+            _pair_cost_gap_this_event = False
             for pair in pairs_for_bank:
                 try:
+                    # Fix 2: check cost coverage for this pair before proceeding.
+                    # After manifest is complete, this should NEVER fire.
+                    if pair not in _pair_infos:
+                        _log(
+                            "qrb6_runner.pair_event_skip",
+                            reason="cost_config_gap",
+                            event_date=str(event_date),
+                            pair=pair,
+                            note="SHOULD_NOT_HAPPEN_post_remediation_loud_warning",
+                        )
+                        import warnings
+                        warnings.warn(
+                            f"QRB-6 cost gap: pair {pair!r} missing from cost manifest "
+                            f"for event {event_date}.  This should be impossible after "
+                            "the Mathematician completes the manifest.  Check cost_freeze_qrb6.yaml.",
+                            stacklevel=2,
+                        )
+                        _pair_cost_gap_this_event = True
+                        continue
+
                     cs = pair_close[pair]
                     # FIX-1: tz-alignment — mirror the REFERENCE-pair lookup above.
                     # Calendar dates are tz-naive; price index is tz-aware UTC.
@@ -595,14 +810,11 @@ def _run_pipeline(
                     # FIX-2: fractional return (§1.2 "close(D)→close(D+2) return")
                     gross_ret = (c_dp2 / c_d) - 1.0
 
-                    # FIX-3: net-of-cost (§1.2, §3.2, §5.1 — firm standard cost model).
-                    # ONE round trip: entry at D+1, exit at D+2 (§4.3 engine semantics).
+                    # Fix 2 (net-of-cost using manifest model):
+                    # §1.2, §3.2, §5.1 — ONE round trip: entry at D+1, exit at D+2.
                     # Direction: long if sign_align > 0, short otherwise.
                     # Cost = (round_trip_cost_pips + holding_cost_pips_1day) * pip_value / c_d
-                    # This mirrors engine._run_discrete: entry deducted at entry
-                    # (entry_cost_pips * pip_value * size, lines 190-191), and
-                    # _close_position: exit_cost + swap_1day converted via pip_value
-                    # (lines 482-491). Expressed as return fraction at c_d price level.
+                    # _cost_model is now wired to _pair_infos (manifest-loaded), not DEFAULT_PAIRS.
                     _pip_val = _get_pip_value(pair)
                     _rt_pips = _cost_model.round_trip_cost(pair, 1.0)
                     _direction = Direction.LONG if sign_align > 0 else Direction.SHORT
@@ -626,24 +838,83 @@ def _run_pipeline(
                     )
                     continue
 
-            mean_return = float(np.mean(pair_returns)) if pair_returns else 0.0
+            # Fix 1 (remediation 2026-06-07): EXCLUDE, not zero-impute.
+            # If pair_returns is empty, the event is excluded from y_e — NEVER assigned 0.0.
+            # Distinguish WHY the event is empty for audit-trail clarity:
+            #   (a) All pairs suppressed by spread_z (§5.5 legitimate) → event_excluded_all_pairs_suppressed
+            #   (b) Cost/data gap (should not happen post-remediation) → event_excluded_data_or_cost_gap
+            # Both are block-days (§5.5); only (b) increments the n_event_cost_or_data_gap counter.
+            if not pair_returns:
+                if _pair_cost_gap_this_event:
+                    n_event_cost_or_data_gap += 1
+                    _log(
+                        "qrb6_runner.event_excluded_data_or_cost_gap",
+                        event_date=str(event_date),
+                        bank=bank,
+                        is_post2015=is_post2015,
+                        note="SHOULD_NOT_HAPPEN_post_remediation — check cost manifest coverage",
+                    )
+                    import warnings
+                    warnings.warn(
+                        f"QRB-6: event {event_date} bank={bank} excluded due to cost/data gap. "
+                        "This counter should be ZERO on a fully-remediated run.  "
+                        f"n_event_cost_or_data_gap={n_event_cost_or_data_gap}",
+                        stacklevel=2,
+                    )
+                else:
+                    # All pairs suppressed by spread_z overlay (§5.5 legitimate).
+                    # Event-day still counts as a block-day (§5.5 frozen).
+                    _log(
+                        "qrb6_runner.event_excluded_all_pairs_suppressed",
+                        event_date=str(event_date),
+                        bank=bank,
+                        is_post2015=is_post2015,
+                    )
+                continue  # EXCLUDED — do NOT assign mean_return = 0.0
 
-        # Assemble y_e
+            mean_return = float(np.mean(pair_returns))
+
+        # Assemble y_e (only reached when pair_returns is non-empty in live mode,
+        # or when pair_returns is non-empty in dry-run mode)
         y_e_val = compute_y_e(sign_align, mean_return)
         if y_e_val is None:
             n_degenerate_total += 1
-            # Degenerate: event-day still counts as block-day (§4.4.3)
-            # Do NOT append to y_e arrays; the block construction uses total event-day count
+            # Degenerate: sign_align == 0 (exact tie §4.4.3).
+            # Event-day still counts as a block-day (§4.4.3).
+            # Do NOT append to y_e arrays.
             continue
 
         y_e_by_bank[bank].append(y_e_val)
         if is_post2015:
             y_e_by_bank_post2015[bank].append(y_e_val)
 
+    # Fix 1: assertion that cost-gap counter is zero in live mode (post-remediation invariant).
+    # If any events hit the cost/data-gap path in live mode, it means the manifest is
+    # incomplete — this is a LOUD failure, not a silent continue.
+    if not dry_run and n_event_cost_or_data_gap > 0:
+        _log(
+            "qrb6_runner.cost_gap_invariant_violated",
+            n_event_cost_or_data_gap=n_event_cost_or_data_gap,
+            action="WARNING_COST_GAP_POST_REMEDIATION",
+            note=(
+                "n_event_cost_or_data_gap > 0 means the cost manifest is incomplete. "
+                "The Mathematician must fill all 12 pairs with positive spread_pips values. "
+                "A non-zero counter in a live run means the result is contaminated."
+            ),
+        )
+        import warnings
+        warnings.warn(
+            f"QRB-6 LIVE RUN: n_event_cost_or_data_gap={n_event_cost_or_data_gap} > 0. "
+            "Cost manifest is incomplete — this run's y_e series may be biased. "
+            "DO NOT interpret p-values from this run as confirmatory.",
+            stacklevel=2,
+        )
+
     _log(
         "qrb6_runner.y_e_assembled",
         n_degenerate=n_degenerate_total,
         n_suppressed=n_suppressed_total,
+        n_event_cost_or_data_gap=n_event_cost_or_data_gap,
         bank_counts={b: len(v) for b, v in y_e_by_bank.items()},
         post2015_bank_counts={b: len(v) for b, v in y_e_by_bank_post2015.items()},
     )
@@ -797,6 +1068,17 @@ def _run_pipeline(
         "n_included_post2015": (boot_post2015.n_included if boot_post2015 else 0),
         "n_degenerate": n_degenerate_total,
         "n_suppressed": n_suppressed_total,
+        # Fix 1 — cost/data gap counter (must be 0 in a clean live run post-remediation)
+        "n_event_cost_or_data_gap": n_event_cost_or_data_gap,
+        "cost_gap_invariant": (
+            "n_event_cost_or_data_gap MUST be 0 in a post-remediation live run. "
+            "Any non-zero value means the cost manifest is incomplete and results are contaminated."
+        ),
+        # Fix 2 — manifest provenance for audit
+        "cost_manifest_path": str(
+            cost_manifest_path if cost_manifest_path is not None else _COST_MANIFEST_PATH
+        ),
+        "cost_manifest_sha256": _manifest_sha,
         # Bootstrap metadata
         "block_construction_rule": "bank_level_blocks_stationary_circular",
         "block_length_method": "politis_white_per_bank_group",
@@ -917,8 +1199,8 @@ def main() -> None:
             "sr0_pp": 0.026861,
             "dsr_threshold": 0.95,
             "spread_z_threshold": 3.0,
-            "p_straddle_hi": 0.0522,
-            "p_reject_threshold": 0.0478,
+            "p_straddle_hi": 0.0422,        # OBF extra-look penalty (former void-run value: 0.0522)
+            "p_reject_threshold": 0.0378,   # OBF extra-look penalty (former void-run value: 0.0478)
             "kill_switch_threshold": 1.5883,
             "scenario_a_event_days": 506,
             "post_2015_a": 345,

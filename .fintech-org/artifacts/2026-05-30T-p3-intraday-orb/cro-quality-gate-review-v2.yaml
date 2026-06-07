@@ -1,0 +1,36 @@
+role: cro
+artifact_type: quality-gate-review
+decision: approve
+timestamp: 2026-05-30T07:20:00Z
+subtask_ref: p3-intraday-orb-cro-qg-v2
+subtask_id: p3-intraday-orb-2026-05-30-cro-qg
+agent_id: a8dc1034a63d25c41
+rubric_applied: [position-sizing, leverage-and-margin, risk-budget-allocation, correlation-and-concentration-limits, drawdown-contracts, tail-risk-measurement]
+size_multiplier: 1.0
+binding_constraints:
+  - "BC-CRO-1: per_trade_risk ceiling 0.25% (single binding value; no relaxation without CRO re-review)"
+  - "BC-CRO-2: max aggregate instantaneous open risk <= 2.5%"
+  - "BC-CRO-3: EUR/USD+GBP/USD one correlated unit, combined cap 1.5%, enforced at order-generation"
+  - "BC-CRO-4: max effective leverage 3:1 on sub-book (hard)"
+  - "BC-CRO-5: 4% daily realized-loss breaker, unconditional halt, no override path in code"
+  - "BC-CRO-6: 15% DD hard-stop; 50%/75% graduated reductions at 5%/10% DD mandatory"
+  - "BC-CRO-7: ATR(14) stop mandatory every position, frozen at entry, ratchet-toward-profit only"
+  - "BC-CRO-8: mid-price fills forbidden; market orders forbidden; stop-limit/limit-on-retest only"
+  - "BC-CRO-9: 17:00-17:30 ET rollover blackout unconditional"
+  - "BC-CRO-10: post-cost expectancy kill condition remains in force for backtest wave (reject if <=0)"
+  - "BC-CRO-11: trade frequency cap 1/pair/session, 2/day/pair, hard skip-on-breach"
+findings: []
+contamination-check: "clean"
+confidence: high
+body: |
+  All v2 risk-relevant fields satisfy the unconditional risk contract. 0.25%/trade is the most
+  conservative Phase-0 encoding; the 0.5% v1 ghost value is absent. Correlation treatment correct
+  (EUR+GBP share one 1.5% cap, not summed). Drawdown protocol mirrors canonical graduated schedule.
+  Cost model conservative (session-open elevated, no mid, no market orders, rollover blackout).
+  This is a DESIGN-stage sign-off that caps are encoded; the expectancy kill-condition (<=0 -> reject)
+  remains fully in force for the backtest wave. Size multiplier 1.0. No violations.
+claimed_domains: [position-sizing, correlation-and-concentration-limits, drawdown-contracts, leverage-and-margin]
+policy_violations_detected: []
+no-capital-instruction: true
+sources: []
+web_research_conducted: false

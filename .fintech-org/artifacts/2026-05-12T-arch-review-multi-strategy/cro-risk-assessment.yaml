@@ -1,0 +1,288 @@
+# CRO risk-architecture assessment for proposed 2→4 strategy expansion.
+# Wave-2 disjoint-evidence review per fintech-org/roles/cro.md.
+# Input set is structured-fields only (PM redacted artifact + risk code).
+# Does NOT gate current T=0 (carry + carry_fred runbook-v2 already ratified).
+
+role: cro
+artifact_type: risk-assessment
+subtask_ref: "arch-review-multi-strategy-2026-05-12:phase2:task2.0"
+subtask_id: "cro-arch-review-2026-05-12"
+timestamp: "2026-05-12T22:35:00Z"
+
+decision: size-reduced
+confidence: high
+size_multiplier: "N/A — this is risk-architecture review, not a trade-sizing decision. The 0.5x book-level multiplier from CONSENSUS_2026-04-28 remains operative for the existing two strategies. NO live capital is recommended. The 'size-reduced' decision label here means: the existing BC-8-LIFT-COND-1..7 envelope CANNOT absorb 4 concurrent strategies as-is; structural risk-plumbing remediations are required before any 3rd or 4th strategy may be added to the paper loop, and any ML strategy must additionally pass an SR 11-7-style model-risk gate that does not yet exist in src/."
+
+contamination-check: "clean — input artifact pm-acceptance-criteria-redacted-for-cro-nht.yaml contains only structured fields (deliverable-type, hard-constraints, state-snapshot-refs, expansion-scope, out-of-scope, roles-staffed, review_targets). No researcher hypothesis, no proposer rationale, no narrative justification, no prior artifact body content. Redaction header at line 2 explicitly confirms 'task-statement / body / rationale / assumptions text STRIPPED'. Spawn-prompt itself contains only structured task questions; no 'why this strategy will work' prose."
+
+binding_constraints:
+  # Existing BC-8-LIFT-COND-1..7 (carry through; non-negotiable for existing 2 strategies):
+  - id: BC-8-LIFT-COND-1
+    text: "fcntl dispatch lock (LOCK_EX|LOCK_NB) held from get_positions through execute_signal + reconciliation"
+    file_line: "scripts/run_paper_trading_vt.py:465; scripts/run_paper_trading_carry_fred.py:446"
+    holds_under_4_strategies: contention-risk-see-Q2
+  - id: BC-8-LIFT-COND-2
+    text: "Lock released on all exit paths (return + exception)"
+    file_line: "scripts/run_paper_trading_vt.py:809; scripts/run_paper_trading_carry_fred.py:759"
+    holds_under_4_strategies: yes
+  - id: BC-8-LIFT-COND-3
+    text: "Account-key parity gate at startup via O_CREAT|O_EXCL"
+    file_line: "src/forex_system/risk/account_key_parity.py:58"
+    holds_under_4_strategies: yes
+  - id: BC-8-LIFT-COND-4
+    text: "Aggregate JPY-correlated cap ≤15% of total book; frozenset = {USDJPY, GBPUSD}"
+    file_line: "src/forex_system/risk/exposure_aggregator.py:46,150,188"
+    holds_under_4_strategies: structurally-yes-but-per-strategy-allocation-undefined-see-Q1
+  - id: BC-8-LIFT-COND-5
+    text: "Drawdown ladder 10%/15%/20% assessed per cycle pre-lock"
+    file_line: "src/forex_system/risk/drawdown_contract.py:42-46,129-216"
+    holds_under_4_strategies: ambiguous-aggregate-vs-per-strategy-see-Q4
+  - id: BC-8-LIFT-COND-6
+    text: "Kill-switch trigger paths wired (daily P&L, reconciliation, auth death, infrastructure)"
+    file_line: "src/forex_system/risk/kill_switch.py:43-49"
+    holds_under_4_strategies: no-ML-failure-modes-not-covered-see-Q5
+  - id: BC-8-LIFT-COND-7
+    text: "Paper-only; no production-account promotion"
+    file_line: "scripts/run_paper_trading_vt.py:67 (SIM_BASE only)"
+    holds_under_4_strategies: yes
+  # Additional binding constraints CRO imposes as prerequisite for any strategy beyond N=2:
+  - id: BC-9-N4-COND-1
+    text: "Per-strategy cap allocation rule MUST be encoded in exposure_aggregator before any 3rd strategy is added to the paper loop. Compute_exposure currently treats strategy as anonymous (lines 121-130 in exposure_aggregator.py use pair as a proxy for strategy id), so a 4-strategy book cannot enforce per-strategy sub-limits even if PM declares them."
+    severity: blocking-for-N≥3
+  - id: BC-9-N4-COND-2
+    text: "Saxo session cardinality MUST be verified explicitly with the broker (one session = one OAuth bearer? one IP? one process?) before any 3rd strategy shares the single OAuth + single account-key. Saxo documents 'per session per service group' without defining the boundary; the developer-portal language is ambiguous. Under conservative interpretation (one session = one OAuth token), 4 processes sharing one token share one 120 req/min bucket — a hard ceiling that bites at N=4 even with current 1800s polling, see Q3."
+    severity: blocking-for-N≥3
+    web_research_citation: "https://www.developer.saxo/openapi/learn/rate-limiting (120 req/min per session per service group; 1 order/sec per session; 10M/day per app)"
+  - id: BC-9-N4-COND-3
+    text: "Drawdown ladder semantics MUST be made explicit: per-strategy OR aggregate OR both-with-priority. Current implementation in drawdown_contract.py is per-instance — meaning if instantiated once per loop it's per-strategy (correlated DD across strategies bypasses ladder), and if instantiated once globally it's aggregate (noisier equity = more false triggers). PM acceptance-criteria does not pin which."
+    severity: blocking-for-N≥3
+  - id: BC-9-N4-COND-4
+    text: "ML model-risk envelope MUST exist before ANY ML strategy is deployed even to paper. SR 11-7 model-risk gate (effective tiering, validation, ongoing monitoring) has zero corresponding code in src/. PM acceptance-criteria confirms src/forex_system/ml/ MISSING with zero matches for model_card / drift_monitor / calibration_tracker. Adding ML to the paper loop without this is structurally indefensible."
+    severity: blocking-for-ML-strategy-class
+    web_research_citation: "Fed SR 11-7 / OCC 2011-12 — Supervisory Guidance on Model Risk Management. All ML models in financial services fall under SR 11-7 scope per Fed examination practice. Prop firms not directly bound to SR 11-7 by regulator, but the framework is the working standard for any firm taking ML decisions to capital."
+  - id: BC-9-N4-COND-5
+    text: "Per-strategy kill switch MUST be exercised against live paper sessions BEFORE adding a 3rd strategy. kill_switch.py:137 supports strategy_id namespacing of audit log but property-4 (tested in prod against live session) is NOT yet executed for 2-strategy parallel; expanding to 4 without first verifying the 2-strategy case is Knight-class aspirational safety."
+    severity: blocking-for-N≥3
+  - id: BC-9-N4-COND-6
+    text: "Strategy-execution firewall (fintech-org rule 3) is currently strategy-type-AGNOSTIC at the risk layer — exposure_aggregator and drawdown_contract see only Position objects with no strategy_class field. This is acceptable for classical strategies that emit the same {pair, size, direction} tuple, but breaks for ML strategies whose 'model output' is not a self-explanatory signal. The risk plumbing MUST be extended to carry strategy_type so kill_switch can apply model-drift/calibration-decay triggers selectively."
+    severity: blocking-for-ML-strategy-class
+
+regime_flags:
+  - "Pre-paper-launch architecture-review phase only — no live trading is contemplated; T=0 already ratified for existing two strategies."
+  - "Single-host single-process-cardinality assumption — fcntl flock is host-local; multi-host paper-loop deployment would silently bypass BC-8-LIFT-COND-1. Documented as KG-2 in 2026-05-10 CRO re-verification."
+  - "USDJPY-only universe in current paper Phase 1 — cross-JPY pairs (EURJPY, GBPJPY, AUDJPY, NZDJPY) NOT in _JPY_CORRELATED frozenset (exposure_aggregator.py:46). Expansion to a 3rd or 4th strategy that trades cross-JPY without amending the frozenset under-counts JPY tail risk. Already flagged as KG-1 in 2026-05-10 CRO re-verification."
+  - "Single Saxo paper account + single account-key + single OAuth bearer token (24h TTL) shared across all paper loops — cardinality binding for the entire BC-8 envelope. Adding a 4th strategy does not change the cardinality but increases the surface for OAuth-refresh races and rate-limit contention."
+
+blowup-analog: "Knight Capital Americas LLC (SEC Release 34-70694, File 3-15570, Oct 16 2013) — closest fit for the structural risk profile of expanding from 2 to 4 strategies sharing one OAuth + one account-key + one rate-limit bucket + one process-local dispatch lock. Knight lost >$460M in ~45 minutes because (a) a deploy touched one of N parallel order-routing components without uniform verification, and (b) the kill switch was not reachable independently of the runaway component. Both failure modes apply directly to the proposed expansion: (a) deploying a 3rd or 4th strategy without updating exposure_aggregator's per-strategy allocation logic creates an N-way silent-divergence surface analogous to Knight's stale-server problem; (b) kill_switch.py currently lives in-process per strategy — if a 4th strategy (ML) goes runaway it can still issue orders within the 1-order/sec Saxo session limit while its own audit log diverges, exactly the property Knight identified. LTCM (correlation-risk-under-stress) and Archegos (single-counterparty / single-OAuth-bucket concentration) are secondary analogs but Knight is the dominant fit because the failure mode is structural-plumbing, not portfolio-correlation."
+
+evidence:
+  # File:line references; structured, no narrative.
+  - file: "src/forex_system/risk/exposure_aggregator.py"
+    line: 46
+    content_summary: "_JPY_CORRELATED = frozenset({USDJPY, GBPUSD}) — sole canonical JPY-correlation table"
+  - file: "src/forex_system/risk/exposure_aggregator.py"
+    line: 121-130
+    content_summary: "compute_exposure uses pair as proxy for strategy_id; core/types.Position has NO strategy field; per-strategy aggregation is structurally absent"
+  - file: "src/forex_system/risk/exposure_aggregator.py"
+    line: 148-216
+    content_summary: "check_dispatch_allowed enforces three caps: jpy_correlated_pct ≤ max_correlated_pct; active_paper_strategies ≤ max_active_strategies; concurrent_open_positions ≤ max_concurrent_positions. NO per-strategy sub-cap. NO allocation rule (equal / vol / Sharpe-weighted)."
+  - file: "src/forex_system/risk/account_key_parity.py"
+    line: 58
+    content_summary: "O_CREAT|O_EXCL atomic acquire — proven race-free for N processes targeting the same lock file path. Scales to N=4 with no concurrency hazard."
+  - file: "src/forex_system/risk/account_key_parity.py"
+    line: 68-85
+    content_summary: "Parity violation = SystemExit(1) — fail-closed under mismatch. Correct."
+  - file: "scripts/run_paper_trading_vt.py"
+    line: 76,465,809
+    content_summary: "DISPATCH_LOCK_PATH = 'data/dispatch_lock.flock'; LOCK_EX|LOCK_NB acquire at 465; release in finally at 809. Single shared lock = N-way serialization at this point."
+  - file: "scripts/run_paper_trading_vt.py"
+    line: 94-96
+    content_summary: "CRO_MAX_CORRELATED_PCT=0.15; CRO_MAX_ACTIVE_STRATEGIES=4 — constants already named for 4-strategy envelope, but per-strategy allocation NOT implemented anywhere"
+  - file: "src/forex_system/risk/drawdown_contract.py"
+    line: 116-127
+    content_summary: "DrawdownContract is a dataclass instance with _peak_equity state; semantics (per-strategy vs aggregate) determined entirely by caller's instantiation pattern; PM acceptance-criteria does not pin which. Ambiguous."
+  - file: "src/forex_system/risk/kill_switch.py"
+    line: 43-49
+    content_summary: "TriggerReason enum: DAILY_LOSS, RECONCILIATION, AUTH_DEATH, INFRASTRUCTURE, MANUAL, ERROR. No ML-specific reasons (DRIFT, CALIBRATION_DECAY, FEATURE_STALENESS, INFERENCE_LATENCY)."
+  - file: "src/forex_system/risk/kill_switch.py"
+    line: 137,149-155
+    content_summary: "strategy_id field + per-strategy audit log namespacing (data/kill_switch_audit_<id>.log) — supports per-strategy kill in principle. Property-4 (tested in prod against live sessions) NOT yet executed for the existing 2-strategy parallel case; expanding to N=4 without first proving N=2 is aspirational."
+  - file: "src/forex_system/saxo/client.py"
+    line: 67-74
+    content_summary: "SaxoClient binds one bearer token + one session per instance. Single token shared across loops = single session per Saxo's documented rate-limit-bucket terminology."
+  - file: "src/forex_system/saxo/client.py"
+    line: 394
+    content_summary: "time.sleep(1.1) after order placement — adheres to documented 1 order/sec ceiling"
+  - directory: "src/forex_system/portfolio/"
+    status: "MISSING — no allocator subsystem exists (PM state-snapshot confirms)"
+  - directory: "src/forex_system/ml/"
+    status: "MISSING — no model_card, drift_monitor, calibration_tracker, safetensors, or onnx anywhere in src/ (PM state-snapshot confirms)"
+  - file: "scripts/run_paper_trading_vt.py"
+    line: 829,977-978
+    content_summary: "Default --interval 1800s polling — 30-minute cycles. Saxo 120 req/min session bucket at N=2 with ~3 calls/cycle/strategy is comfortable; at N=4 with ML strategies likely on faster polling (intraday-classical proposal implies ≤1h horizon) the budget compresses fast."
+
+findings_per_risk_question:
+  - question_id: Q1
+    question: "Aggregate JPY-correlated cap (BC-8-LIFT-COND-4) under N strategies — per-strategy allocation rule"
+    finding: "NO per-strategy allocation rule exists. exposure_aggregator.compute_exposure (line 121-130) explicitly notes Position has no strategy field and uses pair as proxy. check_dispatch_allowed (line 148-216) enforces an aggregate cap only. At N=4 with two strategies trading USDJPY and one trading GBPUSD, the first strategy to dispatch consumes the entire 15% budget under last-write-wins; subsequent strategies are blocked at the gate without a fairness rule. This is a denial-of-dispatch failure mode (not a capital-loss failure mode), but it makes the 4-strategy paper experiment scientifically void — one strategy's signals get systematically prioritized by lock-acquisition order. CONSEQUENCE for risk-architecture: a 4-strategy book CANNOT enforce per-strategy sub-limits as the code stands. Recommended allocation rule = equal-weight (3.75% each) as the default with an explicit override carried in the consensus artifact; vol-weighted or Sharpe-weighted requires forward-looking volatility estimates that the risk layer should not own (firewall violation: that's a portfolio-allocator concern, not a risk-aggregator concern, and there is no portfolio/ subsystem)."
+    severity: blocking
+    file_line_ref: "src/forex_system/risk/exposure_aggregator.py:46,121-130,148-216"
+  - question_id: Q2
+    question: "fcntl dispatch lock (BC-8-LIFT-COND-1/2) under N concurrent loops — contention behavior"
+    finding: "Lock semantics scale to N=4 (fcntl flock on a regular file is process-cardinality-agnostic). Latency impact: with 1800s polling and lock-held duration ≈ get_positions + check_dispatch_allowed + execute_signal + reconciliation = O(1-5s) wall clock per cycle, N=4 worst-case serialization is ≈20s per N-way cycle. Negligible relative to 1800s interval. NON-FINDING for the lock primitive itself. HOWEVER: the lock is LOCK_NB (non-blocking) at line 465; on contention the loop emits SKIP_DISPATCH_LOCK_BUSY and exits the cycle (line 482-489). At N=4 with overlapping signal-generation phases, the SKIP rate climbs: any cycle where two loops both want to dispatch within the same 5-second window, one loses entirely. This is acceptable as a safety property (better than racy double-dispatch) but creates a measurement bias — strategies whose signal cadence aligns poorly with neighbors will systematically under-dispatch. CONSEQUENCE: Q2 is non-blocking for risk, but the SKIP-rate must be measured at N=4 to confirm scientific validity of the paper experiment. Recommend instrumentation in BC-9-N4-COND-5 verification."
+    severity: concern
+    file_line_ref: "scripts/run_paper_trading_vt.py:465-513,809"
+  - question_id: Q3
+    question: "Single Saxo OAuth + single account-key + single rate-limit bucket — API call multiplier at N=4"
+    finding: "Saxo documents (web research, https://www.developer.saxo/openapi/learn/rate-limiting): 120 req/min per session per service group; 1 order/sec per session; 10M/day per app. Session boundary is NOT formally defined as 'one OAuth token' in the documentation; conservative interpretation = one bearer token = one session = one 120/min bucket. At N=4 paper loops sharing one bearer (current architecture per saxo/client.py:67-74), the per-cycle API calls multiply: each loop does get_balance + get_positions + get_chart_data per pair + get_info_price per pair = ~4-6 calls per cycle per strategy. At N=4 with 30-min cycles, average is ~16-24 calls per 30 min = 0.5-0.8 req/min average — well under 120/min. HOWEVER: bursts at cycle-start (when all 4 loops wake on similar polling intervals and a coarsely-aligned wall-clock) could synchronize to ~24 calls in <10s, which is 144 req/min instantaneous — above the bucket. Saxo emits 429 on exceedance per docs. The current SaxoClient (saxo/client.py:94-110) has NO 429 handling or backoff — resp.raise_for_status() at lines 155, 211, 220, 230 etc. would raise an HTTPError that propagates to the paper loop's exception handler, NOT to a retry-with-backoff. CONSEQUENCE: at N=4 the failure mode is intermittent cycle failure under burst alignment, NOT an immediate-blowup risk. Adding the intraday-classical strategy (faster polling implied by 'intraday') compresses the budget further. Adding the ML strategy (often training/inference on cycle-start, plus feature-fetch API calls) is the dominant risk. The architecture needs: (1) explicit 429 + Retry-After handling in SaxoClient; (2) inter-loop polling-phase desynchronization (random offset 0-300s at startup); (3) shared rate-limit token-bucket between loops (would require new IPC primitive). Without these, expanding to N=4 risks cascading 429s during high-volatility windows when all loops want to refresh quotes simultaneously."
+    severity: blocking
+    file_line_ref: "src/forex_system/saxo/client.py:67-74,94-110,394"
+  - question_id: Q4
+    question: "Drawdown ladder (BC-8-LIFT-COND-5) — per-strategy or aggregate; correlated DD bypass risk"
+    finding: "DrawdownContract is a dataclass holding _peak_equity per instance (drawdown_contract.py:117). Semantics are determined by the caller's instantiation pattern; the module is silent on the intended cardinality. PM acceptance-criteria does not pin which. Both current paper loops instantiate it per-loop, meaning each strategy has its own peak and its own ladder — making the ladder PER-STRATEGY by default. CONSEQUENCES at N=4: (a) correlated drawdown across 4 strategies (e.g., a JPY shock affecting both vol_target_carry and carry_fred simultaneously) does NOT cumulate — each strategy sees its own DD and might be at 8% individually while aggregate book is at 18% (well past the 15% reduce-sizing trigger). The ladder is bypassed for systemic-shock scenarios — LTCM-class failure. (b) Per-strategy DD does not capture co-movement; this is the failure mode that destroyed LTCM in 1998 (positions individually within stress-test bands but correlated tail risk realized simultaneously). RECOMMENDED FIX: introduce AGGREGATE-DD ladder layered ON TOP of per-strategy DD (both must fire). Aggregate is computed from book-level equity; per-strategy is computed from attributed P&L. Without attribution infrastructure (which does not exist — Position has no strategy field per Q1 evidence), only aggregate is feasible today. CONSEQUENCE: this is a blocking architectural gap for N≥3."
+    severity: blocking
+    file_line_ref: "src/forex_system/risk/drawdown_contract.py:42-46,116-127,129-216"
+  - question_id: Q5
+    question: "Kill-switch trigger paths (BC-8-LIFT-COND-6) — ML-specific failure modes"
+    finding: "Applied kill-switch-design rubric (Properties 1-5 + minimum-set a-e). Current kill_switch.py TriggerReason enum (line 43-49) lists: DAILY_LOSS, RECONCILIATION, AUTH_DEATH, INFRASTRUCTURE, MANUAL, ERROR. NEW ML-failure-modes NOT covered: (i) MODEL_DRIFT — input distribution shifts beyond training-window envelope (typical detector: KS-test, PSI); (ii) CALIBRATION_DECAY — predicted-vs-realized probability divergence over rolling window; (iii) FEATURE_STALENESS — input feature from upstream pipeline >N seconds old; (iv) INFERENCE_LATENCY — model serving exceeds SLA (signals act on stale state); (v) PREDICTION_OUT_OF_RANGE — model emits values outside expected support (a guarantee classical regression rarely violates but neural nets routinely do); (vi) GRADIENT_OF_OUTPUT — sudden jump in model output suggests upstream feature corruption (rare in classical alpha; common in ML deployed under shift). Property-1 (out-of-band): current kill_switch is IN-PROCESS — same Python interpreter as the strategy. PASSING for classical strategies that fail with explicit exceptions; FAILING for ML where a runaway-but-non-crashing inference (e.g., predicting +1 unbounded for 1000 cycles due to feature corruption) does not raise an exception and the in-process kill switch sees normal P&L until the cumulative loss crosses 2%. Property-3 (SLA): not tested; not even measured. Property-4 (tested in prod): not yet executed for 2-strategy case, per BC-9-N4-COND-5. Minimum-set: (a) master kill = kill_switch.trigger MANUAL — PRESENT; (b) per-strategy kill = strategy_id namespacing — PARTIAL (audit log namespaced but ladder/aggregator not strategy-aware per Q1); (c) per-venue kill = N/A single-venue; (d) pre-trade rate/notional caps — exposure_aggregator covers JPY-correlated cap but no max-orders/min or max-notional/min wire-level cap; (e) dead-man switch — HeartbeatWatchdog exists (heartbeat_watchdog.py) but is per-loop. CONSEQUENCE: kill-switch is INADEQUATE for an ML strategy class under the kill-switch-design rubric. Decision per rubric: REJECT for ML addition; APPROVE-WITH-CONDITIONS for classical addition (conditions: BC-9-N4-COND-1..3,5). Live-promotion was already blocked by Properties 1/2/3/4 unresolved per CONSENSUS_2026-05-10; this finding sharpens the same conclusion for paper-N=4 with ML."
+    severity: blocking-for-ML-strategy-class
+    file_line_ref: "src/forex_system/risk/kill_switch.py:43-49,131-207,270-325; src/forex_system/risk/heartbeat_watchdog.py:48-200"
+  - question_id: Q6
+    question: "Strategy-execution firewall (rule 3 generalization) — strategy-type-agnostic vs strategy-type-aware risk plumbing"
+    finding: "Current risk plumbing is STRATEGY-TYPE-AGNOSTIC. Evidence: exposure_aggregator.compute_exposure (line 94-140) consumes only Position objects with fields {pair, size, entry_price}; no strategy_type / model_id / signal_provenance field. drawdown_contract.assess (line 129-216) consumes only current_equity; same. kill_switch.check_and_trigger (line 209-236) consumes only current_equity. Strategy class info is lost at the boundary between the per-loop script (which knows the strategy) and the shared risk modules (which do not). This is ACCEPTABLE for classical strategies that all emit homogeneous {pair, size, direction} signals routed through the same execute_signal path. It BREAKS for ML strategies because: (i) Q5 ML-failure-modes need strategy_type=ML to be routed correctly (model-drift trigger is meaningless for an RSI strategy); (ii) fintech-org rule 3 (Execution-Researcher Firewall) requires ML deployment to route to ml-engineer not quant-developer per the rule's published role-routing table, but the risk layer cannot enforce this firewall because it cannot tell ML from classical at the type boundary. CONSEQUENCE: adding any strategy_type=ML to the paper loop without first lifting strategy_type into Position (or a sibling annotation) silently merges ML risk into classical risk — the kill-switch does not know what to trigger on. Recommended fix: extend core/types.Position with strategy_type:str field; gate ml strategy_type behind a new ML_RISK_TRIGGERS subsystem in src/forex_system/risk/ml/ (which does not exist)."
+    severity: blocking-for-ML-strategy-class
+    file_line_ref: "src/forex_system/risk/exposure_aggregator.py:94-140; src/forex_system/risk/drawdown_contract.py:129-216; src/forex_system/risk/kill_switch.py:209-236"
+  - question_id: Q7
+    question: "Historical blowup-analog — closest fit for the 4-strategy expansion risk profile"
+    finding: "Knight Capital (SEC Release 34-70694, Oct 2013) is the dominant fit and is the only correct citation for this risk profile. Rationale: (i) Knight's failure was structural-plumbing, not portfolio-correlation — specifically a deploy that touched N parallel order-routing components without uniform verification, plus a kill switch that was not reachable independently of the runaway component. The proposed N=4 expansion replicates BOTH conditions: (a) adding a new strategy = touching the shared risk-plumbing layer (exposure_aggregator constants, drawdown_contract instantiation pattern, kill_switch strategy_id wiring) without yet having verified the 2-strategy parallel case lives up to its safety property — Knight-class deployment-verification gap; (b) the in-process kill-switch design fails kill-switch-design Property-1 (out-of-band) for an ML strategy class that can issue runaway-but-non-crashing signals — direct Knight-class. (ii) LTCM is the secondary analog for Q4 (correlated drawdown across strategies bypassing per-strategy ladder) but the proposed expansion is not a leverage-stack-on-rates-convergence-trade. (iii) Archegos is a secondary analog for single-OAuth/single-account-key concentration (one prime broker / one credit line concentration = Archegos pattern in plumbing terms) but the proposed expansion does not yet involve sufficient size to make Archegos primary. (iv) CHF unpeg and March 2020 are FX-shock scenarios that the existing JPY-correlated cap is sized for — not the dominant risk for this expansion. (v) Knight is canonical because the SEC filing explicitly establishes that single-deploy-with-stale-component is the failure pattern, and the kill-switch-out-of-band property is the mitigation. STATING EXPLICITLY: Knight Capital."
+    severity: note
+    file_line_ref: "https://www.sec.gov/litigation/admin/2013/34-70694.pdf (SEC Release 34-70694, File 3-15570)"
+
+recommended_per_strategy_cap_allocation_rule:
+  rule: "Equal-weight default = max_correlated_pct / max_active_strategies = 0.15 / 4 = 0.0375 (3.75%) per strategy for JPY-correlated notional"
+  rationale: "Equal-weight is the unique allocation that does NOT require the risk layer to consume forward-looking estimates (volatility, Sharpe) — that would be a firewall violation (risk owns the cap; allocator owns the weighting). Without a src/forex_system/portfolio/ subsystem the risk layer must default to equal-weight."
+  alternative_if_portfolio_subsystem_exists: "Vol-weighted allocation, with weights computed by portfolio/ subsystem and PASSED to risk/ as a typed input. Risk layer must reject ANY allocation whose sum exceeds the aggregate cap (defense in depth). Sharpe-weighted is NOT recommended because Sharpe estimates are non-stationary and would induce concentration in recent-window-best strategies = procyclical risk exposure."
+  enforcement: "BC-9-N4-COND-1 — exposure_aggregator MUST be extended with per-strategy sub-cap parameter and Position MUST carry strategy_id BEFORE any 3rd strategy is added to the paper loop"
+  veto: "Sharpe-weighted allocation is REJECTED in advance — it allocates more risk to recent winners and is mechanically procyclical; this is the Sharpe-chasing pattern that contributed to the 2007 quant crisis"
+
+kill_switch_gap_for_ML:
+  - failure_mode: "MODEL_DRIFT — input distribution shifts beyond training-window envelope"
+    current_coverage: "NONE — no trigger reason, no detector"
+    detector_class: "Population Stability Index (PSI) or Kolmogorov-Smirnov on rolling input features"
+    severity: blocking
+  - failure_mode: "CALIBRATION_DECAY — predicted-vs-realized probability divergence"
+    current_coverage: "NONE — no rolling-window calibration tracker exists; references/saxo-bank-api-research.md and src/forex_system/ contain zero matches for calibration_tracker"
+    detector_class: "Rolling Brier score or log-loss on N most-recent predictions"
+    severity: blocking
+  - failure_mode: "FEATURE_STALENESS — upstream feature N seconds old when consumed"
+    current_coverage: "PARTIAL — HeartbeatWatchdog covers loop-level liveness but not feature-pipeline staleness"
+    detector_class: "Max-lag-since-feature-update threshold per feature"
+    severity: blocking
+  - failure_mode: "INFERENCE_LATENCY — model serving exceeds SLA, signals act on stale state"
+    current_coverage: "NONE"
+    detector_class: "Per-inference monotonic-clock timer; emit kill on p99 > SLA"
+    severity: blocking
+  - failure_mode: "PREDICTION_OUT_OF_RANGE — model emits values outside expected support"
+    current_coverage: "NONE — signal range [-1,+1] is enforced by Signal type but not by an ML-specific output-range gate"
+    detector_class: "Output histogram with hard-clip + counter for clip events; trigger when clip rate exceeds threshold"
+    severity: concern
+  - failure_mode: "GRADIENT_OF_OUTPUT — sudden jump in model output suggests upstream feature corruption"
+    current_coverage: "NONE"
+    detector_class: "Rolling output-delta histogram with anomaly threshold"
+    severity: concern
+  - failure_mode: "MODEL_VERSION_DRIFT — deployed model differs from validated model"
+    current_coverage: "NONE — no model_card / model_registry exists in src/"
+    detector_class: "SHA256 hash check on model artifact at every cycle"
+    severity: blocking
+    sr_11_7_citation: "Fed SR 11-7 Section IV requires effective model inventory and tracking of model versions in production. https://www.federalreserve.gov/supervisionreg/srletters/sr1107.htm"
+
+rate_limit_capacity_estimate:
+  saxo_documented_limits:
+    requests_per_session_per_minute: 120
+    orders_per_session_per_second: 1
+    requests_per_app_per_day: 10_000_000
+    session_boundary: "Saxo does NOT explicitly define session boundary in public docs. Conservative interpretation = one OAuth bearer = one session = one 120/min bucket. CRO assumption: one session = one bearer token. CONSEQUENCE: 4 paper loops sharing one bearer share one bucket."
+    web_research_citation: "https://www.developer.saxo/openapi/learn/rate-limiting"
+  current_n2_steady_state:
+    api_calls_per_cycle_per_strategy: 4-6  # get_balance + get_positions + get_chart_data + get_info_price
+    cycle_period_seconds: 1800
+    average_req_per_min: 0.27-0.40   # ((4-6)*2) / 30 minutes = 0.27-0.40 req/min
+    headroom: "very comfortable (<1% of bucket)"
+  projected_n4_steady_state:
+    api_calls_per_cycle_per_strategy: 4-6
+    cycle_period_seconds_classical: 1800
+    cycle_period_seconds_intraday: "≤3600 implied by 'intraday-classical' label; could be 600s (10min) or 900s (15min)"
+    average_req_per_min_assuming_30min_uniform: 0.53-0.80
+    average_req_per_min_assuming_15min_intraday: 1.07-1.60
+    headroom: "still comfortable on average; below 2% of bucket"
+  burst_failure_mode:
+    description: "All N loops wake on similar polling intervals; wall-clock alignment after >24h uptime creates synchronized cycle-start at minute boundaries. 4 loops × 6 API calls fired within ~5s = 288 req/min instantaneous = 240% of 120/min bucket. Saxo returns 429 (per developer.saxo/openapi/learn/rate-limiting)."
+    current_handling: "NONE — saxo/client.py:155 etc. uses raise_for_status() which raises HTTPError on 429; no retry-with-Retry-After; no jitter at loop startup"
+    remediation_required:
+      - "Loop-startup jitter: random offset 0-300s before first cycle"
+      - "SaxoClient must handle 429 + parse Retry-After header + sleep + retry once"
+      - "Shared rate-limit token-bucket between loops (multiprocessing.Semaphore or file-based bucket) for N≥3"
+      - "Pre-flight burst-test at N=2 BEFORE adding N=3; record p99 inter-arrival under synchronized cycle-start"
+  ml_additional_load:
+    description: "ML strategy typically has feature-fetch (more calls) + inference (off-API but adds CPU latency that desynchronizes timing). Conservative estimate: ML adds 2-3x the API calls of a classical strategy due to multi-pair feature dependencies."
+    consequence: "ML alone could consume the 4-strategy burst budget on cycle-start"
+  decision: "Rate-limit capacity is ADEQUATE on average at N=4 but UNSAFE under burst alignment without 429-handling, jitter, and a shared bucket. Blocking pre-condition: BC-9-N4-COND-2."
+
+body: "Decision is size-reduced (architectural sense): the BC-8-LIFT-COND-1..7 envelope as currently coded cannot absorb a 2→4 strategy expansion. Six new binding constraints (BC-9-N4-COND-1..6) must be satisfied before any 3rd strategy is added to the paper loop; addition of an ML strategy class requires all six PLUS an SR 11-7-style model-risk gate (model inventory, drift monitor, calibration tracker, version-hash check) which has zero implementation in src/. The Saxo rate-limit bucket is the dominant external-facing failure-mode (Knight-class analog: shared infrastructure that bites under bursts); the per-strategy allocation gap (Q1) and ladder-cardinality ambiguity (Q4) are the dominant internal-facing gaps. Strategy-type-agnostic risk plumbing (Q6) is acceptable for the existing 2 classical strategies but breaks for ML. Closest historical blowup-analog: Knight Capital, on plumbing-not-portfolio grounds. No live-capital recommendation. T=0 unchanged."
+
+assumptions:
+  - "Saxo session boundary = one OAuth bearer = one rate-limit bucket. Conservative; Saxo docs do not formally define this. If session boundary is actually per-IP or per-process, the N=4 burst-failure analysis tightens further or relaxes; CRO recommends explicit confirmation from Saxo before N=3."
+  - "ml-strategy in the expansion proposal is a classifier / regressor with model-output → signal mapping (typical setup), not a deep-RL policy directly emitting orders. The latter would have additional Property-1 out-of-band failure modes."
+  - "Single-host single-process-per-strategy deployment continues. Multi-host deployment would silently bypass BC-8-LIFT-COND-1 (fcntl is host-local) — already a documented KG."
+  - "Paper account remains the sole target through the entire 4-strategy phase. Live promotion is OUT OF SCOPE for this review (PM hard-constraint)."
+  - "Intraday-classical strategy uses ≤15-min polling cadence as a working assumption. If true 1-min or sub-minute polling, rate-limit headroom collapses faster."
+  - "current_positions returned by Saxo includes ALL open positions on the account regardless of which loop opened them — this assumption is baked into compute_exposure's effectiveness as a cross-strategy aggregator. If the assumption is wrong, the aggregator is silently per-strategy not cross-strategy."
+
+knowledge_gaps:
+  - id: KG-CRO-W2-1
+    gap: "Saxo session boundary — is one session = one bearer token, one IP, or one process? Affects whether N=4 paper loops sharing one bearer share one 120/min bucket (current assumption) or have independent buckets (more headroom but harder to verify)."
+    owner: ops-engineer
+    blocker_for: BC-9-N4-COND-2
+  - id: KG-CRO-W2-2
+    gap: "Empirical SKIP_DISPATCH_LOCK_BUSY rate at N=2 (existing) — never measured. Required as a baseline before N=3."
+    owner: ops-engineer
+    blocker_for: BC-9-N4-COND-5
+  - id: KG-CRO-W2-3
+    gap: "Whether existing kill_switch.py has been triggered against the live N=2 paper session even once. Property-4 of kill-switch-design rubric requires this."
+    owner: ops-engineer
+    blocker_for: BC-9-N4-COND-5
+  - id: KG-CRO-W2-4
+    gap: "What 'ML strategy' means in this proposal — classifier, regressor, or RL? Different gates apply (RL has Property-1 out-of-band exposure)."
+    owner: pm
+    blocker_for: BC-9-N4-COND-4,6
+  - id: KG-CRO-W2-5
+    gap: "Whether the intraday-classical strategy proposal will trade USDJPY/GBPUSD (in current frozenset) or cross-JPY pairs (not in frozenset). KG-1 from 2026-05-10 CRO re-verification re-applies."
+    owner: pm
+    blocker_for: cross-JPY-amendment-to-frozenset
+
+sources:
+  # File:line sources within the codebase
+  - "src/forex_system/risk/exposure_aggregator.py:46,121-130,148-216"
+  - "src/forex_system/risk/account_key_parity.py:24,58,68-85"
+  - "src/forex_system/risk/kill_switch.py:43-49,131-207,209-236,270-325"
+  - "src/forex_system/risk/drawdown_contract.py:42-46,116-127,129-216"
+  - "src/forex_system/risk/heartbeat_watchdog.py:48-200"
+  - "src/forex_system/saxo/client.py:67-74,94-110,155,394"
+  - "scripts/run_paper_trading_vt.py:76,94-96,465-513,809,829,977-978"
+  - "scripts/run_paper_trading_carry_fred.py:95,110,112,446,759"
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md (sections SD-2, SD-4 — constraint definitions only)"
+  # Redacted input
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml"
+  # External regulatory and vendor citations
+  - "https://www.sec.gov/litigation/admin/2013/34-70694.pdf — SEC Release 34-70694 (Knight Capital, Oct 16 2013)"
+  - "https://www.federalreserve.gov/supervisionreg/srletters/sr1107.htm — Fed SR 11-7 Supervisory Guidance on Model Risk Management (Apr 4 2011); referenced via web search; see also revised guidance referenced as SR 26-02 in 2026"
+  - "https://www.developer.saxo/openapi/learn/rate-limiting — Saxo OpenAPI rate limits (120 req/min/session/service-group; 1 order/sec/session; 10M req/day/app)"
+  - "Skill: trading-platform-architectures/axes/oms-risk.md — layered-risk-gate framework applied"
+  - "Skill: kill-switch-design — five-property rubric applied for ML failure-mode analysis"
+  - "Skill: quantitative-risk-management — subadditivity and tail-correlation framing for Q4"
+  - "Skill: clock-and-ordering — burst-alignment failure mode for Saxo rate-limit (cycle-start synchronization is a wall-clock alignment problem)"
+
+web_research_conducted: true
+websearch_used: 2
+webfetch_used: 1
+no-capital-instruction: true

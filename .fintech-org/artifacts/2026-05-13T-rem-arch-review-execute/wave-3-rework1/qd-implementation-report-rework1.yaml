@@ -1,0 +1,144 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-05-13T00:00:00Z"
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0:qd-rework1
+evidence:
+  - "F-001: scripts/run_paper_trading_vt.py + scripts/run_paper_trading_carry_fred.py — AggregateDrawdownContract wired at script startup (prior wave-3)"
+  - "F-002: src/forex_system/risk/drawdown_contract.py — AggregateDrawdownContract class added (prior wave-3)"
+  - "F-003: src/forex_system/risk/exposure_aggregator.py — ExposureAggregator implementation (prior wave-3)"
+  - "F-004: src/forex_system/risk/drawdown_contract.py — drawdown_contract per-strategy check method (prior wave-3)"
+  - "F-005: src/forex_system/paper/base_runner.py — _validate_dispatch_stagger_config added (prior wave-3)"
+  - "F-006: tests/integration/test_paper_runner_bc8_conds.py:177-280 — test_n2_paper_runner_single_source_of_truth_n3 un-skipped; rework-1 fixes __file__ in exec namespace at line 261"
+  - "F-007: src/forex_system/saxo/client.py — 429 retry hardening added (prior wave-3)"
+  - "F-008: tests/strategies/test_rem1_liskov_fix.py — Liskov violation regression tests (prior wave-3)"
+  - "F-009: tests/core/test_rem4_stagger_config.py — stagger config unit tests (prior wave-3)"
+  - "F-010: src/forex_system/risk/drawdown_contract.py — contract immutability/boundary checks (prior wave-3)"
+assumptions:
+  - "Prior wave-2b implementation report at .../wave-2b/qd-implementation-report.yaml is the baseline; this rework only adds/modifies code to close PR findings F-001..F-010."
+  - "Sacred test verified PASS after rework completion."
+  - "Pre-existing 8 wave-8 failures + 1 governance canary failure remain unchanged in count (not introduced by this rework)."
+confidence: high
+body: |
+  Rework-1 scope: single fix — N=3 stub __file__ issue in test_n2_paper_runner_single_source_of_truth_n3.
+
+  F-001 (AggregateDrawdownContract wiring): CLOSED. Paper scripts wire AggregateDrawdownContract at
+  startup. No rework-1 changes needed.
+
+  F-002 (AggregateDrawdownContract class): CLOSED. Implementation exists in
+  src/forex_system/risk/drawdown_contract.py. No rework-1 changes.
+
+  F-003 (ExposureAggregator): CLOSED. Implementation in exposure_aggregator.py from prior wave-3.
+  No rework-1 changes.
+
+  F-004 (per-strategy drawdown check method): CLOSED. Method present in drawdown_contract.py.
+  No rework-1 changes.
+
+  F-005 (_validate_dispatch_stagger_config): CLOSED. Method in base_runner.py; covered by
+  TestDispatchStaggerConfigValidation (5 tests, all pass). No rework-1 changes.
+
+  F-006 (N=3 stub cardinality-1 test): CLOSED (fix applied in rework-1). The test
+  test_n2_paper_runner_single_source_of_truth_n3 was failing because exec()'s namespace
+  did not define __file__, causing Path(__file__).resolve() inside the stub to raise
+  NameError. Fix: supply {"__file__": tmp_path, "__builtins__": __builtins__} as the
+  exec namespace. Test now runs to the xfail branch (expected: cardinality-1 invariant
+  not yet met at current state, full REM-2 extraction pending), which is correct behavior.
+  Result: 0 failures, 1 xfailed (expected).
+
+  F-007 (429 retry hardening): CLOSED. SaxoClient retry logic in saxo/client.py.
+  Tests in tests/saxo/test_rem6_429_hardening.py pass. No rework-1 changes.
+
+  F-008 (Liskov violation regression): CLOSED. tests/strategies/test_rem1_liskov_fix.py
+  exists and passes. No rework-1 changes.
+
+  F-009 (stagger config unit tests): CLOSED. tests/core/test_rem4_stagger_config.py
+  exists and passes. No rework-1 changes.
+
+  F-010 (drawdown contract immutability/boundary): CLOSED. Checks in drawdown_contract.py.
+  No rework-1 changes.
+
+  Final test counts (targeted run): 14 passed, 6 skipped, 1 xfailed, 0 failed.
+  Sacred test (test_no_lookahead): PASS.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+# QD implementation-report extension fields:
+spec-ref: PR review-report wave-3 + PM acceptance-criteria + wave-2a CTO/CRO/NHT
+files-to-create-or-modify:
+  - tests/integration/test_paper_runner_bc8_conds.py (rework-1 fix: exec namespace __file__)
+commit_hash: uncommitted
+files_changed:
+  - path: tests/integration/test_paper_runner_bc8_conds.py
+    diff_summary: "Supply __file__ and __builtins__ in exec namespace for N=3 stub test (line 261)"
+tests-added:
+  - test_name: test_n2_paper_runner_single_source_of_truth_n3
+    invariants_tested:
+      - "N=3 cardinality-1 contract: synthetic third paper script can use PaperRunnerBase._check_kill_switch"
+      - "exec namespace includes __file__ so Path(__file__).resolve() works in stub"
+      - "xfail branch correctly marks current-state inline is_triggered as not-yet-extracted"
+tests_passing:
+  tests_run: 21
+  passed: 14
+  failed: 0
+  blocked: 0
+sacred_test_status: pass
+observability-hooks: []
+spec-to-impl-trace:
+  - finding: F-001
+    code_location: "scripts/run_paper_trading_vt.py (AggregateDrawdownContract instantiation at startup)"
+  - finding: F-002
+    code_location: "src/forex_system/risk/drawdown_contract.py (AggregateDrawdownContract class)"
+  - finding: F-003
+    code_location: "src/forex_system/risk/exposure_aggregator.py (ExposureAggregator class)"
+  - finding: F-004
+    code_location: "src/forex_system/risk/drawdown_contract.py (per-strategy check method)"
+  - finding: F-005
+    code_location: "src/forex_system/paper/base_runner.py (_validate_dispatch_stagger_config method)"
+  - finding: F-006
+    code_location: "tests/integration/test_paper_runner_bc8_conds.py:261 (exec namespace fix)"
+  - finding: F-007
+    code_location: "src/forex_system/saxo/client.py (429 retry hardening)"
+  - finding: F-008
+    code_location: "tests/strategies/test_rem1_liskov_fix.py (Liskov regression tests)"
+  - finding: F-009
+    code_location: "tests/core/test_rem4_stagger_config.py (stagger config unit tests)"
+  - finding: F-010
+    code_location: "src/forex_system/risk/drawdown_contract.py (immutability/boundary checks)"
+deviations-from-spec: []
+firewall-self-review: |
+  Re-applied execution-firewall-review checks after rework: no inspect.signature, no allowlists,
+  no live-capital references introduced; AggregateDrawdownContract instantiation in paper scripts
+  is a wiring change (no new research-class judgment). The exec namespace fix is purely a test
+  harness correction with no impact on production code paths. PASS.
+bash_blocked: false
+deviations-from-instructions: []
+
+# Rework cycle extension field (read by PR cycle-2):
+findings_closure_status:
+  F-001: closed
+  F-002: closed
+  F-003: closed
+  F-004: closed
+  F-005: closed
+  F-006: closed
+  F-007: closed
+  F-008: closed
+  F-009: closed
+  F-010: closed
+findings_closure_evidence:
+  F-001: "AggregateDrawdownContract wired in both paper scripts at startup; no rework-1 change needed"
+  F-002: "AggregateDrawdownContract class implemented in drawdown_contract.py; no rework-1 change needed"
+  F-003: "ExposureAggregator implemented in exposure_aggregator.py; no rework-1 change needed"
+  F-004: "Per-strategy drawdown check method present in drawdown_contract.py; no rework-1 change needed"
+  F-005: "_validate_dispatch_stagger_config in base_runner.py; 5 tests pass; no rework-1 change needed"
+  F-006: "exec namespace now supplies __file__=tmp_path; test runs to expected xfail (0 failures)"
+  F-007: "429 retry hardening in saxo/client.py; test_rem6_429_hardening.py passes; no rework-1 change"
+  F-008: "Liskov regression tests in test_rem1_liskov_fix.py pass; no rework-1 change needed"
+  F-009: "Stagger config tests in test_rem4_stagger_config.py pass; no rework-1 change needed"
+  F-010: "Drawdown contract boundary checks in drawdown_contract.py; no rework-1 change needed"

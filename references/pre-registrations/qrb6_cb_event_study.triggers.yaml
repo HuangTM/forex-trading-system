@@ -134,19 +134,23 @@ symbols:
       .fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-spotcheck-sidecar.yaml
 
   p_straddle_hi:
-    value: 0.0522
-    source_of_value: "math-sections.md SS4 straddle band upper edge (0.05 + MC-SE 0.0022, K=10000); KILL requires strict > p_straddle_hi per SS4.2 boundary convention"
+    # OBF 2-look extra-look penalty applied (look-1 = voided run; NHT remediation-ratification.yaml 2026-06-07)
+    # Former void-run value: 0.0522. Superseded; must not appear as an active threshold.
+    value: 0.0422
+    source_of_value: "OBF look-2 boundary 0.039995 + MC-SE 0.0022 = 0.0422; KILL requires strict > p_straddle_hi per §4.2 boundary convention; NHT remediation-ratification.yaml"
   p_reject_threshold:
     description: >
-      The frozen alpha-minus-MC-SE clean-reject threshold: 0.0478 = 0.05 - 0.0022.
+      OBF 2-look extra-look penalty applied (look-1 = voided run; NHT remediation-ratification.yaml
+      2026-06-07): p_reject = 0.05 − 0.01001 alpha-spend − 0.0022 MC-SE = 0.0378.
+      Former void-run value was 0.0478 (superseded; must not appear as an active threshold).
       A p-value strictly below this value is a clean rejection of H0. At or above
       it, the test either fails (KILL) or lands in the straddle band (RULE 4).
       The multiplicity charge (N_sel=3, dispersion=0.50) is absorbed entirely into
-      the DSR gate via SR0_pp_sel=0.026861 — NOT via a deflated p-threshold. This
-      alpha is 0.05; the gate threshold here is 0.0478. Frozen at §4.2 + math-spec.
+      the DSR gate via SR0_pp_sel=0.026861 — NOT via a deflated p-threshold. Frozen
+      at §4.2 + math-spec + OBF extra-look ratification.
     type: float
-    value: 0.0478
-    source_of_value: "qrb6_cb_event_study.md §4.2; math-spec.yaml mc_se_at_p05=0.002179"
+    value: 0.0378
+    source_of_value: "OBF extra-look penalty: 0.05 − look-1-spend(0.01001) − MC-SE(0.0022) = 0.0378; NHT remediation-ratification.yaml; qrb6_cb_event_study.md §4.2"
 
   dsr_threshold:
     description: >
@@ -236,7 +240,7 @@ symbols:
 
 # ---------------------------------------------------------------------------
 # TRIGGERS — ordered matching §4.2 RULES; first matching KILLS / acts; PASS is
-# the §4.2 RULE 3 residual (both p's <= 0.0478 AND DSR >= 0.95 AND no VOID).
+# the §4.2 RULE 3 residual (both p's < 0.0378 AND DSR >= 0.95 AND no VOID; OBF extra-look).
 # ---------------------------------------------------------------------------
 
 triggers:
@@ -252,20 +256,22 @@ triggers:
       post_2015_subwindow_kill check; fires only if the post-2015 gate did NOT kill.
     metric: "p_agg"
     operator: ">="
-    threshold: 0.0522
+    threshold: 0.0422
     action: KILL
     condition_expression: "p_agg > p_straddle_hi"
     raw_text: >
-      Pooled block-bootstrap p-value on the post-decision (K_post=2) event return >=
-      0.0478 (alpha 0.05 minus MC-SE straddle band 0.0022) → fail to reject H0 →
-      strategy does not demonstrate a statistically significant post-decision edge. KILL.
+      Pooled block-bootstrap p-value on the post-decision (K_post=2) event return > 0.0422
+      (OBF extra-look penalty applied; former void-run threshold 0.0522 is superseded) →
+      fail to reject H0 → strategy does not demonstrate a statistically significant
+      post-decision edge. KILL.
       Multiplicity charge absorbed by DSR gate (N_sel=3, SR0_pp_sel=0.026861) — NOT
-      via the p-threshold. The threshold is the literal 0.0478, not a separate alpha symbol.
+      via the p-threshold. The active KILL threshold is 0.0422 (p_straddle_hi).
     overrides_post2015_pass: false
     note: >
+      OBF 2-look extra-look penalty applied (NHT remediation-ratification.yaml 2026-06-07).
       alpha = 0.05 (total, one-sided). The multiplicity charge (N_sel=3 paper-selection)
       is absorbed entirely into the DSR gate (RULE 3 / T3-dsr), NOT into this p-threshold.
-      p_reject_threshold = 0.0478 = 0.05 - MC-SE = 0.05 - 0.0022 (K=10000, §4.2 frozen).
+      p_reject_threshold = 0.0378 (OBF extra-look; former void-run value 0.0478 superseded).
 
   post_2015_subwindow_kill:
     label: "qrb6-T2-post2015-kill"
@@ -277,19 +283,21 @@ triggers:
       alpha in the current deployment regime (§2.3). KILLS even if aggregate passes.
     metric: "p_post2015"
     operator: ">="
-    threshold: 0.0522
+    threshold: 0.0422
     action: KILL
     overrides_aggregate_pass: true
     condition_expression: "p_post2015 > p_straddle_hi"
     raw_text: >
       Post-2015 sub-window (date >= 2015-01-01; 345 deduped Scenario A event-days) block-
-      bootstrap p-value on the post-decision (K_post=2) event return >= 0.0478 → post-decision
-      reaction/reversal absent in current deployment regime → KILL, overrides aggregate pass.
+      bootstrap p-value > 0.0422 (OBF extra-look penalty; former void-run threshold 0.0522
+      superseded) → post-decision reaction/reversal absent in current deployment regime →
+      KILL, overrides aggregate pass.
       This is the structural-break kill: an aggregate pass carried by pre-2015 data = dead alpha.
     post_2015_cutoff: "2015-01-01"
     event_days_a: 345
     event_days_b: 491
     note: >
+      OBF 2-look extra-look penalty applied (NHT remediation-ratification.yaml 2026-06-07).
       The 2015-01-01 cutoff is the documented structural-break endpoint (disappearing-drift
       literature, §2.3). It is NOT the sample midpoint. BOC-gap confound disclosed (§3.4b):
       BOC is entirely absent from pre-2015 sub-window; FED/BOJ/RBA carry the pre/post contrast.
@@ -330,26 +338,29 @@ triggers:
   straddle_band:
     label: "qrb6-T3b-straddle"
     description: >
-      §4.2 RULE 4 straddle branch. Any p in [0.0478, 0.0522] is a boundary result
-      indistinguishable from exactly 0.05 at K=10000 (MC-SE=0.0022; straddle band
-      width=0.0044). Such a boundary result must NOT buy PASS and must NOT be read as
-      a clean KILL. Routes to RULE 4: AMBIGUOUS / gate-fail → no PASS; default to
-      wind-down under full-auto. Applies to both p_agg and p_post2015.
+      §4.2 RULE 4 straddle branch + OBF extra-look penalty (NHT remediation-ratification.yaml
+      2026-06-07). Any p in [0.0378, 0.0422] is a boundary result in the OBF-penalised band.
+      Former void-run band [0.0478, 0.0522] is superseded. Such a boundary result must NOT
+      buy PASS and must NOT be read as a clean KILL. Routes to RULE 4: AMBIGUOUS / gate-fail
+      → no PASS; default to wind-down under full-auto. Applies to both p_agg and p_post2015.
     metric: "p_agg OR p_post2015"
     operator: "in_band"
-    threshold_low: 0.0478
-    threshold_high: 0.0522
+    threshold_low: 0.0378
+    threshold_high: 0.0422
     action: AMBIGUOUS
     condition_expression: "(p_agg >= p_reject_threshold AND p_agg <= p_straddle_hi) OR (p_post2015 >= p_reject_threshold AND p_post2015 <= p_straddle_hi)"
     raw_text: >
-      Either p is in [0.0478, 0.0522] (MC-SE straddle band at K=10000) → boundary result;
-      cannot distinguish from exactly alpha=0.05. Routes to RULE 4 (AMBIGUOUS). Never PASS.
+      Either p is in [0.0378, 0.0422] (OBF extra-look penalised straddle band; former void-run
+      band [0.0478, 0.0522] is superseded) → boundary result; routes to RULE 4 (AMBIGUOUS).
+      Never PASS.
     note: >
-      The straddle band [0.0478, 0.0522] is derived from MC-SE = sqrt(0.05*0.95/10000) =
-      0.002179, rounded to 0.0022 (math-spec.yaml mc_se_at_p05=0.002179, straddle_band=0.0022).
-      The upper bound of the band is 0.05 + 0.0022 = 0.0522. Both KILL triggers (T1, T2) use
-      the '>=' operator; a straddle-band result fires T1/T2 but resolves to RULE 4 (AMBIGUOUS),
-      not a clean RULE 1/2 KILL. The ordered evaluation (RULE 1 → RULE 2 → RULE 3 → RULE 4)
+      OBF 2-look extra-look penalty applied (NHT remediation-ratification.yaml 2026-06-07).
+      The straddle band is [0.0378, 0.0422]:
+        lower = 0.05 − look-1-spend(0.01001) − MC-SE(0.0022) = 0.0378
+        upper = OBF-look-2-boundary(0.039995) + MC-SE(0.0022) = 0.0422
+      Both KILL triggers (T1, T2) use the '>' operator; a straddle-band result (p in
+      [0.0378, 0.0422]) does not fire T1/T2 (strict > 0.0422 required) and routes to
+      RULE 4 (AMBIGUOUS). The ordered evaluation (RULE 1 → RULE 2 → RULE 3 → RULE 4)
       ensures the boundary is handled conservatively.
 
   scenario_b_activation_rule:
@@ -510,15 +521,18 @@ secondary_metrics_required:
 # EVALUATION ORDER SUMMARY (matches §4.2 ordered rules)
 # ---------------------------------------------------------------------------
 evaluation_order:
+  # OBF 2-look extra-look penalty applied (NHT remediation-ratification.yaml 2026-06-07).
+  # Former void-run thresholds 0.0478 (p_reject) / 0.0522 (p_kill) are superseded.
+  # Active thresholds: p_reject=0.0378, p_kill=0.0422, straddle band [0.0378, 0.0422].
   - "RULE 0: VOID conditions checked first (return_data_accessed_before_freeze,
     cross_trial_constant_imported, training_memory_unverified_rows_included,
     numeric_reversal_target_present). If any VOID fires → HALT, pre-reg VOID."
-  - "RULE 1: post_2015_subwindow_kill (p_post2015 >= 0.0478) → KILL, overrides aggregate."
-  - "RULE 2: aggregate_gate (p_agg >= 0.0478) → KILL (only reached if RULE 1 did not fire)."
+  - "RULE 1: post_2015_subwindow_kill (p_post2015 > 0.0422) → KILL, overrides aggregate."
+  - "RULE 2: aggregate_gate (p_agg > 0.0422) → KILL (only reached if RULE 1 did not fire)."
   - "RULE 3: dsr_gate (dsr < 0.95) + straddle_band → RULE 4 AMBIGUOUS / gate-fail.
-    PASS requires both p's <= 0.0478 AND DSR >= 0.95 (both-must-pass, post-2015 priority)."
+    PASS requires both p's < 0.0378 AND DSR >= 0.95 (both-must-pass, post-2015 priority)."
   - "RULE 4 (catch-all): both p's clean-reject but DSR < 0.95, OR any p in straddle
-    [0.0478, 0.0522] → AMBIGUOUS / gate-fail → no PASS, default wind-down."
+    [0.0378, 0.0422] → AMBIGUOUS / gate-fail → no PASS, default wind-down."
 
 # ---------------------------------------------------------------------------
 # CROSS-REFERENCES

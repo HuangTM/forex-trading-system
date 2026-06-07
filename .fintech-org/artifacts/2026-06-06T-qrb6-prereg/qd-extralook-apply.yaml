@@ -1,0 +1,89 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-07T15:04:00Z"
+subtask_ref: qrb6-extralook-apply
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+
+commit_hash: uncommitted
+
+files_changed:
+  - "path: scripts/cut_freeze_receipt.py change: > Added p_reject_threshold=0.0378 and p_straddle_hi=0.0422 to the qrb6 _TARGETS fields dict (lines ~104-107), with OBF extra-look basis comment. These fields are now carried by the receipt so the runner can read them without fallback."
+
+  - "path: scripts/run_qrb6.py change: > (1) _run_pipeline(): removed silent fallbacks get('p_straddle_hi', 0.0522) and get('p_reject_threshold', 0.0478) — replaced with hard key lookups float(receipt['p_straddle_hi']) and float(receipt['p_reject_threshold']). A missing field now RULE-0 instead of silently using a stale default. (2) main() stub receipt: updated p_straddle_hi 0.0522→0.0422, p_reject_threshold 0.0478→0.0378 in the dry-run stub dict."
+
+  - "path: src/forex_system/harness/qrb6_decision.py change: > _EXPECTED_P_REJECT: 0.0478→0.0378; _EXPECTED_P_STRADDLE_HI: 0.0522→0.0422. Updated inline comments on both constants to document OBF 2-look basis and former void-run values. Updated evaluate_decision() boundary convention docstring, parameter docstrings (p_kill_threshold, p_reject_threshold), function signature inline comments, and RULE 1/2/4 inline comments to reflect 0.0422/0.0378."
+
+  - "path: tests/harness/test_qrb6_decision.py change: > _P_KILL: 0.0522→0.0422; _P_REJECT: 0.0478→0.0378. Boundary truth-table tests updated: exact-boundary tests now use 0.0378/0.0422 (lower/upper band), just-inside test uses 0.0377, just-above tests use 0.0423. Straddle band mid-point updated from 0.0500→0.0400. Mixed straddle test updated from 0.0490→0.0400. stub_receipt in dry-run pipeline test updated (p_straddle_hi 0.0522→0.0422, p_reject_threshold 0.0478→0.0378). Test docstrings updated to reference 0.0422/0.0378 and 'OBF extra-look'."
+
+  - "path: tests/harness/test_qrb6_freeze_receipt.py change: > assembly_fields list in test_frozen_at_assembly_fields_present() extended to include p_reject_threshold and p_straddle_hi (so the test now verifies these fields are present in cut_freeze_receipt._TARGETS['qrb6']['fields'])."
+
+  - "path: references/pre-registrations/qrb6_cb_event_study.triggers.yaml change: > p_straddle_hi.value: 0.0522→0.0422 (+ source_of_value updated to OBF basis). p_reject_threshold.value: 0.0478→0.0378 (+ description and source_of_value updated). aggregate_gate: threshold 0.0522→0.0422; raw_text updated; note updated. post_2015_subwindow_kill: threshold 0.0522→0.0422; raw_text updated; note updated. straddle_band: description, threshold_low 0.0478→0.0378, threshold_high 0.0522→0.0422, raw_text, and note updated (full band now [0.0378, 0.0422]). evaluation_order: all four RULE summary lines updated to 0.0422/0.0378. triggers section header comment updated."
+
+threshold_changes:
+  p_reject: "0.0478->0.0378"
+  p_kill: "0.0522->0.0422"
+  basis: >
+    OBF 2-look extra-look penalty. Look-1 = voided contaminated run.
+    p_reject = 0.05 − 0.01001 (look-1 alpha-spend) − 0.0022 (MC-SE at K=10000) = 0.0378.
+    p_straddle_hi = 0.039995 (OBF look-2 boundary) + 0.0022 (MC-SE) = 0.0422.
+    Ratified in .fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-remediation-ratification.yaml.
+
+silent_fallbacks_removed: yes
+
+residual_old_value_grep:
+  status: CLEAN — all remaining occurrences are historical/disclosure comments only
+  remaining_occurrences:
+    - "scripts/run_qrb6.py:444 — comment documenting the REMOVED silent-fallback code (former get-default 0.0522/0.0478); not an active code path, labelled void-run values"
+
+    - "src/forex_system/harness/qrb6_decision.py lines 60/662/677/680 — comments/docstrings labelling 0.0478/0.0522 as former/superseded void-run values; the active constants on lines 61-62 are 0.0378/0.0422"
+
+    - "file: tests/harness/test_qrb6_decision.py lines: [41, 675] allowed_reason: > Comment on line 41 documents superseded values for reviewer orientation. Comment on line 675 is inside a stub_receipt dict comment labelling former values."
+
+    - "file: references/pre-registrations/qrb6_cb_event_study.triggers.yaml lines: [138, 145, 264, 274, 292, 343, 354, 525] allowed_reason: > All occurrences are in YAML comments or description/note fields that explicitly label 0.0478/0.0522 as 'former void-run', 'superseded', or 'Former void-run band'. The active value fields (p_straddle_hi.value, p_reject_threshold.value, threshold fields, threshold_low, threshold_high) all carry 0.0378/0.0422."
+
+tests_passing:
+  tests_harness: "457 passed, 3 skipped"
+  sacred_test_no_lookahead: "1 passed"
+  ruff_lint: "All checks passed"
+  command_used_harness: "python3 -m pytest tests/harness/ -q"
+  command_used_sacred: "python3 -m pytest tests/backtest/test_engine.py -k test_no_lookahead -q"
+
+sacred_test_status: GREEN
+
+kill_test_executed: false
+
+evidence:
+  - "dry_run_log: > Pipeline log confirmed p_kill_threshold: 0.0422 and p_reject_threshold: 0.0378 at qrb6_runner.decision_start event. DRY-RUN writes to references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml."
+  - "grep_confirmation: > Zero active 0.0478 or 0.0522 in code, sidecar, or tests. All remaining occurrences are historical/disclosure comments explicitly marked as 'former void-run value', 'superseded', or equivalent."
+  - "tests: '457 harness tests pass (3 skipped: receipt-interlock tests skipped because receipt already exists on disk); 1 sacred test passes; ruff clean.'"
+
+assumptions:
+  - "The OBF 2-look penalty math (0.0378/0.0422) is taken verbatim from the ratification YAML without re-deriving; NHT owns the math verification."
+  - "The receipt on disk does NOT yet carry p_reject_threshold/p_straddle_hi (orchestrator cuts the receipt post-PR); the dry-run uses the main() stub receipt dict, updated to 0.0378/0.0422."
+  - "check_receipt_constants() did NOT check p_reject_threshold or p_straddle_hi against the _EXPECTED guards — FLAGGED to orchestrator/PR as an interlock-completeness gap to close before re-cut."
+
+confidence: high
+
+body: >
+  All 5 required files updated with the OBF 2-look extra-look penalty (0.0478→0.0378,
+  0.0522→0.0422). The critical structural fix — removing silent fallbacks from run_qrb6.py
+  — eliminates the same class of bug that caused the spread_z void: a missing receipt field
+  now RULE-0 hard-fails instead of silently falling through to a stale default.
+  cut_freeze_receipt.py now carries p_reject_threshold and p_straddle_hi in the qrb6
+  fields dict so the frozen receipt will include them at cut time, removing any future
+  need for a fallback. All test boundaries updated consistently with the new thresholds.
+  The sidecar triggers.yaml is fully consistent: all threshold values, condition expressions,
+  raw_text, notes, and evaluation_order summary updated. Zero active occurrences of old
+  values remain in code, sidecar, or tests.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

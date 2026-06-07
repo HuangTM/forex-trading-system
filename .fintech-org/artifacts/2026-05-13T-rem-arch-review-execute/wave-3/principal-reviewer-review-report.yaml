@@ -1,0 +1,226 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: 2026-05-13T12:00:00Z
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0:pr
+evidence:
+  - src/forex_system/core/interfaces.py:51
+  - src/forex_system/core/types.py:82
+  - src/forex_system/strategies/registry.py:31-50
+  - src/forex_system/strategies/carry.py:32
+  - src/forex_system/strategies/carry_fred.py:79
+  - src/forex_system/strategies/carry_momentum.py:41
+  - src/forex_system/strategies/fred_carry_stripped.py:92
+  - src/forex_system/strategies/vol_target_carry.py:44
+  - src/forex_system/strategies/vol_target_carry_no_vol_scaling.py:57
+  - scripts/run_falsification_trial.py:430-461
+  - src/forex_system/risk/exposure_aggregator.py:191-270
+  - src/forex_system/risk/drawdown_contract.py:277-509
+  - src/forex_system/risk/kill_switch.py:43-55
+  - src/forex_system/saxo/client.py:83-271
+  - src/forex_system/paper/base_runner.py:1-159
+  - tests/strategies/test_rem1_liskov_fix.py:1-256
+  - tests/risk/test_rem5_per_strategy_allocation.py:1-289
+  - tests/risk/test_rem7_aggregate_drawdown.py:1-475
+  - tests/saxo/test_rem6_429_hardening.py:1-243
+  - tests/integration/test_paper_runner_bc8_conds.py:1-175
+  - config/default.yaml:80-94
+  - scripts/run_paper_trading_vt.py
+  - scripts/run_paper_trading_carry_fred.py
+assumptions:
+  - "PR no-fix scan applies to my output; I describe gaps only."
+  - "Sacred test test_no_lookahead is trivially preserved because backtest/ and features/ have zero diff vs HEAD; orchestrator already verified PASS."
+  - "Phase-A scope for REM-2 means PaperRunnerBase is allowed to be a scaffold; per-strategy DrawdownContract wired, aggregate not — but spec explicitly says aggregate must run in interim via direct script instantiation."
+confidence: high
+body: |
+  Review covers 17 source files + 6 test files, ~900 net LoC added, against
+  spec values D-1.1..D-7.2 / R-5.1..R-7.1 / N-1..N-3. Decision: REJECT — two
+  blocking findings on REM-7 (LTCM defense unwired in production) and REM-7
+  shuffle test (false-confidence, does not test what it claims).
+
+  1. spec-to-implementation trace — REM-1 and REM-6 fully match D-1.1/D-1.2/
+     D-1.3/D-6.1/D-6.2. REM-5 implements per-strategy gate but the aggregate-sum
+     conjunct of INV-R5-1 is not enforced inside check_per_strategy_allocation
+     (relies on caller to also call check_dispatch_allowed). REM-7 contract
+     class matches R-7.1 surface (thresholds, INV-R7-3 startup assertion, two
+     new TriggerReason values, lockout path). REM-2 phase-A matches D-2.1/D-2.2
+     but D-4.1 dispatch_stagger config is added with NO consuming code (see F-005).
+
+  2. execution-firewall-review — implementation does not introduce new silent
+     defaults. Pre-existing fillna(0.0) in vol_target_carry.py:69 is unchanged
+     by this dispatch (F-005-pre-existing). Interface signatures are typed and
+     the rate_data path is keyword-only per D-1.1.
+
+  3. log-as-decision-trace — strong on REM-5, REM-6, REM-7. Each gate decision
+     and each level transition emits structured fields. Two gaps: the bucket-
+     deduct log is at DEBUG (REM-6), and PaperRunnerBase phase-A startup line
+     does not emit the consumed dispatch_stagger_offsets_seconds value — the
+     decision "we picked offset X" is not in the log.
+
+  4. edge-case enumeration — REM-6 lacks an HTTP-date Retry-After case (RFC
+     7231 form). REM-7 lacks a peak-equity initial-zero edge case test. REM-5
+     lacks a tie-condition test (two strategies submitting the same instant
+     with same id-prefix); the "tie-break determinism" test runs identical
+     inputs 100x and asserts they're the same — it does not exercise a tie.
+
+  5. invariant-search — INV-R7-3 IS asserted at AggregateDrawdownContract
+     __post_init__. INV-R5-1's per-strategy conjunct is enforced; the aggregate
+     sum conjunct is not enforced in the same call site. INV-R5-3 deterministic
+     tie-break is asserted via Python sort on a static list, not by exercising
+     the production code path.
+
+  6. test-inversion — N-3 SHUFFLE-CONTROL test (the NHT-mandated trajectory-
+     fragility defense) injects _equity_at_dd(peak, 0.18) by construction
+     whenever all strategies reach DD; the test always passes by tautology.
+     A genuinely trajectory-fragile contract (e.g. one using a windowed
+     moving average of recent DD) would still pass this test because the
+     scenario explicitly hands it 18% in one bar. The test does not falsify
+     trajectory dependence — the relocation pattern N-3 names is unprotected.
+     N-2 test_n2_paper_runner_single_source_of_truth_n3 is @pytest.mark.skip;
+     the SSO-T-under-N=3 invariant is unenforced.
+
+  7. failure-mode reasoning — token bucket and 429 retry handle Saxo gateway
+     timeout via DEFAULT_HTTP_TIMEOUT (10s,30s); however, 4 simultaneous
+     processes receiving the same Retry-After value will all wake at the
+     same instant (no inter-process jitter on the Retry-After path; jitter
+     is only applied in the NO-Retry-After branch). REM-7 has no failure
+     mode for "broker equity-fetch returns stale value mid-flight" — the
+     contract trusts whatever update_equity is fed.
+
+  8. clock-and-ordering (REM-7) — AggregateDrawdownContract.update_equity
+     accepts an aggregate_equity scalar with no timestamp argument and no
+     receive-time field. The spec invariant ("single broker-receive-time
+     snapshot fanned out synchronously") relies entirely on caller discipline.
+     There is no production caller, so the discipline is moot at present —
+     but when wired, no contract-level mechanism prevents the LTCM-class
+     race the spec is meant to defend against.
+
+  9. kill-switch-design — DRAWDOWN_AGGREGATE_HALT and DRAWDOWN_AGGREGATE_LOCKOUT
+     are added to TriggerReason. Aggregate contract triggers them via
+     kill_switch.trigger() if a kill_switch is supplied (not required by
+     constructor). The COND-1 hook in PaperRunnerBase phase-A scaffold is
+     present and tested for triggered/not-triggered states.
+
+  Coverage-statement: I reviewed 17 of 17 source files in scope and 6 of 6
+  test files in scope; I read selected portions of context-only files
+  (run_paper_trading_vt.py, run_paper_trading_carry_fred.py, test_engine.py,
+  config/default.yaml). No artifacts skipped.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+artifact-under-review: "wave-2b QD implementation; src/forex_system/{core/interfaces.py,core/types.py,strategies/*,risk/{exposure_aggregator.py,drawdown_contract.py,kill_switch.py},saxo/client.py,paper/base_runner.py}; scripts/run_falsification_trial.py; config/default.yaml; tests/{strategies/test_rem1_liskov_fix.py,risk/test_rem5_per_strategy_allocation.py,risk/test_rem7_aggregate_drawdown.py,saxo/test_rem6_429_hardening.py,integration/test_paper_runner_bc8_conds.py,scripts/test_run_paper_trading_vt_wiring.py}"
+
+rubrics-applied:
+  - spec-to-implementation-trace
+  - execution-firewall-review
+  - log-as-decision-trace
+  - edge-case-enumeration
+  - invariant-search
+  - test-inversion
+  - failure-mode-reasoning
+  - clock-and-ordering
+  - kill-switch-design
+
+findings:
+  - id: F-001
+    severity: blocking
+    location: src/forex_system/risk/drawdown_contract.py:277-509 + scripts/run_paper_trading_vt.py + scripts/run_paper_trading_carry_fred.py
+    category: spec-drift
+    observation: "AggregateDrawdownContract class is defined and exported, but grep across src/ and scripts/ produces zero instantiations. Both paper scripts import per-strategy DrawdownContract (3 references each) but neither imports nor instantiates AggregateDrawdownContract. PaperRunnerBase docstring at base_runner.py:25-29 explicitly says: 'In the interim (before REM-2 full BaseRunner extraction), both paper scripts instantiate this directly and call update_equity() from each strategy's per-bar cycle.' That instantiation does not exist."
+    inference: "If paper trading starts with the current code, the LTCM-class defense (the entire point of REM-7) does not run. 4 strategies could each be at 8% per-strategy DD (below 10% halt), aggregate book at 18% DD, and no kill switch fires. The class exists in code but is inert in the execution path."
+    evidence: "src/forex_system/risk/drawdown_contract.py:277 (class AggregateDrawdownContract); src/forex_system/paper/base_runner.py:26-29 + base_runner.py:129 (TODO referencing instantiation as future work); scripts/run_paper_trading_vt.py grep AggregateDrawdownContract = 0; scripts/run_paper_trading_carry_fred.py grep AggregateDrawdownContract = 0"
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-developer
+  - id: F-002
+    severity: blocking
+    location: tests/risk/test_rem7_aggregate_drawdown.py:168-244
+    category: test-coverage-gap
+    observation: "TestN3ShuffleControl.test_aggregate_fires_in_99pct_of_shuffled_trajectories iterates 1000 trajectories, but the inner loop at line 217-222 has 'if all_at_dd: agg_equity = _equity_at_dd(peak_aggregate, 0.18)'. The shuffle is over which BAR all-strategies-at-DD is reached; whenever it is reached, the test injects a 18%-DD aggregate value by construction. Lockout threshold is 15%, so any positive injection fires."
+    inference: "The test does not differentiate a genuinely threshold-shaped contract from a trajectory-fragile one. A pathological implementation that, for example, smoothed aggregate_equity through a 5-bar moving average, would still pass this test because the scenario explicitly feeds it the trough value as a single bar. The N-3 relocation pattern the NHT named (trajectory-fragile windowed average) is unprotected by this test."
+    evidence: "tests/risk/test_rem7_aggregate_drawdown.py:217-222 (the all_at_dd branch unconditionally writes 0.18 DD); spec input N-3 atomic_claim referenced trajectory-fragile windowed average as a relocation risk"
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-003
+    severity: major
+    location: src/forex_system/risk/exposure_aggregator.py:191-270
+    category: invariant-violation
+    observation: "check_per_strategy_allocation enforces only the per-strategy cap (max_correlated_pct / max_active_strategies). The aggregate cap (sum of all strategies' jpy_notional <= max_correlated_pct * book_equity) is checked by check_dispatch_allowed (separate function operating on a snapshot). The two are not joined; spec INV-R5-1 names a conjunct: 'sum(strategy_allocations) <= 0.15 * book_equity AND per-strategy <= 0.0375 * book_equity'."
+    inference: "If a caller calls check_per_strategy_allocation but skips check_dispatch_allowed, allocations within per-strategy caps could still aggregate above 15% (e.g., 5 strategies each at 3% = 15.0%, but if max_active_strategies=4 the count alone breaches separately; the more subtle case is 4 strategies at 3.7% each = 14.8% aggregate — passes both checks individually). The aggregate-conjunct of INV-R5-1 is not enforced inside the per-strategy allocation gate. Test test_inv_r5_1_sum_cap_invariant only asserts the invariant on a hand-constructed positions list, not as a function call enforcement."
+    evidence: "src/forex_system/risk/exposure_aggregator.py:228-262 (cap computation only against per_strategy_cap_notional); tests/risk/test_rem5_per_strategy_allocation.py:174-195 (invariant asserted post-hoc on existing positions, not as a call enforcement)"
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+  - id: F-004
+    severity: major
+    location: src/forex_system/risk/drawdown_contract.py:363-381
+    category: invariant-violation
+    observation: "AggregateDrawdownContract.update_equity accepts an aggregate_equity scalar with no timestamp argument, no receive-time, and no contract-level check that the value is from a single broker-receive-time snapshot. The clock-and-ordering invariant the spec names ('single broker-receive-time snapshot fanned out synchronously') relies entirely on caller discipline."
+    inference: "When a future caller (post-REM-2 full extraction) wires this up, two failure modes are unguarded: (a) caller fetches aggregate_equity once per bar and calls update_equity(); a different code path also calls update_equity with a stale or differently-timestamped value, the contract sees an inconsistent series; (b) caller computes aggregate_equity by summing per-strategy equities sampled at slightly different broker timestamps, the LTCM defense fires on artifacts of timing, not real DD."
+    evidence: "src/forex_system/risk/drawdown_contract.py:363 (signature accepts only aggregate_equity and contributing_strategies); class docstring 292-299 (caller-responsibility prose; not enforced by signature or assertion)"
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+  - id: F-005
+    severity: major
+    location: config/default.yaml:80-94 + (no consumer)
+    category: spec-drift
+    observation: "config/default.yaml adds the paper.dispatch_stagger_offsets_seconds key (D-4.1) with explicit comment 'Startup validation: len(dispatch_stagger_offsets_seconds) >= len(active_strategies) is enforced at BaseRunner startup — CRITICAL log + halt if violated (D-4.1 FM-4)'. Grep across src/ and scripts/ for 'dispatch_stagger' or 'stagger_offsets' returns zero matches. PaperRunnerBase __init__ does not consume this config."
+    inference: "The validation the comment promises does not exist in code. If a future paper script reads this config and applies offsets without the length check, an out-of-range index could crash silently or apply offset 0 to a strategy that requires staggering, recreating the storm pattern this config was meant to prevent. The observability boundary (CRITICAL log on violation) is also absent."
+    evidence: "config/default.yaml:92-94 (key + comment); grep -r 'dispatch_stagger' src/ scripts/ returns no results"
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+  - id: F-006
+    severity: major
+    location: tests/integration/test_paper_runner_bc8_conds.py:170-175
+    category: test-coverage-gap
+    observation: "test_n2_paper_runner_single_source_of_truth_n3 is decorated @pytest.mark.skip(reason='follow-up: full REM-2 extraction dispatch — N=3 stub required'). The N-2 NHT-named relocation invariant (BaseRunner extraction must hold under N=3 script addition) is the core defense against the relocation patterns named in N-2 spec inputs (per-script monkey-patch, _v2 fork). The other N-2 test (test_n2_no_feature_flag_kill_switch_bypass) only catches one relocation pattern (env-var suppression)."
+    inference: "Without the N=3 stub test, the architectural invariant N-2 specifies (set of distinct AST nodes implementing BC-8-LIFT-COND-1..7 across all paper scripts must have cardinality 1) is unenforced at this dispatch. A future engineer adding a third paper script and copy-pasting the kill-switch hook would not be caught by automated tests."
+    evidence: "tests/integration/test_paper_runner_bc8_conds.py:170-175 (@pytest.mark.skip); src/forex_system/paper/base_runner.py:30-37 (the cardinality-1 invariant is documented but the test that would enforce it is skipped)"
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-007
+    severity: minor
+    location: src/forex_system/saxo/client.py:241-251
+    category: edge-case
+    observation: "The 429 handler parses Retry-After via float(retry_after_str). Per RFC 7231 §7.1.3 the header may also be an HTTP-date (e.g. 'Wed, 21 Oct 2015 07:28:00 GMT'). On HTTP-date, float() raises ValueError and the code falls back to plain exponential backoff WITHOUT jitter (line 246: delay = self._base_delay * 2^(attempt-1)). The NO-Retry-After branch at line 248-251 adds jitter; the malformed-Retry-After branch does not."
+    inference: "If Saxo ever returns Retry-After as an HTTP-date (less common but RFC-compliant) and 4 processes hit the rate limit simultaneously, all 4 will compute the same fallback delay and re-storm the API together. REM-6 test_429_with_retry_after_header_respects_delay does not exercise the HTTP-date case."
+    evidence: "src/forex_system/saxo/client.py:241-251 (the two branches differ in jitter handling); tests/saxo/test_rem6_429_hardening.py:50-110 (only tests numeric Retry-After values)"
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+  - id: F-008
+    severity: minor
+    location: tests/risk/test_rem5_per_strategy_allocation.py:249-289
+    category: test-coverage-gap
+    observation: "TestInvR5_3TieBreakDeterminism.test_tie_break_deterministic_across_100_invocations runs check_per_strategy_allocation 100 times with identical inputs (no other strategies present, no concurrency) and asserts the outcome is the same. The companion test test_strategy_id_lexicographic_order_is_consistent asserts Python's built-in sorted() is consistent — not the production code path."
+    inference: "INV-R5-3 ('tie-break is deterministic given identical inputs') is the structural invariant against the relocation pattern 'tie-break tied to lock-acquisition order'. Neither test exercises a tie condition (e.g., two strategies submitting at the same monotonic instant). A bug where the tie was resolved by lock-acquisition order in a contended path would not be caught."
+    evidence: "tests/risk/test_rem5_per_strategy_allocation.py:252-279 (single-strategy invocation, no contention); tests/risk/test_rem5_per_strategy_allocation.py:281-289 (asserts Python builtin)"
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-009
+    severity: minor
+    location: tests/saxo/test_rem6_429_hardening.py:170-193
+    category: test-coverage-gap
+    observation: "test_token_bucket_thread_safe runs 5 threads × 10 deductions = 50 against a bucket with rate_per_min=10000 (capacity 10000). 50 deductions never approach capacity; no contention occurs."
+    inference: "The atomicity claim ('threading.Lock held across the bucket-deduction read-and-decrement') is asserted by line count, not by behavior. A bug where the lock was released between the _refill() and self._tokens -= tokens lines would not be caught by this test because there's no contention to expose the race. A test like 50 threads × 100 deductions against rate_per_min=10 would expose it."
+    evidence: "tests/saxo/test_rem6_429_hardening.py:172 (rate_per_min=10000); src/forex_system/saxo/client.py:120-128 (the under-lock critical section)"
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-010
+    severity: minor
+    location: tests/risk/test_rem7_aggregate_drawdown.py:351-411
+    category: test-coverage-gap
+    observation: "TestInvR7_1CrossActionComposition imports _SIZING_BY_LEVEL and _AGGREGATE_SIZING_BY_LEVEL, then computes the composition rules in the test body and asserts they match the parametrized expected values. There is no compose() function in drawdown_contract.py — the spec composition rule (effective_sizing = min(per_strategy, aggregate); effective_dispatch_allowed = AND; effective_force_flat = OR) lives only in test code and in code-comment prose. There is no production code that performs the composition that this test could exercise."
+    inference: "If a future paper-loop caller implements composition incorrectly (e.g., uses max instead of min, or OR for dispatch_allowed instead of AND), this test cannot catch it because no production composition function is being tested. The test is asserting the composition formula matches itself, tautologically."
+    evidence: "tests/risk/test_rem7_aggregate_drawdown.py:386-410 (composition computed in test body, then compared to parametrized expected); grep across src/ for 'effective_sizing\\|min(.*sizing.*sizing\\|min(per_strategy_assess' returns no production callsite"
+    recommended-action-class: add-test
+    owning-role: quant-developer
+
+coverage-statement: "I reviewed 17 of 17 source files and 6 of 6 test files listed in the artifact-under-review. I read selectively from context-only files (test_engine.py for the sacred test definition, run_paper_trading_vt.py and run_paper_trading_carry_fred.py for AggregateDrawdownContract instantiation check, config/default.yaml for D-4.1 verification). Sacred test test_no_lookahead is preserved by inspection — backtest/ and features/ have zero diff vs HEAD."
+
+contamination-check: "clean"
+time-spent-reasoning: "~45 minutes"

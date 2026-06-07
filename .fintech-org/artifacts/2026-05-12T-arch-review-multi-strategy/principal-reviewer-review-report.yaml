@@ -1,0 +1,608 @@
+# Principal Reviewer wave-3 focused adjudication.
+# Subtask: arch-review-multi-strategy-2026-05-12 :: phase3 :: task1.0
+# FORWARD-LOOKING ONLY. Does NOT gate current T=0 paper trading.
+# Independent verdicts on disputed claims via direct file reads.
+
+role: principal-reviewer
+artifact_type: review-report
+subtask_ref: "arch-review-multi-strategy-2026-05-12:phase3:task1.0"
+subtask_id: "pr-arch-review-2026-05-12"
+timestamp: "2026-05-12T23:30:00Z"
+
+decision: needs-revision
+confidence: high
+
+# ---------------------------------------------------------------------------
+# CONTAMINATION CHECK
+# ---------------------------------------------------------------------------
+contamination-check: "clean"
+contamination-rationale: >-
+  The three wave-2 artifacts on disk contain decision / body / confidence /
+  dissent-statement / recommended_* / decision_conditions fields that were
+  NOT structurally stripped by the orchestrator before this reviewer's
+  prompt construction. Per my prompt contract, I applied the read-discipline
+  layer: I consumed ONLY the structured findings / gaps-found / evidence /
+  sources / file:line fields for verification targeting, and mentally
+  skipped all stance prose, recommendations, and other roles' verdicts on
+  the disputed claims. Independent adjudication below is grounded
+  exclusively in direct reads of source code, NOT on prior-role conclusions.
+  Transparency note: file-level redaction was at the read-discipline layer
+  rather than the on-disk redaction layer; future runs should consider
+  orchestrator-side stripping for stronger structural guarantee.
+
+body: >-
+  Independent adjudication of the four disputed claims via direct code reads.
+  Verdicts: (1) Liskov violation — CONFIRMED in production at N=2; ABC at
+  interfaces.py:35 declares single-arg __init__, 6 of 10 concrete strategies
+  override with a second positional rate_data arg, registry factory passes
+  only params, and the production caller at run_falsification_trial.py:439-474
+  maintains a hardcoded allowlist + inspect.signature reflection bypass —
+  exactly as described in NHT's structural findings. (2) Paper-script
+  duplication — empirically 557 changed lines (312 vt-unique + 245
+  carry_fred-unique) out of 1943 total lines (1005 + 938); approximately 71%
+  shared content; the NHT measurement reproduces. (3) ML infrastructure
+  absence — verified empty: no src/forex_system/ml/, no src/forex_system/
+  portfolio/, zero matches for model_card/drift_monitor/ModelServingInterface,
+  zero ML-library imports. (4) Position.strategy_id field — verified
+  MISSING; core/types.py:67-76 Position has no strategy field; only
+  Trade.strategy at line 49 exists; exposure_aggregator.py:121-130 self-
+  documents the gap and uses pair as proxy. All four disputed claims
+  resolve in favor of the position that says these gaps EXIST. Decision is
+  needs-revision because the typed-artifact contract requires routing
+  blocking-severity findings to their owning roles for fix; this reviewer
+  is forbidden from proposing fixes (closed-enum recommended-action-class
+  applies).
+
+# ---------------------------------------------------------------------------
+# DISPUTED-CLAIM INDEPENDENT VERDICTS
+# ---------------------------------------------------------------------------
+
+liskov_violation_independent_verdict:
+  verdict: confirmed-violated-in-production
+  abstract_init:
+    file: "src/forex_system/core/interfaces.py"
+    line: 35
+    signature: "def __init__(self, params: dict[str, Any]):"
+    verbatim_snippet: "    def __init__(self, params: dict[str, Any]):\n        self.params = params"
+  registry_factory:
+    file: "src/forex_system/strategies/registry.py"
+    line: 31-37
+    verbatim_snippet: |
+      def create_strategy(name: str, params: dict) -> Strategy:
+          \"\"\"Instantiate a strategy by name with given parameters.\"\"\"
+          cls = STRATEGY_REGISTRY.get(name)
+          if cls is None:
+              available = \", \".join(STRATEGY_REGISTRY.keys())
+              raise ValueError(f\"Unknown strategy: {name}. Available: {available}\")
+          return cls(params)
+    contract: "Passes ONLY params; never passes rate_data"
+  concrete_init_audit:
+    # First 30 lines of each of the 10 strategies — __init__ signatures only.
+    no_override_inherits_abc:  # 4 of 10 — Liskov-conforming
+      - file: "src/forex_system/strategies/bollinger_rsi.py"
+        line: 13
+        evidence: "class BollingerRSIStrategy(Strategy): — no __init__ override; inherits ABC's single-arg __init__"
+      - file: "src/forex_system/strategies/ma_crossover.py"
+        line: 12
+        evidence: "class MACrossoverStrategy(Strategy): — no __init__ override"
+      - file: "src/forex_system/strategies/momentum.py"
+        line: 12
+        evidence: "class MomentumStrategy(Strategy): — no __init__ override"
+      - file: "src/forex_system/strategies/tas_ceiling_4h.py"
+        line: 231
+        evidence: "class TasCeiling4hStrategy(Strategy): — verified via grep 'def __init__': no override match in file; inherits ABC default"
+    override_with_extra_positional:  # 6 of 10 — Liskov-violating in practice
+      - file: "src/forex_system/strategies/carry.py"
+        line: 32
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+      - file: "src/forex_system/strategies/carry_fred.py"
+        line: 79
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+      - file: "src/forex_system/strategies/carry_momentum.py"
+        line: 41
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+      - file: "src/forex_system/strategies/fred_carry_stripped.py"
+        line: 92
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+      - file: "src/forex_system/strategies/vol_target_carry.py"
+        line: 44
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+      - file: "src/forex_system/strategies/vol_target_carry_no_vol_scaling.py"
+        line: 57
+        verbatim_snippet: "    def __init__(self, params: dict[str, Any], rate_data: pd.DataFrame | None = None):"
+  reflection_bypass:
+    file: "scripts/run_falsification_trial.py"
+    line: 439-474
+    verbatim_snippet: |
+      _SELF_LOADING_RATE_STRATEGIES = {
+          \"fred_carry_stripped\", \"carry_fred\", \"vol_target_carry\",
+          \"vol_target_carry_no_vol_scaling\",
+      }
+      from forex_system.strategies.registry import STRATEGY_REGISTRY
+      strategy_cls = STRATEGY_REGISTRY.get(strategy_name)
+      ...
+      sig = inspect.signature(strategy_cls.__init__)
+      if \"rate_data\" in sig.parameters and strategy_name not in _SELF_LOADING_RATE_STRATEGIES:
+          ...
+          strategy = strategy_cls(base_params, rate_data=_rate_df)
+          ...
+      else:
+          strategy = create_strategy(strategy_name, base_params)
+    interpretation: >-
+      Production caller code performs runtime signature introspection
+      on the ABC override AND maintains a hardcoded name-based allowlist.
+      Two-tier branching is forced because the ABC's declared contract is
+      insufficient: it does not express the "needs rate_data" requirement
+      that 6 of 10 strategies actually have. This is structural proof
+      that the abstract contract leaks at the boundary.
+  technical_severity: >-
+    The bypass works for the current 10 strategies because the override
+    arg is optional (default None) and the registry calls the override
+    successfully via cls(params). The risk is asymmetric and forward-
+    looking: (a) any new strategy whose construction-time dependency is
+    NOT optional breaks the registry path silently; (b) any new caller
+    that uses create_strategy() — not the falsification trial's manual
+    bypass — for a rate_data-needing strategy silently gets a strategy
+    instance with self._rate_data=None, which may produce a static-
+    fallback signal stream rather than a dynamic one. The
+    inspect.signature reflection at line 448 only protects callers that
+    KNOW to use it; the typed-registry contract does not enforce it.
+  is_liskov_safe_for_existing_2_strategies_paper_loop:
+    answer: "narrowly yes, accidentally"
+    rationale: >-
+      The two paper-loop scripts (vt + carry_fred) each instantiate
+      their strategy directly (not via create_strategy), so they bypass
+      the lossy factory path. The Liskov violation manifests in: backtest
+      drivers using create_strategy() for rate-data-needing strategies
+      (would receive static-fallback), the falsification trial (mitigated
+      by explicit reflection), and ANY future addition of a strategy
+      whose construction needs are non-optional.
+  agreement_with_disputed_claim_positions:
+    cto_position: 'CTO claimed "Strategy ABC is a genuine Liskov-safe extension point" — REJECTED. The ABC itself is single-arg; reading the ABC in isolation supports this. Reading the ABC + every override + every caller reveals the contract is leaky.'
+    nht_position: 'NHT claimed "ABC is leaky in production with 6 of 10 strategies overriding __init__ with extra positional arg, compensated by hardcoded allowlist + inspect.signature reflection" — UPHELD. Numbers (6 of 10) verified exactly; mechanism (allowlist + inspect.signature) verified verbatim; file:line citations match.'
+  severity_assessment_independent: "blocking-for-N>=3-strategy-expansion ; non-blocking-for-current-N=2-T=0"
+
+paper_script_duplication_measured:
+  vt_loc_measured: 1005
+  carry_fred_loc_measured: 938
+  total_loc: 1943
+  diff_total_line_count: 740  # raw /usr/bin/diff line count (includes hunk headers + context)
+  diff_changed_lines_only:  # awk-counted < and > prefixed lines
+    vt_unique: 312
+    carry_fred_unique: 245
+    total: 557
+  shared_lines_estimated: 1386
+  duplication_pct: 71.3
+  method:
+    command: "/usr/bin/diff scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py | awk '/^</ {l++} /^>/ {r++} END {print l, r, l+r}'"
+    output_verbatim: "vt-unique: 312 carry_fred-unique: 245 total-changed: 557"
+  agreement_with_disputed_claim_positions:
+    nht_claim_557_changed_lines_71pct: UPHELD-EXACTLY
+    cto_position_acknowledges_duplication_estimates_3day_refactor: >-
+      CTO's structured remediation backlog (REM-2) cites file:line
+      references for the duplicated helper blocks that match observed
+      shared content. The "3-day" effort estimate is a forward-looking
+      engineering claim by CTO that this reviewer does NOT independently
+      adjudicate (estimating refactor effort is outside the principal-
+      reviewer role contract); however, the structural premise of the
+      claim — that significant duplication exists — is empirically
+      consistent with the 71.3% measurement. The NHT alternative estimate
+      ("1-2 weeks") is similarly an engineering judgment outside this
+      review's scope; both effort estimates are forward-looking
+      predictions, not testable claims about current state.
+  measured_state_finding: >-
+    Duplication exists at the level of identifiable inline-replicated
+    risk-envelope code: kill switch instantiation, drawdown contract
+    instantiation, account-key parity gate, heartbeat watchdog, fcntl
+    dispatch lock acquire/release, swap accrual, equity-write, notify,
+    WS-trace handler. The 71.3% is a coarse upper bound; deeper logical
+    duplication (renamed variables, near-identical control flow counted
+    as differing lines) likely makes effective duplication slightly
+    higher. This is consistent with both wave-2 measurements.
+
+ml_infrastructure_absence_verified:
+  verified: true
+  evidence_grep_command: "find /Users/huangtm/Projects/forex-trading-system/src/forex_system -name '*.py' | xargs grep -l 'model_card|drift_monitor|ModelServingInterface' 2>/dev/null"
+  evidence_grep_output: "(empty — no matches)"
+  evidence_grep_extended:
+    command: "grep -rn 'model_card|drift_monitor|ModelServingInterface|calibration_tracker|model_version|model_registry|model_serving|inference_server' src/forex_system 2>/dev/null"
+    output: "(empty — no matches across all 8 terms)"
+  evidence_grep_imports:
+    command: "grep -rn 'import sklearn|import torch|import tensorflow|import xgboost|import lightgbm|from sklearn|from torch|from xgboost|from lightgbm' src/forex_system 2>/dev/null"
+    output: "(empty — no ML library imports)"
+  evidence_directory_listing:
+    src_subdirs_present: ["__init__.py", "analysis", "backtest", "core", "costs", "data", "features", "harness", "ops", "risk", "saxo", "sizing", "strategies"]
+    ml_subdir_present: false
+    portfolio_subdir_present: false
+  agreement_with_disputed_claim_positions:
+    cto_position: 'CTO claimed "core/interfaces.py has no ML lifecycle contract (verified: 145-line file, zero references to model, drift, calibration, or artifact)" — UPHELD by independent verification.'
+    nht_position: 'NHT claimed "Verified by grep: src/forex_system/ml/ does not exist. No file under src/forex_system/ matches any of (model_card, drift_monitor, calibration_tracker, ...). Zero matches for ML-library imports." — UPHELD by independent verification.'
+
+position_strategy_id_field:
+  field_present: false
+  position_type_definition:
+    file: "src/forex_system/core/types.py"
+    line: 67-76
+    verbatim_snippet: |
+      @dataclass(frozen=True)
+      class Position:
+          \"\"\"A currently open position.\"\"\"
+
+          pair: str
+          direction: Direction
+          size: float
+          entry_price: float
+          entry_time: pd.Timestamp
+          unrealized_pnl: float
+    fields_enumerated: ["pair", "direction", "size", "entry_price", "entry_time", "unrealized_pnl"]
+    strategy_field_present: false
+    strategy_id_field_present: false
+  trade_type_for_contrast:
+    file: "src/forex_system/core/types.py"
+    line: 49
+    verbatim_snippet: "    strategy: str"
+    note: "Trade dataclass DOES carry a strategy field; Position does NOT. Asymmetric carry of strategy provenance."
+  exposure_aggregator_self_documents_gap:
+    file: "src/forex_system/risk/exposure_aggregator.py"
+    line: 121-130
+    verbatim_snippet: |
+      # Position.strategy is the strategy name field defined in core/types.py
+      # (via Trade.strategy).  core/types.Position does NOT have a strategy
+      # field — we use pair as a proxy for uniqueness here and note the gap.
+      # Callers should augment positions if per-strategy count is critical.
+
+      # Strategy count: Position in core/types has no strategy field; we count
+      # unique pairs as a conservative proxy.  Callers that need exact strategy
+      # counts must pass pre-grouped data.
+      for pos in positions:
+          strategy_ids.add(pos.pair)  # proxy; see note above
+    interpretation: >-
+      The pair-as-proxy substitution is self-acknowledged inline.
+      check_dispatch_allowed at line 148-153 imposes
+      max_active_strategies=4 as a hard cap; if two strategies both
+      trade USDJPY, strategy_ids = {\"USDJPY\"} (size 1), undercounting
+      strategies-by-2. With max_active_strategies=4 the undercount can
+      suppress the gate from firing when it should.
+  agreement_with_disputed_claim_positions:
+    cto_position: 'CTO claimed "Position type has no strategy_id field (core/types.py:67-76)" — UPHELD by direct read.'
+    nht_position: NHT did not directly assess Position.strategy_id; the structurally adjacent finding (NHT-ARCH-2 on Liskov + general ABC leakiness) is about a different layer (construction-time contract, not runtime aggregation). No direct contradiction.
+
+# ---------------------------------------------------------------------------
+# INTER-ROLE AGREEMENT MATRIX
+# ---------------------------------------------------------------------------
+
+inter_role_agreement_matrix:
+  - dimension: "Liskov-violation-in-Strategy-ABC"
+    cto_stance_as_observed_from_structured_fields: "Per CTO's structured architecture_strengths block citing interfaces.py:32-63 and registry.py:17-28, CTO appears to characterize the ABC as a clean extension point. Reading the structured field only — not the prose justification — the CTO artifact cites the ABC + registry as evidence of the extension point being clean."
+    cro_stance: "silent — CRO did not adjudicate the Liskov claim; CRO's BC-9-N4-COND-1 addresses a DIFFERENT layer (per-strategy allocation in exposure_aggregator), which interacts with the Position.strategy_id gap but is not the Liskov claim itself"
+    nht_stance_as_observed_from_structured_fields: "NHT-ARCH-2 + liskov_violation_audit structured fields both cite interfaces.py:35, registry.py:17-37, the 6 strategies' file:lines, and run_falsification_trial.py:439-474 as the structural-violation evidence chain"
+    principal_reviewer_independent_verdict: "Liskov is violated in production. NHT structural finding upheld. CTO characterization of the ABC-as-clean is correct in narrow ABC-in-isolation view but does not hold when the ABC + overrides + factory + reflection bypass are read together as the actual contract surface."
+    resolution: "NHT structural finding upheld by independent verification"
+
+  - dimension: "Paper-script duplication (~71%)"
+    cto_stance: "agreed (structured remediation REM-2 cites the duplication; effort estimate 3 days)"
+    cro_stance: "silent on the duplication % per se; CRO focuses on shared-resource contention (rate-limit, lock) which depends on duplication but is a different axis"
+    nht_stance: "agreed (NHT-ARCH-3 cites 557 changed lines / ~71% duplication; effort estimate 1-2 weeks)"
+    principal_reviewer_independent_verdict: "557 changed lines verified exactly via /usr/bin/diff. 71.3% duplication verified. The duplication FACT is unanimous. Refactor effort estimates (3 days vs 1-2 weeks) diverge; this reviewer does not adjudicate effort estimates."
+    resolution: "All three roles agree the duplication is real and material; effort estimates diverge but that is outside review scope"
+
+  - dimension: "ML infrastructure absence"
+    cto_stance: "agreed (structured architecture_gaps cites interfaces.py:1-145 zero ML lifecycle contracts; recommends defining ModelServingInterface ABC before strategy #4 deploy)"
+    cro_stance: "agreed (structured evidence cites 'src/forex_system/ml/ MISSING' and BC-9-N4-COND-4 requires SR 11-7-style gate before any ML deployment)"
+    nht_stance: "agreed (ml_infrastructure_absence_verified: true; grep-evidence chain)"
+    principal_reviewer_independent_verdict: "Empty grep across 8 ML-infrastructure terms + 5 ML-library imports + no ml/ subdir. All three roles agree. Independent verification reproduces."
+    resolution: "Unanimous; absence is a fact"
+
+  - dimension: "Position.strategy_id field missing"
+    cto_stance: "agreed (structured architecture_gaps cites types.py:67-76 + exposure_aggregator.py:121-130; this is REM-1 in CTO backlog)"
+    cro_stance: "agreed (BC-9-N4-COND-1 structured field cites the same exposure_aggregator.py:121-130 and notes 'Position has no strategy field')"
+    nht_stance: "silent at the same level — NHT-ARCH-2 covers ABC leakiness which is a related but distinct gap"
+    principal_reviewer_independent_verdict: "Verified missing. types.py:67-76 enumerates 6 fields, none of which carry strategy provenance. Trade type at line 49 DOES carry strategy. The asymmetry is intentional and self-documented at exposure_aggregator.py:121-130."
+    resolution: "CTO and CRO agree; NHT silent at this resolution; independent verification confirms the gap"
+
+# ---------------------------------------------------------------------------
+# FINDINGS (focused; no fixes proposed; closed-enum action classes)
+# ---------------------------------------------------------------------------
+
+findings:
+  - finding_id: "PR-F-001"
+    claim: >-
+      Strategy ABC at interfaces.py:35 declares __init__(self, params) but
+      6 of 10 concrete strategies override with an additional positional
+      rate_data arg. The registry factory at registry.py:31-37 passes only
+      params, never rate_data. Production caller scripts/run_falsification_trial.py
+      at lines 439-474 maintains hardcoded _SELF_LOADING_RATE_STRATEGIES
+      allowlist + inspect.signature reflection on cls.__init__ to choose
+      between the registry path and a direct-instantiation path with
+      rate_data injected. The ABC contract is leaky in production; reflection
+      + allowlist compensate for it at one call site, but other callers
+      using create_strategy() for a rate-data-needing strategy silently
+      receive a strategy with self._rate_data=None (static fallback). Adding
+      strategies with non-optional construction dependencies (e.g., ML
+      model_artifact_path, intraday tick-data source) will compound the
+      leak unless the ABC widens or a Resolver/Loader abstraction is
+      inserted before Strategy construction. Forward-looking blocking for
+      N≥3 expansion; non-blocking for current N=2 paper loop (both existing
+      scripts bypass the lossy factory path by instantiating directly).
+    evidence_file_line: |
+      src/forex_system/core/interfaces.py:35 (def __init__(self, params: dict[str, Any]):)
+      src/forex_system/strategies/registry.py:31-37 (create_strategy passes only params)
+      src/forex_system/strategies/carry.py:32 (params, rate_data=None)
+      src/forex_system/strategies/carry_fred.py:79 (params, rate_data=None)
+      src/forex_system/strategies/carry_momentum.py:41 (params, rate_data=None)
+      src/forex_system/strategies/fred_carry_stripped.py:92 (params, rate_data=None)
+      src/forex_system/strategies/vol_target_carry.py:44 (params, rate_data=None)
+      src/forex_system/strategies/vol_target_carry_no_vol_scaling.py:57 (params, rate_data=None)
+      scripts/run_falsification_trial.py:439-474 (allowlist + inspect.signature dispatch)
+    severity: blocking
+    recommended-action-class: clarify-spec
+    owning-role: cto
+    routing-rationale: >-
+      The ABC contract is a CTO-owned design artifact. The closed-enum
+      action class clarify-spec means the abstract contract must specify
+      what construction-time data dependencies are permitted and how they
+      are carried; the principal-reviewer is forbidden from proposing the
+      specific spec or implementation per role contract.
+
+  - finding_id: "PR-F-002"
+    claim: >-
+      Two paper-trading scripts (run_paper_trading_vt.py 1005 LoC,
+      run_paper_trading_carry_fred.py 938 LoC) are empirically 71.3%
+      duplicated (557 changed lines via /usr/bin/diff; 1386 estimated
+      shared). BC-8-LIFT-COND-1..7 risk-envelope code is inline-replicated
+      rather than shared-library-extracted. With 4 strategies as separate
+      scripts the maintenance surface compounds; a CRO-constant amendment
+      (drawdown ladder, JPY cap, kill-switch threshold) applied to N-1 of
+      N scripts produces silent drift between copies — a class of failure
+      whose canonical analog is Knight-Capital-style stale-deploy.
+      Forward-looking blocking for N≥3 expansion; non-blocking for current
+      T=0 N=2 operation.
+    evidence_file_line: |
+      scripts/run_paper_trading_vt.py:1-1005 (1005 LoC)
+      scripts/run_paper_trading_carry_fred.py:1-938 (938 LoC)
+      /usr/bin/diff output: 312 vt-unique + 245 carry_fred-unique = 557 changed lines
+      71.3% duplication = (1943 - 557) / 1943
+    severity: blocking
+    recommended-action-class: tighten-invariant
+    owning-role: cto
+    routing-rationale: >-
+      The invariant in question — "BC-8-LIFT-COND-1..7 are implemented
+      exactly once in the codebase" — is an architectural invariant.
+      Tightening this invariant (e.g., by extracting a shared paper-loop
+      module that hosts the risk envelope) is a CTO-owned design call;
+      implementation belongs to quant-developer. Principal reviewer
+      cannot specify the extraction shape per role contract.
+
+  - finding_id: "PR-F-003"
+    claim: >-
+      core/types.Position (lines 67-76) has no strategy field.
+      exposure_aggregator.py:121-130 self-documents this and substitutes
+      pair as a proxy for strategy uniqueness when counting active
+      strategies. check_dispatch_allowed at line 148-153 enforces
+      max_active_strategies=4. With two strategies both trading USDJPY,
+      strategy_ids = {\"USDJPY\"} (size 1) — the gate undercounts strategies
+      and may fail to fire when it should. The gap is also a precondition
+      for any per-strategy sub-cap rule (which currently does not exist;
+      this is the layer CRO's BC-9-N4-COND-1 addresses). Forward-looking
+      blocking for any N≥3 expansion where two strategies trade the same
+      pair (currently a realistic scenario for the proposed intraday-
+      classical strategy + existing vol_target_carry both on USDJPY).
+    evidence_file_line: |
+      src/forex_system/core/types.py:67-76 (Position fields: pair, direction, size, entry_price, entry_time, unrealized_pnl)
+      src/forex_system/core/types.py:49 (Trade.strategy: str exists; asymmetry intentional)
+      src/forex_system/risk/exposure_aggregator.py:121-130 (pair-proxy + self-documented gap)
+      src/forex_system/risk/exposure_aggregator.py:148-153 (max_active_strategies=4 cap)
+    severity: blocking
+    recommended-action-class: tighten-invariant
+    owning-role: cto
+    routing-rationale: >-
+      Domain-type composition (which fields Position carries) is a
+      type-system design call; the typed invariant being tightened is
+      "Position must carry sufficient provenance for downstream risk
+      aggregation to compute strategy-level metrics without inference."
+      Implementation belongs to quant-developer. Principal reviewer
+      cannot specify the field name or type per role contract.
+
+  - finding_id: "PR-F-004"
+    claim: >-
+      ML infrastructure is empirically absent: no src/forex_system/ml/
+      subdirectory, no src/forex_system/portfolio/ subdirectory, zero
+      grep matches across {model_card, drift_monitor, ModelServingInterface,
+      calibration_tracker, model_version, model_registry, model_serving,
+      inference_server} in src/forex_system/, zero ML-library imports
+      (sklearn / torch / tensorflow / xgboost / lightgbm). Any ML strategy
+      proposed under Strangler-Fig requires NEW foundations
+      (greenfield ml/ subsystem), not absorption into existing ones. The
+      claim that the baseline absorbs an ML strategy "without rework of
+      existing foundations" is literally false at this layer. Forward-
+      looking blocking for ML-strategy-class expansion; not applicable to
+      current T=0 N=2 (no ML strategy currently deployed).
+    evidence_file_line: |
+      find /Users/huangtm/Projects/forex-trading-system/src/forex_system -name '*.py' | xargs grep -l 'model_card|drift_monitor|ModelServingInterface' 2>/dev/null → (empty)
+      grep -rn '<extended 8 terms>' src/forex_system → (empty)
+      grep -rn '<5 ML import patterns>' src/forex_system → (empty)
+      ls src/forex_system/ → [__init__.py, analysis, backtest, core, costs, data, features, harness, ops, risk, saxo, sizing, strategies] (no ml/, no portfolio/)
+    severity: blocking
+    recommended-action-class: escalate-to-owning-role
+    owning-role: ml-researcher
+    routing-rationale: >-
+      ML-strategy-class onboarding is outside CTO's forbidden_skills
+      domain for ML-specific design (model lifecycle, drift detection,
+      training-vs-serving parity, calibration tracking) and belongs to
+      ml-researcher per fintech-org role-routing table. CTO's role spec
+      explicitly forbids deep-learning + reinforcement-learning skills;
+      CRO's wave-2 finding (BC-9-N4-COND-4) correctly notes the SR 11-7
+      gap. Escalation routes the architectural prerequisite to the
+      role with the domain license.
+
+  - finding_id: "PR-F-005"
+    claim: >-
+      The wave-2 artifacts on disk (CTO, CRO, NHT) contain decision /
+      body / confidence / dissent-statement / recommended_* /
+      decision_conditions stance fields. The principal-reviewer prompt
+      instructed that "the orchestrator should have stripped those" but
+      the actual on-disk artifacts retain them. This reviewer applied
+      read-discipline to skip stance prose, but file-level redaction
+      would be a stronger structural guarantee. This finding routes to
+      the orchestrator (process improvement), not to any of the wave-2
+      authoring roles.
+    evidence_file_line: |
+      .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cto-architecture-review.yaml (contains decision, body, confidence, decision_conditions fields)
+      .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml (contains decision, body, confidence fields)
+      .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/nht-null-test-report.yaml (contains decision, body, dissent-statement, confidence fields)
+    severity: concern
+    recommended-action-class: clarify-spec
+    owning-role: orchestrator
+    routing-rationale: >-
+      Independence-preservation is a protocol-level invariant. The
+      orchestrator's spawn-agent process should produce a redacted view
+      for principal-reviewer wave-3, not require the reviewer to
+      self-discipline against contamination. The clarify-spec class
+      means: the protocol should specify whether the redaction occurs at
+      orchestrator-side (preferred) or at reviewer-side (current de facto).
+
+  - finding_id: "PR-F-006"
+    claim: >-
+      Sacred test tests/backtest/test_engine.py::test_no_lookahead
+      operates at the engine layer; it does NOT verify that any concrete
+      Strategy's generate_signals() is itself lookahead-free. The ABC
+      docstring at interfaces.py:46 "Must NOT use future data (no
+      lookahead)" is a comment-level constraint with no machine-
+      enforceable assertion. Adding ML strategies (where feature-pipeline
+      leakage is a common silent failure) without a per-strategy
+      no-lookahead probe leaves the invariant unverified for new
+      strategy classes. NHT raised this at wave-2 (NHT-ARCH-5);
+      independently verified here.
+    evidence_file_line: |
+      tests/backtest/test_engine.py (sacred test verifies engine.run_backtest's shift discipline)
+      src/forex_system/core/interfaces.py:38-49 (ABC docstring asserts no-lookahead as comment-level contract; no programmatic check)
+    severity: concern
+    recommended-action-class: add-test
+    owning-role: quant-developer
+    routing-rationale: >-
+      A parameterized per-strategy no-lookahead probe is a test artifact
+      and routes to the role that implements tests. Principal reviewer
+      cannot write the test per role contract.
+
+# ---------------------------------------------------------------------------
+# EVIDENCE
+# ---------------------------------------------------------------------------
+
+evidence:
+  - file: "src/forex_system/core/interfaces.py"
+    lines: "1-145 (full file read)"
+  - file: "src/forex_system/strategies/registry.py"
+    lines: "1-37 (full file read)"
+  - file: "src/forex_system/core/types.py"
+    lines: "1-112 (full file read)"
+  - file: "src/forex_system/strategies/bollinger_rsi.py"
+    lines: "1-30 (init signature only)"
+  - file: "src/forex_system/strategies/carry.py"
+    lines: "1-40 (init signature: line 32)"
+  - file: "src/forex_system/strategies/carry_fred.py"
+    lines: "1-95 (init signature: line 79)"
+  - file: "src/forex_system/strategies/carry_momentum.py"
+    lines: "1-50 (init signature: line 41)"
+  - file: "src/forex_system/strategies/fred_carry_stripped.py"
+    lines: "1-100 (init signature: line 92)"
+  - file: "src/forex_system/strategies/ma_crossover.py"
+    lines: "1-30 (no __init__ override)"
+  - file: "src/forex_system/strategies/momentum.py"
+    lines: "1-30 (no __init__ override)"
+  - file: "src/forex_system/strategies/tas_ceiling_4h.py"
+    lines: "1-40, 230-255 (no __init__ override verified via grep)"
+  - file: "src/forex_system/strategies/vol_target_carry.py"
+    lines: "1-60 (init signature: line 44)"
+  - file: "src/forex_system/strategies/vol_target_carry_no_vol_scaling.py"
+    lines: "1-70 (init signature: line 57)"
+  - file: "scripts/run_falsification_trial.py"
+    lines: "425-500 (allowlist + inspect.signature dispatch at lines 439-474)"
+  - file: "src/forex_system/risk/exposure_aggregator.py"
+    lines: "115-155 (pair-proxy + check_dispatch_allowed cap)"
+  - command: "/usr/bin/diff scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py | wc -l → 740"
+  - command: "/usr/bin/diff ... | awk '/^</ {l++} /^>/ {r++} END {print l, r, l+r}' → 312 245 557"
+  - command: "wc -l scripts/run_paper_trading_*.py → 1005 + 938 = 1943"
+  - command: "find src/forex_system -name '*.py' | xargs grep -l 'model_card|drift_monitor|ModelServingInterface' → (empty)"
+  - command: "grep -n 'strategy_id\\|strategy:' src/forex_system/core/types.py → only line 49 (Trade.strategy: str)"
+  - command: "ls src/forex_system → no ml/ no portfolio/"
+
+# ---------------------------------------------------------------------------
+# ASSUMPTIONS
+# ---------------------------------------------------------------------------
+
+assumptions:
+  - "HEAD is commit e6aaa43 (Wave-11 ratified). File reads are from this commit."
+  - "The 6 of 10 strategies override count is exact at HEAD; future strategies may add to this count, which would tighten not loosen the finding."
+  - "The /usr/bin/diff measurement is line-based and does not account for cyclomatic-level duplication (renamed variables with identical control flow count as differing lines but are effectively duplicated). True duplication is likely ≥ 71.3%."
+  - "Effort estimates for remediation (3 days vs 1-2 weeks for paper-loop refactor) are not adjudicated by this reviewer; both are forward-looking engineering judgments outside the principal-reviewer role contract."
+  - "Refactor-effort estimation is the responsibility of the implementing role (quant-developer) under CTO architectural guidance. Principal reviewer assesses current-state facts, not future-effort predictions."
+
+# ---------------------------------------------------------------------------
+# KNOWLEDGE GAPS
+# ---------------------------------------------------------------------------
+
+knowledge_gaps:
+  - "Did not independently verify the 6 of 10 strategies' first 30 lines covered the full __init__ signature in every case (some classes have multi-line signatures or docstrings that could span beyond 30 lines). Mitigation: cross-checked via grep 'def __init__' for tas_ceiling_4h, which confirmed no override; the 6 explicit override file:lines were each verified to contain the exact rate_data positional arg via direct read of the line cited."
+  - "Did not measure end-to-end paper-loop behavior under the duplicated risk envelope (would require an integration test fixture that does not exist; surfaced as NHT-ARCH-6 wave-2 finding which this reviewer did not re-litigate per focused-adjudication scope)."
+  - "Did not adjudicate refactor-effort estimates (3 days CTO vs 1-2 weeks NHT). Outside role contract."
+  - "Did not assess Saxo rate-limit / kill-switch / drawdown ladder topics in CRO wave-2 — outside the focused adjudication scope assigned for this wave."
+  - "Did not enumerate ALL call sites of create_strategy() across the codebase to find latent breaks where a rate-data-needing strategy could be silently instantiated without rate_data. Recommend the quant-developer or CTO perform this enumeration when scoping the clarify-spec fix."
+
+# ---------------------------------------------------------------------------
+# SOURCES
+# ---------------------------------------------------------------------------
+
+sources:
+  - "~/.claude/skills/fintech-org/roles/principal-reviewer.md (role spec)"
+  - "~/.claude/skills/review-plan/SKILL.md (referenced)"
+  - "~/.claude/skills/execution-firewall-review/SKILL.md (referenced)"
+  - "~/.claude/skills/log-as-decision-trace/SKILL.md (referenced)"
+  - "~/.claude/skills/trading-platform-architectures/SKILL.md (referenced)"
+  - "src/forex_system/core/interfaces.py — read in full"
+  - "src/forex_system/strategies/registry.py — read in full"
+  - "src/forex_system/core/types.py — read in full"
+  - "src/forex_system/strategies/*.py — first 30-100 lines of each of 10 strategies"
+  - "scripts/run_falsification_trial.py:425-500 — direct read of allowlist + inspect.signature dispatch"
+  - "src/forex_system/risk/exposure_aggregator.py:115-155 — direct read of pair-proxy gap"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cto-architecture-review.yaml — structured fields only (file:line evidence)"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml — structured fields only"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/nht-null-test-report.yaml — structured fields only"
+  - "/usr/bin/diff and /usr/bin/grep command outputs (verbatim quoted in evidence)"
+
+# ---------------------------------------------------------------------------
+# RUBRIC APPLICATION (focused-adjudication scope)
+# ---------------------------------------------------------------------------
+
+rubrics-applied:
+  - rubric: "Spec-to-implementation trace"
+    application: "Strategy ABC spec (interfaces.py:35) vs 6 of 10 concrete overrides → spec-drift confirmed at construction-time contract. core/types.Position spec vs exposure_aggregator pair-proxy substitution → spec-drift confirmed at runtime."
+  - rubric: "execution-firewall-review"
+    application: "Limited scope: the 'silent default' pattern manifests as create_strategy() returning a strategy with self._rate_data=None (effective static-fallback signal) when called for a rate-data-needing strategy. This is the implementation-silent-default-not-in-spec pattern. Not a winsorize/fillna case but structurally analogous: the abstraction silently substitutes a default that is not declared in the ABC contract."
+  - rubric: "log-as-decision-trace"
+    application: "Not applied in detail (out of focused-adjudication scope). NHT and CTO both verified WS-01/WS-02 trace adequacy at wave-2; this reviewer did not re-litigate."
+  - rubric: "Edge-case enumeration"
+    application: "Specific to disputed claims: edge case 'two strategies trade same pair' → Position.strategy_id gap fires (PR-F-003). Edge case 'new strategy with non-optional construction dependency' → Liskov violation fires (PR-F-001)."
+  - rubric: "Invariant search"
+    application: "Invariants identified: (a) every concrete Strategy must be constructible via create_strategy(name, params) without losing required state — VIOLATED at runtime for 4 of 6 override strategies (carry, carry_momentum require external rate_data; carry_fred + 3 self-loading hide it via lazy load). (b) max_active_strategies cap must reflect actual strategy count — VIOLATED via pair-proxy when overlap exists."
+  - rubric: "Test inversion"
+    application: "Sacred test test_no_lookahead inverted (PR-F-006): a bug class 'strategy internally peeks at data.shift(-1)' slips past today's test because the test operates at engine layer not strategy layer."
+  - rubric: "Failure mode reasoning"
+    application: "External dependency failure modes (broker, market data, clock) out of focused-adjudication scope; not re-litigated."
+  - rubric: "Numerical / statistical correctness"
+    application: "Not applicable to the disputed structural claims."
+
+# ---------------------------------------------------------------------------
+# WEB RESEARCH
+# ---------------------------------------------------------------------------
+
+web_research_conducted: false
+web_research_rationale: >-
+  All four disputed claims are about internal codebase structural
+  properties (Liskov contract surface, line-count duplication, file/
+  symbol absence, dataclass field presence). Direct code reads
+  produced verbatim evidence. WebSearch / WebFetch would not change
+  any verdict. Budget remains uncommitted.
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true

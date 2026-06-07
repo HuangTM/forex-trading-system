@@ -1,0 +1,587 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: '2026-06-07T15:30:00Z'
+subtask_ref: qrb6-remediation-pr
+subtask_id: 'qrb6-prereg-2026-06-06:phase1:task1.0'
+claimed_domains:
+  - independent-design-review
+  - spec-vs-implementation-drift-detection
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# A. FIVE-WAY THRESHOLD CONSISTENCY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+five_way_consistency:
+  verdict: CONSISTENT — active threshold positions correct across all five locations
+  p_reject_active_value: 0.0378
+  p_kill_active_value: 0.0422
+
+  locations_checked:
+    doc_amendment_box:
+      file: references/pre-registrations/qrb6_cb_event_study.md
+      line_range: 3-14
+      p_reject: 0.0378
+      p_kill: 0.0422
+      semantics: strict_p_less_than_0.0378_for_PASS / strict_p_greater_than_0.0422_for_KILL
+      correct: true
+
+    doc_section_5_rules:
+      file: references/pre-registrations/qrb6_cb_event_study.md
+      lines: 199, 203, 211, 212
+      p_reject: 0.0378
+      p_kill: 0.0422
+      semantics: strict inequalities throughout
+      correct: true
+
+    doc_part_ii_section_4_2_boundary_table:
+      file: references/pre-registrations/qrb6_cb_event_study.md
+      lines: 462-486
+      p_reject: 0.0378
+      p_kill: 0.0422
+      semantics: strict p < 0.0378 for PASS, strict p > 0.0422 for KILL, [0.0378,0.0422] closed straddle
+      correct: true
+
+    sidecar_triggers_yaml:
+      file: references/pre-registrations/qrb6_cb_event_study.triggers.yaml
+      symbols_block:
+        p_straddle_hi: 0.0422  # line 139
+        p_reject_threshold: 0.0378  # line 152
+      trigger_expressions:
+        aggregate_gate: "p_agg > p_straddle_hi"  # line 261 — fires on strict > 0.0422
+        post_2015_subwindow_kill: "p_post2015 > p_straddle_hi"  # line 289
+        straddle_band: "(p_agg >= p_reject_threshold AND p_agg <= p_straddle_hi) OR ..."  # line 351
+      correct: true
+
+    cut_freeze_receipt_py:
+      file: scripts/cut_freeze_receipt.py
+      lines: 106-107
+      p_reject_threshold: 0.0378
+      p_straddle_hi: 0.0422
+      correct: true
+
+    qrb6_decision_py_expected_guards:
+      file: src/forex_system/harness/qrb6_decision.py
+      lines: 61-62
+      _EXPECTED_P_REJECT: 0.0378
+      _EXPECTED_P_STRADDLE_HI: 0.0422
+      correct: true
+
+    qrb6_decision_py_evaluate_decision:
+      file: src/forex_system/harness/qrb6_decision.py
+      lines: 701, 706, 712
+      logic: >
+        p_post2015 > p_kill_threshold → RULE_1 (strict);
+        p_agg > p_kill_threshold → RULE_2 (strict);
+        both p's < p_reject_threshold AND dsr >= dsr_threshold → RULE_3 PASS (strict)
+      correct: true
+
+    test_qrb6_decision_py:
+      file: tests/harness/test_qrb6_decision.py
+      lines: 42-43
+      _P_KILL: 0.0422
+      _P_REJECT: 0.0378
+      test_coverage: >
+        RULE1 fires at p_post2015=0.0423 (just above); boundary p=0.0422 routes to RULE4;
+        RULE3 fires at p=0.0377 (just below reject threshold); all 5 outcomes reachable.
+      correct: true
+
+    check_receipt_constants_interlock:
+      file: src/forex_system/harness/qrb6_decision.py
+      lines: 154-155
+      checks: >
+        _check("p_reject_threshold", _EXPECTED_P_REJECT, tol=1e-9) and
+        _check("p_straddle_hi", _EXPECTED_P_STRADDLE_HI, tol=1e-9) are wired in.
+        A receipt with drifted p-thresholds causes RULE_0 SystemExit.
+      correct: true
+
+  residual_old_values:
+    - location: "scripts/cut_freeze_receipt.py:106"
+      value: 0.0478
+      context: "comment: 'former void-run value was 0.0478'"
+      classification: SUPERSEDED_COMMENT — correctly labelled, not active
+    - location: "scripts/cut_freeze_receipt.py:107"
+      value: 0.0522
+      context: "comment: 'former void-run value was 0.0522'"
+      classification: SUPERSEDED_COMMENT — correctly labelled, not active
+    - location: "src/forex_system/harness/qrb6_decision.py lines 60,667,682,685"
+      value: "0.0478 / 0.0522"
+      context: "Comments and docstring explicitly marking values as 'superseded' / 'must not appear as active thresholds'"
+      classification: SUPERSEDED_COMMENT — clearly labelled, not assigned to any variable
+    - location: "references/pre-registrations/qrb6_cb_event_study.triggers.yaml lines 138,264,292,343,354,525"
+      value: "0.0478 / 0.0522"
+      context: "Note text labelling old values as 'superseded' and 'former void-run'"
+      classification: SUPERSEDED_COMMENT — no active assignment
+    - location: "references/pre-registrations/qrb6_cb_event_study.md lines 11, 420"
+      value: "0.0478 / 0.0522"
+      context: "Amendment v2 box and PART II §3.3 — explicit supersession disclosure"
+      classification: SUPERSEDED_COMMENT — correct historical disclosure
+    - location: "tests/harness/test_qrb6_decision.py line 41"
+      value: "0.0522 / 0.0478"
+      context: "Comment: 'Former void-run values (superseded)'"
+      classification: SUPERSEDED_COMMENT — not used in assertions
+    - location: "tests/harness/test_qrb6_decision.py line 677"
+      value: "0.0522 / 0.0478"
+      context: "Comment in stub receipt annotating old values"
+      classification: SUPERSEDED_COMMENT — stub uses 0.0422/0.0378 in the bound variables; this is annotation only
+    - location: "tests/harness/test_qrb6_cost_coverage.py lines 393,394,454,455,498,499,581,582"
+      value: "0.0522 / 0.0478"
+      context: >
+        ACTIVE in stub_receipt dicts passed to _run_pipeline() in dry-run test stubs.
+        These stubs exercise the pipeline's exclusion-not-impute logic, not the
+        decision threshold logic. Because the runner's dry-run path uses these
+        receipt values as the operative thresholds for any decision computed in dry-run,
+        these stubs carry old void-run thresholds into dry-run pipeline calls.
+      classification: >
+        RESIDUAL-ACTIVE-OLD-VALUES IN TEST STUBS — not a production-path threat
+        (dry-run does not produce a valid forensic result; live run must pass
+        check_receipt_constants() which will RULE-0 on old values), but represents
+        incomplete remediation of the test fixture hygiene. The tests cover
+        exclusion/cost-gap behaviour and would still pass with 0.0378/0.0422, so this
+        is a nit/observational finding rather than a blocking defect. However, if a
+        future reviewer audits these stubs to understand the frozen thresholds, they
+        will see incorrect values. Owning role: QD.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B. AMENDMENT FIDELITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+amendment_fidelity:
+  verdict: FIDELITY-CONFIRMED with minor labelling note
+
+  void_cause_accurate:
+    stated: "cost configuration covered only 3 of the 11 Scenario-A pairs; RBA (AUDUSD/AUDJPY) and BOC (USDCAD/CADJPY) events — ~44.5% of the full set and ~50.7% of the post-2015 sub-window — were ZERO-IMPUTED"
+    independent_check: consistent with NHT ratification and qd-remediation-fixes.yaml
+    correct: true
+    note: "Box states '3 of the 11 Scenario-A pairs' but the header comment in cost_freeze_qrb6.yaml
+      says '12 registered pairs' (EURGBP is included as a Scenario B superset). The doc prose is
+      correct: only 3 of the 11 *Scenario A* pairs were covered. The '12' in cut_freeze_receipt.py
+      error message ('all 12 registered pairs') refers to the superset including EURGBP.
+      This '11 vs 12' discrepancy is cosmetically confusing but not materially false —
+      the Scenario A coverage gate correctly enforces 11."
+
+  obf_derivation_accurate:
+    stated: "look-1 spend 0.010005, α_look2 0.039995, ±MC-SE 0.0022 → 0.0378/0.0422"
+    independently_reproduced: true
+    method: "python3 scipy.stats.norm: z_alpha=1.644854, b1=2.326174, spend1=0.010005, alpha_look2=0.039995, MC_SE=0.002179, p_reject=0.037816≈0.0378, p_kill=0.042175≈0.0422"
+    correct: true
+
+  unchanged_constants_accurate:
+    n_sel: 3  # correct per PART II §2
+    dsr: 0.95  # correct per all files
+    sr0_pp_sel: 0.026861  # correct per all files
+    kill_switch: 1.5883  # correct per all files
+    seed: 387992  # correct per all files
+    K: 10000  # correct per all files
+    all_match: true
+
+  void_run_numbers_disclosed:
+    stated_in_doc: "p_agg=0.0791, p_post2015=0.2158, dsr=0.768"
+    location: "REMEDIATION AMENDMENT v2 box, line 7"
+    preserved_in: "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.VOIDED-CONTAMINATED.yaml"
+    correct: true
+
+  body_vs_box_contradiction:
+    finding: NONE — §4.2/§5 body consistently uses 0.0378/0.0422; box governs where v1 prose would conflict
+    correct: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# C. COST MANIFEST CORRECTNESS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+cost_manifest_check:
+  file: config/cost_freeze_qrb6.yaml
+
+  pairs_verified:
+    # Independent re-verification: python3 pd.read_parquet(...)["spread_pips"].median(), round 2dp
+    - pair: AUDUSD
+      parquet_median: 1.63
+      manifest_value: 1.63
+      match: true
+      n_rows: 4237
+    - pair: GBPUSD
+      parquet_median: 4.70
+      manifest_value: 4.7
+      match: true
+      n_rows: 4236
+    - pair: NZDUSD
+      parquet_median: 4.20
+      manifest_value: 4.2
+      match: true
+      n_rows: 4237
+    - pair: NZDJPY
+      parquet_median: 6.20
+      manifest_value: 6.2
+      match: true
+      n_rows: 4237
+    - pair: EURJPY
+      parquet_median: 4.50
+      manifest_value: 4.5
+      match: true
+      n_rows: 4240
+    - pair: USDCAD
+      parquet_raw_median: 45.00
+      unit_corrected: 4.50
+      manifest_value: 4.5
+      match: true
+      unit_note_present: true
+      n_rows: 4237
+    # NHT-verified in nht-remediation-ratification.yaml (9 of 12 pairs checked):
+    # USDJPY 2.40, AUDJPY 6.40, GBPJPY 7.00, EURGBP 5.00, CADJPY 5.70 — all match
+  pairs_NHT_verified_and_consistent: 9_of_12
+
+  usdcad_correct:
+    raw_parquet_median: 45.00
+    corrected_manifest_value: 4.50
+    unit_note_in_manifest: "unit-corrected: raw 45.0 (fractional-pip) /10 = 4.5"
+    correct: true
+    note: "NHT acknowledged this ÷10 is inferred from market-norm sanity, not verified against ingestion pipeline code. Error direction is KILL-safe: if raw 45 were correct pips, costs would be 10× larger and gate harder to PASS. Non-blocking."
+
+  all_11_scenario_a_pairs_present:
+    pairs_in_manifest: [EURUSD, GBPUSD, USDJPY, USDCAD, AUDUSD, NZDUSD, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY]
+    count: 11
+    plus_scenario_b_superset: EURGBP
+    all_positive_spreads: true
+    correct: true
+
+  coverage_gate_blocks:
+    gate_in_cut_freeze_receipt: >
+      _assert_qrb6_cost_coverage() is called at scripts/cut_freeze_receipt.py line 382
+      inside the qrb6 target path, before prereg_sha256 is computed.
+    gate_logic_in_cut_freeze_receipt:
+      reads_format: LIST with 'symbol' key per entry (entry["symbol"])
+      actual_manifest_format: DICT keyed by pair name (no 'symbol' field per entry)
+      verdict: FORMAT MISMATCH — BLOCKING DEFECT
+      detail: >
+        The manifest config/cost_freeze_qrb6.yaml stores pairs as a YAML mapping
+        (dict keyed by uppercase pair symbol, e.g. AUDJPY: {spread_pips: 6.4, ...}).
+        The _assert_qrb6_cost_coverage() function in cut_freeze_receipt.py reads
+        raw_pairs = manifest.get("pairs", []) and then iterates `for entry in raw_pairs:`
+        expecting a list of dicts with a 'symbol' key (entry["symbol"]).
+        When the manifest uses dict format, iterating raw_pairs yields string keys
+        (e.g., 'AUDJPY') — then entry["symbol"] raises TypeError (string indices must
+        be integers, not 'str'). Independent verification: python3 simulation confirms
+        TypeError: string indices must be integers, not 'str'.
+        Similarly, run_qrb6.py _load_cost_manifest() has the same entry["symbol"] call
+        at line 209 — the runner will also fail with TypeError when it tries to load
+        the actual manifest in live mode.
+        The test stubs in test_qrb6_cost_coverage.py use list format (pair_entries with
+        'symbol' key) so all coverage gate tests PASS against the stub — but the REAL
+        manifest in dict format will CRASH both the coverage gate and the live runner.
+        This is a blocking defect: the receipt CANNOT be cut (gate crashes before
+        coverage is verified) and the live runner CANNOT load costs in this state.
+      severity: blocking
+      owning_role: QD
+
+    gate_in_run_qrb6: >
+      _load_cost_manifest() at scripts/run_qrb6.py line 209 also uses entry["symbol"],
+      same format mismatch. Will raise TypeError on the real manifest.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# D. INTERLOCK COMPLETENESS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+interlock_completeness:
+  p_thresholds_checked:
+    result: true
+    evidence: >
+      check_receipt_constants() in qrb6_decision.py lines 154-155 calls
+      _check("p_reject_threshold", _EXPECTED_P_REJECT, tol=1e-9) and
+      _check("p_straddle_hi", _EXPECTED_P_STRADDLE_HI, tol=1e-9).
+      A receipt with drifted thresholds (e.g. 0.0478/0.0522) will cause
+      SystemExit(1) — RULE_0 TECHNICAL_FAILURE. Test TestReceiptInterlock
+      test_check_receipt_constants_exits_on_mismatch verifies this behaviour
+      with bad_receipt containing 0.022906 (SR0 mismatch).
+    note: >
+      The test at line 449-467 checks an SR0 mismatch (0.022906) but does NOT
+      separately test a p_threshold mismatch (e.g. receipt with 0.0478).
+      The source-level wiring (lines 154-155) is correct, but a dedicated test
+      for p_threshold-only mismatch would add confidence. Minor finding.
+
+  no_silent_fallback:
+    result: true
+    evidence: >
+      review_target: scripts/run_qrb6.py
+      The runner loads thresholds from receipt via explicit receipt["p_straddle_hi"]
+      and receipt["p_reject_threshold"] key lookups (hard KeyError on missing keys —
+      NHT ratification confirmed: 'receipt.get("p_straddle_hi",0.0522) REMOVED').
+      No receipt.get() fallback pattern present for threshold fields.
+      Any old-value receipt (0.0478/0.0522) will first fail check_receipt_constants()
+      and SystemExit before any threshold is read for evaluation.
+
+  manifest_rule0:
+    absent_manifest: >
+      _load_cost_manifest() calls sys.exit(1) when manifest file is absent.
+      Evidence: run_qrb6.py _load_cost_manifest(), confirmed by NHT ratification
+      evidence block line "manifest RULE_0 interlock: scripts/run_qrb6.py:153,186-189"
+    zero_spread: >
+      _load_cost_manifest() emits warning on zero-spread pairs; live-mode positivity gate
+      at lines 474-492 calls sys.exit(1) on zero-spread pairs.
+      The test_qrb6_cost_coverage.py test_zero_spread_pair_causes_warning_logged confirms
+      the gate does NOT exit at load time (only warns) — the live positivity gate handles it.
+    missing_pair: >
+      _load_cost_manifest() calls sys.exit(1) when registered pairs are absent from manifest.
+      This WOULD work correctly IF the manifest were in list format — but see Format Mismatch
+      finding in cost_manifest_check above: in the current dict-format manifest, the function
+      crashes before reaching the missing-pair check.
+    combined_assessment: >
+      The interlock logic is correctly coded for the INTENDED list-format manifest,
+      but the actual manifest is in dict format, so none of these interlocks can
+      execute as written. All are dependent on resolving the format mismatch first.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# E. OBF PENALTY ARITHMETIC
+# ═══════════════════════════════════════════════════════════════════════════════
+
+obf_arithmetic:
+  independently_reproduced_this_session: true
+  method: python3 scipy.stats.norm
+
+  inputs:
+    alpha_total: 0.05
+    t1: 0.50
+    K: 10000
+
+  computation:
+    z_alpha: 1.644854  # norm.ppf(0.95)
+    b1: 2.326174       # z_alpha / sqrt(0.5)
+    spend1: 0.010005   # 1 - norm.cdf(b1)
+    alpha_look2: 0.039995  # 0.05 - spend1
+    MC_SE: 0.002179    # sqrt(0.05 * 0.95 / 10000)
+
+  results:
+    p_reject: 0.037816  # alpha_look2 - MC_SE
+    p_kill: 0.042175    # alpha_look2 + MC_SE
+    rounded_p_reject: 0.0378
+    rounded_p_kill: 0.0422
+
+  matches_frozen_values:
+    p_reject: true   # |0.037816 - 0.0378| = 0.000016 < rounding precision
+    p_kill: true     # |0.042175 - 0.0422| = 0.000025 < rounding precision
+
+  frozen_p_reject: 0.0378
+  frozen_p_kill: 0.0422
+
+  nht_flag_a_upheld:
+    math_submitted: 0.0400  # Math wrote center value (0.039995) instead of center + MC_SE
+    correct_value: 0.0422
+    nht_ruling: "ORCHESTRATOR-UPHELD — Math's 0.0400 is WRONG; correct KILL threshold = 0.0422"
+    final_frozen: 0.0422  # confirmed in all five locations
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FINDINGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+findings:
+  - id: F-1
+    severity: blocking
+    location: >
+      config/cost_freeze_qrb6.yaml (manifest format: dict keyed by pair name);
+      scripts/cut_freeze_receipt.py lines 248-252 (_assert_qrb6_cost_coverage);
+      scripts/run_qrb6.py line 209 (_load_cost_manifest)
+    observation: >
+      MANIFEST FORMAT MISMATCH — the cost manifest uses YAML dict format (pairs: {AUDJPY: {...}, ...})
+      but both the coverage gate (_assert_qrb6_cost_coverage in cut_freeze_receipt.py) and the
+      live runner (_load_cost_manifest in run_qrb6.py) expect LIST format (pairs: [{symbol: AUDJPY, ...}]).
+      Iterating the dict yields string keys; entry["symbol"] then raises TypeError: string indices
+      must be integers, not 'str'. Independent python3 simulation confirms the crash.
+      Consequence 1: the coverage gate crashes before checking any pair — the receipt CANNOT be cut.
+      Consequence 2: the live runner crashes before loading any cost — the run CANNOT proceed.
+      The test suite passes because test_qrb6_cost_coverage.py stubs use list format
+      (_make_stub_manifest produces list), which matches loader expectations. The real manifest
+      is structurally incompatible with the loaders as written.
+    evidence:
+      - "python3 simulation: TypeError: string indices must be integers, not 'str' on dict-format manifest"
+      - "config/cost_freeze_qrb6.yaml: pairs is a YAML mapping (dict), not a list"
+      - "cut_freeze_receipt.py line 251: 'sym = str(entry[\"symbol\"]).upper()'"
+      - "run_qrb6.py line 209: 'sym = str(entry[\"symbol\"]).upper()'"
+      - "test stubs use list: pair_entries.append({'symbol': sym, ...}) → gate passes on stubs only"
+    owning_role: QD
+
+  - id: F-2
+    severity: major
+    location: >
+      tests/harness/test_qrb6_cost_coverage.py lines 393-394, 454-455, 498-499, 581-582;
+      tests/harness/test_qrb6_decision.py line 677
+    observation: >
+      RESIDUAL OLD THRESHOLDS IN ACTIVE TEST STUBS — five stub receipts in test_qrb6_cost_coverage.py
+      use p_straddle_hi=0.0522 and p_reject_threshold=0.0478 (the void-run values) as operative
+      values in _run_pipeline() calls. These stubs exercise pipeline behaviour (exclusion logic,
+      cost-gap counting) and the dry-run does execute the decision functional path using these
+      thresholds. While the production path is protected by check_receipt_constants() (which would
+      RULE-0 on old values at live run time), having old thresholds as live operative values in test
+      stubs creates an audit inconsistency: a reviewer inspecting test stubs to understand the
+      frozen gate will see incorrect values. Additionally, the exclusion-suppression test stub at
+      line 449-464 uses spread_z_threshold=0.0 as an extreme case, combined with old thresholds —
+      the intent is clear but the combination obscures the correct frozen values.
+      This is not a production threat (production is gated by check_receipt_constants) but
+      is a hygiene defect that should be corrected before the freeze-receipt is cut.
+    evidence:
+      - "test_qrb6_cost_coverage.py line 393: 'p_straddle_hi': 0.0522"
+      - "test_qrb6_cost_coverage.py line 394: 'p_reject_threshold': 0.0478"
+      - "Same pattern at lines 454-455, 498-499, 581-582"
+    owning_role: QD
+
+  - id: F-3
+    severity: minor
+    location: >
+      config/cost_freeze_qrb6.yaml manifest_meta block (lines 50-53);
+      manifest header comment (line 40)
+    observation: >
+      MANIFEST AUTHORSHIP STATUS INCONSISTENT — the manifest_meta block still shows:
+        authored_by: PLACEHOLDER_AWAITING_MATHEMATICIAN
+        mechanical_rule_ref: PLACEHOLDER_AWAITING_RATIFICATION
+        nht_countersign: PLACEHOLDER_AWAITING_NHT
+        committed_before_rerun: false
+      and the header comment says "STATUS: PLACEHOLDER — VALUES NOT YET AUTHORED BY MATHEMATICIAN."
+      However, the values section IS filled with mechanical-rule values (NHT independently verified
+      9/9 medians in nht-remediation-ratification.yaml). The manifest_meta block was not updated
+      to reflect the completed authorship. This is a documentation hygiene issue: the cost values
+      are correct, but the metadata falsely implies they are placeholders. A reader could
+      reasonably conclude the manifest has not been author-completed.
+    evidence:
+      - "config/cost_freeze_qrb6.yaml line 51: authored_by: PLACEHOLDER_AWAITING_MATHEMATICIAN"
+      - "nht-remediation-ratification.yaml: '9/9 independently re-computed medians match the spec table to 2 d.p.'"
+    owning_role: Math/QD (manifest authorship update)
+
+  - id: F-4
+    severity: minor
+    location: >
+      scripts/cut_freeze_receipt.py line 239 error message;
+      scripts/cut_freeze_receipt.py header comment line 188
+    observation: >
+      '12 PAIRS' vs '11 PAIRS' COSMETIC INCONSISTENCY — the coverage gate error messages
+      reference "all 12 registered pairs" (line 239: "config/cost_freeze_qrb6.yaml with positive
+      costs for all 12 registered pairs") and the header comment (line 188: "QRB-6 cost-config gap
+      (3-of-12 pairs)"), while _QRB6_REGISTERED_PAIRS has exactly 11 pairs and the Scenario A
+      pre-reg counts 11 unique pairs. EURGBP is included in the manifest as a Scenario B superset
+      but is not in any Scenario A bank pair map and is not in _QRB6_REGISTERED_PAIRS.
+      The coverage gate correctly enforces 11 (the frozenset), but the error message misleads.
+      Not a functional defect — the gate counts correctly — but confusing for audit.
+    evidence:
+      - "cut_freeze_receipt.py line 239: 'all 12 registered pairs'"
+      - "_QRB6_REGISTERED_PAIRS: frozenset of 11 pairs (verified from source)"
+    owning_role: QD
+
+  - id: F-5
+    severity: observation
+    location: tests/harness/test_qrb6_decision.py TestReceiptInterlock.test_check_receipt_constants_exits_on_mismatch
+    observation: >
+      TEST CHECKS SR0 MISMATCH BUT NOT P-THRESHOLD MISMATCH — the receipt interlock test at
+      lines 448-467 passes a receipt with sr0_pp=0.022906 (forbidden R5 literal) to verify
+      check_receipt_constants() exits. It does NOT include p_reject_threshold or p_straddle_hi
+      fields in the bad_receipt, which means the test passes even without the p-threshold
+      interlock lines (154-155) being present. A complementary test with correct SR0 but
+      wrong p-thresholds (e.g. p_reject_threshold=0.0478) would provide independent verification
+      that the p-threshold interlock is exercised. This is a test coverage gap, not a production risk.
+    owning_role: QD
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUMMARY VERDICTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+coverage_statement: >
+  Reviewed: pre-reg doc (qrb6_cb_event_study.md), triggers sidecar (qrb6_cb_event_study.triggers.yaml),
+  cut_freeze_receipt.py (qrb6 target + _assert_qrb6_cost_coverage), qrb6_decision.py
+  (_EXPECTED_* guards + check_receipt_constants + evaluate_decision), test_qrb6_decision.py
+  (decision truth-table + interlock + dry-run), test_qrb6_cost_coverage.py (all sections),
+  cost_freeze_qrb6.yaml (all pairs), nht-remediation-ratification.yaml. Arithmetic independently
+  reproduced (OBF, 6 spread medians from parquet). Not reviewed: run_qrb6.py in full
+  (exclusion/cost logic structure reviewed via NHT ratification source citations; not independently
+  traced line by line). tests/harness/test_qrb6_freeze_receipt.py not read (not load-bearing for
+  this review's five check areas).
+
+contamination_check: >
+  No cross-trial contamination detected in active code. _EXPECTED_SR0_PP_SEL = 0.026861 (QRB-6 only;
+  clearly labelled NOT 0.022906/NOT 0.034921). check_receipt_constants() enforces trial_id="fa0f982a"
+  and SR0 mismatch detection. Void-run numbers (0.0791, 0.2158, 0.768) are disclosed in amendment
+  box and STEP-RESULT.VOIDED-CONTAMINATED.yaml. No active p-threshold variable in decision code
+  uses the old values (0.0478/0.0522 appear only in comments/docstrings, clearly labelled superseded).
+  One contamination-adjacent risk: test stubs in test_qrb6_cost_coverage.py use old thresholds
+  in _run_pipeline() calls — see F-2 above. Not a production contamination but requires cleanup.
+
+evidence:
+  - file: "config/cost_freeze_qrb6.yaml"
+    finding: "pairs section is dict format, not list — format mismatch with loaders (F-1)"
+  - file: "scripts/cut_freeze_receipt.py"
+    lines: "248-252, 382"
+    finding: "coverage gate coded for list format; will crash on dict manifest; gate is called before receipt cut"
+  - file: "scripts/run_qrb6.py"
+    line: "209"
+    finding: "_load_cost_manifest coded for list format; will crash on dict manifest"
+  - file: "src/forex_system/harness/qrb6_decision.py"
+    lines: "61-62, 154-155"
+    finding: "_EXPECTED_P_REJECT=0.0378, _EXPECTED_P_STRADDLE_HI=0.0422 — correct and wired into interlock"
+  - file: "tests/harness/test_qrb6_cost_coverage.py"
+    lines: "393-394, 454-455, 498-499, 581-582"
+    finding: "stub receipts carry old void-run thresholds 0.0522/0.0478 as active values (F-2)"
+  - file: "python3 OBF arithmetic"
+    finding: "spend1=0.010005, alpha_look2=0.039995, MC_SE=0.002179, p_reject=0.0378, p_kill=0.0422 — confirmed"
+  - file: "python3 parquet medians"
+    finding: "AUDUSD 1.63, GBPUSD 4.70, NZDUSD 4.20, NZDJPY 6.20, EURJPY 4.50, USDCAD raw 45.00→4.50 — all match manifest"
+
+assumptions:
+  - "run_qrb6.py's full execution logic (exclusion-not-impute, manifest wiring) reviewed via NHT ratification source citations rather than independent full trace. The format-mismatch finding (F-1) was discovered independently."
+  - "NHT's 9/9 median verifications in nht-remediation-ratification.yaml are accepted as correct. Independent spot-check of 6 pairs confirmed."
+  - "The USDCAD ÷10 unit fix is accepted on NHT's KILL-safe error-direction reasoning. Not code-verified against ingestion pipeline."
+  - "Test suite pass/fail counts (457+25+9 green) accepted from QD reporting; not re-executed by this reviewer."
+
+confidence: high
+
+body: |
+  PRINCIPAL REVIEWER REPORT — QRB-6 REMEDIATION (trial fa0f982a re-run prep)
+
+  DECISION: APPROVE-WITH-CONDITIONS
+
+  The remediation package is structurally sound in design — the OBF arithmetic is
+  correct and independently verified (p_reject=0.0378, p_kill=0.0422 confirmed),
+  the five-way threshold consistency holds across the pre-reg doc / triggers sidecar /
+  cut_freeze_receipt / qrb6_decision guards / tests, the amendment box accurately
+  discloses the void, and the interlock architecture (check_receipt_constants wired to
+  p-thresholds, no silent fallback, coverage-gate-before-receipt) is correctly designed.
+
+  BLOCKING DEFECT (F-1, must resolve before any receipt can be cut or live run attempted):
+  The cost manifest config/cost_freeze_qrb6.yaml uses YAML dict format (pairs keyed by
+  symbol name) while both _assert_qrb6_cost_coverage() in cut_freeze_receipt.py and
+  _load_cost_manifest() in run_qrb6.py expect LIST format (pairs as a list of dicts with
+  a 'symbol' key). The mismatch produces a TypeError crash at entry["symbol"] when iterating
+  a dict yields string keys. This was masked because the test suite's _make_stub_manifest()
+  generates list-format stubs, so all 25 coverage tests pass — but against the real manifest
+  they would crash. The coverage gate therefore cannot verify the manifest and the live runner
+  cannot load costs. Fix: either reformat the manifest to list format, or update both loaders
+  to handle dict format. This must be resolved before the freeze-receipt cut.
+
+  MAJOR (F-2, pre-receipt hygiene): Five dry-run test stubs in test_qrb6_cost_coverage.py
+  carry the void-run thresholds 0.0522/0.0478 as operative values. Production is protected
+  by check_receipt_constants() at live run time, but the stubs should be updated to 0.0422/
+  0.0378 before the receipt is cut for completeness and audit hygiene.
+
+  Everything else (OBF arithmetic, amendment fidelity, 11-pair manifest values, USDCAD unit
+  fix, exclude-not-impute architecture, interlock wiring, cross-trial contamination) passes
+  independent review. No capital is authorized. No return data was accessed in this review.
+
+knowledge_gaps:
+  - "run_qrb6.py full source not read line-by-line; F-1 was found via format-probing test, not full trace"
+  - "USDCAD ÷10 not verified against ingestion code (accepted on KILL-safe argument)"
+  - "test_qrb6_freeze_receipt.py not reviewed"
+  - "Exact NHT-verified medians for EURUSD, USDJPY, GBPJPY not independently re-confirmed this session (NHT's 9/9 accepted)"
+
+policy_violations_detected:
+  - "F-1: Manifest format mismatch renders structural coverage gate inoperative — gate exists but cannot execute"
+
+sources:
+  - "references/pre-registrations/qrb6_cb_event_study.md"
+  - "references/pre-registrations/qrb6_cb_event_study.triggers.yaml"
+  - "scripts/cut_freeze_receipt.py"
+  - "src/forex_system/harness/qrb6_decision.py"
+  - "tests/harness/test_qrb6_decision.py"
+  - "tests/harness/test_qrb6_cost_coverage.py"
+  - "config/cost_freeze_qrb6.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/nht-remediation-ratification.yaml"
+  - "python3 independent OBF arithmetic (scipy.stats.norm)"
+  - "python3 independent parquet median reads (6 pairs)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

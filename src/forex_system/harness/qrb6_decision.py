@@ -54,8 +54,12 @@ _EXPECTED_KILL_SWITCH_A: float = 1.5883    # Scenario A (T=506); QRB-6-ONLY
 _EXPECTED_KILL_SWITCH_B: float = 1.4029    # Scenario B (T=716); QRB-6-ONLY
 _EXPECTED_ALPHA: float = 0.05              # one-sided total
 _EXPECTED_MC_SE: float = 0.0022            # at K=10000; straddle half-width
-_EXPECTED_P_REJECT: float = 0.0478        # = alpha - mc_se (clean-reject threshold)
-_EXPECTED_P_STRADDLE_HI: float = 0.0522   # = alpha + mc_se (KILL threshold)
+# OBF 2-look extra-look penalty applied (look-1 = voided run; NHT remediation-ratification.yaml 2026-06-07):
+#   p_reject = 0.05 − 0.01001 alpha-spend − 0.0022 MC-SE = 0.0378 (strict < for PASS)
+#   p_straddle_hi = 0.039995 + 0.0022 = 0.0422 (strict > for KILL; closed band [0.0378, 0.0422])
+# Former void-run values (now superseded): p_reject=0.0478, p_straddle_hi=0.0522.
+_EXPECTED_P_REJECT: float = 0.0378        # OBF extra-look: = 0.05 − look-1-spend − MC-SE
+_EXPECTED_P_STRADDLE_HI: float = 0.0422   # OBF extra-look: = look-2-boundary + MC-SE (KILL threshold)
 _EXPECTED_MASTER_SEED: int = 387992        # int('fa0f98',16) mod 1e6; QRB-6-ONLY
 _EXPECTED_K: int = 10000                   # bootstrap resamples
 _EXPECTED_SPREAD_Z_THRESHOLD: float = 3.0  # QRB-2 overlay (§5.5)
@@ -144,6 +148,11 @@ def check_receipt_constants(receipt: dict) -> None:
     _check("spread_z_threshold", _EXPECTED_SPREAD_Z_THRESHOLD, tol=1e-9)
     _check("scenario_a_event_days", _EXPECTED_SCENARIO_A_N)
     _check("post_2015_a", _EXPECTED_POST_2015_A_N)
+    # OBF extra-look p-gate thresholds (remediation v2): wire the guards into the
+    # interlock so a receipt whose p-thresholds drift from the embedded constants
+    # RULE-0s rather than silently executing a different gate.
+    _check("p_reject_threshold", _EXPECTED_P_REJECT, tol=1e-9)
+    _check("p_straddle_hi", _EXPECTED_P_STRADDLE_HI, tol=1e-9)
     _check("trial_id", "fa0f982a")
 
     if mismatches:
@@ -641,19 +650,21 @@ def evaluate_decision(
     technical_failure: bool,
     # Threshold parameters sourced from receipt (no hardcoded defaults that could
     # silently run unfrozen — all callers MUST pass receipt values explicitly)
-    p_kill_threshold: float,       # strict > this → KILL (= 0.0522)
-    p_reject_threshold: float,     # strict < this → clean reject (= 0.0478)
+    p_kill_threshold: float,       # strict > this → KILL (= 0.0422; OBF extra-look)
+    p_reject_threshold: float,     # strict < this → clean reject (= 0.0378; OBF extra-look)
     dsr_threshold: float,          # >= this → DSR gate cleared (= 0.95)
 ) -> str:
     """Apply the §4.2 ordered decision functional.
 
     RULE 0 → RULE 1 → RULE 2 → RULE 3 → RULE 4 (first match fires, stops).
 
-    Boundary convention (CLOSED straddle band, §4.2):
-      - PASS requires STRICT p < p_reject_threshold (= 0.0478) for BOTH p's.
-      - KILL requires STRICT p > p_kill_threshold (= 0.0522) for the triggering p.
+    Boundary convention (CLOSED straddle band, §4.2 + OBF extra-look penalty):
+      - PASS requires STRICT p < p_reject_threshold (= 0.0378) for BOTH p's.
+      - KILL requires STRICT p > p_kill_threshold (= 0.0422) for the triggering p.
       - p in [p_reject_threshold, p_kill_threshold] → RULE 4 AMBIGUOUS (closed band).
-      - Exact boundary values 0.0478 and 0.0522 → RULE 4 (not PASS, not KILL).
+      - Exact boundary values 0.0378 and 0.0422 → RULE 4 (not PASS, not KILL).
+      OBF extra-look penalty ratified 2026-06-07 (look-1 = voided run; former void-run
+      values were 0.0478 / 0.0522; those are superseded and must not appear as active thresholds).
 
     Parameters
     ----------
@@ -667,9 +678,11 @@ def evaluate_decision(
         True if any data-integrity, provenance, or cross-trial-constant fault
         was detected.  RULE 0 fires unconditionally.
     p_kill_threshold:
-        Strict KILL threshold (from receipt; expected 0.0522 = alpha + MC-SE).
+        Strict KILL threshold (from receipt; expected 0.0422 = OBF look-2 boundary + MC-SE;
+        former void-run value was 0.0522).
     p_reject_threshold:
-        Strict clean-reject threshold (from receipt; expected 0.0478 = alpha - MC-SE).
+        Strict clean-reject threshold (from receipt; expected 0.0378 = 0.05 − look-1-spend − MC-SE;
+        former void-run value was 0.0478).
     dsr_threshold:
         DSR gate (from receipt; expected 0.95).
 
@@ -684,23 +697,23 @@ def evaluate_decision(
         return RULE_0_TECHNICAL_FAILURE
 
     # RULE 1 — KILL: post-2015 sub-window fails (overrides aggregate; §4.2, §5.2)
-    # Fires iff p_post2015 > 0.0522 (strict; above straddle band)
+    # Fires iff p_post2015 > 0.0422 (strict; above straddle band; OBF extra-look penalty applied)
     if p_post2015 > p_kill_threshold:
         return RULE_1_KILL_POST2015
 
     # RULE 2 — KILL: aggregate fails (only reached if RULE 1 did not fire)
-    # Fires iff p_agg > 0.0522 (strict; above straddle band)
+    # Fires iff p_agg > 0.0422 (strict; above straddle band; OBF extra-look penalty applied)
     if p_agg > p_kill_threshold:
         return RULE_2_KILL_AGGREGATE
 
-    # At this point: both p's are <= 0.0522 (within or below the straddle band).
+    # At this point: both p's are <= 0.0422 (within or below the straddle band).
 
-    # RULE 3 — PASS (§4.2): BOTH p's strictly < 0.0478 AND DSR >= 0.95
+    # RULE 3 — PASS (§4.2): BOTH p's strictly < 0.0378 AND DSR >= 0.95 (OBF extra-look penalty applied)
     if p_post2015 < p_reject_threshold and p_agg < p_reject_threshold and dsr >= dsr_threshold:
         return RULE_3_PASS
 
     # RULE 4 — AMBIGUOUS / gate-fail (catch-all; §4.2)
-    # Covers: any p in [0.0478, 0.0522] (straddle band, closed endpoints included),
+    # Covers: any p in [0.0378, 0.0422] (straddle band, closed endpoints; OBF extra-look penalty),
     # OR both p's clean-reject but DSR < 0.95.
     return RULE_4_AMBIGUOUS
 

@@ -1,0 +1,190 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-07T14:50:00Z"
+subtask_ref: qrb6-remediation-fixes
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+commit_hash: uncommitted
+no-capital-instruction: true
+
+files_changed:
+  - scripts/run_qrb6.py
+  - scripts/cut_freeze_receipt.py
+  - config/cost_freeze_qrb6.yaml
+  - tests/harness/test_qrb6_cost_coverage.py  # new file
+
+tests_added:
+  - tests/harness/test_qrb6_cost_coverage.py (25 tests)
+
+tests_passing:
+  harness_suite: "457 passed, 3 skipped (all pre-existing tests green)"
+  sacred_test: "9 passed (test_no_lookahead green)"
+  new_coverage_tests: "25 passed"
+  ruff: "All checks passed"
+
+sacred_test_status: green
+kill_test_executed: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX VERDICTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+fixes:
+
+  exclude_not_impute:
+    verdict: IMPLEMENTED
+    spec_ref: "§4.4.3 / §5.5 / NHT adjudication Section C clause 4"
+    description: >
+      In the live-mode per-event loop of scripts/run_qrb6.py: when pair_returns is
+      empty for an event (all pairs suppressed or cost/data gap), the event is now
+      EXCLUDED via 'continue' — NEVER assigned mean_return=0.0.
+    implementation_details:
+      - "Removed the zero-imputation line (mean_return = mean(pair_returns) if pair_returns else 0.0) that caused ~50.7% fabricated zeros in the void run"
+      - "Added two distinct exclusion paths with different log events: event_excluded_all_pairs_suppressed (all pairs suppressed by spread_z; §5.5 legitimate; event-day still counts as block-day; no counter) and event_excluded_data_or_cost_gap (cost/data missing; increments n_event_cost_or_data_gap counter; loud WARNING emitted)"
+      - "n_event_cost_or_data_gap counter surfaces in the result YAML so any future gap is visible and auditable — NEVER silent"
+      - "Dry-run branch also fixed: uses continue (not zero-impute) when pair_returns empty"
+    tests_covering:
+      - TestExclusionNotImputation.test_event_with_all_pairs_suppressed_is_absent_from_y_e
+      - TestExclusionNotImputation.test_zero_imputation_not_present_in_runner_source
+      - TestExclusionNotImputation.test_event_excluded_log_events_present_in_source
+      - TestCostGapCounter.test_cost_gap_counter_in_dry_run_result
+      - TestCostGapCounter.test_cost_gap_counter_in_result_yaml_source
+
+  manifest_loader:
+    verdict: IMPLEMENTED
+    spec_ref: "NHT adjudication Section C clause 1 / Section E"
+    description: >
+      Per-pair costs now load from config/cost_freeze_qrb6.yaml (frozen manifest),
+      NOT from RealisticCostModel() which reads DEFAULT_PAIRS (3 pairs only).
+    implementation_details:
+      - Added _COST_MANIFEST_PATH = Path("config/cost_freeze_qrb6.yaml") constant.
+      - Added _QRB6_REGISTERED_PAIRS frozenset (11 unique Scenario A pairs).
+      - "Added _load_cost_manifest(manifest_path) function that: (a) Exits RULE_0 if manifest absent. (b) Exits RULE_0 if any registered pair is missing from manifest. (c) Emits WARNING log event if any pair has spread_pips == 0.0. (d) Returns (pair_dict, sha256) tuple for audit traceability."
+      - "Live-mode gate: if spread_pips <= 0 for any registered pair → RULE_0 (prevents running with placeholder values before Mathematician fills the manifest)."
+      - RealisticCostModel() now called as RealisticCostModel(pair_configs=_pair_infos)
+        everywhere in the live path (no bare RealisticCostModel() calls remain).
+      - manifest_path and manifest_sha256 recorded in result YAML for audit.
+      - Manifest is a PLACEHOLDER file with 3 filled pairs and 8 zeros — Mathematician
+        must fill with mechanical cost rule before live run is authorized.
+      - config/cost_freeze_qrb6.yaml created as the manifest template.
+    registered_pairs_count: 11
+    registered_pairs_note: >
+      EURGBP is Scenario B only (BOE/ECB); not in any Scenario A bank.
+      The registered Scenario A universe is 11 unique pairs.
+    tests_covering:
+      - TestManifestLoadingInterlocks.test_absent_manifest_triggers_rule_0
+      - TestManifestLoadingInterlocks.test_manifest_sha256_logged_at_load
+      - TestManifestLoadingInterlocks.test_manifest_sha_in_dry_run_result
+      - TestManifestLoaderWiring.test_runner_references_cost_manifest_path_constant
+      - TestManifestLoaderWiring.test_runner_does_not_call_realistic_cost_model_without_pair_configs
+      - TestManifestLoaderWiring.test_runner_references_load_cost_manifest_function
+      - TestManifestLoaderWiring.test_registered_pairs_constant_matches_bank_pair_map
+
+  coverage_gate:
+    verdict: IMPLEMENTED
+    spec_ref: "NHT adjudication Section E / CTO-owned structural gate"
+    description: >
+      A committed pytest test (tests/harness/test_qrb6_cost_coverage.py) asserts that
+      every registered Scenario A pair resolves to a present, positive, finite cost entry
+      in the cost manifest. cut_freeze_receipt.py is gated: _assert_qrb6_cost_coverage()
+      runs before the qrb6 receipt is written; exits non-zero if any pair is missing or
+      has zero spread_pips.
+    implementation_details:
+      - _assert_qrb6_cost_coverage() function added to cut_freeze_receipt.py.
+      - Called in main() for args.target == "qrb6" before prereg_sha256 is computed.
+      - "Checks: (a) manifest exists; (b) all 11 registered pairs present; (c) spread_pips > 0 for all registered pairs (zero = placeholder not filled by Mathematician)."
+      - Generalization comment in both cut_freeze_receipt.py and the test module explains
+        how to apply this gate to future event-study pre-regs.
+    tests_covering:
+      - TestCoverageGate.test_complete_stub_passes_coverage_gate
+      - TestCoverageGate.test_missing_pair_triggers_rule_0
+      - TestCoverageGate.test_each_bank_pair_covered_individually
+      - TestCoverageGate.test_exactly_11_registered_pairs
+      - TestPositivityGate.test_all_pairs_have_positive_spread_in_complete_manifest
+      - TestPositivityGate.test_zero_spread_pair_causes_warning_logged
+      - TestPositivityGate.test_jpy_pairs_have_pip_value_001
+      - TestCutFreezeReceiptGate.test_cut_receipt_calls_cost_coverage_check
+      - TestCutFreezeReceiptGate.test_coverage_check_exits_on_incomplete_manifest
+      - TestCutFreezeReceiptGate.test_coverage_check_passes_on_complete_manifest
+      - TestCutFreezeReceiptGate.test_coverage_check_exits_on_zero_spread_placeholder
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HOW SILENT COST-GAP IS NOW IMPOSSIBLE
+# ─────────────────────────────────────────────────────────────────────────────
+
+cost_gap_now_impossible:
+  enforcement_layers:
+    1_manifest_loader_coverage_check: >
+      _load_cost_manifest() verifies every registered pair is present and emits a
+      loud WARNING if any pair has spread_pips == 0. Missing pair → RULE_0 exit.
+    2_live_mode_positivity_gate: >
+      Before any event processing, the pipeline checks that every registered pair has
+      spread_pips > 0.  Zero spread (placeholder) → RULE_0 exit.  The Mathematician
+      CANNOT run a live test on an unfilled manifest.
+    3_per_event_cost_gap_log: >
+      If a pair somehow still misses costs at event time (defensive belt-and-suspenders),
+      the pair is logged as 'cost_config_gap' with a LOUD WARNING and the event-level
+      n_event_cost_or_data_gap counter is incremented.
+    4_counter_in_result_yaml: >
+      n_event_cost_or_data_gap is always written to the result YAML.  Any non-zero value
+      is visible to any reviewer of the result — it cannot be hidden.
+    5_freeze_receipt_gate: >
+      cut_freeze_receipt.py calls _assert_qrb6_cost_coverage() before writing the receipt.
+      A receipt CANNOT be cut on a manifest with missing or zero-spread pairs.  No receipt
+      → no live run (interlock chain: manifest gate → receipt gate → CEO-ack gate → run).
+    6_committed_tests: >
+      25 tests in test_qrb6_cost_coverage.py cover all enforcement layers.  They are part
+      of the standard test suite and run in CI before any freeze.
+
+evidence:
+  - "dry_run: python3 scripts/run_qrb6.py exits 0 and writes .DRY-RUN.yaml (verified)"
+  - "n_event_cost_or_data_gap=0 in dry-run result YAML (verified)"
+  - "cost_manifest_sha256=DRY_RUN_NO_MANIFEST in dry-run result YAML (verified)"
+  - "457 harness tests passed (verified by pytest run)"
+  - "25 new test_qrb6_cost_coverage.py tests passed (verified)"
+  - "sacred test_no_lookahead passes (9 tests, verified)"
+  - "ruff clean on all changed files (verified)"
+  - "_QRB6_REGISTERED_PAIRS = 11 pairs (EURGBP excluded — Scenario B only, verified against qrb6_decision._BANK_PAIR_MAP)"
+
+assumptions:
+  - "_load_cost_manifest return type annotation updated to tuple[dict, str] to satisfy ruff F821 (PairInfo not imported at function-def scope)"
+  - "EURGBP is confirmed Scenario B only based on qrb6_decision._BANK_PAIR_MAP — Scenario A banks (FED/BOJ/RBA/BOC) have no EURGBP pair"
+  - "The Mathematician will fill config/cost_freeze_qrb6.yaml with a mechanical rule before live run; this is required by the positivity gate (live RULE_0 on any zero spread)"
+
+confidence: high
+confidence_calibration: >
+  HIGH: all three fixes are structurally complete, test-verified, and ruff-clean.
+  The enforcement chain is multi-layered (5 independent checks). The dry-run pipeline
+  runs successfully end-to-end. All pre-existing tests remain green.
+
+body: >
+  Three independent fixes implemented and verified for the QRB-6 runner (trial fa0f982a)
+  following the VOID adjudication (nht-run-integrity-adjudication.yaml).
+
+  FIX 1 — EXCLUDE NOT IMPUTE: The zero-imputation bug (mean_return=0.0 when pair_returns
+  is empty) has been eliminated. Empty pair_returns triggers 'continue', excluding the event
+  from y_e. Two distinct log events distinguish the cause: event_excluded_all_pairs_suppressed
+  (legitimate spread_z overlay, no counter) vs event_excluded_data_or_cost_gap (structural
+  gap, increments n_event_cost_or_data_gap counter surfaced in result YAML).
+
+  FIX 2 — MANIFEST LOADER: Per-pair costs now load from config/cost_freeze_qrb6.yaml
+  (the frozen manifest the Mathematician will author). _load_cost_manifest() provides
+  coverage and positivity checks at load time; the live positivity gate blocks runs with
+  placeholder (zero) values. The manifest SHA and path are recorded in every result YAML
+  for audit traceability.
+
+  FIX 3 — COVERAGE GATE: _assert_qrb6_cost_coverage() in cut_freeze_receipt.py blocks
+  receipt cutting if any of the 11 registered Scenario A pairs is absent from or has
+  zero-spread in the cost manifest. 25 committed tests cover all enforcement layers.
+  The gate follows the NHT-demanded structural pattern and includes a generalisation comment
+  for future event-study pre-regs.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

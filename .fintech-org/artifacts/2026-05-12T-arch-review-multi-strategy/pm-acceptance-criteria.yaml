@@ -1,0 +1,208 @@
+role: pm
+artifact_type: acceptance-criteria
+subtask_ref: "arch-review-multi-strategy-2026-05-12:phase1:task1.0"
+subtask_id: "arch-review-pm-ac-2026-05-12"
+timestamp: "2026-05-12T00:00:00Z"
+
+body: >
+  Senior-role assessment (CTO + CRO + NHT + PR) of whether the existing
+  Phase-0 forex system architecture is robust, flexible, and scalable enough
+  to support 4-strategy expansion via Strangler-Fig refactor vs rewrite.
+
+task-statement: >
+  Assess existing system architecture for suitability to expand from 2 validated
+  strategies to 4 (adding intraday-classical + ML) via Strangler-Fig vs rewrite.
+
+deliverable-type: architecture-review
+
+deadline: "2026-05-12T23:59:59Z"
+
+instrument-universe: []
+
+hard-constraints:
+  - "forward_looking_only: true"
+  - "no_code_changes_during_review: true"
+  - "each_role_emits_typed_go_no_go: true"
+  - "pr_independently_verifies_claims_against_code: true"
+  - "strangler_fig_path_assessed_explicitly: true"
+  - "alternative_rewrite_path_assessed_explicitly: true"
+  - "remediation_items_must_cite_file_line: true"
+  - "no_live_capital: true"
+  - "does_not_gate_current_t0_paper_trading: true"
+  - "no_new_strategy_paper_deployment_authorized: true"
+  - "does_not_require_pre_registration_of_strategy3_or_strategy4: true"
+  - "paper_only_for_existing_strategies: true"
+
+criteria:
+  - id: C-1
+    label: Typed go/no-go from every senior role
+    done-when: >
+      Each of CTO, CRO, NHT, and PR emits a typed artifact with an explicit
+      decision field drawn from the closed set: go | no-go | conditional-go.
+      No role's decision is implied by another's; each artifact stands alone.
+
+  - id: C-2
+    label: CTO architecture assessment
+    done-when: >
+      CTO artifact covers: (a) robustness and flexibility of core/interfaces.py
+      ABCs (Strategy, DataSource, CostModel, PositionSizer, ExecutionBackend)
+      for adding Strategy #3 (intraday-classical) and Strategy #4 (ML); (b)
+      scalability of strategies/registry.py factory pattern for 4+ strategies;
+      (c) duplication risk in scripts/run_paper_trading_vt.py vs
+      scripts/run_paper_trading_carry_fred.py vs scripts/run_paper_trading.py
+      (3 separate paper scripts) — is this pattern extensible to 4 strategies
+      or does it become a maintenance liability? (d) explicit Strangler-Fig
+      assessment: which seams are clean extension points, which require
+      invasive changes, which carry technical-debt risk under multi-strategy
+      load? All claims cite specific file and line references.
+
+  - id: C-3
+    label: CRO risk-envelope assessment
+    done-when: >
+      CRO artifact covers: (a) whether BC-8-LIFT-COND-1..7 (currently scoped
+      to 2 strategies sharing 1 Saxo account + 1 OAuth token) can absorb 4
+      strategies under the same constraints, specifically COND-4 (JPY-correlated
+      cap 15% across ALL strategies) and COND-3 (account-key parity gate with
+      a single lock file); (b) capital allocation per strategy: what is the
+      maximum safe allocation per strategy under the existing drawdown ladder
+      (10/15/20%) and the 15% aggregate JPY-correlated cap?; (c) new failure
+      modes specific to 4-strategy shared-account operation not present in
+      2-strategy operation (e.g., correlated drawdowns, simultaneous kill-switch
+      triggers, lock contention with 4 processes); (d) explicit statement of
+      whether CRO's existing BC-8-LIFT conditions are sufficient or require
+      amendment for the expanded configuration.
+
+  - id: C-4
+    label: NHT adversarial scrutiny of "system is robust" claims
+    done-when: >
+      NHT artifact independently probes every CTO or CRO claim of the form
+      "system X is robust/flexible/scalable" that cannot be directly verified
+      from code or tests — specifically: (a) any claim that the Strategy ABC
+      is sufficient for ML (ML model serving, feature pipelines, and model
+      versioning have no interfaces in core/interfaces.py — NHT must probe
+      whether this gap is acknowledged); (b) any claim that BC-8-LIFT conditions
+      scale to 4 strategies without amendment; (c) any claim that the 3-script
+      paper trading pattern is manageable at 4 strategies; (d) NHT does NOT
+      accept consensus between CTO and CRO as evidence — all claims must be
+      independently verifiable from code, tests, or explicit engineering analysis.
+
+  - id: C-5
+    label: PR independent code verification
+    done-when: >
+      PR re-reads the specific files cited by CTO and CRO and independently
+      verifies or contradicts each load-bearing claim: (a) every file:line
+      reference in CTO and CRO artifacts is confirmed to exist and to say what
+      the role claims; (b) PR surfaces any claim that contradicts what the code
+      actually shows; (c) PR applies review-plan rubric (Correctness, Design,
+      Risk dimensions) to the architecture assessment itself, not just the code;
+      (d) PR may not simply echo CTO/CRO conclusions — independent verdicts
+      required.
+
+  - id: C-6
+    label: Remediation backlog with file:line and effort estimates
+    done-when: >
+      For every identified gap, weakness, or required change, there exists a
+      remediation item containing: (a) specific file path(s) and line number(s)
+      that require change; (b) description of what must change and why;
+      (c) engineering-effort estimate in days or weeks (not "small/medium/large");
+      (d) dependency ordering — which items must precede others. Items without
+      file:line references are not acceptable as remediation items; they must be
+      either escalated as knowledge gaps or returned for further investigation.
+
+  - id: C-7
+    label: Final consensus with clear Strangler-Fig yes/no
+    done-when: >
+      The final consensus artifact contains an explicit binary answer to:
+      "Is the existing system ready for multi-strategy expansion via
+      Strangler-Fig without a rewrite?" with one of: (a) yes — no blocking
+      issues, proceed; (b) conditional-yes — proceed IF remediation items
+      X, Y, Z are completed first (enumerated explicitly); (c) no — rewrite
+      recommended, specific architectural deficiencies cited. The rewrite
+      alternative is assessed explicitly: what would it cost vs. the
+      Strangler-Fig path, what risks does it eliminate or introduce?
+
+out-of-scope:
+  - live capital (any order routing, position sizing, or execution against a real-money account)
+  - ML model research, feature engineering, or training pipeline design
+  - intraday alpha hypothesis generation or validation for Strategy #3
+  - kill-switch Properties 2/3/4 (live-promotion blocker — separate concern)
+  - historic-commit account-key literal cleanup (deferred from Wave-10)
+  - push to origin/main (51 commits ahead; separate CEO-authorized action)
+  - current T=0 paper-trading authorization (already ratified in CONSENSUS_2026-05-12_t0_dispatch_runbook.md; this review does NOT add a 4th precondition to T=0)
+  - new strategy paper-deployment authorization (requires separate /fintech-org dispatch with HoQR + quant-researcher + NHT + pre-registration)
+  - pre-registration of Strategy #3 (intraday-classical) or Strategy #4 (ML) — both are research-phase
+  - any specific strategy-class implementation (code is not produced in this review)
+  - CF-T9 Clause C ratification (60-trading-day deferred window, separate track)
+  - Saxo token revocation (manual user action, separate from this review)
+  - Wave-11 F-100/F-101 tickets (already tracked)
+
+roles-staffed:
+  - role: cto
+    rationale: >
+      Architecture robustness, flexibility, and scalability of core/interfaces.py,
+      strategies/registry.py, and the paper-trading script duplication pattern
+      are CTO-domain decisions. CTO must explicitly assess the Strangler-Fig path.
+  - role: cro
+    rationale: >
+      BC-8-LIFT-COND-1..7 were authored by CRO for a 2-strategy configuration.
+      Whether those conditions scale to 4 strategies sharing 1 account + 1 token
+      is a CRO-domain decision. CRO must emit an explicit go/no-go on the
+      expanded risk envelope.
+  - role: null-hypothesis-tester
+    rationale: >
+      Structural skeptic per fintech-org rule 6. NHT independently probes
+      "system is robust" claims that cannot be verified from code alone, and
+      applies adversarial scrutiny to any consensus between CTO and CRO.
+  - role: principal-reviewer
+    rationale: >
+      PR independently re-verifies CTO and CRO claims against actual file:line
+      references using review-plan, execution-firewall-review, and
+      log-as-decision-trace rubrics. Catches claims that look sound but contradict
+      the code.
+
+decision: authored
+confidence: high
+
+evidence:
+  - "src/forex_system/core/interfaces.py — Strategy, DataSource, CostModel, PositionSizer, ExecutionBackend ABCs; read in full"
+  - "src/forex_system/strategies/registry.py — 10 strategies wired via STRATEGY_REGISTRY dict + create_strategy factory; read in full"
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md — BC-8-LIFT-COND-1..7 binding constraints enumerated at lines 48; out-of-scope items at lines 75-86"
+  - "docs/decisions/CONSENSUS_2026-05-12_t0_dispatch_runbook.md — Cycle-2 closure at lines 359-395 confirms runbook v2 ratified (Option A); this review does not add a 4th T=0 precondition"
+  - "docs/architecture.md — ML extension points documented at Section 7; 4 deliberate hooks identified; CostModel ABC extension with timestamp param at Section 4.1"
+  - "scripts/run_paper_trading_vt.py, scripts/run_paper_trading_carry_fred.py, scripts/run_paper_trading.py — 3 separate paper scripts confirmed via ls"
+  - "CLAUDE.md — Phase-0 thesis (prove alpha exists before building complexity), no-lookahead guarantee, architecture overview"
+  - "~/.claude/projects/-Users-huangtm-Projects-forex-trading-system/memory/MEMORY.md — Wave-11 ratified, Paper-Launch ratified, BC-8 context"
+
+assumptions:
+  - "HEAD is commit e6aaa43 (Wave-11 ratified) per CONSENSUS_2026-05-12_t0_dispatch_runbook.md line 336"
+  - "The 3 paper trading scripts (run_paper_trading_vt.py, run_paper_trading_carry_fred.py, run_paper_trading.py) represent the current paper-loop pattern; CTO is expected to assess whether this pattern scales to 4 strategies"
+  - "Strategy #3 (Option B intraday classical) and Strategy #4 (ML-based) are both research-phase — no pre-registration has occurred; this review does not authorize deployment of either"
+  - "docs/architecture.md Section 7 represents the intended design; actual implementation may diverge; PR is expected to identify any gaps between the architecture doc and the code"
+  - "BC-8-LIFT-COND-1..7 were scoped to 2 strategies (vol_target_carry + carry_fred) on 1 account; whether they extend to 4 strategies is an open question for CRO to answer, not an assumption of this AC"
+  - "The Strangler-Fig path means: extend the existing system incrementally without a full rewrite; the rewrite alternative means: start from scratch, potentially with a different framework or architecture"
+  - "CEO's openness to Strangler-Fig is conditioned on CTO + CRO sign-off that the existing system is robust, flexible, scalable enough; this review provides that sign-off or its negation"
+
+knowledge_gaps:
+  - "Whether Strategy #4 (ML) requires model serving infrastructure (e.g., feature pipelines, versioned model artifacts, online inference) that has no current interface in core/interfaces.py — the architecture doc describes 4 extension hooks but does not address model serving specifically"
+  - "Whether the existing dispatch-lock mechanism (fcntl.flock per BC-8-LIFT-COND-1) is designed for N>2 concurrent paper scripts, or whether N=2 was the design ceiling"
+  - "Whether the _JPY_CORRELATED frozenset at exposure_aggregator.py:46 (currently {USDJPY, GBPUSD}) would need to be expanded for Strategy #3 or #4 if those strategies trade additional currency pairs"
+  - "Actual LOC and structural similarity between the 3 paper trading scripts — CTO must assess whether the duplication is purely mechanical (copy-paste) or reflects genuine strategy-specific logic that would require distinct scripts per new strategy"
+  - "Whether the existing walk-forward validation framework (backtest/walkforward.py) supports multi-strategy portfolio-level walk-forward, or only single-strategy evaluation"
+
+policy_violations_detected: []
+
+sources:
+  - "src/forex_system/core/interfaces.py"
+  - "src/forex_system/strategies/registry.py"
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+  - "docs/decisions/CONSENSUS_2026-05-12_t0_dispatch_runbook.md"
+  - "docs/architecture.md"
+  - "CLAUDE.md"
+  - "~/.claude/projects/-Users-huangtm-Projects-forex-trading-system/memory/MEMORY.md"
+  - "~/.claude/skills/fintech-org/roles/pm.md"
+  - "~/.claude/skills/review-plan/SKILL.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

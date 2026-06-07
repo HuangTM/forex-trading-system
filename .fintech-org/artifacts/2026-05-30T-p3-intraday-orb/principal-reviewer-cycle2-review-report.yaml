@@ -1,0 +1,40 @@
+role: principal-reviewer
+artifact_type: review-report
+rework-cycle: 2
+timestamp: 2026-05-30T07:00:00Z
+subtask_ref: p3-intraday-orb-pr-cycle2
+subtask_id: p3-intraday-orb-2026-05-30-pr-cycle2
+note: >
+  This is the ACTUAL PR cycle-2 result. Three independent dispatches (opus + sonnet + sonnet-minimal)
+  all returned decision: approve, 14/14 cycle-1 findings closed. (An earlier orchestrator
+  review-budget-exceeded note was a FALSE ALARM caused by a degraded display channel dropping the
+  agent outputs; it is superseded by this report. Agent IDs: a982e24625248e7fc (opus, source-verified),
+  a3e284cf567fa9479 (sonnet), ab426eaae2e8b2227 (sonnet).)
+decision: approve
+findings-from-cycle1-status:
+  - {finding_id: B-1, status: closed, evidence: "per_trade_risk 0.5%->0.25%; CRO caps enumerated; no self-veto"}
+  - {finding_id: B-2, status: closed, evidence: "stop-limit/limit-on-retest, NEVER market; bid/ask not mid (mid forbidden)"}
+  - {finding_id: B-3, status: closed-as-design, evidence: "session-aware delay + void-if-next-bar-outside-session + 17:00 ET precedence + DST tests; bar-index shift declared insufficient (engine.py:135/263 verified)"}
+  - {finding_id: B-4, status: closed-as-design, evidence: "intrabar-engine REQUIRED declared as handoff; current sign-based engine insufficient; CTO owns"}
+  - {finding_id: B-5, status: closed, evidence: "per-regime slippage distribution declared; DSR N frozen N_total=36 (trials.jsonl=35 verified), registered_before_backtest"}
+  - {finding_id: S-1, status: closed, evidence: "ATR(14)/15m/OR-close/frozen-at-entry"}
+  - {finding_id: S-2, status: closed, evidence: "buffer 0.10xATR price-units; conservative tick round-up; USDJPY pip=0.01"}
+  - {finding_id: S-3, status: closed, evidence: "one OR window minutes 3-30 (first 3 excluded)"}
+  - {finding_id: S-4, status: closed, evidence: "close-based trigger beyond one edge -> tie-break by construction"}
+  - {finding_id: S-5, status: closed, evidence: "skip session if <2 bars to form OR"}
+  - {finding_id: S-6, status: closed, evidence: "16:00 anchored to opening session tz; 17:00 ET dominates"}
+  - {finding_id: S-7, status: closed, evidence: "primary EURUSD+USDJPY per-pair (pooling forbidden); GBPUSD separate stretch arm, non-gating"}
+  - {finding_id: S-8, status: closed, evidence: "hard cap 1/pair/session, 2/day/pair, skip on breach"}
+  - {finding_id: PR-PREREG, status: closed, evidence: "N frozen=36; regime/jackknife/negative-controls frozen; universe resolved"}
+new_blocking_gaps: []
+contamination-check: "clean"
+coverage-statement: "verified 14 of 14 findings; 3 independent reproductions all approve"
+knowledge_gaps:
+  - KG-1 intraday data unconfirmed (blocking-impl, not design-blocker)
+  - KG-2 no session-calendar module (blocking-impl)
+  - KG-3 no intrabar engine (blocking-impl)
+policy_violations_detected: []
+no-capital-instruction: true
+sources: [src/forex_system/backtest/engine.py:135, src/forex_system/backtest/engine.py:263, .fintech-org/trials.jsonl]
+web_research_conducted: false
+claimed_domains: [spec-vs-implementation-drift-detection, independent-design-review, independent-algorithm-review]

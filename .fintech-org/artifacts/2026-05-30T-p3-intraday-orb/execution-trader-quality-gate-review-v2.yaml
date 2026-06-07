@@ -1,0 +1,30 @@
+role: execution-trader
+artifact_type: quality-gate-review
+decision: approve
+timestamp: 2026-05-30T07:20:00Z
+subtask_ref: p3-intraday-orb-et-qg-v2
+subtask_id: p3-intraday-orb-2026-05-30-et-qg
+agent_id: af004478e15a5cedc
+rubric_applied: [transaction-cost-analysis, realized-slippage-budget, order-routing-and-venue-selection]
+findings: []
+flags:
+  - "F-1 (non-blocking): retest-entry 5-10% pullback fill-rate must be stress-tested + tracked in the 20-30% miss ledger at impl"
+  - "F-2 (non-blocking): log-normal sigma=0.8 tail calibration source not cited; validate vs session-open tick data at impl"
+  - "F-3 (non-blocking): GBP/USD 4.75 pip round-trip may still be optimistic on UK-data spikes; fat-tail draw is the mitigation; GBP gated to non-primary arm"
+  - "F-4 (non-blocking): stop/limit order behavior DURING 17:00-17:30 blackout unspecified — define at impl (standing stops as market orders would violate no-market-order principle)"
+  - "F-5 (non-blocking): confirm backtest draws session-open (not pooled/calm) slippage distribution near the open — wiring risk"
+contamination-check: "clean"
+confidence: high
+body: |
+  v2 closes every cycle-1 cost-treatment gap: no market orders, no mid-price fills, session-open
+  elevated spreads (calm config forbidden), 17:00 ET blackout — all encoded verbatim. GBP/USD
+  structurally segregated to a non-gating arm with >=9.5 pip gross-edge hurdle (the correct response).
+  Fat-tail log-normal slippage is the right shape and is the element most likely to fail the backtest
+  gate — correct behavior. Whether gross edge clears costs is a BACKTEST question; design correctly
+  pre-registers post-cost expectancy <=0 as auto-reject. Approve cost-treatment adequacy. 5 non-blocking
+  flags carried to implementation wave.
+claimed_domains: [transaction-cost-analysis, realized-slippage-budget, order-routing-and-venue-selection]
+policy_violations_detected: []
+no-capital-instruction: true
+sources: []
+web_research_conducted: false

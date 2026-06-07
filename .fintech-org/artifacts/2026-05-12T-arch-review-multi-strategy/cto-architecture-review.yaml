@@ -1,0 +1,393 @@
+role: cto
+artifact_type: architecture-review
+subtask_ref: "arch-review-multi-strategy-2026-05-12:phase2:task1.0"
+subtask_id: "cto-arch-review-2026-05-12"
+timestamp: "2026-05-12T10:30:00Z"
+
+decision: conditional-go
+
+body: >
+  The Phase-0 system is conditionally ready for multi-strategy expansion via the
+  Strangler-Fig path. Three architectural strengths make this viable: (1) the
+  Strategy ABC is a genuine extension point — adding strategy #3 (intraday-classical)
+  requires zero interface surgery; (2) the risk plumbing (exposure_aggregator, kill_switch,
+  drawdown_contract) was deliberately designed with max_active_strategies=4 and
+  separation of per-strategy audit logs already implemented via strategy_id; (3)
+  the fcntl.flock dispatch serialization mechanism is correct for N-process concurrency
+  at daily/4H frequency without clock-ordering risk. Three gaps block naive expansion:
+  (a) Strategy #4 (ML) has zero interface support in core/interfaces.py — no
+  ModelServingInterface, no DriftMonitor, no calibration hook; the Strategy ABC's
+  generate_predictions() is a data-format hook, not a model-lifecycle contract;
+  (b) each new strategy requires a new ~1000-LoC paper trading script (3 scripts
+  already exist, each with strategy-specific WS-xx trace emitters and CRO constants
+  duplicated inline) — adding strategies #3 and #4 adds 2 more scripts before a
+  templating refactor, creating a 5-script maintenance surface; (c) the Position type
+  has no strategy field (core/types.py:67-76), so exposure_aggregator.py uses pair
+  as a proxy for strategy_id (exposure_aggregator.py:129-130), which will produce
+  incorrect active_paper_strategies counts when two strategies trade the same pair
+  — a data-integrity gap that worsens with 4 strategies.
+
+confidence: high
+
+decision_conditions:
+  - condition: >
+      Add strategy_id field to Position type and update exposure_aggregator.compute_exposure()
+      to use it for active_paper_strategies counting. The current proxy (pair) is documented
+      as incorrect (exposure_aggregator.py:121-130) and will miscount when strategies #3 or #4
+      trade EURUSD/USDJPY/GBPUSD — the same pairs already in use.
+    why: >
+      CRO envelope (max_active_paper_strategies=4) is a binding constraint for 4-strategy
+      operation. The count is wrong today for any overlap case. With 4 strategies this could
+      suppress dispatch gates that should fire (undercount) or trigger them incorrectly
+      (overcount). This is a correctness bug, not a style issue.
+    file_line_ref: "src/forex_system/core/types.py:67-76 (Position has no strategy field); src/forex_system/risk/exposure_aggregator.py:121-130 (proxy acknowledged inline)"
+    estimated_effort_days: 1
+
+  - condition: >
+      Extract a shared paper-trading runner template (BaseRunner class or parameterized
+      entry-point) before deploying strategy #3. The three existing scripts share identical
+      _attach_wsXX_file_handler, notify, fetch_recent_bars, fetch_account_equity, dispatch-lock
+      acquisition/release, kill_switch instantiation, DrawdownContract instantiation, and
+      main() argument parsing. Each script copies these ~500 shared LoC with only the
+      WS trace label and strategy class varying.
+    why: >
+      Adding strategies #3 and #4 as separate scripts (pattern used for vt.py and carry_fred.py)
+      yields 5 scripts with ~500 LoC duplicated across each. A CRO-constant change (drawdown
+      thresholds, watchdog timeout, JPY cap) must be applied to 5 files manually — the classic
+      maintenance liability CTO vetoes under unmaintainable-architecture. Engineering estimate:
+      3 days to extract shared base; the per-script residual (strategy class, WS label, pair
+      config) is ~150 LoC each.
+    file_line_ref: "scripts/run_paper_trading_vt.py:119-207 (WS-01 trace + helpers); scripts/run_paper_trading_carry_fred.py:141-215 (WS-02 identical structure); scripts/run_paper_trading.py:57-120 (third script, 492 LoC)"
+    estimated_effort_days: 3
+
+  - condition: >
+      Define a ModelServingInterface ABC in core/interfaces.py before any ML strategy
+      (strategy #4) is deployed to paper trading. Required minimal contract: load(artifact_path),
+      predict(features: pd.DataFrame) -> pd.Series, model_version() -> str, drift_score() -> float.
+      Without this, an ML strategy implementing Strategy ABC has no contract for model
+      loading, versioning, or drift detection — the hot-path-ml-deployment-without-cto-and-cro-co-sign
+      veto fires automatically on any ML deployment attempt.
+    why: >
+      core/interfaces.py currently has no ML lifecycle contract (verified: 145-line file,
+      zero references to model, drift, calibration, or artifact). docs/architecture.md Section 7
+      documents 4 ML extension points but all are data-format hooks (generate_predictions(),
+      feature_hash, model_id column), not model-lifecycle contracts. A Strategy subclass
+      that loads an ONNX or safetensors file on __init__ with no interface contract is
+      research-class logic hidden in an implementation artifact — execution-firewall violation.
+    file_line_ref: "src/forex_system/core/interfaces.py:1-145 (full file; zero ML lifecycle contracts); docs/architecture.md:1049-1060 (Section 7; 4 hooks documented, none are model-lifecycle)"
+    estimated_effort_days: 2
+
+architecture_strengths:
+  - claim: >
+      Strategy ABC is a genuine Liskov-safe extension point for intraday-classical strategy #3.
+      The abstract contract (generate_signals(), required_indicators(), name) is minimal and
+      pure-functional. Adding a new daily/4H classical strategy requires only: a concrete class
+      implementing these three members + a one-line entry in STRATEGY_REGISTRY. No interface
+      surgery required. The generate_predictions() hook in docs/architecture.md Section 4.1
+      enables richer output without breaking existing implementations.
+    evidence_file_line: "src/forex_system/core/interfaces.py:32-63 (Strategy ABC); src/forex_system/strategies/registry.py:17-28 (STRATEGY_REGISTRY dict + create_strategy); docs/architecture.md:108-136 (generate_predictions default wrapper)"
+
+  - claim: >
+      Risk plumbing is strategy-aware by design. KillSwitch supports per-strategy audit
+      log namespacing via strategy_id parameter (kill_switch.py:154-155). exposure_aggregator
+      supports max_active_strategies=4 as a design parameter (exposure_aggregator.py:148-153).
+      DrawdownContract is instantiated per-loop (vt.py:896-900). These were not retrofitted
+      for multi-strategy — the design anticipated N>2.
+    evidence_file_line: "src/forex_system/risk/kill_switch.py:119-155 (strategy_id per-strategy isolation docstring + __post_init__); src/forex_system/risk/exposure_aggregator.py:7-10 (max_active_paper_strategies: 4 in module docstring); scripts/run_paper_trading_vt.py:96 (CRO_MAX_ACTIVE_STRATEGIES=4)"
+
+  - claim: >
+      The fcntl.flock dispatch serialization mechanism correctly prevents the concurrent
+      JPY-exposure double-count race condition (BC-8 option-B) and is inherently N-process
+      safe — LOCK_EX | LOCK_NB serializes regardless of N. A 4-strategy deployment adds
+      lock contention but not a new failure mode. Each losing locker emits a structured
+      SKIP_DISPATCH_LOCK_BUSY log line (vt.py:113), so contention is fully observable.
+    evidence_file_line: "scripts/run_paper_trading_vt.py:455-513 (LOCK_EX|LOCK_NB acquisition + structured logging on BlockingIOError); scripts/run_paper_trading_vt.py:113-114 (SKIP_DISPATCH_LOCK_BUSY sentinel defined)"
+
+architecture_gaps:
+  - gap: >
+      No ML model lifecycle interface exists. Strategy ABC (core/interfaces.py:32-63) has no
+      contract for model loading, versioning, drift detection, or calibration. docs/architecture.md
+      Section 7 documents 4 ML hooks but all are data-format conveniences, not operational
+      contracts. An ML strategy deployed against the existing ABC could load any model artifact
+      in __init__ with no version tracking or drift detection — a hot-path deployment without
+      the required CTO+CRO co-sign interface guarantee.
+    severity: blocking
+    evidence_file_line: "src/forex_system/core/interfaces.py:1-145 (full; no ML lifecycle); docs/architecture.md:1049-1065 (Section 7; format hooks only, not lifecycle)"
+    remediation: >
+      Define ModelServingInterface ABC in core/interfaces.py before strategy #4 paper deploy.
+      Contract: load(), predict(), model_version(), drift_score(). Strategy #4 should compose
+      ModelServingInterface, not replace Strategy ABC.
+    estimated_effort_days: 2
+
+  - gap: >
+      Paper trading script pattern does not scale to 4 strategies. Three separate scripts
+      exist (run_paper_trading_vt.py:1005 LoC, run_paper_trading_carry_fred.py:938 LoC,
+      run_paper_trading.py:492 LoC). Each duplicates: _attach_wsXX_file_handler, notify,
+      fetch_recent_bars, fetch_account_equity, kill_switch/drawdown_contract/watchdog
+      instantiation, dispatch-lock acquire/release, and main() arg parsing. The WS-01 vs
+      WS-02 trace label is the only structurally significant difference. Adding strategies
+      #3 and #4 as separate scripts before a refactor creates 5 scripts with CRO constants
+      duplicated in 5 places — a maintenance liability that meets the CTO's
+      unmaintainable-architecture veto criterion at 4+ scripts.
+    severity: major
+    evidence_file_line: "scripts/run_paper_trading_vt.py:119-207 (shared helper block); scripts/run_paper_trading_carry_fred.py:141-215 (identical structure, different WS label); scripts/run_paper_trading_vt.py:94-108 (CRO constants duplicated here and at carry_fred.py:105-119)"
+    remediation: >
+      Extract BaseRunner (or parameterized entry-point) before deploying strategy #3.
+      Shared block is approximately 500 LoC per script; per-strategy residual ~150 LoC.
+      This is a Quant Developer task, not CTO implementation.
+    estimated_effort_days: 3
+
+  - gap: >
+      Position type has no strategy_id field, causing exposure_aggregator to use pair as a
+      proxy for active_paper_strategies (exposure_aggregator.py:129-130). With 4 strategies,
+      if two strategies trade the same pair (e.g., both trade USDJPY), the proxy undercounts
+      strategies and the CRO dispatch gate (max_active_strategies=4) may not fire when it
+      should. The gap is self-documented inline but not yet fixed.
+    severity: major
+    evidence_file_line: "src/forex_system/core/types.py:67-76 (Position: no strategy field); src/forex_system/risk/exposure_aggregator.py:121-130 (pair proxy acknowledged with explicit gap note)"
+    remediation: >
+      Add strategy_id: str field to Position dataclass. Update exposure_aggregator.compute_exposure()
+      to use position.strategy_id for strategy_ids set construction. Update all Position
+      construction sites. This is a 1-day Quant Developer task.
+    estimated_effort_days: 1
+
+  - gap: >
+      Single shared fcntl.flock file (data/dispatch_lock.flock). With 4 concurrent strategies
+      all polling at 1800s intervals with identical timing, the flock becomes a serialization
+      bottleneck at bar close. Each locker emits SKIP_DISPATCH_LOCK_BUSY (not a failure, by
+      design), but 4 strategies converging on the same bar close may cause 3 of 4 to skip the
+      cycle. At daily frequency this is operationally acceptable; at intraday-4H frequency
+      (strategy #3) with 6 daily bar closes, the collision probability increases. This is a
+      minor gap for 4 strategies at mixed frequencies, not a blocking gap.
+    severity: minor
+    evidence_file_line: "scripts/run_paper_trading_vt.py:76 (DISPATCH_LOCK_PATH='data/dispatch_lock.flock'); scripts/run_paper_trading_vt.py:113 (SKIP_DISPATCH_LOCK_BUSY sentinel)"
+    remediation: >
+      Stagger poll intervals per strategy (e.g., VT: 1800s, carry_fred: 1800s+30s, strategy3:
+      1800s+60s). Alternatively, the BaseRunner refactor (condition 2) can absorb per-strategy
+      interval offsets via config. This is a configuration change, not an architecture change.
+    estimated_effort_days: 0.5
+
+  - gap: >
+      No portfolio-level walk-forward validation. backtest/walkforward.py runs per-strategy.
+      backtest/portfolio.py is not a portfolio aggregation module — it is a FixedFractionalSizer
+      implementation (portfolio.py:10). Adding 4 strategies with correlated signals (carry + vol
+      target share JPY exposure) without portfolio-level walk-forward produces per-strategy
+      Sharpe estimates that do not account for inter-strategy correlation or capital competition.
+      This is a research-infrastructure gap, not an engineering gap, but it is architecturally
+      relevant for multi-strategy capital allocation.
+    severity: minor
+    evidence_file_line: "src/forex_system/backtest/portfolio.py:1-52 (FixedFractionalSizer; not a portfolio aggregator); src/forex_system/backtest/walkforward.py (single-strategy interface — not read in detail; absence of multi-strategy API is the gap)"
+    remediation: >
+      This is a Quant Developer + Head of Quant Research task. CTO does not prescribe the
+      research methodology. Routing to those roles for portfolio-level walk-forward design before
+      strategy #3 or #4 backtest is submitted for null-hypothesis gate.
+    estimated_effort_days: 5
+
+strangler_fig_assessment:
+  verdict: sound
+  rationale: >
+    The Strangler-Fig pattern is architecturally sound for this codebase because clean seams
+    already exist at every critical interface: Strategy ABC (new strategy class, no interface
+    changes), STRATEGY_REGISTRY (one-line registration), KillSwitch (strategy_id isolation
+    already wired), and exposure_aggregator (N-strategy dispatch gate already parameterized).
+    The pattern requires that the existing system continues to run while new strategies are
+    added incrementally — this is satisfied because the paper scripts are independent OS
+    processes sharing only the dispatch lock and the account-key lock file. No shared mutable
+    state between strategies (modulo the Position proxy gap, which is a bug not a design flaw).
+    The three blocking conditions are prerequisites that must be satisfied BEFORE the fig
+    strangles the new strategies in — they are not evidence that the Strangler-Fig path fails.
+    Rewrite risk outweighs the cost of satisfying these prerequisites.
+  prerequisites:
+    - "Condition 1 (Position.strategy_id gap) must be closed before ANY 3rd or 4th strategy deploys to paper"
+    - "Condition 2 (BaseRunner extraction) must be closed before deploying strategy #3 to avoid cementing the 5-script maintenance liability"
+    - "Condition 3 (ModelServingInterface ABC) must be closed before strategy #4 (ML) is deployed to paper — this is a CTO+CRO co-sign gate per fintech-org protocol"
+    - "Coverage-bias note: trading-platform-architectures MVP firm files cover HFT tier; this system operates at daily/4H (mid-frequency). Comparable-firm content for this tier is not yet authored per trading-platform-architectures/SKILL.md coverage-bias warning. Strangler-Fig pattern provenance draws on Fowler 2004 [inferred from architectural literature]; no firm-specific citation available at this latency tier."
+
+rewrite_alternative_assessment:
+  verdict: not-recommended
+  rationale: >
+    A rewrite would cost 3-4 months minimum (re-establishing the current 84-test passing suite,
+    the WS-xx decision trace infrastructure, the kill switch audit log discipline, the Saxo OAuth
+    integration, and the CRO binding-constraint wiring). The Phase-0 thesis is "prove alpha exists
+    before building complexity." A rewrite inverts this: complexity first, alpha proof deferred.
+    The three identified gaps are 6 days of targeted engineering, not structural deficiencies that
+    require starting over. The risk of losing the wave-9/10/11 fixes (F-001/F-002/F-008/BC-8)
+    in a rewrite is real — each required multiple rounds of ratification to get right.
+  estimated_cost_months: 3-4
+
+phase0_thesis_preservation:
+  verdict: preserved
+  rationale: >
+    CLAUDE.md states "prove alpha exists before building complexity." The Strangler-Fig path
+    preserves this because the three remediation conditions (Position.strategy_id, BaseRunner
+    extraction, ModelServingInterface ABC) are all infrastructure that serves currently-validated
+    alpha (vol_target_carry Sharpe 0.7594, Bet #1 OOS Sharpe 0.80). None of the conditions require
+    building ML infrastructure before an ML strategy has passed the null-hypothesis gate —
+    Condition 3 (ModelServingInterface) is a gate BEFORE paper deployment of a validated ML
+    strategy, not speculative infrastructure. The architecture doc's Phase-0 thesis is not
+    violated by incrementally strengthening the seams that will carry additional alpha.
+
+remediation_backlog:
+  - id: REM-1
+    priority: 1
+    title: "Add strategy_id to Position type and fix exposure_aggregator proxy"
+    file_lines:
+      - "src/forex_system/core/types.py:67-76 — add strategy_id: str field"
+      - "src/forex_system/risk/exposure_aggregator.py:121-130 — replace pair proxy with strategy_id"
+      - "All Position construction sites — add strategy_id argument (search: Position()"
+    description: >
+      Position dataclass has no strategy field; exposure_aggregator uses pair as proxy for
+      active_paper_strategies. With strategy #3 or #4 trading overlapping pairs, the
+      CRO dispatch gate active-strategy count is wrong. This is the only gap that could produce
+      incorrect risk decisions in the current paper loop for 2 strategies if they traded the same pair.
+    must_precede: ["REM-2", "REM-3"]
+    owner: quant-developer
+    estimated_effort_days: 1
+
+  - id: REM-2
+    priority: 2
+    title: "Extract BaseRunner before deploying strategy #3"
+    file_lines:
+      - "scripts/run_paper_trading_vt.py:119-207 — shared helper block"
+      - "scripts/run_paper_trading_carry_fred.py:141-215 — duplicate block"
+      - "scripts/run_paper_trading.py:57-120 — third duplicate"
+      - "scripts/run_paper_trading_vt.py:94-108 — CRO constants to centralise"
+      - "scripts/run_paper_trading_carry_fred.py:105-119 — CRO constants duplicate"
+    description: >
+      Three paper scripts share ~500 LoC of identical logic (trace handler, helpers, dispatch-lock,
+      risk instantiation, main args). Extract to a BaseRunner class or parameterized entry-point.
+      Per-strategy residual (~150 LoC) covers: strategy class, WS label, pair config, strategy-
+      specific params. CRO constants must be centralized so a single source-of-truth change
+      propagates to all strategies.
+    must_precede: ["REM-4"]
+    owner: quant-developer
+    estimated_effort_days: 3
+
+  - id: REM-3
+    priority: 3
+    title: "Define ModelServingInterface ABC in core/interfaces.py"
+    file_lines:
+      - "src/forex_system/core/interfaces.py:114-135 — insert after ExecutionBackend ABC"
+    description: >
+      Strategy #4 (ML) requires a model lifecycle contract. Minimal ABC: load(artifact_path: str),
+      predict(features: pd.DataFrame) -> pd.Series, model_version() -> str, drift_score() -> float.
+      Strategy #4 should COMPOSE this interface, not replace Strategy. Without this, an ML
+      deployment cannot pass CTO+CRO co-sign gate per fintech-org protocol (hot-path-ml-deployment-
+      without-cto-and-cro-co-sign veto). This must exist before strategy #4 null-hypothesis gate
+      pass — not before strategy #3.
+    must_precede: ["REM-4"]
+    owner: quant-developer
+    estimated_effort_days: 2
+
+  - id: REM-4
+    priority: 4
+    title: "Configure staggered poll intervals for 4-strategy concurrency"
+    file_lines:
+      - "scripts/run_paper_trading_vt.py:829 (--interval default=1800)"
+      - "scripts/run_paper_trading_carry_fred.py (--interval equivalent)"
+    description: >
+      With 4 strategies sharing a single dispatch flock, identical 1800s intervals cause
+      simultaneous flock contention at every bar close. Stagger intervals by 30s per strategy
+      (VT: 1800s, CF: 1830s, S3: 1860s, S4: 1890s) to distribute lock acquisition across
+      the bar-close window. Best absorbed into BaseRunner config after REM-2.
+    depends_on: ["REM-2"]
+    owner: quant-developer
+    estimated_effort_days: 0.5
+
+evidence:
+  - file: "src/forex_system/core/interfaces.py"
+    lines: "1-145 (full file)"
+    claim: "Strategy, DataSource, CostModel, PositionSizer, ExecutionBackend ABCs; zero ML lifecycle contracts"
+  - file: "src/forex_system/strategies/registry.py"
+    lines: "1-37 (full file)"
+    claim: "STRATEGY_REGISTRY dict with 10 strategies; create_strategy factory; clean extension point"
+  - file: "src/forex_system/core/types.py"
+    lines: "67-76 (Position), 34-49 (Trade)"
+    claim: "Position has no strategy_id field; Trade has strategy field; confirmed gap"
+  - file: "src/forex_system/risk/exposure_aggregator.py"
+    lines: "1-216 (full file)"
+    claim: "_JPY_CORRELATED frozenset at line 46; pair-proxy gap at lines 121-130; max_active_paper_strategies=4 in docstring; N-strategy gate parameterized"
+  - file: "src/forex_system/risk/kill_switch.py"
+    lines: "95-155 (KillSwitch dataclass + __post_init__)"
+    claim: "strategy_id isolation implemented at line 154-155; per-strategy audit log namespacing"
+  - file: "scripts/run_paper_trading_vt.py"
+    lines: "94-116 (CRO constants), 119-207 (shared helpers), 455-513 (dispatch lock), 823-944 (main)"
+    claim: "1005 LoC; CRO constants at module level; dispatch lock LOCK_EX|LOCK_NB; strategy-specific WS-01 label"
+  - file: "scripts/run_paper_trading_carry_fred.py"
+    lines: "105-119 (CRO constants), 141-215 (shared helpers), 446 (dispatch lock)"
+    claim: "938 LoC; structurally identical to vt.py; WS-02 label only structural difference"
+  - file: "scripts/run_paper_trading.py"
+    lines: "57-120 (helpers)"
+    claim: "492 LoC; third script; same helper pattern; third duplication"
+  - file: "src/forex_system/backtest/portfolio.py"
+    lines: "1-52 (full file)"
+    claim: "portfolio.py is FixedFractionalSizer, NOT a portfolio aggregation module — naming is misleading"
+  - file: "docs/architecture.md"
+    lines: "1049-1065 (Section 7 ML extension points)"
+    claim: "4 ML hooks documented; all are data-format hooks not model-lifecycle contracts"
+  - file: "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md"
+    lines: "46-48 (BC-8-LIFT-COND-1..7 enumeration)"
+    claim: "BC-8 binding constraints scoped to 2 strategies; COND-4 JPY cap 15%; COND-3 account-key parity gate"
+
+assumptions:
+  - "HEAD is commit e6aaa43 (Wave-11 ratified). All file readings are from this commit."
+  - "Strategy #3 (intraday-classical) will trade at 4H or intraday frequency — frequency is assumed, not verified from any pre-registration artifact."
+  - "Strategy #4 (ML) means an ML model is the primary signal generator, not just a timing filter. Architecture.md Section 7 ML integration sequence notes 'First ML: timing layer' — this review treats #4 as full ML per CEO framing."
+  - "The dispatch_lock.flock is a single file shared by all N paper scripts — confirmed for 2 scripts, assumed for N>2 (no contradicting evidence found)."
+  - "trading-platform-architectures MVP coverage is HFT-biased per SKILL.md coverage-bias warning. Comparable-firm analysis for daily/4H systematic FX is not available from the authored firm files. Strangler-Fig and flock-serialization assessments are based on direct code review, not firm comparables."
+
+knowledge_gaps:
+  - "Whether walkforward.py supports multi-strategy portfolio-level evaluation. File was not read in detail. Routing to Quant Developer and Head of Quant Research for portfolio walk-forward design."
+  - "What specific algorithm class strategy #3 (intraday-classical) is. If it trades USDJPY or GBPUSD at 4H, the Position.strategy_id gap (REM-1) becomes critical before any paper deployment — not just a nice-to-have."
+  - "Cross-host flock caveat: CRO Wave-10 KG-2 noted that fcntl.flock does not work across NFS. If strategies are ever deployed across hosts, the dispatch-lock mechanism fails silently. This is not a current risk (single-host deployment) but is a scaling boundary."
+  - "Quantified lock contention probability at 4H frequency with 4 strategies. Asserted as 'operationally acceptable' at daily frequency; 4H has 6 bar closes per day."
+
+sources:
+  - "src/forex_system/core/interfaces.py — read in full"
+  - "src/forex_system/strategies/registry.py — read in full"
+  - "src/forex_system/core/types.py — read in full"
+  - "src/forex_system/risk/exposure_aggregator.py — read in full"
+  - "src/forex_system/risk/kill_switch.py — read in full"
+  - "src/forex_system/risk/account_key_parity.py — read in full"
+  - "src/forex_system/backtest/portfolio.py — read in full"
+  - "src/forex_system/backtest/ — directory listed"
+  - "src/forex_system/sizing/ — directory listed"
+  - "src/forex_system/ — directory listed"
+  - "scripts/run_paper_trading_vt.py — targeted reads: lines 94-116, 119-207, 455-513, 823-944; grep for CRO constants, dispatch lock, function list"
+  - "scripts/run_paper_trading_carry_fred.py — targeted reads: lines 105-119, 141-215, 446; grep for dispatch lock"
+  - "scripts/run_paper_trading.py — lines 57-120 via grep"
+  - "docs/architecture.md — read in full"
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md — lines 1-100"
+  - "CLAUDE.md — read via system prompt"
+  - "~/.claude/projects/-Users-huangtm-Projects-forex-trading-system/memory/MEMORY.md — read via system prompt"
+  - "~/.claude/skills/fintech-org/roles/cto.md — read in full"
+  - "~/.claude/skills/trading-platform-architectures/SKILL.md — read in full"
+  - "~/.claude/skills/trading-platform-architectures/axes/research-to-prod.md — read lines 1-100"
+  - "~/.claude/skills/execution-firewall-review/SKILL.md — read lines 1-60"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria.yaml — read in full"
+
+rubric_applied:
+  - "trading-platform-architectures (axes/research-to-prod.md; axes/latency-stack.md — note: MVP coverage is HFT-biased; mid-frequency/daily-4H comparable-firm files not yet authored)"
+  - "execution-firewall-review (Section A: research artifacts in implementation code; ML interface gap identified)"
+  - "review-plan (Correctness, Design, Risk dimensions applied to architecture assessment)"
+  - "log-as-decision-trace (WS-01/WS-02 decision trace present and adequate in paper scripts; verified at vt.py:160-206)"
+
+failure_modes_considered:
+  - "Strategy-pair overlap causes exposure_aggregator to undercount active strategies via pair proxy — active now; blocks correct CRO gate enforcement at 4 strategies"
+  - "CRO constants duplicated across 5 scripts cause silent drift when a threshold amendment is applied to 4 of 5 (human error) — blocked by BaseRunner extraction requirement"
+  - "ML strategy deployed with no model lifecycle contract causes undetectable model version drift between paper and live — blocked by ModelServingInterface requirement and CTO+CRO co-sign veto"
+  - "4-strategy simultaneous lock contention at 4H bar close causes 3 of 4 strategies to skip the same bar — minor; mitigated by staggered intervals"
+  - "fcntl.flock silently fails across NFS (KG: cross-host deployment) — not a current risk; surfaced as boundary condition"
+  - "portfolio.py naming misleads future engineers into assuming portfolio-level aggregation exists — documentation and naming debt, not a runtime risk"
+
+what_you_refused_to_do:
+  - "Did not write, propose, or review Python code implementing any of the remediation items — routed to Quant Developer role for all implementation"
+  - "Did not assess ML model quality, ML feature engineering, or ML training pipeline — out of CTO's forbidden_skills domain"
+  - "Did not assess strategy #3 or #4 alpha hypothesis — out of CTO's domain; routes to Head of Quant Research + Quant Researcher"
+  - "Did not run deploy-checklist-trading — this review is forward-looking architecture assessment, not a pre-deploy check for current T=0 paper trading (already ratified)"
+  - "Did not authorize any new strategy paper deployment — this review enables the CEO to make that decision with clear conditions; authorization is a separate governance step"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

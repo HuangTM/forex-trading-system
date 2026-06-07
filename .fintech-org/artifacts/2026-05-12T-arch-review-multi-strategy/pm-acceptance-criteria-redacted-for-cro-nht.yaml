@@ -1,0 +1,84 @@
+# Redacted view of PM acceptance-criteria for CRO + NHT.
+# Per protocols/spawn-agent.md step 5: task-statement / body / rationale / assumptions text STRIPPED.
+# Structured fields only.
+
+role: pm-redacted
+source_artifact: ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria.yaml"
+redaction_applied_by: orchestrator
+redaction_timestamp: "2026-05-12T22:00:00Z"
+
+deliverable-type: architecture-review
+deadline: "2026-05-12T23:59:59Z"
+
+# Empty — this review is about the framework, not specific trading instruments
+instrument-universe: []
+
+hard-constraints:
+  - "forward_looking_only: true"
+  - "no_code_changes_during_review: true"
+  - "each_role_emits_typed_go_no_go: true"
+  - "pr_independently_verifies_claims_against_code: true"
+  - "strangler_fig_path_assessed_explicitly: true"
+  - "alternative_rewrite_path_assessed_explicitly: true"
+  - "remediation_items_must_cite_file_line: true"
+  - "no_live_capital: true"
+  - "does_not_gate_current_t0_paper_trading: true"
+  - "no_new_strategy_paper_deployment_authorized: true"
+  - "paper_only_for_existing_strategies: true"
+
+# State-snapshot refs (no narrative)
+state-snapshot-refs:
+  - "src/forex_system/core/interfaces.py — Strategy / DataSource / CostModel / PositionSizer ABCs"
+  - "src/forex_system/strategies/registry.py — 10 strategies wired"
+  - "src/forex_system/strategies/ — concrete strategies (vol_target_carry, carry_fred, momentum, ma_crossover, bollinger_rsi, carry, carry_momentum, fred_carry_stripped, vol_target_carry_no_vol_scaling, tas_ceiling_4h)"
+  - "src/forex_system/risk/ — risk modules (kill_switch, account_key_parity, exposure_aggregator, drawdown ladder)"
+  - "src/forex_system/saxo/ — broker integration"
+  - "src/forex_system/sizing/ — position sizing"
+  - "src/forex_system/backtest/ — engine + metrics + walk-forward"
+  - "src/forex_system/harness/ — trial factory"
+  - "scripts/run_paper_trading_vt.py (1005 LoC)"
+  - "scripts/run_paper_trading_carry_fred.py (938 LoC)"
+  - "docs/architecture.md — phased architecture spec"
+  - "docs/decisions/CONSENSUS_2026-05-10_paper_launch_authorization.md — BC-8-LIFT-COND-1..7 binding constraints"
+  - "MISSING: src/forex_system/portfolio/ — no allocator subsystem"
+  - "MISSING: src/forex_system/ml/ — no ML serving infrastructure (zero matches for model_card / drift_monitor / calibration_tracker / safetensors / onnx anywhere in src/)"
+
+# Expansion scope being assessed
+expansion-scope:
+  current-strategies: 2  # vol_target_carry + carry_fred
+  proposed-additions: 2  # 1 intraday-classical (research-phase) + 1 ML (research-phase)
+  proposed-total: 4
+  shared-resources:
+    - single-saxo-paper-account
+    - single-oauth-token-24h-ttl
+    - single-account-key
+    - single-data-directory
+    - single-host
+  current-risk-envelope:
+    - BC-8-LIFT-COND-1: fcntl dispatch lock (LOCK_EX|LOCK_NB)
+    - BC-8-LIFT-COND-2: lock released on all exit paths
+    - BC-8-LIFT-COND-3: account-key parity gate at startup
+    - BC-8-LIFT-COND-4: aggregate JPY-correlated cap <= 15% (frozenset {USDJPY, GBPUSD})
+    - BC-8-LIFT-COND-5: drawdown ladder 10/15/20 per cycle pre-lock
+    - BC-8-LIFT-COND-6: kill-switch trigger paths wired
+    - BC-8-LIFT-COND-7: paper-only; no production-account promotion
+
+out-of-scope:
+  - live-account-promotion
+  - kill-switch-properties-2-3-4-remediation
+  - ml-model-research-itself
+  - intraday-alpha-hypothesis-generation
+  - any-strategy-class-implementation
+  - current-t0-paper-trading-authorization-already-ratified
+  - scope-expansion-beyond-USDJPY-GBPUSD-for-existing-strategies
+
+roles-staffed:
+  - pm
+  - cto
+  - cro
+  - null-hypothesis-tester
+  - principal-reviewer
+
+review_targets:
+  refactor_path_proposed: "Strangler-Fig — template paper scripts (1-2d), add portfolio allocator subsystem (1w), add ML platform subsystem (2-3w); existing strategies unchanged throughout"
+  rewrite_path_alternative: "from-scratch — 3-6 months for equivalent capability; full re-validation cycle required; existing paper system frozen or double-maintained"

@@ -37,9 +37,10 @@ _QRB6_DECISION_PATH = (
 )
 _RUN_QRB6_PATH = _REPO_ROOT / "scripts" / "run_qrb6.py"
 
-# Frozen threshold values (sourced from pre-reg §4.2; NOT from r5_decision)
-_P_KILL = 0.0522       # strict > this → KILL (alpha + MC-SE)
-_P_REJECT = 0.0478     # strict < this → clean reject (alpha - MC-SE)
+# Frozen threshold values — OBF extra-look penalty applied (2026-06-07; NHT remediation-ratification.yaml)
+# Former void-run values (superseded): _P_KILL=0.0522, _P_REJECT=0.0478.
+_P_KILL = 0.0422       # strict > this → KILL (OBF look-2 boundary + MC-SE)
+_P_REJECT = 0.0378     # strict < this → clean reject (0.05 − look-1-spend − MC-SE)
 _DSR_THRESHOLD = 0.95
 
 # Forbidden cross-trial literals (CTO FM-1 guard; §1.4(4))
@@ -101,7 +102,7 @@ class TestEvaluateDecision:
 
     # --- RULE 1: post-2015 KILL (overrides aggregate) ---
     def test_rule1_fires_when_p_post2015_above_kill_threshold(self):
-        """p_post2015 > 0.0522 → RULE_1 even if p_agg is clean-reject."""
+        """p_post2015 > 0.0422 (OBF extra-look threshold) → RULE_1 even if p_agg is clean-reject."""
         result = self._call(0.10, 0.01, 0.99)
         assert result == self.RULE_1
 
@@ -109,9 +110,9 @@ class TestEvaluateDecision:
         result = self._call(0.60, 0.01, 0.99)
         assert result == self.RULE_1
 
-    def test_rule1_fires_at_p_post2015_0_0523(self):
-        """Just above kill threshold → RULE_1."""
-        result = self._call(0.0523, 0.01, 0.99)
+    def test_rule1_fires_at_p_post2015_0_0423(self):
+        """Just above kill threshold (OBF extra-look 0.0422) → RULE_1."""
+        result = self._call(0.0423, 0.01, 0.99)
         assert result == self.RULE_1
 
     def test_rule1_overrides_aggregate_pass(self):
@@ -121,7 +122,7 @@ class TestEvaluateDecision:
 
     # --- RULE 2: aggregate KILL ---
     def test_rule2_fires_when_p_agg_above_kill_threshold(self):
-        """p_post2015 passes but p_agg > 0.0522 → RULE_2."""
+        """p_post2015 passes but p_agg > 0.0422 (OBF extra-look threshold) → RULE_2."""
         result = self._call(0.01, 0.10, 0.99)
         assert result == self.RULE_2
 
@@ -129,13 +130,14 @@ class TestEvaluateDecision:
         result = self._call(0.01, 0.60, 0.99)
         assert result == self.RULE_2
 
-    def test_rule2_fires_at_p_agg_0_0523(self):
-        result = self._call(0.01, 0.0523, 0.99)
+    def test_rule2_fires_at_p_agg_0_0423(self):
+        """Just above kill threshold (OBF extra-look 0.0422) → RULE_2."""
+        result = self._call(0.01, 0.0423, 0.99)
         assert result == self.RULE_2
 
     # --- RULE 3: PASS ---
     def test_rule3_fires_when_both_p_below_reject_and_dsr_passes(self):
-        """p_post2015 < 0.0478, p_agg < 0.0478, dsr >= 0.95 → RULE_3 PASS."""
+        """p_post2015 < 0.0378, p_agg < 0.0378, dsr >= 0.95 → RULE_3 PASS (OBF extra-look 0.0378)."""
         result = self._call(0.01, 0.01, 0.96)
         assert result == self.RULE_3
 
@@ -143,36 +145,36 @@ class TestEvaluateDecision:
         result = self._call(0.0001, 0.0001, 0.95)
         assert result == self.RULE_3
 
-    def test_rule3_fires_at_p_0477_dsr_exactly_095(self):
-        """p = 0.0477 < 0.0478 → clean reject; dsr=0.95 → PASS."""
-        result = self._call(0.0477, 0.0477, 0.95)
+    def test_rule3_fires_at_p_0377_dsr_exactly_095(self):
+        """p = 0.0377 < 0.0378 → clean reject (OBF extra-look threshold); dsr=0.95 → PASS."""
+        result = self._call(0.0377, 0.0377, 0.95)
         assert result == self.RULE_3
 
     # --- RULE 4: AMBIGUOUS (catch-all) ---
     def test_rule4_fires_when_p_in_straddle_band_lower(self):
-        """p_post2015 = 0.0478 (exact lower boundary) → RULE_4 (closed band)."""
-        result = self._call(0.0478, 0.01, 0.99)
+        """p_post2015 = 0.0378 (exact lower boundary, OBF extra-look) → RULE_4 (closed band)."""
+        result = self._call(0.0378, 0.01, 0.99)
         assert result == self.RULE_4
 
     def test_rule4_fires_when_p_agg_in_straddle_band_lower(self):
-        """p_agg = 0.0478 (exact lower boundary) → RULE_4 (closed band)."""
-        result = self._call(0.01, 0.0478, 0.99)
+        """p_agg = 0.0378 (exact lower boundary, OBF extra-look) → RULE_4 (closed band)."""
+        result = self._call(0.01, 0.0378, 0.99)
         assert result == self.RULE_4
 
     def test_rule4_fires_when_p_in_straddle_band_upper(self):
-        """p_post2015 = 0.0522 (exact upper boundary) → RULE_4 (closed band,
-        not KILL because strict > 0.0522 is required for RULE_1)."""
-        result = self._call(0.0522, 0.01, 0.99)
+        """p_post2015 = 0.0422 (exact upper boundary, OBF extra-look) → RULE_4 (closed band,
+        not KILL because strict > 0.0422 is required for RULE_1)."""
+        result = self._call(0.0422, 0.01, 0.99)
         assert result == self.RULE_4
 
     def test_rule4_fires_when_p_agg_at_upper_boundary(self):
-        """p_agg = 0.0522 → RULE_4 (upper boundary is straddle, not KILL)."""
-        result = self._call(0.01, 0.0522, 0.99)
+        """p_agg = 0.0422 → RULE_4 (upper boundary is straddle, not KILL; OBF extra-look)."""
+        result = self._call(0.01, 0.0422, 0.99)
         assert result == self.RULE_4
 
     def test_rule4_fires_when_p_in_band_middle(self):
-        """p = 0.0500 (exact alpha, middle of straddle band) → RULE_4."""
-        result = self._call(0.0500, 0.0500, 0.99)
+        """p = 0.0400 (middle of OBF extra-look straddle band [0.0378, 0.0422]) → RULE_4."""
+        result = self._call(0.0400, 0.0400, 0.99)
         assert result == self.RULE_4
 
     def test_rule4_fires_when_both_p_clean_but_dsr_fails(self):
@@ -185,8 +187,8 @@ class TestEvaluateDecision:
         assert result == self.RULE_4
 
     def test_rule4_fires_mixed_straddle_and_dsr_fail(self):
-        """One p in straddle, DSR fails → RULE_4."""
-        result = self._call(0.0490, 0.01, 0.50)
+        """One p in OBF extra-look straddle band [0.0378, 0.0422], DSR fails → RULE_4."""
+        result = self._call(0.0400, 0.01, 0.50)
         assert result == self.RULE_4
 
     # --- Exhaustiveness: every path from the ordered rules fires exactly once ---
@@ -479,6 +481,8 @@ class TestReceiptInterlock:
             "spread_z_threshold": 3.0,
             "scenario_a_event_days": 506,
             "post_2015_a": 345,
+            "p_reject_threshold": 0.0378,
+            "p_straddle_hi": 0.0422,
             "trial_id": "fa0f982a",
         }
         # Must not raise
@@ -670,8 +674,9 @@ class TestDryRunNoProcDataTouch:
             "sr0_pp": 0.026861,
             "dsr_threshold": 0.95,
             "spread_z_threshold": 3.0,
-            "p_straddle_hi": 0.0522,
-            "p_reject_threshold": 0.0478,
+            # OBF extra-look penalty applied (former void-run values: 0.0522 / 0.0478)
+            "p_straddle_hi": 0.0422,
+            "p_reject_threshold": 0.0378,
             "kill_switch_threshold": 1.5883,
             "scenario_a_event_days": _EXPECTED_SCENARIO_A_N,
             "post_2015_a": _EXPECTED_POST_2015_A_N,

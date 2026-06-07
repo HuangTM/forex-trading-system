@@ -1,0 +1,223 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent
+timestamp: 2026-05-13T01:15:00Z
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0:nht
+evidence:
+  - scripts/run_falsification_trial.py:439-474  # _SELF_LOADING_RATE_STRATEGIES allowlist + inspect.signature reflection
+  - src/forex_system/core/interfaces.py:32-52  # Strategy ABC: generate_signals(data), required_indicators() — no rate_data on contract
+  - scripts/run_paper_trading_vt.py:106,112,361,421-447,896-897  # DD constants, dd_contract param, halt-new branch, contract instantiation
+  - scripts/run_paper_trading_carry_fred.py:122,129,322,406-432,836-850  # parallel duplicate of above
+  - src/forex_system/risk/drawdown_contract.py:77-124  # DrawdownContract class; per-instance peak_equity; no aggregate variant
+  - docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md  # 310 lines; ratification context (read structurally, not for narrative)
+  - .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria.yaml  # source of REM-1/2/7 scope
+assumptions:
+  - REM-1 will hoist rate_data (or rate_data_loader) onto the Strategy ABC __init__ signature so create_strategy can construct any strategy uniformly.
+  - REM-2 will produce a BaseRunner class consumed via composition or inheritance by both vt.py and carry_fred.py, and that all kill-switch wiring (DD halt, regime gate, aggregation gate, journal flush) routes through it.
+  - REM-7 will instantiate a SECOND DrawdownContract keyed off aggregate book equity (sum of per-strategy NAVs minus cash double-counting) AND wire it ahead of per-strategy DD checks in the dispatch path.
+  - LoC counts (vt.py=1005, carry_fred.py=938) are current at HEAD on 2026-05-13.
+confidence: high
+body: |
+  CLAIM N-1 (REM-1 / Liskov fix).
+  Null H0: replacing the allowlist+reflection block with a unified ABC signature is a
+  syntactic refactor that does NOT, by itself, prevent re-emergence of strategy-specific
+  branching elsewhere in the construction path. The failure mode is "construction-time
+  per-strategy specialness leaks into a generic dispatcher". The relocation surfaces
+  are: (a) factory_kwargs sentinels — create_strategy grows a `loader_mode="self"|"injected"`
+  enum and the dispatcher branches on it; (b) a NEW reflection site appears around
+  required_indicators() or required_external_data() when strategy #3 (e.g., ML model
+  artifact loader) needs an artifact path; (c) the optional kw-arg becomes a
+  "magic None means self-load" sentinel that QD branches on inside generate_signals.
+  Tests requested cover (a)–(c). I cannot prove the fix CLOSES vs. RELOCATES from the
+  spec alone; this is structural skepticism, not a math claim — flagged as `concern`.
+
+  CLAIM N-2 (REM-2 / BaseRunner extraction).
+  Null H0: extracting a BaseRunner produces a single source of truth IFF (i) it is the
+  ONLY construction path used by both scripts at HEAD, and (ii) the next strategy added
+  consumes it without overrides that re-introduce divergence. Pattern (ii) is the LTCM
+  of architecture: parallel "_v2" scripts feature-flag around BaseRunner and silently
+  re-fork. Relocation surfaces: (a) third script (e.g., run_paper_trading_intraday.py)
+  copy-pastes BaseRunner subclass with overridden _check_drawdown that bypasses
+  dd_contract.update; (b) BaseRunner methods are monkey-patched per-script for "just
+  this case" (e.g., kill-switch suppression in a smoke test that leaks to prod);
+  (c) feature flags (env vars) cause BaseRunner to short-circuit BC-8-LIFT-COND-1..7
+  on a per-script basis. The N=3 invariant in the claim is the right test, but it must
+  be enforced by an architectural check, not by reviewer vigilance — flagged as
+  `material_concern` because the duplication pattern is exactly what permitted the
+  F-001 USDJPY 150× cost bug to live in two places.
+
+  CLAIM N-3 (REM-7 / aggregate drawdown contract).
+  Null H0: adding an aggregate DrawdownContract reduces correlated-DD masking IFF
+  (i) it is evaluated BEFORE per-strategy contracts in the dispatch path, (ii) it
+  uses a book-equity series that correctly nets cash (no double-counting), and
+  (iii) its threshold is calibrated such that 4×8% individual DD with correlation→1
+  trips it. The LTCM scenario MUST be tested with a shuffle-control: shuffle the
+  per-strategy DD onset timing, hold per-strategy peak DD constant, hold aggregate
+  trough constant — the aggregate contract must STILL fire because the trigger is the
+  threshold breach, not the trajectory. If the test passes only for one specific
+  trajectory, the contract is trajectory-fragile. Flagged as `material_concern` —
+  the aggregate contract is the LAST line of defense against a Knight-class
+  correlation event and must be tested adversarially, not happy-path.
+knowledge_gaps:
+  - REM-1 final ABC signature shape (kw-arg name, default semantics) is undecided in the spec I have.
+  - REM-2 BaseRunner consumption pattern (composition vs inheritance) is unspecified.
+  - REM-7 aggregate-equity computation (whether it nets cash or sums NAVs) is unspecified.
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: nht-rem-2026-05-13-a7c1
+
+claim-tested:
+  - N-1: "Replacing the `_SELF_LOADING_RATE_STRATEGIES` allowlist + `inspect.signature` reflection at `scripts/run_falsification_trial.py:439-474` with a unified Strategy ABC signature SEALS the leaky-contract failure mode rather than relocating it."
+  - N-2: "Extracting BC-8-LIFT-COND-1..7 risk envelope from `scripts/run_paper_trading_vt.py` (1005 LoC) and `scripts/run_paper_trading_carry_fred.py` (938 LoC) into a shared BaseRunner CREATES a single-source-of-truth that holds under N=3 paper-script addition (the next strategy #3 added on top), rather than the duplication pattern silently re-emerging."
+  - N-3: "Adding an aggregate-instance DrawdownContract alongside the per-strategy DrawdownContract MAKES THE AGGREGATE LADDER FIRE BEFORE per-strategy contracts mask the LTCM-class correlated-DD signal (4 strategies each at 8% individual DD with aggregate book at 18%)."
+
+tests-requested:
+  - claim_id: N-1
+    name: test_no_strategy_construction_branching
+    description: |
+      Static-analysis test (AST grep) over scripts/ + src/forex_system/ that asserts
+      ZERO occurrences of `inspect.signature(`, ZERO string-set-membership tests against
+      strategy_name (i.e., no `if strategy_name in {...}:` patterns near construction),
+      and ZERO sentinel-default kwargs (`rate_data=None` followed by an `if rate_data is None:`
+      branch) in any strategy-construction call site.
+    invariant: "No reflection or per-strategy branching at construction time anywhere outside the strategy class itself."
+    failure_injection: |
+      Add a parametrized fixture that introduces a synthetic 3rd strategy class needing a
+      DIFFERENT external artifact (model_path: Path) and confirms the existing
+      construction path either accepts it via the unified ABC or fails CLEARLY (no
+      reflection fallback). Budget: ~80 LoC (AST walker + 1 fixture strategy).
+    assertion: |
+      assert ast_grep_count("inspect.signature", "scripts/", "src/") == 0
+      assert ast_grep_count("if .* in _SELF_LOADING.*:", "scripts/", "src/") == 0
+      assert synthetic_strategy_3_constructs_via_unified_path() is True
+    routed-to: quant-developer
+
+  - claim_id: N-1
+    name: test_strategy_abc_contract_covers_external_data
+    description: |
+      Contract test: every concrete Strategy subclass in STRATEGY_REGISTRY can be
+      instantiated by `create_strategy(name, base_params)` WITHOUT the caller passing
+      strategy-specific kwargs. External-data loading is the strategy's responsibility,
+      asserted by mocking the loader and confirming __init__ does not raise.
+    invariant: "Strategy.__init__ signature is uniform across all registered strategies — no special-case kwargs at the factory boundary."
+    failure_injection: "Register a strategy that requires a custom kwarg; test must FAIL (signaling Liskov violation)."
+    assertion: "for name in STRATEGY_REGISTRY: assert create_strategy(name, {'pair': 'EURUSD'}) is not None"
+    routed-to: quant-developer
+
+  - claim_id: N-2
+    name: test_paper_runner_single_source_of_truth_n3
+    description: |
+      Add a third paper-runner script (synthetic stub: scripts/run_paper_trading_synthetic_n3.py)
+      that intentionally consumes BaseRunner. Run an AST-diff between the kill-switch
+      wiring of vt.py, carry_fred.py, and the synthetic stub. All three MUST route
+      through identical BaseRunner method calls (no per-script overrides of
+      _check_drawdown / _check_regime / _aggregation_gate / _journal_flush).
+    invariant: "The set of distinct AST nodes implementing BC-8-LIFT-COND-1..7 across the three scripts has cardinality 1 (only the BaseRunner)."
+    failure_injection: |
+      In the synthetic stub, override _check_drawdown to bypass dd_contract.update.
+      Test MUST fail with explicit message naming the override site.
+    assertion: "len(distinct_kill_switch_implementations(scripts)) == 1"
+    routed-to: quant-developer
+
+  - claim_id: N-2
+    name: test_no_feature_flag_kill_switch_bypass
+    description: |
+      Grep test: no env-var-conditioned suppression of dd_contract / regime gate /
+      aggregation gate anywhere in scripts/ or src/forex_system/risk/.
+      Patterns banned: `os.environ.get(*KILL*`, `if FLAG_*: skip_dd`, etc.
+    invariant: "Kill switches cannot be disabled by env vars or feature flags. Period."
+    failure_injection: "Inject `if os.environ.get('SKIP_DD'): return SKIP_DD_HALT_NEW` into BaseRunner; test MUST fail."
+    assertion: "assert grep_count('os.environ.*SKIP|FLAG.*skip_dd|disable.*dd', 'scripts/', 'src/forex_system/risk/') == 0"
+    routed-to: quant-developer
+
+  - claim_id: N-3
+    name: test_ltcm_aggregate_dd_fires_before_per_strategy
+    description: |
+      Synthetic 4-strategy book. Each strategy hits 8% per-strategy DD (below
+      individual halt threshold 10%). Correlation→1 makes aggregate book DD = 18%,
+      above aggregate halt threshold (e.g., 15%). Assert that the aggregate
+      DrawdownContract.update() fires BEFORE any per-strategy contract halts dispatch.
+    invariant: "aggregate_dd_event_timestamp < min(per_strategy_dd_event_timestamp) when aggregate threshold is breached and per-strategy thresholds are not."
+    failure_injection: |
+      Sequence A: aggregate contract evaluated AFTER per-strategy (current architecture
+      under naive REM-7) — aggregate halt fires too late or not at all because all
+      per-strategy contracts are still under 10%. Test MUST fail in this configuration.
+      Sequence B: aggregate evaluated FIRST — test passes.
+    assertion: "agg_halt_at <= per_strategy_halts_at AND no_per_strategy_halt_in_scenario"
+    routed-to: quant-developer
+
+  - claim_id: N-3
+    name: test_ltcm_aggregate_dd_shuffle_control
+    description: |
+      Same 4-strategy book as above, but Monte Carlo over 1000 permutations of the
+      per-strategy DD onset TIMING (holding per-strategy peak DD = 8% and aggregate
+      trough = 18% constant). Assert that aggregate halt fires in ≥ 99% of trajectories.
+      A trajectory-dependent fire rate means the contract is fragile and the trigger
+      is implicitly trajectory-shaped, not threshold-shaped.
+    invariant: "P(aggregate halt fires | aggregate trough breaches threshold) ≥ 0.99 across permuted trajectories."
+    failure_injection: "If aggregate contract uses a windowed average instead of running peak, certain permutations will mask the trough — test MUST fail in those configurations."
+    assertion: "fire_rate >= 0.99 across 1000 shuffle permutations"
+    routed-to: quant-developer
+
+  - claim_id: N-3
+    name: test_aggregate_equity_no_double_counting
+    description: |
+      Property test: aggregate equity = sum(per-strategy NAVs) - sum(shared cash
+      double-counted). Compare aggregate equity against an independent broker
+      TotalValue read; max abs delta < 1 USD across 100 random allocation snapshots.
+    invariant: "abs(aggregate_equity_computed - broker_TotalValue) < 1.0 USD per snapshot."
+    failure_injection: "Synthetic snapshot where two strategies share a sub-account; naive sum double-counts cash; test MUST fail."
+    assertion: "max(abs(diffs)) < 1.0"
+    routed-to: quant-developer
+
+tests-results: []
+matched-benchmark-sharpe: not-applicable-this-task
+permutation-results: shuffle-control-required-for-N-3
+dsr-assessment: not-applicable-this-task
+dissent-statement: |
+  STRUCTURAL DISSENT (append-only).
+
+  REM-1 / REM-2 / REM-7 are scoped as refactors that REPLACE leaky machinery with
+  cleaner machinery. None of the three, as currently scoped, includes a TEST that
+  would catch the named failure mode RE-EMERGING under the next change. Refactors
+  without invariant tests do not close failure modes; they relocate them.
+
+  Specifically:
+
+  (a) REM-1 swaps a reflection block for an ABC signature. The next strategy needing
+      a third kind of external artifact (model file, websocket subscription, FRED
+      series of arbitrary cardinality) is ONE new branch away from re-introducing
+      reflection or sentinel-magic somewhere ELSE in the dispatcher. Without the
+      AST-level "no reflection at construction" invariant test, REM-1 is cosmetic.
+
+  (b) REM-2 extracts a BaseRunner from N=2. The architectural pattern under test is
+      "duplication is an attractor". The N=3 test (third paper script empirically
+      consuming BaseRunner without override) is the only way to detect the attractor
+      pulling the next change toward "_v2" forking. Without that test, REM-2 closes
+      F-001-class bugs at HEAD but leaves the next F-001-class bug a copy-paste away.
+
+  (c) REM-7's aggregate ladder is the LAST line of defense against correlated DD.
+      It MUST be tested with the shuffle-control (N-3 test #2). A happy-path 4×8%
+      scenario that fires the aggregate halt does NOT prove the contract is
+      threshold-shaped vs. trajectory-shaped. Without the shuffle, the aggregate
+      ladder is a kill switch you have not actually tested.
+
+  RECOMMENDATION (non-binding, consistent with err-toward-false-negatives):
+  Wave-2a closure should require ALL SEVEN tests above as gating evidence.
+  Without them, REM-1/2/7 ship as refactors without proof of failure-mode closure.
+
+  No further dissent if all seven tests pass — relocation patterns become
+  test-detected at the next change.
+
+severity: material_concern
+contamination-check: clean
+# Contamination self-check note: prompt contained orchestrator metadata (which prior
+# CONSENSUS triggered this wave, what subtask is staffed). Read as STRUCTURAL routing
+# metadata, not as narrative supporting WHY the three atomic claims (N-1/N-2/N-3) are
+# expected to be true. The three claims are stated as TESTABLE assertions, not as
+# approved facts. No WHY-narrative detected for any claim. Verdict: clean.

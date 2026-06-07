@@ -1,0 +1,189 @@
+# CRO wave-2a sub-artifact for the REM execution wave (REM-1..REM-7).
+# Specifies R-5.1 (REM-5 per-strategy fairness rule), R-7.1 (REM-7 aggregate
+# DD ladder), R-COV.1 (BC-9-N4-COND-1..6 collective coverage map).
+# Atomic-task scope only; no narrative; no proposer reasoning consumed.
+
+role: cro
+artifact_type: risk-assessment
+decision: approve
+timestamp: 2026-05-13T01:30:00Z
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0:cro
+
+evidence:
+  - "src/forex_system/risk/exposure_aggregator.py:46,94-140,121-130,148-216 (current last-write-wins; pair-as-strategy-proxy; aggregate-only cap; line 130 explicitly notes Position has no strategy field)"
+  - "src/forex_system/risk/drawdown_contract.py:42-46,67-73,116-127,129-216 (per-instance _peak_equity; semantics determined by caller's instantiation pattern; current ladder 10/15/20% with sizing multipliers 1.0/1.0/0.5/0.0; no aggregate layer)"
+  - "src/forex_system/risk/kill_switch.py:43-49,137 (TriggerReason enum lacks DRAWDOWN_AGGREGATE and ALLOCATION_DENIAL; strategy_id namespacing exists)"
+  - "scripts/run_paper_trading_vt.py:94-96 (CRO_MAX_CORRELATED_PCT=0.15, CRO_MAX_ACTIVE_STRATEGIES=4 already named — envelope authored; per-strategy rule never wired)"
+  - "docs/decisions/CONSENSUS_2026-04-28_direction_v1.md (Tier B 12/10; vol_target_carry + Bet#1 0.0/0.25; BC-8-LIFT-COND-1..7 binding envelope)"
+  - "docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md (CEO-ratified 2026-05-13T00:30:00Z, Option B, Strangler-Fig conditional on REM-1..REM-4; ML deferred)"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml (CRO Q1/Q3/Q4 findings + BC-9-N4-COND-1..6 wording verbatim)"
+  - ".fintech-org/artifacts/2026-05-13T-rem-arch-review-execute/pm-acceptance-criteria.yaml (REM-5/REM-7 specs + KG-QD-3 explicitly gates QD on this sub-artifact)"
+  - "SEC Release 34-70694, File 3-15570 (Knight Capital, Oct 16 2013) — structural-plumbing-failure analog for fairness rule"
+  - "LTCM 1998 (Lowenstein 'When Genius Failed') — correlated-DD-bypassing-per-leg analog for aggregate ladder"
+
+assumptions:
+  - "REM-1 completes BEFORE REM-5 — strategy_id field on Position exists at exposure_aggregator implementation time. PM ordering enforces this; CRO sub-artifact does not duplicate the gate."
+  - "Aggregate book equity is a single scalar derivable from broker get_balance + sum(unrealized P&L over open positions); no cross-account or cross-currency conversion is in scope (paper account is single-currency USD per Saxo paper-account default)."
+  - "N_active_strategies in the fairness rule denominator is the count of strategies REGISTERED in the current cycle (i.e., strategies that have a live runner attached and pre-declared their participation), not the count whose Positions are currently non-empty. This distinction matters: a registered-but-flat strategy still claims its slot."
+  - "Aggregate DD tracker is fed by the SAME bar-close equity snapshot that per-strategy trackers consume — single broker fetch per cycle, fanned out to (a) aggregate contract, (b) per-strategy contracts (post-attribution). Clock-and-ordering: equity timestamp = broker response receive-time; same timestamp distributed to all contracts to prevent staggered-evaluation bias."
+  - "current_positions returned by Saxo includes ALL open positions on the paper account regardless of which loop opened them — assumption already documented in 2026-05-12 CRO artifact assumption set; not re-validated here."
+
+confidence: high
+
+body: |
+  R-5.1 — REM-5 per-strategy allocation fairness rule
+  ====================================================
+  Algorithm: equal-weight-cap-per-strategy (with declared-participation denominator).
+  Per-strategy cap = max_correlated_pct / max_active_strategies = 0.15 / 4 = 0.0375 (3.75%) of book equity for JPY-correlated notional. Aggregate cap (15% of book) is unchanged and remains the second-line gate.
+  Rationale (no narrative; structured):
+    (a) Equal-weight is the unique allocation that does NOT require the risk layer to consume forward-looking estimates (vol, Sharpe). Importing those would be an execution-firewall violation: vol/Sharpe estimates are portfolio-allocator concerns, src/forex_system/portfolio/ does not exist, and the risk module must NOT take dependencies on a non-existent subsystem.
+    (b) Sharpe-weighted is REJECTED in advance (carry-through from 2026-05-12 CRO artifact line 166): allocates more risk to recent winners; mechanically procyclical; this is the Sharpe-chasing pattern that contributed to the 2007 quant crisis.
+  Tie-break under simultaneous requests: strategy_id lexicographic order, secondary by request-receive-time monotonic. NOT lock-acquisition order (current behavior); lock-acquisition order is a clock-and-ordering anti-pattern (it surfaces process-scheduling jitter as risk allocation).
+  Failure mode if rule cannot be honored: REFUSE the request that would exceed the per-strategy cap (raise AllocationGateBlocked, distinct from existing AggregationGateBlocked). DO NOT partial-allocate (silent partial fills are an execution-firewall violation: the strategy's declared signal becomes a different signal). DO NOT queue for next bar (queueing introduces hidden state and a clock-ordering bug at bar boundaries).
+  Machine-checkable invariant (CI test):
+      INV-R5-1: For every cycle, sum(strategy_jpy_correlated_notional[s] for s in active) <= 0.15 * book_equity AND for every individual s in active, strategy_jpy_correlated_notional[s] <= 0.0375 * book_equity.
+      INV-R5-2: count(active) <= 4 (already enforced by max_active_strategies; restated for completeness).
+      INV-R5-3: tie-break determinism — given identical inputs in the same cycle, allocation outcome is reproducible (no dependence on lock-acquisition order or thread-scheduling).
+  Historical analog: Knight Capital (SEC 34-70694). The structural failure was N parallel order-routing components sharing infrastructure without per-component bookkeeping — a stale-server in one routed orders the others were unaware of. The current exposure_aggregator's last-write-wins under lock is the same class: one strategy consumes the budget; subsequent strategies see "0 available" because the aggregate is at cap, but cannot tell which peer consumed it. Equal-weight per-strategy cap with explicit refusal is the structural defense.
+
+  R-7.1 — REM-7 aggregate drawdown contract thresholds
+  ====================================================
+  Aggregate ladder rungs: warn=4%, halve=8%, halt=12%, lockout=15%.
+    warn (4%): emit WARNING log + alert; no sizing change; no halt.
+    halve (8%): aggregate sizing_multiplier = 0.5 applied multiplicatively to ALL strategies' position sizes.
+    halt (12%): halt new dispatch on ALL strategies; existing positions held; rebalance/close-only allowed.
+    lockout (15%): full halt — ALL strategies forced to flat (close all open positions); paper loop enters frozen state pending CRO review.
+  Tighter-than-N×per-strategy assertion: per-strategy ladder is 10/15/20%. N=4 × per-strategy halt threshold (10%) = 40%; aggregate halt threshold is 12% — strictly tighter. N=4 × per-strategy lockout (20%) = 80%; aggregate lockout is 15% — strictly tighter. Invariant holds for N up to 4. The aggregate ladder fires under correlated DD WELL BEFORE any per-strategy contract would; this is the LTCM-class defense.
+  Equity-snapshot protocol: per-bar snapshot, single broker fetch per cycle. Aggregate contract receives equity = (cash + sum(unrealized P&L over all open positions)) at broker-response receive-time; SAME timestamp fanned out to per-strategy contracts post-attribution. NOT event-driven — event-driven on per-fill creates the LTCM-class race where aggregate evaluates between two simultaneously-arriving fills and reports an inconsistent state. Cite: clock-and-ordering skill — "join data across feeds with different clock sources" is the bug class; single broker-receive-time snapshot is the fix.
+  Trigger-action by rung:
+    warn: log only.
+    halve: AggregateDrawdownContract emits sizing_multiplier=0.5; per-runner code MUST multiply this with any per-strategy sizing_multiplier already in effect (multiplicative composition, not maximum-of). E.g., per-strategy at REDUCE_SIZING (0.5) AND aggregate at halve (0.5) = effective 0.25. This is the conservative composition; max-of would mask the doubled-stress signal.
+    halt: kill_switch.trigger(reason=DRAWDOWN_AGGREGATE_HALT, scope=ALL); blocks new dispatch via AggregationGateBlocked path; existing positions remain.
+    lockout: kill_switch.trigger(reason=DRAWDOWN_AGGREGATE_LOCKOUT, scope=ALL); orchestrator MUST submit close orders for ALL open positions; loop enters frozen state requiring CRO sign-off to resume.
+  Cross-action precedence rule (aggregate AND per-strategy fire simultaneously for strategy A):
+    The MORE RESTRICTIVE action wins, evaluated per-strategy. Decision rule (machine-checkable):
+      effective_sizing_multiplier(s) = min(per_strategy_sizing[s], aggregate_sizing)
+      effective_dispatch_allowed(s) = per_strategy_allows[s] AND aggregate_allows
+      effective_force_flat(s) = per_strategy_force_flat[s] OR aggregate_force_flat
+    This is conservative-composition (de Morgan symmetric: AND for permission, OR for restriction). The composition is associative and order-independent — no race condition.
+    DO NOT attempt to cancel a per-strategy halt with an aggregate-NORMAL signal; halts only release upward (more permissive) when BOTH layers agree the threshold is no longer breached.
+  Machine-checkable invariant (CI test):
+      INV-R7-1: For all (per_strategy_level, aggregate_level) pairs, effective_sizing_multiplier == min(per_strategy_sizing, aggregate_sizing).
+      INV-R7-2: For any cycle where aggregate_dd_pct >= 0.12, no new dispatch is allowed for ANY strategy (regardless of per-strategy ladder state).
+      INV-R7-3: aggregate_thresholds (4/8/12/15) < N_strategies × per_strategy_thresholds (10/15/20) for N up to 4. (Compile-time / startup assertion; if op changes thresholds, this assertion catches the rhetoric.)
+  Historical analog: LTCM 1998 — positions individually within stress-test bands but correlated tail risk realized simultaneously; per-leg risk gates passed every check; aggregate book imploded. The aggregate ladder layered on top of per-strategy ladders is the structural defense.
+
+  R-COV.1 — BC-9-N4-COND-1..6 collective coverage map
+  ====================================================
+  BC-9-N4-COND-1 (per-strategy cap allocation rule): CLOSED by REM-1 (strategy_id field) + REM-5 (this sub-artifact's R-5.1 rule). Joint closure — neither alone is sufficient.
+  BC-9-N4-COND-2 (Saxo session cardinality + 429 handling + jitter + shared bucket): CLOSED by REM-6. Verification: the 4 specified changes (429+Retry-After, startup jitter, shared token bucket, hook into existing call-sites) collectively satisfy the constraint. Saxo session-boundary KG remains (KG-CRO-W2-1 from 2026-05-12 artifact is operator-resolvable, not blocking REM-6 implementation).
+  BC-9-N4-COND-3 (drawdown ladder per-strategy vs aggregate semantics): CLOSED by REM-7 (this sub-artifact's R-7.1 thresholds + cross-action rule). Implementation MUST instantiate BOTH layers in BaseRunner per REM-2 ordering note.
+  BC-9-N4-COND-4 (ML model-risk envelope, SR 11-7): UNCLOSED — explicitly out-of-scope for this wave per pm-acceptance-criteria out-of-scope list (REM-3, REM-10 deferred indefinitely; ML strategy class deferred per Option B). MUST be added to deferred-decisions queue: "BC-9-N4-COND-4 remains blocking-for-ML-strategy-class; no ML strategy may be added to paper loop until SR 11-7-style model-risk gate (model_card, drift_monitor, calibration_tracker, version-hash) exists in src/forex_system/ml/risk/. Re-opens when Strategy #4 (ML) work is dispatched."
+  BC-9-N4-COND-5 (per-strategy kill switch live-paper exercise at N=2 BEFORE N=3): UNCLOSED — REM-8 (kill-switch Property-4 live test at N=2) is operator-executed per pm-acceptance-criteria out-of-scope list; not orchestrator-doable. MUST be added to deferred-decisions queue: "BC-9-N4-COND-5 blocks transition from N=2 to N=3 paper deployment until REM-8 operator runbook is executed and kill-switch trigger evidence is logged. CRO oversight required at runbook close. Re-opens when ops engineer schedules the live test."
+  BC-9-N4-COND-6 (strategy-execution firewall extended to carry strategy_type for ML): UNCLOSED — strategy_type field on Position is NOT in REM-1 scope (REM-1 adds strategy_id, not strategy_type; per CTO-Major-1 wording in CONSENSUS). Same out-of-scope rationale as COND-4: only re-opens when ML strategy work is dispatched. MUST be added to deferred-decisions queue: "BC-9-N4-COND-6 remains blocking-for-ML-strategy-class; Position.strategy_type field must be added before any strategy_type=ML registration. Coupled with COND-4."
+
+  COVERAGE SUMMARY:
+    Closed by this wave: COND-1 (REM-1+REM-5), COND-2 (REM-6), COND-3 (REM-7).
+    Deferred to queue: COND-4 (ML model-risk; coupled to deferred Strategy #4), COND-5 (live kill-switch test; operator), COND-6 (strategy_type field; coupled to deferred Strategy #4).
+  All three deferrals are CONSISTENT with Option B (Strangler-Fig for ONE intraday-classical, ML deferred). The deferred items must NOT be silently dropped; PM is required to add them to the deferred-decisions queue with these exact wordings.
+
+  CRO sign-off conditions for QD merge of REM-5 and REM-7:
+    (1) REM-5 implementation MUST raise AllocationGateBlocked (distinct exception class) on per-strategy cap breach; MUST log strategy_id + requested_exposure + cap_applied + fairness_rule_version per REM-5-T2/T3 observability boundary.
+    (2) REM-5 tie-break MUST be deterministic per INV-R5-3; CI test MUST seed identical inputs and assert identical outcome across 100 invocations.
+    (3) REM-7 AggregateDrawdownContract MUST receive equity from the SAME broker-fetch-receive-time snapshot as per-strategy contracts (clock-and-ordering enforcement); CI test MUST assert single broker fetch per cycle and synchronous fan-out to N+1 contracts.
+    (4) REM-7 cross-action composition MUST be min/AND/OR per INV-R7-1 in code, NOT max-of; CI test parametrizes all 16 (per-strategy-level × aggregate-level) pairs and asserts the conservative composition holds.
+    (5) REM-7 MUST add TriggerReason.DRAWDOWN_AGGREGATE_HALT and TriggerReason.DRAWDOWN_AGGREGATE_LOCKOUT to kill_switch.py:43-49 enum (CTO informed; this is a 2-line addition not a structural change).
+    (6) Both REM-5 and REM-7 implementations MUST be reviewed by PR in wave-3 with CRO included on the review distribution; CRO retains veto on either if the structural invariant is not preserved.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources:
+  - "src/forex_system/risk/exposure_aggregator.py:46,94-140,148-216"
+  - "src/forex_system/risk/drawdown_contract.py:42-46,67-73,116-127,129-216"
+  - "src/forex_system/risk/kill_switch.py:43-49,137"
+  - "scripts/run_paper_trading_vt.py:94-96"
+  - "docs/decisions/CONSENSUS_2026-04-28_direction_v1.md (BC-8-LIFT-COND-1..7)"
+  - "docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md (Option B ratified 2026-05-13T00:30:00Z)"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/cro-risk-assessment.yaml (BC-9-N4-COND-1..6)"
+  - ".fintech-org/artifacts/2026-05-13T-rem-arch-review-execute/pm-acceptance-criteria.yaml"
+  - "https://www.sec.gov/litigation/admin/2013/34-70694.pdf — SEC Release 34-70694 (Knight Capital, Oct 16 2013)"
+  - "Lowenstein 'When Genius Failed' (LTCM 1998 case study) — secondary analog for R-7.1"
+  - "Skill: kill-switch-design — minimum-set rubric applied to TriggerReason enum extension"
+  - "Skill: clock-and-ordering — single-receive-time snapshot fan-out for aggregate equity"
+  - "Skill: trading-platform-architectures/axes/oms-risk.md — layered-risk-gate framework for per-strategy + aggregate composition"
+  - "Skill: quantitative-risk-management — subadditivity / tail-correlation framing for aggregate ladder thresholds being tighter than N × per-strategy"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+# ── CRO extension fields per cro.md output schema ───────────────────────────
+
+size_multiplier: 1.0   # Not applicable — this is a risk-architecture spec sub-artifact, not a per-trade sizing decision. The 0.5x book-level multiplier from CONSENSUS_2026-04-28 remains operative for the existing two strategies; this artifact does not change it.
+
+binding_constraints:
+  # R-5.1 fairness rule expressed as constraints
+  - id: BC-REM5-RULE-1
+    text: "Per-strategy JPY-correlated notional cap = max_correlated_pct / max_active_strategies (default 0.15 / 4 = 0.0375). Aggregate cap (0.15) unchanged."
+    severity: blocking-for-REM-5-merge
+  - id: BC-REM5-RULE-2
+    text: "On per-strategy cap breach, exposure_aggregator MUST raise AllocationGateBlocked (NEW exception class distinct from AggregationGateBlocked). NO partial allocation. NO queueing."
+    severity: blocking-for-REM-5-merge
+  - id: BC-REM5-RULE-3
+    text: "Tie-break under simultaneous requests = strategy_id lexicographic, secondary by monotonic-clock receive-time. NOT lock-acquisition order."
+    severity: blocking-for-REM-5-merge
+  - id: BC-REM5-RULE-4
+    text: "CI test must enforce INV-R5-1, INV-R5-2, INV-R5-3 (sum-cap, count-cap, tie-break-determinism) — these are the machine-checkable invariants."
+    severity: blocking-for-REM-5-merge
+
+  # R-7.1 aggregate ladder expressed as constraints
+  - id: BC-REM7-LADDER-1
+    text: "Aggregate ladder rungs: warn=4%, halve=8%, halt=12%, lockout=15%. Per-strategy ladder unchanged at 10%/15%/20%."
+    severity: blocking-for-REM-7-merge
+  - id: BC-REM7-LADDER-2
+    text: "Aggregate thresholds MUST be strictly tighter than N × per-strategy thresholds. Startup-time assertion required (INV-R7-3)."
+    severity: blocking-for-REM-7-merge
+  - id: BC-REM7-LADDER-3
+    text: "Equity snapshot fan-out: single broker fetch per cycle, broker-response receive-time as the canonical timestamp, distributed synchronously to aggregate AND all per-strategy contracts. NOT event-driven on per-fill."
+    severity: blocking-for-REM-7-merge
+  - id: BC-REM7-LADDER-4
+    text: "Cross-action composition rule: effective_sizing = min(per_strategy, aggregate); effective_dispatch_allowed = per_strategy AND aggregate; effective_force_flat = per_strategy OR aggregate. Conservative composition; CI test parametrizes all (per_strategy_level × aggregate_level) pairs."
+    severity: blocking-for-REM-7-merge
+  - id: BC-REM7-LADDER-5
+    text: "kill_switch.py TriggerReason enum MUST be extended with DRAWDOWN_AGGREGATE_HALT and DRAWDOWN_AGGREGATE_LOCKOUT; aggregate contract triggers via kill_switch.trigger() not via direct halt."
+    severity: blocking-for-REM-7-merge
+
+  # R-COV.1 collective coverage status — one per BC-9-N4-COND
+  - id: BC-COV-COND-1
+    text: "BC-9-N4-COND-1 (per-strategy fairness): CLOSED by REM-1 + REM-5 (R-5.1). Both required."
+    severity: closure-status
+  - id: BC-COV-COND-2
+    text: "BC-9-N4-COND-2 (Saxo cardinality + 429 + jitter + shared bucket): CLOSED by REM-6."
+    severity: closure-status
+  - id: BC-COV-COND-3
+    text: "BC-9-N4-COND-3 (DD ladder dual-instance): CLOSED by REM-7 (R-7.1)."
+    severity: closure-status
+  - id: BC-COV-COND-4
+    text: "BC-9-N4-COND-4 (ML model-risk SR 11-7): UNCLOSED — must be added to deferred-decisions queue, blocking-for-ML-strategy-class, re-opens when Strategy #4 (ML) is dispatched."
+    severity: deferred-blocking-for-ML
+  - id: BC-COV-COND-5
+    text: "BC-9-N4-COND-5 (live kill-switch test at N=2): UNCLOSED — operator-executed (REM-8), must be added to deferred-decisions queue, blocks N=2→N=3 transition. Re-opens when ops schedules the live test."
+    severity: deferred-blocking-for-N≥3
+  - id: BC-COV-COND-6
+    text: "BC-9-N4-COND-6 (strategy_type field for ML risk-routing): UNCLOSED — out-of-scope (REM-1 adds strategy_id not strategy_type; coupled to ML deferral). Must be added to deferred-decisions queue."
+    severity: deferred-blocking-for-ML
+
+regime_flags:
+  - "Pre-paper-launch architecture-execution phase only — no live trading; no trade-sizing decision in this artifact."
+  - "N=2 paper loop existing scope (vol_target_carry + carry_fred) UNCHANGED by this sub-artifact; the per-strategy fairness rule and aggregate DD ladder both apply once N=2 starts (BaseRunner refactor includes both layers per REM-2/REM-7)."
+  - "N=3 transition (intraday-classical) requires BC-9-N4-COND-5 closure (live kill-switch test) IN ADDITION to REM-1..REM-7 implementation."
+  - "N=4 transition (ML strategy class) requires COND-4 + COND-6 closure IN ADDITION to all above; ML deferred indefinitely per Option B; this sub-artifact does NOT authorize any ML work."
+  - "Single broker-fetch-receive-time snapshot assumption (BC-REM7-LADDER-3) requires BaseRunner to expose a single get_account_state() that returns equity + positions atomically; QD must verify saxo/client.py supports atomic fetch or implement single-call wrapper."
+
+blowup-analog: "Knight Capital (SEC 34-70694, 2013) for R-5.1 — the structural-plumbing failure where N parallel components share infrastructure without per-component bookkeeping. Equal-weight per-strategy cap with explicit refusal is the structural defense. LTCM 1998 for R-7.1 — correlated tail risk realized simultaneously while per-leg gates all passed; aggregate ladder layered on top of per-strategy ladders with min/AND/OR composition is the structural defense."
+
+contamination-check: "clean — atomic-task prompt contained only structured fields (deliverable-type, hard-constraints, instrument-universe, portfolio-state-snapshot, firm-risk-contract refs, regime-indicators-not-applicable, decision specs R-5.1/R-7.1/R-COV.1 with file:line citations and enumerated algorithm choices). NO researcher narrative. NO 'why this strategy will work' rationale. NO other-role approval stances. NO proposer reasoning. The task-statement and body of any upstream artifact were stripped before reaching this CRO instance per PM dispatch rule. Cited prior artifacts (CONSENSUS_2026-04-28, CONSENSUS_2026-05-12, prior CRO arch-review) were read for structured-field carry-through (BC-8-LIFT-COND-1..7, BC-9-N4-COND-1..6 wording) only."

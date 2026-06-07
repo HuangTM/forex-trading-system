@@ -1,0 +1,320 @@
+---
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: "2026-05-13T02:30:00Z"
+subtask_ref: rem-arch-review-execute-2026-05-13
+subtask_id: rem-arch-review-execute-2026-05-13:phase1:task1.0:cto
+
+evidence:
+  - path: src/forex_system/core/interfaces.py
+    lines: "35"
+    claim: "Strategy ABC declares __init__(self, params: dict[str, Any]) — single-arg; verified by direct read"
+  - path: src/forex_system/core/types.py
+    lines: "49"
+    claim: "Trade.strategy: str field exists; Position (lines 67-76) has no strategy_id field; asymmetry confirmed"
+  - path: src/forex_system/core/types.py
+    lines: "67-76"
+    claim: "Position has 6 fields: pair, direction, size, entry_price, entry_time, unrealized_pnl — no strategy_id"
+  - path: scripts/run_falsification_trial.py
+    lines: "439-474"
+    claim: "_SELF_LOADING_RATE_STRATEGIES allowlist + inspect.signature reflection bypass — confirmed as structural proof of leaky ABC contract (PR-F-001 upheld)"
+  - path: src/forex_system/strategies/registry.py
+    lines: "31-37"
+    claim: "create_strategy factory passes only params, never rate_data"
+  - path: scripts/run_paper_trading_vt.py
+    lines: "829"
+    claim: "--interval argument with default=1800; this is the per-script CLI arg, NOT a config/default.yaml key"
+  - path: config/default.yaml
+    lines: "1-81"
+    claim: "No dispatch stagger key exists; no per-strategy offset key exists; strategies.active list present"
+  - path: src/forex_system/saxo/client.py
+    lines: "67-74"
+    claim: "SaxoClient.__init__ runs in caller process; no startup jitter; single-process session object"
+  - path: src/forex_system/saxo/client.py
+    lines: "94-110"
+    claim: "_get, _post, _delete helpers call raise_for_status implicitly via caller; no retry wrapper present"
+  - path: src/forex_system/risk/drawdown_contract.py
+    lines: "42-46"
+    claim: "_peak_equity is per-instance (DrawdownLevel enum confirmed); per-instance semantics verified"
+  - path: docs/decisions/CONSENSUS_2026-05-12_arch_review_multi_strategy.md
+    lines: "56"
+    claim: "PR-F-001: CTO's 'Strategy ABC is Liskov-safe' position REJECTED by independent PR verdict; NHT upheld"
+  - path: .fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/nht-null-test-report.yaml
+    lines: "66-109 (NHT-ARCH-2)"
+    claim: "NHT estimated 1-2 weeks for paper-loop extraction; attributed to regression fixture + integration test gap"
+  - path: .fintech-org/artifacts/2026-05-13T-rem-arch-review-execute/pm-acceptance-criteria.yaml
+    lines: "78-80 (KG-QD-4)"
+    claim: "PM explicitly requires CTO to confirm canonical BaseRunner path before QD begins REM-2"
+
+assumptions:
+  - "SaxoClient runs per-process (each paper script is an independent OS process per CONSENSUS and run_paper_trading_vt.py invocation pattern)"
+  - "Each strategy runs sequentially within its paper script, not in threads (no threading import observed in paper scripts; paper scripts are single-threaded event loops)"
+  - "config/default.yaml stagger key will be read by the BaseRunner (post-REM-2); QD is responsible for wiring the config key to the dispatch-interval calculation"
+  - "The Trade.strategy field (types.py:49) is a str not a UUID or Enum; Position.strategy_id should match the same type for consistency across the type system"
+  - "NHT effort estimate (1-2 weeks) includes regression fixture + BC-8-LIFT-COND integration tests; CTO estimate (3 days) was for the extraction itself only — these are compatible estimates, not contradictory"
+
+confidence: high
+
+body: |
+  D-1.1 STRATEGY ABC SIGNATURE (REM-1 Liskov fix): CHOICE IS (a) — keyword-arg pattern:
+  __init__(self, params: dict, *, rate_data: Optional[pd.DataFrame] = None). This widens
+  the existing ABC contract minimally: the keyword-only sentinel (*) ensures no positional
+  caller accidentally passes rate_data where only params is expected, preserving the
+  existing 4 conformant strategies that inherit the ABC default. The 6 violating overrides
+  already use rate_data: pd.DataFrame | None = None — they can be updated to call
+  super().__init__(params, rate_data=rate_data) without structural surgery. Option (b)
+  (StrategyConstructionContext dataclass) is better long-term but adds a new public type
+  requiring documentation, is harder to rollback (a dataclass is a structural change to the
+  public API), and is overkill for the immediate Liskov violation. Option (c) (factory-method)
+  requires every caller to migrate from cls(params) to cls.from_params(params) — two call
+  patterns in flight is a regression risk. Review-plan rollback assessment: option (a) is
+  additive (keyword-only arg with default=None is backward-compatible with all existing
+  callers that call cls(params)); reversible by removing the keyword arg if it proves wrong.
+
+  D-1.2 POSITION.STRATEGY_ID FIELD TYPE: CHOICE IS str. Rationale: Trade.strategy at
+  core/types.py:49 is already str; Position.strategy_id must be the same type to allow
+  cross-type comparisons in exposure_aggregator without a cast layer. UUID adds no semantic
+  value here (strategies are identified by registry name strings in all current paths).
+  Enum[StrategyName] would require updating the enum at every new strategy registration —
+  a maintenance trap. str is consistent, minimal, and matches the existing Trade type.
+
+  D-1.3 DISPOSITION OF _SELF_LOADING_RATE_STRATEGIES ALLOWLIST: DELETE ENTIRELY. The
+  inspect.signature reflection and allowlist at run_falsification_trial.py:439-474 exist
+  solely to compensate for the leaky ABC contract. Once D-1.1 widens the ABC with
+  rate_data as a keyword-only arg, the factory create_strategy(name, params) can optionally
+  pass rate_data=rate_data through, and all call-sites can use the uniform path. The
+  allowlist is an execution-firewall violation: it is a hardcoded mapping that the
+  Researcher must update every time a new data-dependent strategy is added — a silent-
+  drift risk of exactly the class the firewall rubric prohibits. "Deprecate with warning"
+  is the wrong disposition because any retained reflection code is dead code that future
+  engineers will not understand. Delete entirely; if a future strategy genuinely needs a
+  third construction-time dependency, the correct path is to extend the ABC contract, not
+  to grow the allowlist.
+
+  D-2.1 CANONICAL MODULE PATH FOR BASERUNNER: src/forex_system/paper/base_runner.py.
+  The paper/ subdirectory does not yet exist; QD creates it with __init__.py. This path
+  is preferred over src/forex_system/runners/base.py (runners/ is too generic; suggests
+  it could host non-paper runners) and src/forex_system/orchestration/runner.py
+  (orchestration/ implies multi-process coordination which is a future concern). The paper/
+  module is unambiguous: it hosts code specific to the paper-trading execution path.
+
+  D-2.2 CLASS NAME: PaperRunnerBase. Rationale: PaperRunnerBase communicates (a) it is
+  paper-specific, (b) it is a base class for concrete per-strategy runners. BasePaperRunner
+  inverts the noun-adjective order and reads awkwardly in inheritance declarations.
+  PaperLoopRunner implies a running instance rather than a base class. PaperRunnerBase
+  follows the same pattern as abstract base naming conventions in the existing codebase
+  (DrawdownContract is a contract-class noun; KillSwitch is a mechanism noun; PaperRunnerBase
+  is a base-class noun).
+
+  D-2.3 EFFORT ADJUDICATION (REM-2): Range is 5-10 days with explicit assumptions. The
+  CTO's 3-day estimate covered the extraction itself (refactoring 557 shared lines into
+  PaperRunnerBase with a concrete subclass inheriting it). The NHT's 1-2 week estimate
+  covers the extraction PLUS the regression fixture (D-2.4 requirement, not accounted for
+  in the CTO estimate) PLUS the 7 BC-8-LIFT-COND integration tests PLUS the confirmation
+  that the concrete subclasses produce bit-identical equity and decision trace on replay.
+  These are compatible: 3d extraction + 2d fixture/integration tests + 1d replay parity
+  verification = 6d lower bound. Add buffer for the BC-8-LIFT-COND-1..7 failure-injection
+  paths (REM-2-T2) = 8-10d upper bound. PM deadline of 2026-05-20 (7 calendar days from
+  today 2026-05-13) is tight; QD should flag to PM immediately if extraction reveals
+  unexpected coupling in the paper scripts that pushes toward 10d.
+
+  D-2.4 BC-8-LIFT-COND INTEGRATION TEST FIXTURE: MUST EXIST before extraction merges.
+  This is a hard gate, not a recommendation. The NHT-1 gap from the review session is
+  that no end-to-end paper-loop test exercises BC-8-LIFT-COND-1..7. QD will create the
+  test file at: tests/integration/test_paper_runner_bc8_conds.py. This path is consistent
+  with the existing integration test at tests/integration/test_live_loop_sizing_parity.py
+  (confirmed in NHT report). The fixture must mock the Saxo client and assert all 7
+  BC-8-LIFT-COND properties hold in one bar cycle.
+
+  D-4.1 CONFIG STAGGER KEY AND VALUES: The key name is paper.dispatch_stagger_offsets_seconds
+  nested under a new paper: section in config/default.yaml. The stagger offsets are
+  [0, 30, 60, 90] for strategies [vol_target_carry, carry_fred, strategy_3, strategy_4]
+  respectively. The base interval (1800s) is the existing --interval default. Each strategy
+  computes its effective dispatch time as bar_close_time + base_interval +
+  stagger_offset_seconds[strategy_index]. Offsets of 30s each are sufficient to distribute
+  lock acquisition across the bar-close window without meaningfully shifting the trade
+  signal timing (30s is negligible at 4H or daily frequency). The config YAML snippet is:
+
+    paper:
+      dispatch_stagger_offsets_seconds: [0, 30, 60, 90]
+
+  This is a policy review of a ≤10-line config change within the CTO narrow carve-out.
+  No code is specified; BaseRunner (post-REM-2) reads this config key and applies the
+  offset by strategy position in the active strategy list.
+
+  D-6.1 THREAD-SAFE VS PROCESS-SAFE TOKEN BUCKET: CHOICE IS (a) — per-process token
+  bucket via threading.Lock. Rationale: each paper script runs as its own OS process
+  (confirmed: paper scripts are invoked as separate CLI processes). Within each script,
+  strategy execution is sequential (no threading observed in paper scripts). Therefore
+  the rate-limit concern is cross-PROCESS (4 processes each making requests), not
+  intra-process threading. A threading.Lock bucket (option a) handles only intra-process
+  thread contention, which does not exist. However, option (b) (fcntl-locked file or
+  multiprocessing.Manager) is architecturally heavier and introduces process-coordination
+  complexity that contradicts the simplicity principle. The correct decision is option (a)
+  for NOW because: (i) the existing dispatch stagger (D-4.1) already distributes bar-close
+  bursts across 0/30/60/90s offsets — this eliminates the synchronous 4x burst scenario;
+  (ii) with staggered offsets, no single bar-close tick generates 4x simultaneous requests;
+  (iii) a per-process token bucket seeded at 30 req/min (120 total / 4 processes) is
+  sufficient given the stagger. Option (b) should be reconsidered if a future N=8+ strategy
+  expansion makes per-process budgets too small. Trading-platform-architectures pattern:
+  mid-frequency systems (daily/4H) typically implement per-process rate limiting with
+  cross-process coordination only when processes share a single upstream API session.
+
+  D-6.2 DEFAULT BACKOFF PARAMETERS: max_retries=3, base_delay_seconds=2.0,
+  jitter_factor=0.5 (jitter is uniform random in [0, base_delay * jitter_factor]).
+  When Retry-After header is present, use its value directly (do not apply additional
+  jitter on top of the header value). When absent: retry delays are [2.0 ± 0.5s, 4.0 ±
+  1.0s, 8.0 ± 2.0s] (exponential base 2 with jitter). These values are reasonable for a
+  REST API at mid-frequency and align with Saxo's published rate-limit documentation
+  pattern (120 req/min = ~500ms per-request floor; 2s base delay is 4x the floor,
+  giving headroom for burst absorb).
+
+  D-7.1 AGGREGATE CONTRACT INSTANTIATION POINT: CONFIRMED — PaperRunnerBase (post-REM-2)
+  is the correct home for aggregate contract instantiation. Rationale: the aggregate
+  contract must receive equity updates from ALL strategies, which is only possible at the
+  level that has visibility across all strategy executions. PaperRunnerBase is that level.
+  Equity updates flow to the aggregate contract via a callback registration pattern: each
+  per-strategy contract calls aggregate_contract.update_equity(new_equity) after each bar
+  cycle completes. The aggregate contract maintains its own _peak_equity independently.
+  This is simpler than a shared event stream and avoids introducing an async/pub-sub
+  dependency that the current system does not have. Counter-candidate (shared event stream)
+  is over-engineered for a synchronous sequential paper loop.
+
+  D-7.2 NAMING: AggregateDrawdownContract. Rationale: "Aggregate" is the correct modifier
+  (it operates on the aggregate book equity across all strategies). "Book" implies a
+  P&L ledger rather than a drawdown control mechanism. "Portfolio" implies portfolio-level
+  walk-forward evaluation semantics (a future capability per the out-of-scope list). The
+  naming follows DrawdownContract (existing class); AggregateDrawdownContract is the
+  minimal distinguishing prefix.
+
+knowledge_gaps:
+  - id: KG-D6-1
+    topic: "Per-process request rate to Saxo at steady state with 2 strategies — whether 30 req/min per-process budget is empirically sufficient. The stagger (D-4.1) distributes the burst but does not measure steady-state request rate. QD should measure actual request count per bar-close cycle in a paper session before setting the per-process bucket size."
+    suggested_resolution: "QD reads Saxo API call count from existing paper session logs before implementing the token bucket, to calibrate the per-process rate correctly."
+  - id: KG-D27-1
+    topic: "Whether AggregateDrawdownContract should be a subclass of DrawdownContract or a separate class with a shared interface. The CRO must specify the aggregate thresholds before QD implements. This is a CRO-domain decision, not CTO."
+    suggested_resolution: "CRO wave-2 sub-artifact specifies aggregate thresholds (e.g., 15% aggregate halt vs 10% per-strategy halt). QD then decides subclass vs separate class based on whether thresholds differ structurally."
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+# ── CTO extension fields ──────────────────────────────────────────────────────
+
+rubric-applied:
+  - "review-plan"
+  - "execution-firewall-review"
+  - "log-as-decision-trace"
+  - "trading-platform-architectures"
+
+conditions:
+  - id: D-1.1
+    decision: "keyword-arg pattern: __init__(self, params: dict, *, rate_data: Optional[pd.DataFrame] = None)"
+    rationale: >
+      Additive (keyword-only arg with default=None is backward-compatible with all existing cls(params) callers).
+      Rollback path is trivial: remove the keyword arg. Options (b) and (c) introduce new public types or
+      dual construction patterns that are harder to unwind and not required by the immediate Liskov violation.
+
+  - id: D-1.2
+    decision: "str"
+    rationale: >
+      Trade.strategy at core/types.py:49 is already str; Position.strategy_id must match to avoid cast
+      layers in exposure_aggregator. UUID and Enum add maintenance surface without semantic gain.
+
+  - id: D-1.3
+    decision: "delete entirely"
+    rationale: >
+      The _SELF_LOADING_RATE_STRATEGIES allowlist and inspect.signature reflection at
+      run_falsification_trial.py:439-474 are execution-firewall violations (hardcoded per-strategy branching
+      that must be manually maintained with each new strategy addition). Once D-1.1 widens the ABC contract,
+      the bypass becomes dead code. Deprecate-with-warning leaves structural debt; delete entirely seals
+      the contract. PR-F-001 upheld by independent verdict; this is the correct closure.
+
+  - id: D-2.1
+    decision: "src/forex_system/paper/base_runner.py"
+    rationale: >
+      The paper/ subdirectory is unambiguous (code specific to paper-trading execution path). runners/ is
+      too generic. orchestration/ implies future multi-process coordination not in scope.
+
+  - id: D-2.2
+    decision: "PaperRunnerBase"
+    rationale: >
+      PaperRunnerBase is unambiguous (paper-specific, base-class semantic). Consistent with existing
+      class naming conventions. BasePaperRunner inverts noun-adjective order awkwardly.
+
+  - id: D-2.3
+    decision: "5-10 days (lower 5d: extraction + fixture; upper 10d: with BC-8-LIFT-COND failure-injection tests + replay parity verification)"
+    rationale: >
+      CTO 3d covered extraction only. NHT 1-2 weeks covered extraction + fixture + integration tests.
+      Combined estimate reconciles both: CTO estimate was not wrong, it was scoped differently. PM deadline
+      2026-05-20 (7 calendar days) requires QD to flag scope immediately if coupling is deeper than expected.
+
+  - id: D-2.4
+    decision: "MUST EXIST before extraction merges; test file: tests/integration/test_paper_runner_bc8_conds.py"
+    rationale: >
+      Hard gate per NHT-1 gap and PM hard-constraint bc8_lift_cond_1_through_7_preserved. The integration
+      test is the only verifiable evidence that the extraction did not silently break any of the 7 guards.
+      Path is consistent with existing tests/integration/ convention confirmed in NHT report.
+
+  - id: D-4.1
+    decision: "config key: paper.dispatch_stagger_offsets_seconds; values: [0, 30, 60, 90]"
+    rationale: >
+      No existing stagger key exists in config/default.yaml (confirmed by read). The paper: section is new.
+      Offsets of [0, 30, 60, 90] seconds distribute 4 strategies across the bar-close window. 30s intervals
+      are negligible at 4H/daily frequency and preserve signal timing integrity.
+
+  - id: D-6.1
+    decision: "per-process token bucket via threading.Lock (option a)"
+    rationale: >
+      Paper scripts run as independent OS processes. Within each script, strategy execution is sequential
+      (no threading). Cross-process coordination (option b) is over-engineered given that D-4.1 stagger
+      already distributes bar-close bursts. Per-process budget: 30 req/min per process (120 / 4 processes).
+
+  - id: D-6.2
+    decision: "max_retries=3; base_delay_seconds=2.0; jitter_factor=0.5 (uniform); exponential base 2; use Retry-After header when present"
+    rationale: >
+      2s base delay is 4x the per-request floor at 120 req/min (~500ms). Exponential backoff with jitter
+      distributes retry load. Retry-After header takes precedence when present to respect the server's
+      declared capacity.
+
+  - id: D-7.1
+    decision: "PaperRunnerBase is the instantiation point; equity updates via callback registration: per-strategy contract calls aggregate_contract.update_equity(new_equity) after each bar cycle"
+    rationale: >
+      PaperRunnerBase has visibility across all strategy executions. Callback registration is synchronous,
+      simple, and avoids introducing async/pub-sub. The aggregate contract maintains its own _peak_equity
+      independently of the per-strategy contracts.
+
+  - id: D-7.2
+    decision: "AggregateDrawdownContract"
+    rationale: >
+      "Aggregate" is the correct modifier for book-level equity across all strategies. "Book" implies
+      P&L ledger semantics; "Portfolio" implies walk-forward evaluation scope (deferred per out-of-scope
+      list). AggregateDrawdownContract is the minimal unambiguous naming.
+
+routed-to: []
+
+failure-modes-considered:
+  - id: FM-1
+    description: "QD ships REM-1 fix using keyword-arg pattern but a future strategy is added that requires a NON-OPTIONAL construction-time dependency (e.g., an ML model artifact path). The keyword-only arg (rate_data=None) does not prevent this: a strategy that raises on rate_data=None has re-introduced the violation. Mitigation: the ABC docstring must explicitly state the contract that Optional means 'truly optional, not required' and QD must add a test that constructs every registered strategy with rate_data=None and asserts no exception."
+  - id: FM-2
+    description: "BaseRunner extraction passes all tests including tests/integration/test_paper_runner_bc8_conds.py but introduces an init-order bug: AggregateDrawdownContract is instantiated before the per-strategy contracts register equity callbacks, so the aggregate contract receives no equity updates for the first bar. Mitigation: the test fixture must exercise the full startup sequence including callback registration order; QD must assert aggregate_contract receives at least one equity update call per bar cycle in the fixture."
+  - id: FM-3
+    description: "Aggregate drawdown contract receives stale equity due to thread interleaving. Risk: if a future version of PaperRunnerBase becomes multithreaded, the synchronous callback registration pattern (D-7.1) is not thread-safe. Mitigation: document the synchronous-only assumption in PaperRunnerBase; add a threading assertion (assert threading.current_thread() is threading.main_thread()) at the callback registration site. If the system later becomes multithreaded, the aggregate contract will need a lock."
+  - id: FM-4
+    description: "The dispatch stagger config key (paper.dispatch_stagger_offsets_seconds) is read as a list and indexed by strategy position. If the number of active strategies exceeds the list length, IndexError silently truncates stagger to 0 for the last strategy. Mitigation: QD must add a startup validation that asserts len(dispatch_stagger_offsets_seconds) >= len(active_strategies) and emits a CRITICAL log + halts if violated."
+  - id: FM-5
+    description: "Per-process token bucket (D-6.1) with 30 req/min budget is insufficient if a single bar-close cycle for one strategy requires more than 30 API calls. The steady-state request rate is an unverified assumption. Mitigation: KG-D6-1 above; QD must measure actual request count before setting the bucket size."
+
+what-you-refused-to-do:
+  - "Did not write the Strategy ABC __init__ signature code itself — described the contract; QD writes the code in core/interfaces.py"
+  - "Did not write the PaperRunnerBase class — described the module path, class name, and callback contract; QD implements"
+  - "Did not write the config/default.yaml stagger YAML — described the key structure and values (this is within the narrow carve-out for policy review of a ≤10-line config diff); QD applies the change"
+  - "Did not specify AggregateDrawdownContract threshold values — that is CRO's domain per D-7.2; CRO wave-2 sub-artifact specifies thresholds"
+  - "Did not specify the per-strategy allocation fairness rule for REM-5 — CRO domain; not in scope of this artifact"
+  - "Did not re-open the Option B ratification — ratified 2026-05-13T00:30:00Z per PM acceptance-criteria assumption; that decision is closed"
+  - "Did not apply python or forex-trading forbidden skills — all code-level decisions are described as contracts for QD to implement"

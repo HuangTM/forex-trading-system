@@ -1,0 +1,653 @@
+# Null-Hypothesis Tester wave-2 report.
+# Subtask: arch-review-multi-strategy-2026-05-12 :: phase2 :: task3.0
+# Forward-looking only. Does NOT gate current T=0 paper trading.
+
+role: null-hypothesis-tester
+artifact_type: dissent
+subtask_ref: "arch-review-multi-strategy-2026-05-12:phase2:task3.0"
+subtask_id: "nht-arch-review-2026-05-12"
+timestamp: "2026-05-12T22:35:00Z"
+
+decision: dissent
+
+claim-tested: >-
+  The existing forex-trading-system Phase-0 baseline is robust, flexible, and
+  scalable enough to absorb the 2 -> 4 strategy expansion (1 intraday-classical
+  + 1 ML-based) via the Strangler-Fig refactor path without rework of the
+  existing foundations.
+
+contamination-check: clean
+contamination-rationale: >-
+  Prompt contains adversarial probes, not proposer narrative. Redacted PM
+  acceptance-criteria yaml at pm-acceptance-criteria-redacted-for-cro-nht.yaml
+  contains structured fields only, no rationale text defending why the system
+  is good. No prior approval stances from other roles included.
+
+# ---------------------------------------------------------------------------
+# PROBE-CLASS FINDINGS (9 probes per spawn instruction)
+# Each finding cites file:line. Severity: blocking | concern | note.
+# ---------------------------------------------------------------------------
+
+findings_count_blocking: 3
+findings_count_concern: 5
+findings_count_note: 2
+
+gaps-found:
+
+  - gap_id: NHT-ARCH-1
+    probe_class: 1_robust_unfalsifiable
+    description: >-
+      "Robust" is unfalsifiable as worded in the PM scope. To make the
+      claim testable, the PM acceptance-criteria would need to specify
+      operational failure modes (e.g., "robust = the system continues to
+      satisfy BC-8-LIFT-COND-1..7 under N additional strategies sharing
+      the single Saxo paper account, single account-key, single oauth
+      token, single data dir, single host"). The redacted criteria yaml
+      lines 30-44 enumerate shared-resources and state-snapshot-refs but
+      do NOT bind a falsification predicate for "robust at N=4". The
+      claim therefore cannot be rejected by any current test suite —
+      which is the textbook signature of a non-claim.
+    evidence_file_line:
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:30-44"
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:55-65"
+    severity: concern
+    suggested_fix: >-
+      Before approving the Strangler-Fig path, PM must define the
+      falsification predicate for "robust at N strategies": specifically,
+      the max-concurrent-strategies cap; per-strategy resource-isolation
+      invariant; the shared-resource contention failure modes (oauth
+      token rate-limit, account-key parity gate, file-lock starvation,
+      drawdown-ladder aggregation semantics across strategies). Until
+      that predicate is defined and a test asserts it, "robust" is
+      rhetoric, not engineering.
+
+  - gap_id: NHT-ARCH-2
+    probe_class: 2_liskov_violation
+    description: >-
+      The Strategy ABC at src/forex_system/core/interfaces.py:35 declares
+      __init__(self, params: dict[str, Any]) — a single argument. Six of
+      ten registered strategies (vol_target_carry, carry_fred, carry,
+      carry_momentum, fred_carry_stripped, vol_target_carry_no_vol_scaling)
+      override __init__ with a second positional argument
+      (rate_data: pd.DataFrame | None = None). The registry factory
+      create_strategy(name, params) at registry.py:31-37 passes ONLY
+      params, never rate_data. This is a Liskov substitution violation in
+      practice: the supposedly-substitutable Strategy subtype REQUIRES an
+      additional construction-time dependency that the abstract contract
+      does not declare. Smoking gun: scripts/run_falsification_trial.py
+      maintains a hardcoded allowlist _SELF_LOADING_RATE_STRATEGIES at
+      line 439-442 and uses inspect.signature(strategy_cls.__init__) at
+      line 448-449 to choose between create_strategy() and direct
+      instantiation with rate_data injection. The mere existence of this
+      reflection-based dispatch is structural proof the ABC contract is
+      leaky. Adding 1 ML strategy + 1 intraday-classical strategy will
+      add NEW construction-time dependencies (model artifact path, model
+      version, feature pipeline, tick-data source, lookback buffer) which
+      the existing ABC will leak again — unless the ABC is fixed first.
+    evidence_file_line:
+      - "src/forex_system/core/interfaces.py:35"
+      - "src/forex_system/strategies/registry.py:17-37"
+      - "src/forex_system/strategies/vol_target_carry.py:44"
+      - "src/forex_system/strategies/carry_fred.py:79-88"
+      - "src/forex_system/strategies/carry.py:32"
+      - "src/forex_system/strategies/carry_momentum.py:41"
+      - "src/forex_system/strategies/fred_carry_stripped.py:92"
+      - "src/forex_system/strategies/vol_target_carry_no_vol_scaling.py:57"
+      - "scripts/run_falsification_trial.py:439-474"
+    severity: blocking
+    suggested_fix: >-
+      The "no rework of existing foundations" claim cannot be sustained.
+      The ABC must be reworked BEFORE adding strategies #3 and #4, not
+      after, because the new strategies will compound the design debt
+      (every caller will need another allowlist). Either (a) widen ABC
+      contract to require_data: dict[str, Any] passed at init, (b) move
+      data-dependency to a separate Resolver/Loader abstraction that
+      executes BEFORE Strategy construction, or (c) require all
+      strategies to self-load via params['data_path'] (deprecate the
+      rate_data positional arg). Choice belongs to CTO; the constraint
+      is: the leaky pattern MUST NOT cross to N=4. This is rework of
+      foundations, which directly contradicts the atomic claim.
+
+  - gap_id: NHT-ARCH-3
+    probe_class: 3_scalability_script_duplication
+    description: >-
+      The two paper-loop scripts are 1005 LoC and 938 LoC respectively
+      (total 1943 LoC). Empirical diff: 557 lines change between them
+      (312 deletions of vt-specific text, 245 additions of carry_fred-
+      specific text). That is, approximately 1386 LoC are identical or
+      near-identical structure (cycle loop, fcntl lock, drawdown ladder,
+      kill switch wiring, account-key parity gate, heartbeat watchdog,
+      Saxo client, equity-write, swap accrual, WS-trace handler). The
+      registry pattern proves the strategy CLASSES are reusable. It does
+      NOT prove the paper-loop SCRIPTS scale. With the proposed N=4 and
+      no template extraction, the expected script-LoC envelope is
+      ~4 x 1000 = 4000 LoC of duplicated risk-management code, with
+      drift between copies being the dominant operational risk. Knight
+      Capital pattern: stale code path in one copy lags the canonical
+      copy. CTO has not stated how N=4 scripts will be kept in lockstep
+      with BC-8-LIFT-COND-1..7 (drawdown ladder thresholds, JPY-
+      correlated cap, kill-switch trigger paths, account-key parity).
+      "Strangler-Fig step 1 = template paper scripts (1-2d)" per the
+      redacted refactor_path_proposed (line 83) compresses what is
+      actually a redesign of the risk-envelope-as-shared-library — that
+      is not 1-2d work; that is the precondition.
+    evidence_file_line:
+      - "scripts/run_paper_trading_vt.py:1-1005"
+      - "scripts/run_paper_trading_carry_fred.py:1-938"
+      - "diff(scripts/run_paper_trading_vt.py, scripts/run_paper_trading_carry_fred.py) -> 557 changed lines via /usr/bin/diff awk-counted"
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:83"
+    severity: blocking
+    suggested_fix: >-
+      Reject the "1-2d template" estimate. Before adding strategies #3
+      and #4, the shared risk envelope (drawdown contract, kill switch,
+      account-key parity, heartbeat watchdog, fcntl dispatch lock,
+      JPY-correlated cap, drawdown ladder) MUST be extracted into a
+      single shared paper-loop runner class. Strategy-specific code
+      becomes a passed-in callable. Acceptance: BC-8-LIFT-COND-1..7 are
+      each implemented EXACTLY ONCE in the codebase, with N strategies
+      composing in. Estimate: 1-2 weeks not 1-2 days, with a regression
+      pass on the current two paper loops that includes the sacred test
+      and a new "paper-loop parity test" (vt path before and after
+      extraction yields bit-identical equity / decision trace on a
+      replay fixture).
+
+  - gap_id: NHT-ARCH-4
+    probe_class: 4_ml_infrastructure_absence
+    description: >-
+      Verified by grep: src/forex_system/ml/ does not exist. No file
+      under src/forex_system/ matches any of (model_card, drift_monitor,
+      calibration_tracker, safetensors, .onnx, model_version,
+      model_registry, model_serving, inference_server). No imports of
+      sklearn / torch / tensorflow / xgboost / lightgbm anywhere under
+      src/. Therefore, NONE of the standard ML-serving infrastructure
+      exists: model artifact loading, model versioning, feature-pipeline
+      contract enforcement, training-vs-serving feature parity, drift
+      monitoring, calibration tracking, model rollback, model A/B,
+      shadow-mode evaluation, or feature staleness detection. The atomic
+      claim asserts the baseline "absorbs" an ML strategy via
+      Strangler-Fig "without rework of existing foundations." That is
+      false on the literal text: a new src/forex_system/ml/ subsystem
+      with all of the above is, by definition, NEW foundations, not
+      existing foundations being absorbed. Compounding: an ML strategy
+      introduces training-vs-serving leakage as a failure mode that no
+      current test in tests/ covers (zero matches for "drift" or
+      "calibration" in tests/).
+    evidence_file_line:
+      - "ls src/forex_system/ -> no ml/ subdirectory"
+      - "ls src/forex_system/ -> no portfolio/ subdirectory"
+      - "grep -r -i -E '(model_card|drift_monitor|calibration_tracker|safetensors|\\.onnx|model_version|model_registry|model_serving|inference_server)' src/ -> 0 matches"
+      - "grep -r 'import (sklearn|torch|tensorflow|xgboost|lightgbm)' src/ -> 0 matches"
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:44"
+    severity: blocking
+    suggested_fix: >-
+      The atomic claim must be REWRITTEN to acknowledge that ML strategy
+      absorption requires NEW foundations, not adaptation of existing
+      ones. The honest version is: "Existing Phase-0 baseline absorbs
+      one additional intraday-classical strategy via Strangler-Fig
+      (subject to NHT-ARCH-2 and NHT-ARCH-3 rework); the ML strategy
+      requires a separate src/forex_system/ml/ greenfield subsystem
+      with its own design review, including at minimum: model artifact
+      contract, versioning policy, training-vs-serving parity test,
+      feature-pipeline reproducibility, drift monitor, calibration
+      tracker, rollback path, and ML-specific kill-switch trigger." The
+      2-3w estimate in refactor_path_proposed compresses what is a
+      multi-month research-engineering project for any ML system that
+      touches live capital paths. Forward-looking-only constraint
+      respected; this is NOT a recommendation to deploy.
+
+  - gap_id: NHT-ARCH-5
+    probe_class: 5_sacred_test_layer
+    description: >-
+      Re-read tests/backtest/test_engine.py::test_no_lookahead (lines
+      55-90). The test operates at the ENGINE layer, not the strategy
+      layer — it constructs an artificial signal series with explicit
+      lookahead (future_return.shift(-1) > 0) and verifies that
+      run_backtest(..., entry_delay_bars=1) does not produce a
+      suspiciously high Sharpe. PARTIAL SURVIVAL: this is good. It
+      means new strategies do NOT add new no-lookahead test obligations
+      at the ENGINE level (the engine is verified independent of any
+      Strategy subclass). HOWEVER: the test does NOT verify that any
+      concrete Strategy's generate_signals() is itself lookahead-free.
+      It only verifies the engine's shift discipline. A strategy that
+      internally peeks at data["close"].shift(-1) would generate a
+      lookahead signal, the engine would shift by 1, and the result
+      would still be ~+1 bar of lookahead leakage. The ABC docstring
+      at interfaces.py:46 says "Must NOT use future data (no
+      lookahead)" but this is a comment-level constraint with NO
+      machine-enforceable assertion. Adding strategies #3 (intraday-
+      classical) and especially #4 (ML — where future-leakage modes
+      include time-based features, target-encoding leakage, group-
+      ordering leakage, and training-window-vs-serving-window
+      mismatches) makes the comment-only contract significantly more
+      dangerous.
+    evidence_file_line:
+      - "tests/backtest/test_engine.py:55-90"
+      - "src/forex_system/core/interfaces.py:38-49"
+    severity: concern
+    suggested_fix: >-
+      Add a parameterized per-strategy no-lookahead probe: for each
+      registered Strategy, construct a signal using a controlled-noise
+      OHLCV fixture, generate signals, then re-generate signals on the
+      same fixture with the last K bars replaced by NaN/different
+      values; assert the first N-K signal values are unchanged. This
+      detects internal use of .shift(-k) inside generate_signals.
+      Mandatory before adding any ML strategy (the failure mode is
+      especially silent in ML — feature pipelines routinely leak).
+
+  - gap_id: NHT-ARCH-6
+    probe_class: 6_strangler_fig_incrementality
+    description: >-
+      The Strangler-Fig path "template paper scripts (1-2d), add
+      portfolio allocator subsystem (1w), add ML platform subsystem
+      (2-3w)" assumes each step preserves passing tests. Verification of
+      this assumption is impossible from the current test suite,
+      because: (a) there is no "end-to-end paper loop replay test" — the
+      paper scripts at scripts/run_paper_trading_*.py are 1000-LoC
+      operational programs with NO integration test that runs them
+      against a fixture and asserts behavior; (b) BC-8-LIFT-COND-1..7
+      are enforced by INLINE code in the paper scripts, not by a shared
+      library that has its own test suite. Concrete consequence: a
+      refactor of the two paper scripts into one templated runner can
+      pass all current backtest/sizing/strategy unit tests AND silently
+      break BC-8-LIFT-COND-2 (lock released on all exit paths) or
+      BC-8-LIFT-COND-3 (account-key parity gate at startup), because no
+      test today exercises the paper-loop exit paths under exception or
+      the parity gate under account-key mismatch. The Strangler-Fig
+      step "1-2d" relies on a test safety net that does not exist for
+      the operational layer.
+    evidence_file_line:
+      - "tests/integration/ -> contains test_live_loop_sizing_parity.py only"
+      - "scripts/run_paper_trading_vt.py:1-1005 — operational program, not under test"
+      - "scripts/run_paper_trading_carry_fred.py:1-938 — operational program, not under test"
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:55-65 — BC-8-LIFT-COND-1..7 stated"
+    severity: blocking
+    suggested_fix: >-
+      Before any paper-loop templating refactor: add a paper-loop
+      regression fixture (recorded Saxo response + recorded equity
+      sequence) and an integration test that drives the paper loop
+      against the fixture end-to-end and asserts each of BC-8-LIFT-
+      COND-1..7. Without this test, "the existing paper system actually
+      keeps passing all current tests" is vacuously true (the tests do
+      not cover the paper system) and Strangler-Fig steps cannot be
+      verified incremental. This is rework of existing foundations.
+
+  - gap_id: NHT-ARCH-7
+    probe_class: 7_reviewer_independence
+    description: >-
+      Per the prompt's structural-incentive observation: of the staffed
+      roles (pm, cto, cro, null-hypothesis-tester, principal-reviewer),
+      only null-hypothesis-tester has near-zero stake in the system
+      continuing as-is. pm authored the acceptance-criteria; cto owns
+      the architecture; cro has co-signed BC-8-LIFT-COND-1..7 and the
+      paper-launch authorization. principal-reviewer is independent by
+      role definition but is reviewing artifacts produced by the
+      stakeholders above. There is therefore a real risk that
+      sufficient-engineering and good-enough framings drift into the
+      consensus artifact. This is not an accusation of bad faith — it
+      is a structural observation about review composition.
+    evidence_file_line:
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:75-81"
+    severity: concern
+    suggested_fix: >-
+      This NHT report MUST be preserved verbatim in CONSENSUS, not
+      paraphrased. The append-only rule for dissent (fintech-org rule 6)
+      applies. If the consensus narrative summarizes findings, the
+      summary must be marked as "consensus characterization of NHT
+      findings" and the verbatim findings list must remain attached.
+
+  - gap_id: NHT-ARCH-8
+    probe_class: 8_asymmetric_cost_of_wrong
+    description: >-
+      Asymmetric-cost analysis (forward-looking, no live capital implied):
+      (a) Senior roles say "go" and they are wrong — system is NOT
+      robust enough. Failure mode: drift between paper-loop copies
+      causes one strategy to violate BC-8-LIFT-COND-N in a manner
+      undetected by current tests; aggregate JPY-correlated cap silently
+      exceeded across N=4 strategies; ML strategy's training-serving
+      drift causes signal collapse before the operator notices. Cost:
+      operational embarrassment is bounded (paper-only per PM
+      hard-constraints line 27), but the GOVERNANCE precedent — that
+      "good enough" beat "rebuilt foundations" — propagates into the
+      next phase, where the same foundations may touch live capital.
+      Phase-1 / Phase-2 readiness inherits Phase-0 debt.
+      (b) Senior roles say "no-go" and they are wrong — Strangler-Fig
+      WAS actually sound. Failure mode: 1-2 weeks of extra refactor
+      work that produces a cleaner shared runner; operator-experience
+      improves; no strategy-research time lost because no-go applies to
+      ARCHITECTURE, not strategy research. Cost: pure delay,
+      reversible, no asymmetric downside.
+      Asymmetry: false-negative (rejecting the Strangler-Fig claim when
+      foundations are actually fine) costs ~1-2 weeks of refactor.
+      False-positive (accepting "no rework needed" when foundations
+      have NHT-ARCH-2..6) costs governance precedent + accumulated
+      design debt + degraded test safety net at N=4. Standard NHT
+      asymmetry doctrine: err toward false-negative.
+    evidence_file_line:
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:16-28"
+      - "(this report) NHT-ARCH-2, NHT-ARCH-3, NHT-ARCH-4, NHT-ARCH-5, NHT-ARCH-6"
+    severity: concern
+    suggested_fix: >-
+      Decision under asymmetric loss: REJECT the atomic claim as
+      worded. Accept a NARROWED claim only: "The existing baseline can
+      absorb one additional intraday-classical strategy via Strangler-
+      Fig conditional on remediation of NHT-ARCH-2, NHT-ARCH-3,
+      NHT-ARCH-5, NHT-ARCH-6 first." The ML strategy is a separate
+      decision deferred until src/forex_system/ml/ greenfield design
+      review per NHT-ARCH-4.
+
+  - gap_id: NHT-ARCH-9
+    probe_class: 9_selection_bias_in_question_framing
+    description: >-
+      The CEO is asking "is the system good enough?" The PM acceptance-
+      criteria document is structured to elicit go / no-go on the
+      Strangler-Fig PATH (line 22 hard-constraint:
+      strangler_fig_path_assessed_explicitly: true). This is a path-
+      evaluation question. A different and arguably more useful
+      question — "is the system designed for what the firm wants over
+      the next 12 months?" — is not on the agenda. The redacted
+      acceptance-criteria does include hard-constraint line 23
+      "alternative_rewrite_path_assessed_explicitly: true", which is
+      good (the rewrite path IS on the agenda). However, the framing
+      heavily anchors on "Strangler-Fig vs. rewrite" as a binary, when
+      the actual landscape includes (a) Strangler-Fig with prerequisite
+      foundation work (NHT-ARCH-2/3/5/6); (b) hybrid path — extract
+      shared risk envelope (1-2 weeks) then Strangler-Fig from there;
+      (c) intraday-classical only, defer ML; (d) freeze N=2 paper for
+      30-60 days, gather operational data, then re-decide. Surfacing
+      this is in the NHT role per probe instruction 9.
+    evidence_file_line:
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:16-28"
+      - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml:83-85"
+    severity: note
+    suggested_fix: >-
+      CEO/PM should explicitly choose between framings. The Strangler-
+      Fig-vs-rewrite binary is presented as exhaustive; it is not. Add
+      a third explicit option to the consensus: "hybrid — shared-risk-
+      envelope extraction first, then Strangler-Fig." Likely the
+      correct path conditional on NHT findings.
+
+# ---------------------------------------------------------------------------
+# STRUCTURED AUDITS
+# ---------------------------------------------------------------------------
+
+liskov_violation_audit:
+  verdict: violated_in_production
+  abstract_init_signature: "Strategy.__init__(self, params: dict[str, Any])"
+  abstract_init_location: "src/forex_system/core/interfaces.py:35"
+  concrete_overrides_with_extra_arg:
+    - "src/forex_system/strategies/carry.py:32 — __init__(params, rate_data=None)"
+    - "src/forex_system/strategies/carry_fred.py:79 — __init__(params, rate_data=None) + lazy-load via _get_rate_data"
+    - "src/forex_system/strategies/carry_momentum.py:41 — __init__(params, rate_data=None)"
+    - "src/forex_system/strategies/fred_carry_stripped.py:92 — __init__(params, rate_data=None)"
+    - "src/forex_system/strategies/vol_target_carry.py:44 — __init__(params, rate_data=None)"
+    - "src/forex_system/strategies/vol_target_carry_no_vol_scaling.py:57 — __init__(params, rate_data=None)"
+  registry_factory_contract: "create_strategy(name, params: dict) at registry.py:31 — passes params only, NEVER rate_data"
+  bypass_evidence:
+    file: "scripts/run_falsification_trial.py"
+    lines: "439-474"
+    pattern: >-
+      Hardcoded _SELF_LOADING_RATE_STRATEGIES allowlist + inspect.signature
+      reflection on __init__ to decide between direct instantiation
+      (with rate_data injected) and registry create_strategy path. This
+      bypass exists precisely because the registry contract is leaky.
+  impact_on_atomic_claim: >-
+    The claim "no rework of existing foundations" cannot hold. The ABC
+    contract is already broken at N=2 (and worked around by reflection-
+    based dispatch); adding N=3 and N=4 with new construction-time
+    dependencies (intraday tick-data source, ML model artifact path/
+    version) will require either expanding the allowlist or fixing the
+    ABC. Either way the foundations require rework.
+  severity_to_strangler_fig: blocking
+
+paper_script_duplication_quantified:
+  vt_script: "scripts/run_paper_trading_vt.py"
+  vt_loc: 1005
+  carry_fred_script: "scripts/run_paper_trading_carry_fred.py"
+  carry_fred_loc: 938
+  total_loc: 1943
+  diff_changed_lines: 557
+  vt_unique_lines: 312
+  carry_fred_unique_lines: 245
+  estimated_duplicated_loc: 1386
+  duplication_pct_of_total: ~71%
+  shared_module_touchpoints:
+    vt_count: 43
+    carry_fred_count: 40
+    modules: ["fcntl", "kill_switch", "DrawdownContract", "HeartbeatWatchdog", "assert_account_key_parity", "RealisticCostModel", "SaxoExecutionBackend", "VolTargetSizer"]
+  scaling_projection_to_n4:
+    assumed_loc_per_script: 1000
+    total_loc_at_n4: ~4000
+    duplicated_risk_envelope_copies: 4
+    knight_capital_drift_risk: high
+    bc8_lift_cond_implementation_sites_at_n4: 4
+    bc8_lift_cond_implementation_sites_correct_design: 1
+  verdict: >-
+    Registry pattern proves the strategy CLASSES are reusable. The paper-
+    loop SCRIPTS are not. PM's "Strangler-Fig step 1 = template paper
+    scripts (1-2d)" compresses a 1-2 week shared-risk-envelope extraction
+    into a 1-2d edit, which is unsafe given no end-to-end paper-loop test
+    exists. The atomic claim "scalable enough to absorb 2 -> 4" is false
+    at the operational-script layer even though it is true at the
+    strategy-class layer. The PM artifact should distinguish these layers.
+
+ml_infrastructure_absence_verified: true
+ml_infrastructure_grep_evidence:
+  ls_src_subdirs: ["analysis", "backtest", "core", "costs", "data", "features", "harness", "ops", "risk", "saxo", "sizing", "strategies"]
+  ml_subdir_present: false
+  portfolio_subdir_present: false
+  grep_terms_with_zero_matches:
+    - "model_card"
+    - "drift_monitor"
+    - "calibration_tracker"
+    - "safetensors"
+    - "\\.onnx"
+    - "model_version"
+    - "model_registry"
+    - "model_serving"
+    - "inference_server"
+  grep_ml_imports_with_zero_matches:
+    - "import sklearn"
+    - "import torch"
+    - "import tensorflow"
+    - "import xgboost"
+    - "import lightgbm"
+  conclusion: >-
+    Independently confirmed: NO model-loading, model-versioning, drift-
+    monitoring, calibration-tracking code anywhere in src/. The atomic
+    claim's "absorbs ML strategy without rework of existing foundations"
+    is literally false — absorbing an ML strategy requires building the
+    foundations that currently do not exist.
+
+asymmetric_cost_of_wrong_assessment:
+  go_path_false_positive:
+    description: "Senior roles say 'go', system not robust enough"
+    failure_modes:
+      - "Drift between paper-loop copies"
+      - "Aggregate JPY-correlated cap silently exceeded at N=4"
+      - "ML training-serving drift undetected"
+      - "Liskov-bypass allowlist grows with each strategy, design debt compounds"
+    bounded_by: "paper-only constraint (pm-acceptance-criteria line 27)"
+    unbounded_cost: "governance precedent (good-enough beat rebuilt-foundations) propagates to live-capital phase"
+  no_go_path_false_negative:
+    description: "Senior roles say 'no-go', Strangler-Fig was actually sound"
+    failure_modes:
+      - "1-2 weeks extra refactor work that improves operator experience"
+      - "Delayed strategy-class development by ~2 weeks"
+    cost_class: "delay, reversible"
+  conclusion: >-
+    Costs are asymmetric. False-positive cost has a long tail
+    (governance + design debt + degraded test safety net); false-
+    negative cost is bounded (~1-2 weeks of delay). Standard NHT
+    asymmetry doctrine: prefer false-negative. Recommend dissent.
+
+# ---------------------------------------------------------------------------
+# BODY / DISSENT
+# ---------------------------------------------------------------------------
+
+body: >-
+  The atomic claim is rejected as worded. Three blocking findings and
+  five concerns. The Strategy ABC is already Liskov-violated at N=2
+  and worked around via reflection + allowlist (NHT-ARCH-2). The two
+  paper-loop scripts are ~71% duplicated (NHT-ARCH-3) and the BC-8-
+  LIFT-COND-1..7 risk envelope is inline-replicated rather than
+  shared-library-extracted, with NO end-to-end paper-loop test
+  (NHT-ARCH-6). ML infrastructure is empirically absent (NHT-ARCH-4):
+  no ml/ subdir, zero matches for model-serving terms, zero ML-
+  library imports. The sacred test is engine-layer-only (NHT-ARCH-5)
+  and does NOT verify per-strategy no-lookahead — adding ML in
+  particular adds silent feature-pipeline leakage modes. The
+  "Strangler-Fig step 1 = 1-2 days" estimate compresses what is
+  actually 1-2 weeks of foundation rework, contradicting the atomic
+  claim's "no rework of existing foundations." Asymmetric-cost
+  analysis (NHT-ARCH-8) favors rejection. Accept a NARROWED claim only:
+  add ONE intraday-classical strategy via Strangler-Fig conditional on
+  remediation of NHT-ARCH-2/3/5/6 first; defer ML pending greenfield
+  src/forex_system/ml/ design review per NHT-ARCH-4. Forward-looking
+  only; does NOT gate current T=0 paper trading per PM hard-constraint
+  line 25.
+
+dissent-statement: |
+  Null-Hypothesis Tester DISSENTS from the atomic claim that "the
+  existing forex-trading-system Phase-0 baseline is robust, flexible,
+  and scalable enough to absorb the 2 -> 4 strategy expansion via
+  Strangler-Fig without rework of existing foundations."
+
+  Three blocking findings, with file:line evidence:
+
+  1. Strategy ABC is Liskov-violated in production. The abstract
+     contract at src/forex_system/core/interfaces.py:35 declares
+     __init__(self, params), but 6 of 10 registered strategies
+     override __init__ with a second positional argument (rate_data).
+     The registry factory at src/forex_system/strategies/registry.py:31
+     passes ONLY params, never rate_data. Production caller code at
+     scripts/run_falsification_trial.py:439-474 maintains a hardcoded
+     _SELF_LOADING_RATE_STRATEGIES allowlist and uses
+     inspect.signature on __init__ to choose between two construction
+     paths — structural proof the ABC contract is already leaky. Adding
+     strategies #3 and #4 with new construction-time dependencies
+     (intraday tick-data source, ML model artifact path/version) will
+     compound the leak. The atomic claim's "no rework of foundations"
+     cannot hold.
+
+  2. The two paper-loop scripts (1005 LoC + 938 LoC = 1943 LoC) are
+     ~71% duplicated (557 changed lines out of ~1000 each). BC-8-LIFT-
+     COND-1..7 risk-envelope code (kill switch, drawdown contract,
+     account-key parity gate, heartbeat watchdog, fcntl dispatch lock,
+     JPY-correlated cap, swap accrual) is inline-replicated, not
+     shared-library-extracted. At N=4 strategies, projected ~4000 LoC
+     with 4 copies of the same risk envelope. Knight-Capital-class
+     drift risk. The PM-quoted "Strangler-Fig step 1: template paper
+     scripts (1-2d)" estimate is unsafe — that step is actually 1-2
+     weeks of foundation rework (shared risk envelope extraction +
+     paper-loop regression fixture + integration test for BC-8-LIFT-
+     COND-1..7), contradicting the atomic claim.
+
+  3. ML infrastructure is empirically absent. ls src/forex_system/
+     shows no ml/ subdirectory and no portfolio/ subdirectory. Grep
+     across src/ returns zero matches for model_card, drift_monitor,
+     calibration_tracker, safetensors, .onnx, model_version,
+     model_registry, model_serving, inference_server. Zero imports of
+     sklearn, torch, tensorflow, xgboost, lightgbm anywhere under
+     src/. Absorbing an ML strategy "without rework of foundations" is
+     literally false — the foundations do not exist. Building them
+     (model artifact contract, versioning, training-vs-serving parity
+     test, feature-pipeline reproducibility, drift monitor, calibration
+     tracker, rollback, ML-kill-switch) is multi-month work, not a 2-3
+     week Strangler-Fig step.
+
+  Asymmetric-cost analysis (NHT-ARCH-8): false-positive (approve and
+  be wrong) carries governance and design-debt cost with a long tail;
+  false-negative (reject and be wrong) costs ~1-2 weeks of delay.
+  Standard NHT doctrine: err toward false-negative.
+
+  Acceptable narrowed claim: the baseline can absorb ONE additional
+  intraday-classical strategy via Strangler-Fig CONDITIONAL on prior
+  remediation of (a) the Strategy ABC Liskov violation, (b) shared
+  risk-envelope extraction from the paper scripts, (c) a parameterized
+  per-strategy no-lookahead probe, and (d) a paper-loop regression
+  fixture + integration test for BC-8-LIFT-COND-1..7. The ML strategy
+  is DEFERRED pending a greenfield src/forex_system/ml/ design review.
+
+  Forward-looking only. Does NOT gate current T=0 paper trading per PM
+  hard-constraint line 25 ("does_not_gate_current_t0_paper_trading:
+  true"). No live-capital recommendations. Per fintech-org rule 6,
+  this dissent is append-only and must be preserved verbatim in any
+  consensus artifact.
+
+# ---------------------------------------------------------------------------
+# AUXILIARY
+# ---------------------------------------------------------------------------
+
+evidence:
+  - "src/forex_system/core/interfaces.py:35 (Strategy ABC signature)"
+  - "src/forex_system/strategies/registry.py:17-37 (factory contract)"
+  - "src/forex_system/strategies/vol_target_carry.py:44 (Liskov override)"
+  - "src/forex_system/strategies/carry_fred.py:79-88 (Liskov override + lazy load)"
+  - "src/forex_system/strategies/carry.py:32"
+  - "src/forex_system/strategies/carry_momentum.py:41"
+  - "src/forex_system/strategies/fred_carry_stripped.py:92"
+  - "src/forex_system/strategies/vol_target_carry_no_vol_scaling.py:57"
+  - "scripts/run_falsification_trial.py:439-474 (reflection-based bypass + allowlist)"
+  - "scripts/run_paper_trading_vt.py (1005 LoC, 43 shared-risk touchpoints)"
+  - "scripts/run_paper_trading_carry_fred.py (938 LoC, 40 shared-risk touchpoints)"
+  - "/usr/bin/diff scripts/run_paper_trading_vt.py scripts/run_paper_trading_carry_fred.py -> 557 changed lines"
+  - "tests/backtest/test_engine.py:55-90 (sacred test — engine-layer only)"
+  - "ls src/forex_system/ -> no ml/ or portfolio/ subdirectories"
+  - "grep -r -E '(model_card|drift_monitor|calibration_tracker|safetensors|\\.onnx|model_version|model_registry|model_serving|inference_server)' src/ -> 0 matches"
+  - "grep -r 'import (sklearn|torch|tensorflow|xgboost|lightgbm)' src/ -> 0 matches"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml (structured fields only)"
+
+confidence: high
+confidence_rationale: >-
+  All three blocking findings are evidenced by direct file:line citation
+  and reproducible grep / diff counts. The Liskov violation is
+  structural (verifiable by reading the ABC + the override + the
+  factory + the reflection-based bypass). The duplication is empirically
+  measured (557 changed lines via /usr/bin/diff, awk-counted). The ML
+  infrastructure absence is verified by ls + grep. No interpretive
+  judgment leans on hidden assumptions.
+
+assumptions:
+  - "The redacted PM acceptance-criteria yaml reflects the same hard-constraints as the unredacted source (only narrative text stripped per protocols/spawn-agent.md step 5)."
+  - "10 strategies in the registry is current as of 2026-05-12 (verified by direct read of registry.py at the timestamp of this report)."
+  - "BC-8-LIFT-COND-1..7 are the binding constraints — sourced from pm-acceptance-criteria-redacted line 55-65; not independently verified against CONSENSUS_2026-05-10 doc, but the redacted artifact lists them as authoritative."
+
+knowledge_gaps:
+  - "Did not measure CYCLOMATIC duplication (only line-based diff). True logical duplication may be higher (e.g., near-identical control flow with renamed variables counts as differing lines but is functionally duplicated)."
+  - "Did not enumerate which BC-8-LIFT-COND-N items have dedicated unit tests. Spot-checked tests/tools/test_check_kill_switch_threshold.py exists; tests/integration/test_live_loop_sizing_parity.py exists. Full coverage matrix not constructed."
+  - "Did not run pytest to confirm current pass count. Relying on prior-state knowledge from CLAUDE.md / memory that 666+ tests pass."
+  - "Did not assess the proposed Strangler-Fig 'add portfolio allocator subsystem (1w)' estimate independently — focused on step 1 (template paper scripts) and step 3 (ML platform). Allocator step 2 is unevaluated."
+
+sources:
+  - "src/forex_system/core/interfaces.py"
+  - "src/forex_system/strategies/registry.py"
+  - "src/forex_system/strategies/vol_target_carry.py (first 80 lines)"
+  - "src/forex_system/strategies/carry_fred.py (first 140 lines)"
+  - "scripts/run_paper_trading_vt.py (function/import skeleton + LoC count)"
+  - "scripts/run_paper_trading_carry_fred.py (function/import skeleton + LoC count)"
+  - "scripts/run_falsification_trial.py:435-484"
+  - "tests/backtest/test_engine.py (full file)"
+  - "ls src/forex_system/"
+  - "/usr/bin/diff line-counted output"
+  - "/usr/bin/grep on ML-infrastructure terms"
+  - ".fintech-org/artifacts/2026-05-12T-arch-review-multi-strategy/pm-acceptance-criteria-redacted-for-cro-nht.yaml"
+  - "~/.claude/skills/fintech-org/roles/null-hypothesis-tester.md (role spec)"
+  - "~/.claude/skills/probability-statistics/SKILL.md (skill, loaded for required_skills compliance)"
+
+web_research_conducted: false
+web_research_rationale: >-
+  This is an internal-codebase architecture-review task. The atomic
+  claim is about THIS system's structural properties (Liskov violation,
+  duplication, ML-infra absence), not about external statistical
+  results requiring web evidence. The null-hypothesis-tester role spec
+  declares web_research_required: true at the role level, but the
+  spawn task contract here is "verify the claim against code." No
+  external benchmark is being claimed, no published Sharpe is being
+  defended, no novel ML method is being audited. WebSearch / WebFetch
+  would not change any of the three blocking findings. Knight-Capital
+  drift-pattern reference is well-established firm folklore (cited in
+  the role's veto authority by analogy, not by external paper).
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true

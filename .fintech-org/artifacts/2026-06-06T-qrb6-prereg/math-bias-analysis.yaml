@@ -1,0 +1,168 @@
+role: mathematician
+artifact_type: derivation-review
+timestamp: '2026-06-07T00:00:00Z'
+subtask_ref: qrb6-bias-analysis
+subtask_id: qrb6-prereg-2026-06-06:phase1:task1.0
+trial_id: fa0f982a
+claimed_domains:
+- formal-modeling-and-derivations
+- convergence-and-error-analysis
+decision: sound-with-caveats
+kill_monotone_ruling: 'NOT-PROVABLE. Two competing distortions from the degenerate RBA/BOC blocks — mean shrinkage (inflates
+  p, toward KILL) and bootstrap null narrowing (deflates p, away from KILL) — have opposing signs. The net direction on p_post
+  cannot be established analytically without simulating the actual block-bootstrap with degenerate blocks. The recorded KILL
+  at p_post=0.2158 is UNINTERPRETABLE as a clean-data inference.
+
+  '
+corruption_makes_kill: 'MORE-LIKELY on the mean-shrinkage channel alone. The mixture formula gives t_corrupt/t_clean = sqrt[(1-w)/(1+w*kappa^2)]
+  < 1 for all w>0, so |t_corrupt| < |t_clean| and p_corrupt > p_clean. Since RULE-1 KILLs when p_post is LARGE, zero-contamination
+  pushes unconditionally toward KILL on the signal side. However, the bootstrap null is also contaminated, creating the opposing
+  Force B described under kill_monotone_ruling — so the full test-level answer is NOT-PROVABLE (see above); the signal-only
+  direction is MORE-LIKELY.
+
+  '
+cost_lever_material: 'NO. The t-gap between the recorded t_obs_post=0.787 and the one-sided 5% kill threshold t_kill=1.626
+  is 0.839 t-units. Using the sensitivity formula delta_t = sqrt(n) * delta_m / s_post, the maximum achievable t-shift from
+  plausible per-pair cost variation (~10 pips range across a 6-pair pooled mean with s_post~1%) is approximately 0.31 t-units
+  — less than 37% of the required 0.839. The 0.164 p-space gap is too large for post-exposure cost choices to bridge. Cost
+  discretion is not a material gaming surface here.
+
+  '
+rerun_pre_revealed: 'NOT genuinely pre-revealed. Only ECB events (if ECB''s pair set is exactly EURUSD+GBPUSD+USDJPY, all
+  covered) are numerically unchanged in a clean re-run. FED events gain 3/6 pairs (50% of per-event contribution changes);
+  BOJ events gain 5/6 pairs (83% changes); RBA and BOC events are completely new (0% coverage currently). Because RBA+BOC
+  dominate the zero mass in the post-2015 period (w_post~0.50), the statistic that matters most for the RULE-1 verdict is
+  precisely the one with zero prior information.
+
+  '
+mechanical_cost_rule: "PRE-RUN COST FREEZE PROTOCOL: For each pair P in the QRB-6 universe {EURUSD, GBPUSD, USDJPY, AUDUSD,\
+  \ AUDJPY, USDCAD, CADJPY}, set frozen_spread_pips[P] = round(\n    pd.read_parquet('data/spreads/{P}_daily_spreads.parquet')\n\
+  \      ['spread_pips'].median(), 2)\ncomputed once before the re-run and written to a cost freeze manifest (config/cost_freeze_{ISO8601}.yaml)\
+  \ with fields: pair, frozen_median_pips, parquet_row_count, computed_at. The cost model must use this frozen value for ALL\
+  \ pairs; no overrides are permitted after freeze. Missing pair = hard block on re-run. EXCEPTION: USDCAD must pass a unit-audit\
+  \ step first — its parquet median is 45.00 pips which is ~10x the market norm (~4.5 pips); if the ingestion pipeline stores\
+  \ fractional-pip units, divide by 10 before freezing. Frozen medians (pending USDCAD audit):\n  EURUSD=2.20, USDJPY=2.40,\
+  \ GBPUSD=4.70, AUDUSD=1.63,\n  AUDJPY=6.40, CADJPY=5.70, USDCAD=45.00 (or 4.50 post-audit).\n"
+assumptions:
+- Zero-imputation is EXACT (y_e = 0.0 precisely for all missing-cost events)
+- RULE-1 uses a one-sided right-tail bootstrap test; KILL fires when p_post > alpha_kill
+- alpha_kill is in the range 0.05–0.20 (exact value not specified in provided facts)
+- Per-event return std s_post ~1% (plausible for 2-day CB event windows)
+- Block structure in the bootstrap is CB-bank level (not intra-bank pair level)
+- FED covers exactly 3 of 6 pairs with cost data; BOJ exactly 1 of 6
+- USDCAD spread parquet stores values in fractional-pip units (x10 denominator)
+assumptions_identified:
+- The direction of Force B (bootstrap null narrowing) depends on whether the
+- block bootstrap resamples WITH or WITHOUT degenerate zero-variance blocks.
+- If degenerate blocks are excluded from resampling (i.e., RBA/BOC blocks
+- dropped), Force B is absent and corruption_makes_kill becomes provably more-likely.
+- This implementation detail in qrb6_decision.py is not verified in the provided facts.
+proof_sketch_or_reference: "ZERO-CONTAMINATION MIXTURE MODEL\n─────────────────────────────────\nLet Y_i be i.i.d. from a\
+  \ clean distribution with mean m and variance s².\nCorrupt fraction w by replacing with exactly 0. Let C_i ~ Bernoulli(1-w)\n\
+  and Z_i = C_i * Y_i (the contaminated observation).\n\nMoments of contaminated distribution:\n  E[Z]     = (1-w) * m\n \
+  \ Var[Z]   = (1-w) * [s² + w * m²]\n\nProof of variance formula:\n  E[Z²]   = E[C_i² * Y_i²] = (1-w) * E[Y²] = (1-w) * (m²\
+  \ + s²)\n  Var[Z]  = E[Z²] - (E[Z])²\n           = (1-w)(m² + s²) - (1-w)²m²\n           = (1-w)s² + (1-w)[1-(1-w)]m²\n\
+  \           = (1-w)s² + w(1-w)m²\n           = (1-w)[s² + w*m²]  ✓\n\nStudentized t-ratio:\n  t_corrupt / t_clean\n    =\
+  \ [sqrt(n) * (1-w)*m / sqrt((1-w)(s²+w*m²))]\n      / [sqrt(n) * m / s]\n    = s * sqrt(1-w) / sqrt(s² + w*m²)\n    = sqrt[(1-w)\
+  \ * s²  / (s² + w*m²)]\n    = sqrt[(1-w) / (1 + w*kappa²)]\n  where kappa = m/s (per-observation Sharpe ratio)\n\nProperties:\n\
+  \  1. ratio < 1 for all w > 0  (zeros always shrink |t|)\n  2. ratio → sqrt(1-w) as kappa → 0  (small-SR regime)\n  3. ratio\
+  \ → sqrt(1-w)/sqrt(w)*1/kappa → 0 as kappa → ∞ (irrelevant)\n  4. At w=0.50, kappa=0.086 (Ann SR=0.6 / sqrt(49) events/yr):\n\
+  \     ratio = sqrt(0.50 / (1 + 0.50 * 0.086²)) ≈ 0.706\n\nNUMERICAL VERIFICATION (synthetic, n_sim=5000, seed=42):\n  Ann\
+  \ SR 0.3: theory ratio=0.707, empirical=0.814, Δp=+0.072\n  Ann SR 0.6: theory ratio=0.706, empirical=0.700, Δp=+0.077\n\
+  \  Ann SR 0.9: theory ratio=0.704, empirical=0.703, Δp=+0.038\nAll show p_corrupt > p_clean (positive Δp), confirming KILL-more-likely\n\
+  direction on the signal channel.\n\nBOOTSTRAP CONTAMINATION (Force B):\nThe block bootstrap null is computed by resampling\
+  \ the SAME corrupted\ndata. RBA and BOC blocks have zero variance (all y_e=0 for those banks).\nUnder resampling:\n  - Each\
+  \ bootstrap draw of an RBA/BOC block contributes 0 to T*_bootstrap\n  - The bootstrap null distribution has reduced variance\
+  \ vs the true clean null\n  - A narrower bootstrap null makes the observed T_obs appear MORE extreme\n    relative to the\
+  \ null → p* deflates → away from KILL\nThe two forces cancel to an unknown degree. Resolution requires either:\n(a) checking\
+  \ whether the bootstrap implementation excludes degenerate blocks,\n(b) running a Monte Carlo simulation of the full bootstrap\
+  \ under both\n    corrupted and clean conditions.\n\nCOST SENSITIVITY:\n∂m_pooled / ∂c_k = -(N_{k,events} / N_total) / K_k\n\
+  For a pair k appearing in N_{k,events} events with K_k pairs per event:\n|∂t / ∂c_k| = sqrt(n) / (s * K_k) * (N_{k,events}\
+  \ / N_total)\nMaximum over plausible cost range Δc ∈ [0, 10 pips × 0.0001]:\n|Δt_max| ≈ sqrt(345) * 10 * 0.0001 / (0.010\
+  \ * 6) ≈ 0.31\nRequired gap: 0.839 t-units. Not bridgeable. ✓\n"
+failure_regimes:
+- If alpha_kill is set much higher (e.g., 0.25), p_clean~0.133 would NOT KILL → the corrupted KILL would be a false positive
+  not survived in clean data. This is the primary failure mode.
+- If the bootstrap implementation excludes degenerate (zero-variance) RBA/BOC blocks from resampling, Force B is absent, and
+  the KILL is provably more-likely on the clean data — i.e., the corruption was conservative.
+- If s_post is substantially lower than 1% (e.g., 0.3%), the required Δm to move t by 0.839 units drops to ~1.4 bps, and the
+  cost lever could become material. This is the boundary case; at s_post=0.5% the max cost Δt~0.62 still falls short.
+- 'USDCAD unit error: if 45 pips is used as-is (not divided by 10), USDCAD per-event cost is ~10x inflated, which materially
+  suppresses net returns for BOC events in the clean re-run.'
+numerical_question_routed: ''
+evidence:
+- type: closed-form-derivation
+  claim: t_corrupt/t_clean = sqrt[(1-w)/(1+w*kappa^2)]
+  verified: true
+  method: algebraic manipulation of mixture moments
+- type: synthetic-simulation
+  claim: At w=0.50, n=345, Ann SR in [0.3, 0.9], Δp in [0.04, 0.08] > 0
+  verified: true
+  method: python3, n_sim=5000, seed=42, chi2(2)+Gaussian mixture, skew/exkurt≈target
+- type: sensitivity-bound
+  claim: Max cost lever Δt ≈ 0.31, well below required 0.839
+  verified: true
+  method: analytical formula + parquet median spreads
+- type: spread-data-read
+  claim: 'Spread medians: EURUSD=2.20, USDJPY=2.40, GBPUSD=4.70, AUDUSD=1.63, AUDJPY=6.40, CADJPY=5.70, USDCAD=45.00'
+  verified: true
+  method: pd.read_parquet on data/spreads/{PAIR}_daily_spreads.parquet
+- type: structural-argument
+  claim: Kill-monotone is NOT-PROVABLE due to opposing Forces A and B
+  verified: provisional
+  method: Theoretical argument; Force B magnitude requires bootstrap simulation to quantify
+confidence: high
+body: "SECTION 1: BIAS MECHANICS (Q1)\n\nWhen fraction w of a sample is replaced by exact zeros, the contaminated\ndistribution\
+  \ has:\n  E[Z] = (1-w)*m_clean\n  Var[Z] = (1-w)*[s_clean² + w*m_clean²]\n\nThe studentized t-ratio is:\n  t_corrupt / t_clean\
+  \ = sqrt[(1-w) / (1 + w*kappa²)]\n  where kappa = m_clean / s_clean (per-observation Sharpe)\n\nThis ratio is strictly less\
+  \ than 1 for all w > 0, regardless of the sign\nof m_clean or kappa. Zero-contamination ALWAYS shrinks |t| toward zero.\n\
+  The shrinkage is largest for small kappa (small-signal regime), which is\nexactly the regime relevant here.\n\nAt w=0.50\
+  \ (post-2015 zero fraction, verified), n=345, and plausible\nann-SR in [0.3, 0.9] for CB event returns:\n  - Per-event SR\
+  \ kappa ∈ [0.043, 0.129]\n  - Theoretical ratio ≈ 0.704–0.707 (nearly kappa-independent at small kappa)\n  - Empirical ratio\
+  \ (synthetic simulation): 0.700–0.814\n  - Median Δp (corrupt minus clean): +0.038 to +0.077\n\nConclusion Q1: Adding ~50%\
+  \ zeros makes a KILL MORE LIKELY. The signal\nis attenuated, p_post is inflated, and RULE-1 fires on a weaker signal.\n\
+  This is a STRUCTURALLY UNFAVORABLE corruption — it favors rejection of\nthe strategy by the screening gate, not promotion\
+  \ of it.\n\n─────────────────────────────────────────────────────────────────────────\nSECTION 2: KILL-MONOTONE (Q2)\n\n\
+  Naive signal-only analysis suggests: p_clean < p_corrupt, so if the\ncorrupted test KILLs (p_corrupt > alpha_kill), the\
+  \ clean test MIGHT OR\nMIGHT NOT KILL depending on whether p_clean still exceeds alpha_kill.\n\nFrom the recorded statistics:\n\
+  \  t_corrupt ≈ 0.787 (from p_post=0.2158)\n  t_clean   ≈ 0.787 / 0.706 ≈ 1.114 (using ratio at kappa≈0.086)\n  p_clean \
+  \  ≈ 0.133\n\nAt alpha_kill=0.05: p_clean=0.133 > 0.05 → KILL survives.\nAt alpha_kill=0.15: p_clean=0.133 < 0.15 → KILL\
+  \ does NOT survive.\nThe result depends on the exact threshold.\n\nBut there is a second, deeper distortion: the block bootstrap\
+  \ null\ndistribution is itself computed from the corrupted data. RBA and BOC\nblocks have zero variance — every bootstrap\
+  \ resample of these blocks\ncontributes exactly 0 to the bootstrap test statistic. This creates\ntwo competing forces:\n\
+  \n  Force A (mean shrinkage): t_obs shrinks → p_obs inflates → toward KILL\n  Force B (null narrowing): bootstrap null has\
+  \ reduced variance due to\n    degenerate blocks → t_obs appears MORE extreme relative to null\n    → p deflates → away\
+  \ from KILL\n\nThese forces oppose each other. The net direction depends on the relative\nmagnitude, which in turn depends\
+  \ on the bootstrap implementation (does it\ndrop degenerate blocks? does it resample them?). Without simulating the\nspecific\
+  \ block-bootstrap, the sign of the net bias on p_post cannot be\nestablished.\n\nRULING: NOT-PROVABLE.\nThe recorded KILL\
+  \ at p_post=0.2158 is not interpretable as a clean-data\ninference. It is neither provably conservative nor provably anti-conservative.\n\
+  The result must be treated as VOID until a clean re-run is completed.\n\n─────────────────────────────────────────────────────────────────────────\n\
+  SECTION 3: RE-RUN INFORMATIVENESS + COST LEVER (Q3)\n\nQ3a — Pre-revealed informativeness:\nThe corrupted one-shot reveals\
+  \ almost no information about the clean\nre-run's RULE-1 verdict. Only ECB events (approximately, if ECB's pairs\nare exactly\
+  \ the 3 cost-covered pairs) are unchanged. FED events (50%\nof per-event return missing), BOJ events (83% missing), and\
+  \ all RBA/BOC\nevents (100% new) will move. RBA+BOC contribute ~50% of the post-2015\nzero mass — the most critical region\
+  \ for the KILL verdict — and are\nentirely new in a clean run. The re-run is not pre-determined.\n\nQ3b — Cost-lever sensitivity:\n\
+  Sensitivity: |∂t/∂c_k| = sqrt(n) / (s * K_k) * (N_{k,events}/N_total)\nAt n=345, s=1%, K_k=6: maximum |Δt| per pair ≈ 0.31\
+  \ t-units.\nThe recorded gap between t_obs_post=0.787 and t_kill=1.626 is 0.839\nt-units. The cost lever cannot bridge this\
+  \ gap under any plausible\nper-pair spread choice. Cost discretion is NOT a material gaming\nsurface for the post-2015 RULE-1\
+  \ verdict.\n\nNote: when the clean re-run is performed, introducing real costs for\nthe currently-zero-imputed pairs (RBA,\
+  \ BOC) will FURTHER REDUCE y_e\nfor those events (costs are negative), pushing the mean down, making\np_post higher, reinforcing\
+  \ the KILL direction. The corrected run is\nexpected to KILL at least as readily as the corrupted one on this channel.\n\
+  \nQ3c — Mechanical cost rule:\nThe frozen rule is specified under 'mechanical_cost_rule' above. Core\nmechanics: each pair's\
+  \ cost is set to the historical median spread from\nits daily spreads parquet, rounded to 2 decimal places, written to a\n\
+  timestamped manifest before the re-run fires. No post-freeze overrides\nare permitted. USDCAD requires a unit audit step\
+  \ before freezing\n(median 45.00 appears to be in fractional-pip units; correct value\nis likely 4.50 pips after dividing\
+  \ by 10).\n"
+knowledge_gaps:
+- Exact alpha_kill threshold for RULE-1 (determines whether p_clean~0.133 is a KILL)
+- Whether the QRB-6 block bootstrap excludes or includes degenerate zero-variance banks
+- USDCAD spread unit denomination (fractional pip vs standard pip in parquet storage)
+- Exact pair composition per CB bank (particularly ECB and BOJ pair lists)
+- Whether FED's 6-pair definition is symmetric or pairs are assigned asymmetrically
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no_capital_instruction: true
+no-capital-instruction: true

@@ -1,0 +1,546 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent
+timestamp: "2026-06-07T08:30:00Z"
+subtask_ref: qrb6-run-integrity
+subtask_id: "qrb6-prereg-2026-06-06:phase1:task1.0"
+trial_id: fa0f982a
+claimed_domains:
+  - p-hacking-and-data-snooping-detection
+  - replication-protocol-design
+  - structural-skepticism-on-any-claim
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION A: DOES RULE_1_KILL_POST2015 STAND AS THE CONFIRMATORY OUTCOME?
+# ═══════════════════════════════════════════════════════════════════════════════
+
+kill_stands: no
+
+kill_stands_basis: >
+  RULE_1_KILL_POST2015 (p_post=0.2158, decision field in STEP-RESULT.yaml) does NOT
+  stand as the confirmatory outcome. Binding reason: §1.4 of the pre-registration VOIDS
+  confirmatory status on parameter drift and event-set deviation. Both are present, verified:
+
+  (1) EVENT-SET DEVIATION. The frozen event set (§3.1, §4.4.3) specifies that each
+  bank-event observation equals the equal-weight average of sign-aligned net-of-COST
+  returns across that bank's responsive pairs. "Net-of-cost" is load-bearing: it means
+  the cost model must resolve all mapped pairs. The cost config (config/default.yaml)
+  covers exactly 3 of 12 mapped pairs (EURUSD, USDJPY, GBPUSD). The remaining 9 pairs
+  (USDCAD, AUDUSD, NZDUSD, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY, EURGBP) carry zero
+  cost entries. For RBA (AUDUSD, AUDJPY) and BOC (USDCAD, CADJPY), EVERY mapped pair is
+  uncovered — the bank-event statistic collapses to a quantity that is NOT the frozen
+  quantity (net-of-cost return); it is the raw return minus zero, i.e. it is gross return,
+  which violates the pre-registered cost-net definition. This is confirmed by the
+  STEP-RESULT: per_bank_sharpe BOC=0.0, RBA=0.0 — not a zero true Sharpe finding, but a
+  structural artifact of uncovered cost entries producing RBA/BOC bank-events that are
+  computed on a different quantity than specified.
+
+  (2) PARAMETER DEVIATION — ZERO-IMPUTATION INSTEAD OF EXCLUSION. §5.5 and §4.4.3 jointly
+  require that events where the cost model does not resolve a pair be EXCLUDED (suppressed),
+  not zero-imputed. The runner instead zero-imputed the RBA and BOC bank-events into the
+  pooled statistic (contributing y_e=0 from those banks) rather than excluding those bank-
+  event rows. This is a direct deviation from the registered exclusion protocol. The fractions:
+  ~44.5% of the full-window pooled statistic is fabricated zeros (RBA+BOC events contributing
+  to the n=506 pool with zero bank-event statistics); ~50.7% of the post-2015 pool is
+  fabricated zeros (RBA+BOC contribute 117+58=175 of 345 deduped post-2015 event-days per
+  the pre-registered event counts at qr-prereg-draft.yaml lines 51-54).
+
+  (3) §1.4 VOID TRIGGER. Either condition independently triggers the §1.4 VOID: "parameter
+  drift" covers the cost-net-vs-gross deviation; "event-set deviation" covers the zero-
+  imputation instead of exclusion. Both apply here. The §1.4 VOID is not a discretionary
+  judgment — it is a bright-line rule in the frozen specification that the runner did not
+  satisfy. No outcome produced on an event set that deviates from the registered event set
+  can carry confirmatory status.
+
+  NOTE ON BIAS DIRECTION (conditional on Math's pending analysis, math-bias-analysis.yaml):
+  The verified facts state the likely bias direction is: zeros inflate the variance of the
+  pooled y_e, deflate the signal-to-noise, and push p_post TOWARD the KILL region (higher p
+  = weaker rejection = easier KILL). This means the corrupted KILL at p_post=0.2158 is
+  "too easy" — it could fire even if FED and BOJ have real edge, because RBA/BOC
+  zero-contamination dilutes the pooled statistic. This is NOT a conservative-safe direction
+  for a kill test; a conservative kill test would use a HARDER threshold (lower p needed to
+  kill), not an easier one achieved through data corruption. The KILL is therefore
+  uninterpretable regardless of bias direction, because the event-set deviation makes the
+  realized p-value structurally incomparable to the pre-registered null distribution. My
+  ruling rests on the §1.4 spec-violation grounds alone; the bias direction compounds the
+  interpretive failure but does not change the ruling.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION B: TRIAL DISPOSITION — RANKING AND PICK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+trial_disposition_ranking:
+
+  rank_1:
+    option: "(ii) VOID-then-remediated-rerun"
+    description: >
+      Fix cost config via a MECHANICAL rule frozen before re-run (Math specifies it),
+      append a remediation amendment disclosing the contaminated first look,
+      re-run ONCE under the amended spec.
+    basis: >
+      This is the correct disposition. The trial consumed a real run with real data — that
+      cannot be undone. But the failure is mechanical (missing cost entries for 9 of 12
+      pairs), not conceptual (the hypothesis and statistic are correctly designed). The
+      contamination is fully disclosed (this adjudication + the STEP-RESULT on disk). The
+      corrupted p-values (p_agg=0.0791, p_post=0.2158) are permanently on record and cannot
+      be cherry-picked or suppressed. The cost-config gap is a MECHANICAL deficit with a
+      deterministic fix: extend config/default.yaml to cover all 12 pairs with costs derived
+      by a pre-registered rule (e.g. median-spread from the spreads parquet, or a per-pair
+      floor + buffer — Math must specify the exact rule BEFORE the re-run is authorized).
+      A remediated re-run under the corrected event set produces an interpretable result.
+      The extra inflation/penalty demanded for the second look is addressed below in Section C.
+
+  rank_2:
+    option: "(i) VOID-no-outcome"
+    description: >
+      Trial fa0f982a burned, NO valid KILL recorded, QRB-3 does NOT auto-advance.
+    basis: >
+      Legitimate but unnecessarily wasteful if the failure is remediable. The event set
+      and statistic design are sound; only the cost-config coverage is wrong. A full VOID
+      with no re-run would forfeit the calendar acquisition, the verified 506/345 counts, the
+      frozen pre-reg (which survives the §1.4 void — the pre-reg is not voided, only the
+      RUN output), and the runner infrastructure. Option (ii) is strictly more informative.
+      Option (i) would be the correct disposition if the contamination were non-mechanical
+      (e.g., if return data had been examined pre-freeze, corrupting the no-peek boundary) —
+      that would be a fatal integrity failure with no path to re-run. This is not that case.
+
+  rank_3:
+    option: "(iii) KILL-stands"
+    description: "Only if Math proves kill-monotone (zeros in zero-imputed banks push p monotonically toward kill)."
+    basis: >
+      REJECTED. Math's analysis (math-bias-analysis.yaml) is PENDING. Even if Math were to
+      prove kill-monotone — that is, zeros from RBA/BOC zero-imputation could only INCREASE
+      p_post (making the kill fire more easily than on the true signal) — this does NOT make
+      the kill conservative-safe. A kill-monotone proof would show the corrupted run is an
+      UPPER BOUND on the true p_post, meaning the true p_post (on correctly excluded events)
+      could only be LOWER (closer to rejection). But a lower p_post on a smaller, cleaner
+      event set might PASS the RULE 1 gate — which is the opposite of the kill outcome. Kill-
+      monotone under zero-imputation does not imply kill-monotone under exclusion: the two
+      procedures change n (the exclusion shrinks the post-2015 pool), which changes the
+      bootstrap null distribution non-monotonically. There is no clean path to kill-stands
+      without running the corrected event set. The KILL does not stand.
+
+  pick: "(ii) VOID-then-remediated-rerun"
+  pick_basis: >
+    The contamination is mechanical and fully disclosed; the pre-reg design is sound; the
+    infrastructure (runner, receipt interlock, tests) is in place. A remediated re-run with
+    a frozen cost rule, disclosed first-look numbers, and the extra inflation penalty
+    demanded below is the scientifically honest and operationally efficient path.
+    QRB-3 does NOT auto-advance (§5.4 graduation map requires a VALID post-2015 KILL from
+    a clean run of QRB-6; the corrupted KILL is not valid).
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION C: CONTAMINATION OF A RE-RUN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+contamination_accounting:
+
+  what_was_seen: >
+    The following were seen (all in STEP-RESULT.yaml, now permanently on disk):
+    - p_agg = 0.0791 (pooled full-window, would marginally fail the primary gate alone)
+    - p_post = 0.2158 (post-2015, fired RULE_1_KILL under corrupted event set)
+    - dsr = 0.768 (fails DSR gate; DSR_cleared=false)
+    - sr_ann_pooled = 0.9348 (annualized pooled Sharpe, full window)
+    - per_bank_sharpe: BOC=0.0 (corrupted), BOJ=1.718 (partially valid — mapped pairs include USDJPY which is covered, but also EURJPY/GBPJPY/AUDJPY/CADJPY/NZDJPY which are uncovered; BOJ Sharpe is also partially contaminated), FED=0.423 (partially valid — EURUSD/GBPUSD/USDJPY covered; USDCAD/AUDUSD/NZDUSD uncovered), RBA=0.0 (corrupted)
+    - reversal_fraction = 0.239
+    - n_suppressed = 332 of 506 (from spread_z overlay, a separate issue from the cost-config gap)
+    These numbers cannot be unseen. They are disclosed by this adjudication and the STEP-RESULT artifact.
+
+  how_gameable_is_post_exposure_cost_choice: >
+    The cost-config gap is a BINARY gap (pair either covered or not), not a continuous
+    parameter. But the VALUES chosen for uncovered-pair costs could still be gamed:
+    a researcher who has seen p_agg=0.0791 and p_post=0.2158 could (consciously or not)
+    set the newly-added per-pair costs to values that push the pooled statistic toward a
+    desired outcome. The gameable surface is:
+    (a) the cost LEVEL for each uncovered pair — higher costs reduce gross returns, pushing
+        p toward 1 (PASS harder, KILL easier); lower costs approach zero-cost (the
+        contaminated case), leaving p unchanged;
+    (b) the functional form (fixed pip, proportional, spread-derived) — each maps to
+        different cost levels across pairs with different average spreads;
+    (c) SELECTION of which uncovered pairs to cover vs. keep at zero — but all 12 pairs
+        must be covered, so this is not a DOF if the mechanical rule requires 100% coverage.
+    Gameability is MATERIAL given the known p values. A person who knows p_post=0.2158
+    can select costs that nudge p in the desired direction. This is the canonical contamination
+    problem of a re-run after a first-look.
+
+  binding_procedure_for_honest_rerun: >
+    MANDATORY preconditions before a remediated re-run is authorized:
+
+    1. MECHANICAL COST RULE FROZEN AND RATIFIED BEFORE RE-RUN.
+       The rule for assigning costs to all 12 pairs must be:
+       (a) Derivable mechanically from data that was available BEFORE the run — i.e., the
+           spreads parquet (data/spreads/{PAIR}_daily_spreads.parquet) is the correct
+           source; do NOT allow per-pair manual entry.
+       (b) The exact formula must be: cost_pips = f(spread_parquet) where f is a fixed
+           function (e.g., median daily spread + 0.3 pip slippage + 0.5 pip commission, or
+           some formula Math specifies). The formula must be the SAME for all pairs (no
+           pair-specific tuning). A natural mechanical rule: for each pair, compute the
+           median spread_pips from the spreads parquet over the full backtest window, add
+           a fixed slippage constant and commission constant equal to the values already
+           used for the 3 covered pairs in config/default.yaml (slippage_pips=0.5,
+           commission_pips=0.5), and cap at a reasonable max (e.g., 5 pips) to prevent
+           outlier spreads from driving the result.
+       (c) Math must author and ratify the exact rule in a signed artifact BEFORE the
+           re-run is triggered. NHT must review and countersign. The rule must be committed
+           to git with a timestamp PRECEDING the re-run timestamp.
+       (d) NO human judgment may be applied to the per-pair cost values after this rule
+           is fixed. The runner must derive costs from the spreads parquet + the formula
+           algorithmically, without manual override.
+
+    2. FIRST-RUN NUMBERS PERMANENTLY DISCLOSED.
+       The STEP-RESULT.yaml (p_agg=0.0791, p_post=0.2158, per-bank Sharpes, dsr=0.768)
+       and this adjudication must remain on disk, unmodified, as permanent record. The
+       remediated re-run result is APPENDED, not substituted. Anyone reading the audit
+       trail sees both runs and the reason for the re-run.
+
+    3. EXTRA DEFLATION / INFLATION PENALTY FOR THE SECOND LOOK.
+       The two corrupted p-values (p_agg, p_post) were seen before the re-run. Even
+       though they are structurally invalid, they carry information about the direction
+       of the signal. The remediated run will produce p-values on a different (corrected)
+       event set, which partially limits the damage — but the first-look information is
+       still a prior that could influence the probability of cherry-picking the mechanical
+       cost rule.
+       REQUIRED PENALTY: the remediated run's KILL thresholds are TIGHTENED:
+       - The primary p-gate tightens from 0.0478 to 0.0390 (approximately 0.0478 * 0.82,
+         a 18% tightening, reflecting the information leakage from one contaminated look).
+         The exact tightening factor MUST be derived by Math from a Bonferroni-style two-
+         look adjustment or a pre-specified alpha-spending rule (e.g., O'Brien-Fleming
+         two-stage with contaminated first look), committed in the cost-rule ratification
+         artifact. This is a suggested floor; Math may require a stricter adjustment.
+       - Alternatively (and preferably): NHT and Math jointly adopt the approach that
+         the remediated run MUST clear BOTH the p-gate AND a per-bank Sharpe floor (floor
+         to be specified by Math) for EVERY bank, not just the pooled statistic. This makes
+         it structurally harder for a gaming of the RBA/BOC cost level to swing the result.
+       - The DSR gate (dsr >= 0.95 at sr0_pp_sel=0.026861) is UNCHANGED (it already
+         failed at 0.768; tightening it further would make the gate degenerate).
+
+    4. EXCLUSION, NOT IMPUTATION, IS THE CORRECTED BEHAVIOR.
+       After the cost rule is applied, any pair STILL not resolving (e.g., due to missing
+       spread data for a specific date) must be EXCLUDED from that event's bank-event
+       average, not zero-imputed. The runner must implement the §4.4.3 exclusion protocol
+       exactly. If a bank's ALL mapped pairs are excluded for a given event, that bank-event
+       is excluded from the pool. NHT will verify exclusion vs. imputation via the
+       n_suppressed and n_degenerate fields in the STEP-RESULT.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION D: ORCHESTRATOR RE-EXECUTION RULING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+orchestrator_violation_ruling:
+
+  description_of_event: >
+    The orchestrator self-reported: it accidentally re-executed the live runner once during
+    diagnostics. The runner ran with the frozen seed (master_seed=387992) and the identical
+    code, producing a bit-identical output. No new numerical information was generated beyond
+    what the first run produced.
+
+  materiality: >
+    IMMATERIAL as to information content. A bit-identical re-execution under a frozen seed
+    with identical code produces exactly the same p-values, DSR, and per-bank Sharpes as the
+    first run. No additional information about the signal was introduced; no cherry-picking
+    opportunity arose. The re-execution did not expand the set of seen values in any way.
+
+  required_consequence: >
+    DISCLOSURE ONLY. The re-execution must be logged in spawns.jsonl or the trials.jsonl
+    amendment (whichever the firm uses for run-event logging) with:
+    (a) timestamp of the re-execution,
+    (b) the determination that the output was bit-identical to the first run,
+    (c) the self-report context (diagnostic, not intentional),
+    (d) a statement that no new values were produced and no information advantage accrued.
+    No additional penalty, no tightening of the kill threshold on account of this event
+    alone. The materiality finding (deterministic, identical) is the bounding argument:
+    a re-run that cannot produce a new value cannot corrupt the pre-registration protocol.
+    If subsequent investigation reveals the output was NOT bit-identical (e.g., due to
+    a non-deterministic code path), this ruling upgrades to a contaminating second look
+    and the full Section C contamination procedure applies.
+
+  process_consequence: >
+    The orchestrator's ability to trigger the live runner outside the CEO-ack gate must be
+    reviewed. The runner's --ceo-ack requirement exists precisely to prevent accidental
+    execution. If the orchestrator bypassed or was granted the --ceo-ack flag during
+    diagnostics, the gate is not functioning as designed. CTO must verify whether the
+    re-execution used --ceo-ack and, if so, who authorized it and whether that authorization
+    is logged. This is a process integrity question, not a data-integrity question.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION E: STRUCTURAL GATE FOR ALL FUTURE FREEZES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+structural_check_demanded:
+
+  failure_description: >
+    The 12-pair map was frozen in the pre-registration (qr-prereg-draft.yaml lines 47-57,
+    the pair_bank_map) over a cost config (config/default.yaml) that covered only 3 of those
+    12 pairs. This gap was not detected by: the QR authoring the pre-reg, the Math reviewing
+    the statistic design, the NHT in two audit cycles (nht-audit.yaml cycle-1, nht-delta-
+    audit.yaml cycle-2), the PR review in two waves (pr-review.yaml, pr-review-cycle2.yaml),
+    the orchestrator during diagnostics, or the QD implementing the runner (qd-runner.yaml
+    noted the live cost path was a TODO). The gap survived every human and automated review
+    until the run itself.
+
+  mechanical_pre_freeze_gate_required: >
+    GATE REQUIREMENT: Before the freeze-receipt SHA is cut for ANY pre-registration that
+    names a set of trading pairs, an automated assertion must verify that:
+    (a) Every pair in the registered pair-bank map resolves to a non-zero, non-null cost
+        entry in the active cost config (config/default.yaml or the specified config for
+        that trial), AND
+    (b) A data file exists for every pair at the expected path (data/processed/{PAIR}_daily.parquet
+        and data/spreads/{PAIR}_daily_spreads.parquet), AND
+    (c) The assertion is implemented as a committed pytest test (not an ad-hoc check) that
+        runs as part of the standard test suite before the freeze-receipt script is invoked.
+
+  mechanical_form: >
+    Concretely: a test in tests/harness/test_qrb6_freeze_preflight.py (or a universally-
+    applied test in tests/harness/test_freeze_preflight.py for all future trials) that:
+
+      def test_all_registered_pairs_have_cost_config():
+          from forex_system.costs.model import RealisticCostModel
+          registered_pairs = [all 12 pairs from the frozen pair_bank_map]
+          model = RealisticCostModel.from_config(config_path)
+          for pair in registered_pairs:
+              cost = model.get_cost(pair, direction=Direction.LONG, bars=1)
+              assert cost > 0, f"Pair {pair} has zero/null cost — cost config gap"
+
+    This test must be committed and GREEN before cut_freeze_receipt.py is permitted to
+    run for the given trial. The cut_freeze_receipt.py script must be modified to assert
+    the preflight test passes (by calling pytest programmatically or checking its last
+    run timestamp against the freeze timestamp) before writing the receipt. A receipt
+    written without a passing preflight is rejected by the runner's interlock.
+
+  owner: CTO
+  owner_basis: >
+    The pre-reg pair map and cost config are both committed code artifacts. Asserting their
+    consistency is a code-level invariant, not a research judgment. CTO owns the harness
+    infrastructure and the cut_freeze_receipt.py gating logic. CTO is the correct owner
+    for a mechanical gate that runs on every freeze, independent of which researcher
+    authored the pre-reg. The NHT's F6 closure already established the pattern: structural
+    invariants (runner-commit ordering) are expressed as committed tests and doc-level
+    enforcements owned by the engineering chain, not the research chain. This gate follows
+    the same pattern.
+
+  severity_of_historical_failure: >
+    The cost-config gap survived N=7 distinct review checkpoints (QR authoring, Math review,
+    NHT cycle-1, NHT cycle-2, PR wave-1, PR wave-2, orchestrator diagnostics) without
+    detection. This is a systemic audit failure, not a single-reviewer oversight. The fix
+    is systemic: a machine-checkable gate that cannot be bypassed by any reviewer's
+    attention failure. Manual review is not sufficient for this class of invariant.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DISSENT STATEMENT — VERBATIM PERMANENT RECORD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+dissent-statement: >
+  QRB-6 RUN INTEGRITY ADJUDICATION — NHT POST-RUN RULING — 2026-06-07.
+
+  TRIAL fa0f982a. RECEIPT SHA 08d03614. RUN DECISION: RULE_1_KILL_POST2015
+  (p_post=0.2158, p_agg=0.0791, dsr=0.768).
+
+  RULING: THE KILL DOES NOT STAND. THE RECORDED OUTCOME IS NOT VALID.
+  DISPOSITION: VOID-then-remediated-rerun (option ii). QRB-3 does NOT auto-advance.
+
+  THE KILL DOES NOT STAND because the run was executed on an event set that deviates from
+  the frozen specification on two independent grounds, each of which independently triggers
+  the §1.4 VOID:
+
+  DEVIATION 1 — COST-CONFIG COVERAGE. The frozen pre-registration (§4.4.3, §5.5) requires
+  net-of-cost returns on all registered pairs. config/default.yaml covers 3 of 12 registered
+  pairs (EURUSD, USDJPY, GBPUSD). The remaining 9 pairs (USDCAD, AUDUSD, NZDUSD, EURJPY,
+  GBPJPY, AUDJPY, CADJPY, NZDJPY, EURGBP) resolve to zero cost entries. For RBA
+  (AUDUSD, AUDJPY) and BOC (USDCAD, CADJPY), EVERY mapped pair is uncovered — these
+  bank-events were computed on gross returns, not net-of-cost returns as registered. The
+  STEP-RESULT confirms: per_bank_sharpe BOC=0.0, RBA=0.0 — structural artifacts of the
+  coverage gap, not findings about the signal.
+
+  DEVIATION 2 — ZERO-IMPUTATION INSTEAD OF EXCLUSION. §4.4.3/§5.5 require exclusion of
+  events where the cost model does not resolve. The runner zero-imputed RBA and BOC bank-
+  event statistics into the pooled statistic instead of excluding those bank-event rows.
+  The consequence: approximately 44.5% of the full-window pooled y_e vector (n~225 of 506
+  event-days) and approximately 50.7% of the post-2015 pool (175 of 345 deduped days from
+  RBA+BOC, per the pre-registered event counts) consist of fabricated zeros — bank-event
+  statistics computed on the wrong quantity or imputed where exclusion was required.
+
+  THE BIAS IS NOT CONSERVATIVE-SAFE. The zeros from uncovered pairs inflate the variance
+  of the pooled statistic, dilute the signal from FED and BOJ (which have partial cost
+  coverage), and push p_post toward the KILL region — making the kill "too easy," not
+  conservative. A kill that fires because of structural contamination, not because the
+  hypothesis fails, is uninterpretable. The p_post=0.2158 cannot be read as evidence
+  for or against the hypothesis; it is evidence of the coverage gap.
+
+  WHAT THE FIRST RUN DOES TELL US (disclosing for the record, not as confirmatory evidence):
+  The partially-valid FED and BOJ observations (on their covered pairs only — EURUSD, USDJPY,
+  GBPUSD for FED; USDJPY for BOJ among covered pairs) produced a pooled Sharpe of 0.935 and
+  per_bank_sharpe BOJ=1.718, FED=0.423. These numbers were produced on an INCOMPLETE and
+  PARTIALLY CONTAMINATED event set and carry NO confirmatory weight. They are disclosed
+  here as a first-look record to be disclosed to the remediated-run reviewer. They cannot
+  be cited as supporting or opposing the hypothesis.
+
+  MANDATORY PRECONDITIONS FOR A REMEDIATED RE-RUN:
+  (1) Math must author and commit a mechanical cost rule (derived from spreads parquet,
+      no manual per-pair tuning, same formula for all 12 pairs) BEFORE the re-run is
+      authorized. NHT countersigns.
+  (2) The extra inflation penalty for the second look must be formalized by Math (Bonferroni
+      two-look adjustment or O'Brien-Fleming alpha-spending; floor tightening of primary
+      p-gate from 0.0478 toward ~0.0390 or stricter per Math's derivation).
+  (3) The corrected runner must implement §4.4.3 EXCLUSION (not zero-imputation) for any
+      pair or bank-event with missing cost entries.
+  (4) First-run numbers (p_agg=0.0791, p_post=0.2158, per-bank Sharpes, dsr=0.768,
+      STEP-RESULT.yaml) remain on disk, unmodified, as permanent record.
+  (5) The structural gate (pair-cost-coverage assertion test, CTO-owned, committed before
+      freeze-receipt cut) must be implemented BEFORE the next freeze-receipt is cut.
+
+  THE ORCHESTRATOR RE-EXECUTION (bit-identical, frozen seed, same code): IMMATERIAL.
+  Disclosure required in the run log; no additional penalty; no tightening of kill threshold
+  on this event alone. The --ceo-ack bypass during diagnostics is a process integrity concern
+  for CTO to investigate.
+
+  STRUCTURAL FAILURE OF REVIEW. The cost-config gap survived 7 review checkpoints (QR, Math,
+  NHT cycle-1, NHT cycle-2, PR wave-1, PR wave-2, orchestrator diagnostics) without detection.
+  This is a systemic failure. A machine-checkable gate — every registered pair must resolve
+  to a non-zero cost entry, asserted by a committed pytest test that gates the freeze-receipt
+  script — is the correct structural fix. CTO owns it. Manual review cannot reliably catch
+  this class of schema-vs-config consistency failure.
+
+  I am NOT dissenting against the hypothesis, the statistic design, the pre-reg methodology,
+  or the infrastructure. All of those are sound. I am ruling that this specific run, on this
+  specific contaminated event set, produced an uninterpretable result that cannot carry
+  confirmatory status. The path forward (VOID-then-remediated-rerun) preserves the trial
+  investment while maintaining the integrity of the one-shot protocol.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# METADATA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+severity: critical
+severity_calibration: >
+  CRITICAL (not material_concern, not advisory). The RULE_1_KILL_POST2015 decision was
+  recorded in a STEP-RESULT artifact with confirmatory-trial naming. If not adjudicated,
+  this outcome would propagate to the firm's alpha-pipeline decisions (wind-down trigger,
+  QRB-3 auto-advance question) with a structurally invalid basis. The contamination fraction
+  (~50.7% post-2015) is not a small perturbation — more than half of the post-2015 pool
+  was fabricated zeros. CRITICAL reflects: (a) material contamination fraction; (b) the
+  kill outcome is the terminus of the confirmatory trial; (c) the structural review failure
+  that allowed this to occur; (d) the irreversibility of the first-look exposure.
+
+contamination-check: >
+  I reviewed: the STEP-RESULT.yaml (all fields); the FREEZE-RECEIPT.yaml; the pre-reg
+  qr-prereg-draft.yaml (pair_bank_map at lines 47-57, event counts); config/default.yaml
+  (cost coverage: 3 of 12 pairs confirmed by grep); the qd-runner.yaml (live cost path
+  noted as TODO at the time of runner authoring); math-bias-analysis.yaml (PENDING — the
+  Math bias analysis was not yet complete; my ruling is stated to be conditional on its
+  finding and grounded independently on §1.4 spec-violation grounds). I did NOT compute,
+  request, or read any OHLCV return series beyond what the STEP-RESULT records as its own
+  output fields. The p-values and Sharpes I cite are directly from the STEP-RESULT artifact,
+  not from any independent return computation. The event-count arithmetic (50.7% = 175/345)
+  uses only the pre-registered event counts from qr-prereg-draft.yaml lines 51-54, which
+  are calendar counts (not performance), previously accepted as BINDING by my prior NHT
+  rescreen.
+
+evidence:
+  - "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.yaml — decision: RULE_1_KILL_POST2015; p_post=0.2158; p_agg=0.0791; dsr=0.768; per_bank_sharpe BOC=0.0, RBA=0.0 (CONFIRMED from file, all fields)"
+  - "references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml — trial_id: fa0f982a; prereg_sha256: 08d03614...; frozen_at_utc: 2026-06-07T07:46:49 (CONFIRMED from file)"
+  - "config/default.yaml:11-33 — pairs section covers exactly EURUSD, USDJPY, GBPUSD (3 pairs, 9 uncovered: USDCAD, AUDUSD, NZDUSD, EURJPY, GBPJPY, AUDJPY, CADJPY, NZDJPY, EURGBP)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-prereg-draft.yaml:47-57 — pair_bank_map: FED 6 pairs, BOJ 6 pairs, RBA 2 pairs (AUDUSD/AUDJPY), BOC 2 pairs (USDCAD/CADJPY); all 12 in the registered universe (CONFIRMED from file)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qr-prereg-draft.yaml:51-54 — post2015 event counts FED=89, BOJ=97, RBA=117, BOC=58 (calendar counts, binding from NHT rescreen)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/qd-runner.yaml:92-93 — 'The live data path (cost model for net-of-cost returns) uses raw price differences without applying the per-pair cost model. A TODO comment marks this.' (CONFIRMED: cost path was known incomplete at runner-authoring time)"
+  - ".fintech-org/artifacts/2026-06-06T-qrb6-prereg/math-bias-analysis.yaml — decision: PENDING (Math bias analysis not yet complete; ruling stated conditional on finding)"
+  - ".fintech-org/trials.jsonl — trial fa0f982a registered at spawn; status update pre-registered-frozen at 2026-06-07T07:16:50Z (CONFIRMED)"
+  - "arithmetic: (117+58)/345 = 175/345 = 50.7% post-2015 from RBA+BOC banks (zero-SR banks) — verified by python3 calculation on given pre-registered event counts"
+  - "arithmetic: 3/12 = 25.0% cost-config coverage; 9 uncovered pairs — verified by python3 calculation on config/default.yaml pair count and pre-reg pair map"
+
+assumptions:
+  - "The per_bank_sharpe=0.0 for BOC and RBA in the STEP-RESULT is a structural artifact of the cost-config gap (all their mapped pairs uncovered), not a genuine zero-signal finding. This is the natural interpretation: the runner's cost path for uncovered pairs returns zero-cost, causing the bank-event statistic to equal the raw return average; but per qd-runner.yaml line 92, 'uses raw price differences without applying the per-pair cost model' — meaning net-of-cost return equals gross return for uncovered pairs. If gross returns for RBA/BOC averaged exactly zero, the Sharpe would also be zero by coincidence — but BOJ (1.718) and FED (0.423) being non-zero confirms the runner is computing non-trivial values for covered pairs; the zero for RBA/BOC is therefore the structural-gap artifact, not a coincidental true-zero result."
+  - "The 50.7% zero-fraction figure is computed from the pre-registered event counts (RBA=117, BOC=58, total post-2015 deduped=345). The deduplication (22 same-day multi-bank overlaps in Scenario A per qr-prereg-draft.yaml) reduces the raw count; the 50.7% is the correct fraction for the deduped pool. The dispatch-stated 50.1% is consistent within rounding."
+  - "Math's bias-direction analysis (math-bias-analysis.yaml) is PENDING. My ruling on the §1.4 VOID does not depend on bias direction — the VOID is triggered by the spec-deviation alone. The bias-direction analysis would determine whether the contaminated KILL is an upper or lower bound on the true p_post, which is relevant to the remediation-track Section C penalty computation but not to the KILL-stands ruling."
+  - "The orchestrator's self-report of bit-identical output from the re-execution is accepted at face value. If this report is incorrect (non-deterministic path, different seed path, or different code version), the immateriality ruling does not hold and this must be escalated."
+
+confidence: high
+confidence_calibration: >
+  HIGH on the kill-stands ruling: the §1.4 VOID trigger is a binary spec-compliance check,
+  not a statistical judgment. The cost-config gap (3 of 12 pairs covered, confirmed by reading
+  config/default.yaml) and the per_bank_sharpe=0.0 for RBA/BOC (confirmed by reading
+  STEP-RESULT.yaml) are directly observed facts, not inferences. The §1.4 language (parameter
+  drift, event-set deviation) maps unambiguously to these facts.
+  HIGH on the disposition pick (VOID-then-remediated-rerun over VOID-no-outcome): the failure
+  is mechanical, not conceptual; the pre-reg design is sound and survives the §1.4 VOID; the
+  infrastructure is in place.
+  MEDIUM on the exact extra-penalty tightening factor (0.0390 is a reasonable floor but the
+  precise Bonferroni/alpha-spending adjustment requires Math's derivation, which I cannot perform).
+  LOW on the Math bias-direction finding (math-bias-analysis.yaml is PENDING; my characterization
+  of the bias as "zeros push p toward KILL" is the expected direction from first principles but
+  is stated as conditional on Math's confirmation).
+
+body: >
+  Post-run integrity adjudication for trial fa0f982a (QRB-6 CB-decision event study,
+  Scenario A, one-shot confirmatory). The run recorded RULE_1_KILL_POST2015 in
+  STEP-RESULT.yaml (p_post=0.2158, p_agg=0.0791, dsr=0.768). Two independent
+  pre-registration deviations were verified:
+
+  DEVIATION 1: Cost-config coverage. config/default.yaml covers 3 of 12 registered pairs.
+  RBA (AUDUSD/AUDJPY) and BOC (USDCAD/CADJPY) — 4 of 12 pairs, mapped to 2 of 4 banks —
+  have zero cost entries. Their bank-event statistics were computed on gross returns (zero
+  cost deducted), not net-of-cost returns as specified in §4.4.3. This is confirmed by
+  STEP-RESULT per_bank_sharpe: BOC=0.0, RBA=0.0 (structural artifact, not a signal finding).
+
+  DEVIATION 2: Zero-imputation instead of exclusion. The §4.4.3/§5.5 exclusion protocol
+  was not honored. RBA and BOC bank-events (totaling ~50.7% of the post-2015 pool and
+  ~44.5% of the full pool) were zero-imputed into the pooled statistic, contaminating the
+  bootstrap null distribution and the realized test statistic with fabricated zeros.
+
+  Both deviations independently trigger §1.4 VOID. The RULE_1_KILL_POST2015 outcome does
+  not stand. The bias from zeros is in the direction that makes the KILL "too easy" — the
+  contamination actively favors the kill outcome, meaning the kill is uninterpretable even
+  as a conservative finding.
+
+  DISPOSITION: VOID-then-remediated-rerun, ranked first over VOID-no-outcome (second) and
+  KILL-stands (rejected). QRB-3 does NOT auto-advance. The remediated re-run requires a
+  mechanical cost rule frozen and ratified by Math+NHT before execution, disclosure of
+  first-run numbers (permanently on disk), and a formally-derived extra-look penalty on
+  the kill threshold.
+
+  ORCHESTRATOR RE-EXECUTION: Immaterial (bit-identical output, frozen seed). Disclosure in
+  run log required; CTO to investigate --ceo-ack gate bypass during diagnostics.
+
+  STRUCTURAL FIX: A committed pytest test asserting every registered pair resolves to a
+  non-zero cost entry must gate the freeze-receipt script for all future trials. CTO owns.
+  The cost-config gap survived 7 review checkpoints; manual review is insufficient for this
+  class of invariant. Machine gate required before next freeze.
+
+knowledge_gaps: []
+
+policy_violations_detected:
+  - id: PV-1
+    label: COST-CONFIG EVENT-SET CORRUPTION
+    description: >
+      The runner computed bank-event statistics on gross returns (not net-of-cost) for 9
+      of 12 registered pairs (USDCAD, AUDUSD, NZDUSD, EURJPY, GBPJPY, AUDJPY, CADJPY,
+      NZDJPY, EURGBP). For RBA and BOC banks, EVERY mapped pair was uncovered, producing
+      zero bank-event statistics zero-imputed into the pooled statistic. This deviates from
+      §4.4.3 (exclusion of uncovered events, not imputation) and §5.5 (net-of-cost cost
+      model required). Triggers §1.4 VOID on both parameter-drift and event-set-deviation
+      grounds. Approximately 50.7% of the post-2015 pool (the window that fired the KILL)
+      consisted of fabricated zeros.
+    severity: critical
+    evidence: "config/default.yaml:11-33 (3 pairs); qr-prereg-draft.yaml:47-57 (12 pairs); STEP-RESULT.yaml: per_bank_sharpe BOC=0.0, RBA=0.0"
+
+  - id: PV-2
+    label: ORCHESTRATOR RE-EXECUTION OUTSIDE CEO-ACK GATE
+    description: >
+      The orchestrator triggered the live runner (scripts/run_qrb6.py) during diagnostics
+      without a separate CEO authorization. The runner requires --ceo-ack for live execution.
+      The re-execution was bit-identical (frozen seed, same code) and produced no new
+      information, ruling it immaterial on data-integrity grounds. But the --ceo-ack gate
+      was bypassed by the orchestrator without an explicit documented authorization for the
+      second trigger. This is a process violation of the execution-control protocol, even if
+      immaterial in this instance.
+    severity: advisory
+    consequence: >
+      Disclosure in run log. CTO investigation of whether --ceo-ack was re-granted during
+      diagnostics and whether that grant is logged. No re-tightening of kill threshold on
+      account of this event alone (immateriality finding holds if output confirmed bit-identical).
+    evidence: "Orchestrator self-report (dispatch verified facts); STEP-RESULT.yaml: single run_utc timestamp (2026-06-07T07:59:40Z)"
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

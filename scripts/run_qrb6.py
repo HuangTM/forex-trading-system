@@ -87,6 +87,11 @@ _RECEIPT_PATH = Path(
 _RESULT_PATH = Path(
     "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.yaml"
 )
+# Dry-run results NEVER land at the canonical path — a stub verdict at the real
+# path is poison if mistaken for the one-shot outcome (RULE-0 remediation 2026-06-07).
+_DRY_RUN_RESULT_PATH = Path(
+    "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
+)
 _CALENDAR_PATH = Path("data/rates/cb_decision_dates.parquet")
 _PROCESSED_DATA_DIR = Path("data/processed")
 _SPREADS_DATA_DIR = Path("data/spreads")
@@ -307,7 +312,7 @@ def _run_pipeline(
     K: int = int(receipt["K"])
     sr0_pp: float = float(receipt["sr0_pp"])
     dsr_threshold: float = float(receipt["dsr_threshold"])
-    spread_z_threshold: float = float(receipt.get("spread_z_threshold", 3.0))
+    spread_z_threshold: float = float(receipt["spread_z_threshold"])  # NO silent default — guard-checked
     p_kill_threshold: float = float(receipt.get("p_straddle_hi", 0.0522))
     p_reject_threshold: float = float(receipt.get("p_reject_threshold", 0.0478))
     kill_switch_threshold: float = float(receipt["kill_switch_threshold"])
@@ -861,8 +866,8 @@ def main() -> None:
         print(f"TECHNICAL FAILURE: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # --- Write result YAML ---
-    result_path = _RESULT_PATH
+    # --- Write result YAML (dry-run NEVER writes to the canonical path) ---
+    result_path = _DRY_RUN_RESULT_PATH if dry_run else _RESULT_PATH
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as fh:
         yaml.dump(result, fh, default_flow_style=False, sort_keys=False)

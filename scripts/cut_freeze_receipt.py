@@ -98,7 +98,8 @@ _TARGETS: dict[str, dict[str, Any]] = {
             "scenario_b_event_days": 716,           # Scenario B deduped market-days; verified
             "post_2015_a": 345,                     # post-2015 Scenario A; structural-break sub-window
             "post_2015_b": 491,                     # post-2015 Scenario B; structural-break sub-window
-            "kill_switch_threshold": 1.5883,  # fresh derivation; MATH AC-2(g)
+            "kill_switch_threshold": 1.5883,
+            "spread_z_threshold": 3.0,  # fresh derivation; MATH AC-2(g)
             "scipy_required": True,                 # scipy.stats required; no approximation
             "sr0_note": (
                 "QRB-6 constants ONLY — NOT R5 (0.022906) NOT confirmatory (0.034921); "

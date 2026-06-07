@@ -180,7 +180,7 @@ class TestQrb6FieldSpecConstants:
         from the MATH frozen-stats artifact (AC-2). Their presence (even as placeholders)
         confirms the field structure is established for assembly.
         """
-        assembly_fields = ["master_seed", "K", "sr0_pp", "n_sel", "kill_switch_threshold"]
+        assembly_fields = ["master_seed", "K", "sr0_pp", "n_sel", "kill_switch_threshold", "spread_z_threshold"]
         for field in assembly_fields:
             assert field in qrb6_fields, (
                 f"Field '{field}' missing from qrb6 field-spec. "

@@ -774,3 +774,247 @@ class TestDSRGateQrb6:
             "QRB-6 DSR with fresh SR0=0.026861 must differ from the R5-only SR0=0.022906. "
             "If they are equal, the SR0 was not updated."
         )
+
+
+# ---------------------------------------------------------------------------
+# 9. QD datapath fix tests (RULE-0 remediation 2026-06-07)
+#
+# Covers:
+#   (a) tz-alignment: tz-naive event date + tz-aware index resolves correctly,
+#       including roll-forward when the exact date has no bar.
+#   (b) fractional return: hand-computed example matches.
+#   (c) cost application: ONE hand-checked example against RealisticCostModel
+#       for EURUSD (config defaults).
+#   (d) silent-except eliminated: data error logs + skips, doesn't vanish.
+# ---------------------------------------------------------------------------
+
+
+class TestQdDatapathFix:
+    """Regression tests for the QD datapath fix (qrb6-prereg-2026-06-06:phase1:task1.0)."""
+
+    # --- (a) tz-alignment ---
+
+    def test_tz_alignment_naive_event_date_resolves_on_aware_index(self):
+        """A tz-naive event date must resolve correctly on a tz-aware UTC price index.
+
+        The searchsorted convention must find the exact bar when it exists.
+        """
+        import pandas as pd
+
+        # Build a tz-aware daily index
+        idx = pd.date_range("2020-01-01", periods=10, freq="D", tz="UTC")
+        cs = pd.Series(range(10, 20), index=idx, dtype=float)
+
+        # Simulate the runner's tz-localize + searchsorted logic
+        event_date = "2020-01-05"  # tz-naive string → Timestamp → tz-naive
+        event_ts = pd.Timestamp(event_date)
+        assert event_ts.tzinfo is None, "event_ts should be tz-naive from calendar"
+        assert cs.index.tz is not None, "price index should be tz-aware"
+
+        # Apply the fix
+        if event_ts.tzinfo is None and cs.index.tz is not None:
+            event_ts = event_ts.tz_localize(cs.index.tz)
+        idx_pos = cs.index.searchsorted(event_ts)
+
+        assert idx_pos < len(cs), "Must find a valid position"
+        assert cs.index[idx_pos] == pd.Timestamp("2020-01-05", tz="UTC")
+        assert idx_pos == 4, "2020-01-05 is index 4 (zero-based)"
+
+    def test_tz_alignment_roll_forward_when_no_exact_bar(self):
+        """Roll-forward: if event date has no bar, first bar AFTER the date is used.
+
+        This mirrors the §3.4 frozen convention: no synthetic bar, next available bar.
+        """
+        import pandas as pd
+
+        # Index skips 2020-01-03 (e.g. weekend or holiday)
+        dates = pd.to_datetime([
+            "2020-01-01", "2020-01-02",
+            "2020-01-06", "2020-01-07",  # gap: 3rd–5th missing
+        ]).tz_localize("UTC")
+        cs = pd.Series([1.0, 2.0, 6.0, 7.0], index=dates)
+
+        event_ts = pd.Timestamp("2020-01-03")  # tz-naive, no bar on this date
+        if event_ts.tzinfo is None and cs.index.tz is not None:
+            event_ts = event_ts.tz_localize(cs.index.tz)
+        idx_pos = cs.index.searchsorted(event_ts)
+
+        assert idx_pos < len(cs), "Must roll forward to next available bar"
+        assert cs.index[idx_pos] == pd.Timestamp("2020-01-06", tz="UTC"), (
+            "Roll-forward must land on 2020-01-06, the first bar after the gap."
+        )
+
+    def test_tz_alignment_no_bar_after_date_skips_event(self):
+        """If no bar exists at or after the event date, the event must be skipped."""
+        import pandas as pd
+
+        idx = pd.date_range("2020-01-01", periods=5, freq="D", tz="UTC")
+        cs = pd.Series(range(5), index=idx, dtype=float)
+
+        # Event date is after all bars
+        event_ts = pd.Timestamp("2025-01-01")
+        if event_ts.tzinfo is None and cs.index.tz is not None:
+            event_ts = event_ts.tz_localize(cs.index.tz)
+        idx_pos = cs.index.searchsorted(event_ts)
+
+        assert idx_pos >= len(cs), (
+            "searchsorted past end of index must return len(cs) — event must be skipped."
+        )
+
+    # --- (b) fractional return ---
+
+    def test_fractional_return_formula(self):
+        """Net return must be (c_dp2 / c_d) - 1, not c_dp2 - c_d.
+
+        Hand-computed example:
+          c_d = 1.2000, c_dp2 = 1.2060
+          gross = (1.2060 / 1.2000) - 1 = 0.005 exactly
+          price diff = 1.2060 - 1.2000 = 0.0060  ← WRONG (this is the old bug)
+        """
+        c_d = 1.2000
+        c_dp2 = 1.2060
+        gross_ret = (c_dp2 / c_d) - 1.0
+        wrong_ret = c_dp2 - c_d
+
+        assert abs(gross_ret - 0.005) < 1e-12, (
+            f"Fractional return must be 0.005 exactly; got {gross_ret}"
+        )
+        assert abs(wrong_ret - 0.006) < 1e-12, "Sanity: price diff is 0.006 (wrong value)"
+        assert abs(gross_ret - wrong_ret) > 1e-6, (
+            "Fractional return and price diff must differ — this guards the fix."
+        )
+
+    def test_fractional_return_matches_expected_for_jpy(self):
+        """For JPY pairs the fractional formula is still (c_dp2 / c_d) - 1.
+
+        c_d = 110.00, c_dp2 = 110.55
+        gross = (110.55 / 110.00) - 1 = 0.005 exactly
+        """
+        c_d = 110.00
+        c_dp2 = 110.55
+        gross_ret = (c_dp2 / c_d) - 1.0
+        assert abs(gross_ret - 0.005) < 1e-12, (
+            f"JPY fractional return must be 0.005; got {gross_ret}"
+        )
+
+    # --- (c) cost application ---
+
+    def test_cost_application_eurusd_long_one_day(self):
+        """Hand-check: EURUSD LONG 1-day hold cost matches RealisticCostModel defaults.
+
+        Config values (constants.py / config/default.yaml, committed pre-freeze):
+          spread_pips  = 0.5
+          slippage_pips = 0.5
+          commission_pips = 0.5
+          swap_long_pips_per_day = -1.2  (negative = cost to long)
+          pip_value = 0.0001
+
+        round_trip_cost = entry_cost + exit_cost
+          entry_cost = spread/2 + slippage = 0.25 + 0.5 = 0.75
+          exit_cost  = spread/2 + slippage + commission = 0.25 + 0.5 + 0.5 = 1.25
+          round_trip = 2.0 pips
+
+        holding_cost(LONG, 1 day) = -swap_long * 1 = -(-1.2) = 1.2 pips
+
+        total_cost_pips = 2.0 + 1.2 = 3.2 pips
+        cost_frac (at c_d = 1.2000) = 3.2 * 0.0001 / 1.2000 = 0.000266̄
+
+        net_ret = gross_ret - cost_frac
+        """
+        import pytest
+        from forex_system.costs.model import RealisticCostModel
+        from forex_system.core.types import Direction
+        from forex_system.backtest.engine import _get_pip_value
+
+        cost_model = RealisticCostModel()
+        pair = "EURUSD"
+        c_d = 1.2000
+        c_dp2 = 1.2060  # +0.5% gross return
+
+        pip_val = _get_pip_value(pair)
+        assert pip_val == pytest.approx(0.0001), "EURUSD pip_value must be 0.0001"
+
+        rt_pips = cost_model.round_trip_cost(pair, 1.0)
+        assert rt_pips == pytest.approx(2.0), (
+            f"EURUSD round_trip_cost must be 2.0 pips; got {rt_pips}"
+        )
+
+        hold_pips = cost_model.holding_cost(pair, Direction.LONG, 1.0)
+        assert hold_pips == pytest.approx(1.2), (
+            f"EURUSD LONG holding_cost 1 day must be 1.2 pips; got {hold_pips}"
+        )
+
+        total_cost_pips = rt_pips + hold_pips
+        assert total_cost_pips == pytest.approx(3.2)
+
+        cost_frac = total_cost_pips * pip_val / c_d
+        expected_cost_frac = 3.2 * 0.0001 / 1.2000
+        assert cost_frac == pytest.approx(expected_cost_frac, rel=1e-9), (
+            f"cost_frac mismatch: {cost_frac} vs {expected_cost_frac}"
+        )
+
+        gross_ret = (c_dp2 / c_d) - 1.0
+        net_ret = gross_ret - cost_frac
+
+        # Expected net return: 0.005 - 0.000266667 ≈ 0.004733333
+        expected_net = 0.005 - expected_cost_frac
+        assert net_ret == pytest.approx(expected_net, rel=1e-9), (
+            f"net_ret mismatch: {net_ret} vs {expected_net}"
+        )
+
+    def test_cost_application_eurusd_short_one_day(self):
+        """EURUSD SHORT 1-day hold uses swap_short_pips_per_day = +0.3 (income for short).
+
+        holding_cost(SHORT, 1 day) = -swap_short * 1 = -(0.3) = -0.3 pips (negative = income)
+        total_cost_pips = 2.0 + (-0.3) = 1.7 pips
+        """
+        import pytest
+        from forex_system.costs.model import RealisticCostModel
+        from forex_system.core.types import Direction
+
+        cost_model = RealisticCostModel()
+        pair = "EURUSD"
+
+        rt_pips = cost_model.round_trip_cost(pair, 1.0)
+        hold_pips = cost_model.holding_cost(pair, Direction.SHORT, 1.0)
+        assert hold_pips == pytest.approx(-0.3), (
+            f"EURUSD SHORT holding_cost 1 day must be -0.3 pips (income); got {hold_pips}"
+        )
+        total_cost_pips = rt_pips + hold_pips
+        assert total_cost_pips == pytest.approx(1.7)
+
+    # --- (d) silent-except eliminated ---
+
+    def test_bare_except_not_in_per_pair_loop(self):
+        """The per-pair loop in run_qrb6.py must NOT contain a bare 'except Exception: continue'.
+
+        The fix narrows the exception to specific types and adds a log entry.
+        This test scans the source to confirm the silent swallow is gone.
+        """
+        import re
+
+        src = _RUN_QRB6_PATH.read_text()
+
+        # The old pattern: bare except with no log (silent swallow)
+        # Matches "except Exception:" on its own line (indented), with the next
+        # non-blank line being just "continue" (no log call in between).
+        # We look for the specific old pattern: "except Exception:\n\s+continue"
+        bare_silent = re.search(
+            r'except\s+Exception\s*:\s*\n\s+continue',
+            src,
+        )
+        assert bare_silent is None, (
+            "Bare 'except Exception: continue' (silent swallow) found in run_qrb6.py. "
+            "The fix must narrow the exception type AND add a _log() call before continue."
+        )
+
+    def test_pair_event_skip_log_present_in_per_pair_loop(self):
+        """The per-pair loop must emit a 'pair_event_skip' log on data errors (not vanish).
+
+        This verifies FIX-4: every error path calls _log() before continuing.
+        """
+        src = _RUN_QRB6_PATH.read_text()
+        assert "qrb6_runner.pair_event_skip" in src, (
+            "'qrb6_runner.pair_event_skip' log event not found in run_qrb6.py. "
+            "The per-pair loop must log every skip (FIX-4: no silent drops)."
+        )

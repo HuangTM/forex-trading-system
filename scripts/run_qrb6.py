@@ -466,15 +466,31 @@ def _run_pipeline(
             try:
                 close_series = pair_close[ref_pair]
                 # Find bar D and D-1 by indexing on event_date
+                # SS3.4 frozen convention: tz-align to the (UTC-aware) bar index, and if
+                # day D has no bar, the first decision-reflecting bar is the NEXT available
+                # daily bar (roll forward; no synthetic bar). RULE-0 remediation 2026-06-07:
+                # the original exact-match lookup failed 100% on tz-naive calendar timestamps.
                 event_ts = pd.Timestamp(event_date)
-                if event_ts not in close_series.index:
+                if event_ts.tzinfo is None and close_series.index.tz is not None:
+                    event_ts = event_ts.tz_localize(close_series.index.tz)
+                idx_pos = close_series.index.searchsorted(event_ts)  # first bar >= D
+                if idx_pos >= len(close_series.index):
                     _log(
                         "qrb6_runner.event_skip",
-                        reason="bar_D_not_in_index",
+                        reason="no_bar_at_or_after_D",
                         event_date=str(event_date),
                         pair=ref_pair,
                     )
                     continue
+                resolved_ts = close_series.index[idx_pos]
+                if resolved_ts != event_ts:
+                    _log(
+                        "qrb6_runner.bar_D_rolled_forward",
+                        event_date=str(event_date),
+                        resolved_bar=str(resolved_ts),
+                        pair=ref_pair,
+                    )
+                event_ts = resolved_ts
                 bar_d_val = float(close_series[event_ts])
 
                 # Bar D-1: last bar before event_ts
@@ -497,21 +513,72 @@ def _run_pipeline(
                 continue
 
             # Per-pair returns (equal-weight)
+            # Cost model: ONE round trip per event per pair (enter D+1, exit D+2).
+            # Convention mirrors engine's _run_discrete: deduct entry_cost + exit_cost
+            # (= round_trip_cost) plus 1-day holding_cost, all in pips, converted to
+            # fractional return via (total_cost_pips * pip_value / c_d).  Direction is
+            # the live sign_align (already resolved on the reference pair above).
+            # Source: engine._run_discrete lines 190-191 (entry cost) and
+            # _close_position lines 482-491 (exit + swap cost), engine.py.
+            from forex_system.costs.model import RealisticCostModel
+            from forex_system.core.types import Direction
+            from forex_system.backtest.engine import _get_pip_value
+
+            _cost_model = RealisticCostModel()
             pair_returns = []
             for pair in pairs_for_bank:
                 try:
                     cs = pair_close[pair]
-                    idx_d_pair = cs.index.get_loc(pd.Timestamp(event_date))
+                    # FIX-1: tz-alignment — mirror the REFERENCE-pair lookup above.
+                    # Calendar dates are tz-naive; price index is tz-aware UTC.
+                    # Use searchsorted (first bar >= D) with roll-forward (§3.4 frozen).
+                    pair_event_ts = pd.Timestamp(event_date)
+                    if pair_event_ts.tzinfo is None and cs.index.tz is not None:
+                        pair_event_ts = pair_event_ts.tz_localize(cs.index.tz)
+                    idx_d_pair = cs.index.searchsorted(pair_event_ts)
+                    if idx_d_pair >= len(cs.index):
+                        _log(
+                            "qrb6_runner.pair_event_skip",
+                            reason="no_bar_at_or_after_D",
+                            event_date=str(event_date),
+                            pair=pair,
+                        )
+                        continue
+                    # Require at least one prior bar (D-1) and a D+2 bar
                     if idx_d_pair == 0 or idx_d_pair + 2 >= len(cs):
+                        _log(
+                            "qrb6_runner.pair_event_skip",
+                            reason="insufficient_bars",
+                            event_date=str(event_date),
+                            pair=pair,
+                            idx=idx_d_pair,
+                            n_bars=len(cs),
+                        )
                         continue
                     c_d = float(cs.iloc[idx_d_pair])
                     c_dp2 = float(cs.iloc[idx_d_pair + 2])
-                    # Spread suppression
+
+                    if c_d <= 0.0:
+                        _log(
+                            "qrb6_runner.pair_event_skip",
+                            reason="non_positive_c_d",
+                            event_date=str(event_date),
+                            pair=pair,
+                        )
+                        continue
+
+                    # Spread suppression (FIX-5: align spread index tz to entry_ts)
+                    entry_ts = cs.index[idx_d_pair + 1]  # already tz-aware (from cs.index)
                     if pair in spread_close:
                         sp_series = spread_close[pair]
-                        entry_ts = cs.index[idx_d_pair + 1]
-                        if entry_ts in sp_series.index:
-                            sp_loc = sp_series.index.get_loc(entry_ts)
+                        # Align spread index tz to entry_ts tz (both must match)
+                        sp_entry_ts = entry_ts
+                        if sp_series.index.tz is None and entry_ts.tzinfo is not None:
+                            sp_entry_ts = entry_ts.tz_localize(None)
+                        elif sp_series.index.tz is not None and entry_ts.tzinfo is None:
+                            sp_entry_ts = entry_ts.tz_localize(sp_series.index.tz)
+                        if sp_entry_ts in sp_series.index:
+                            sp_loc = sp_series.index.get_loc(sp_entry_ts)
                             # Trailing median/MAD (60 bars causal)
                             start_sp = max(0, sp_loc - 60)
                             trailing = sp_series.iloc[start_sp:sp_loc].values
@@ -524,9 +591,39 @@ def _run_pipeline(
                                 if is_spread_suppressed(sz, spread_z_threshold):
                                     n_suppressed_total += 1
                                     continue
-                    # Net-of-cost return (placeholder: no cost model for dry-run)
-                    pair_returns.append(c_dp2 - c_d)
-                except Exception:
+
+                    # FIX-2: fractional return (§1.2 "close(D)→close(D+2) return")
+                    gross_ret = (c_dp2 / c_d) - 1.0
+
+                    # FIX-3: net-of-cost (§1.2, §3.2, §5.1 — firm standard cost model).
+                    # ONE round trip: entry at D+1, exit at D+2 (§4.3 engine semantics).
+                    # Direction: long if sign_align > 0, short otherwise.
+                    # Cost = (round_trip_cost_pips + holding_cost_pips_1day) * pip_value / c_d
+                    # This mirrors engine._run_discrete: entry deducted at entry
+                    # (entry_cost_pips * pip_value * size, lines 190-191), and
+                    # _close_position: exit_cost + swap_1day converted via pip_value
+                    # (lines 482-491). Expressed as return fraction at c_d price level.
+                    _pip_val = _get_pip_value(pair)
+                    _rt_pips = _cost_model.round_trip_cost(pair, 1.0)
+                    _direction = Direction.LONG if sign_align > 0 else Direction.SHORT
+                    _hold_pips = _cost_model.holding_cost(pair, _direction, 1.0)
+                    _total_cost_pips = _rt_pips + _hold_pips
+                    _cost_frac = _total_cost_pips * _pip_val / c_d
+
+                    net_ret = gross_ret - _cost_frac
+                    pair_returns.append(net_ret)
+
+                except (KeyError, IndexError, ValueError, TypeError, ZeroDivisionError) as exc:
+                    # FIX-4: replace bare silent except with narrow exception + event_skip log.
+                    # Silent drops are how event studies lie.
+                    _log(
+                        "qrb6_runner.pair_event_skip",
+                        reason="data_error",
+                        event_date=str(event_date),
+                        pair=pair,
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    )
                     continue
 
             mean_return = float(np.mean(pair_returns)) if pair_returns else 0.0

@@ -92,6 +92,23 @@ _RESULT_PATH = Path(
 _DRY_RUN_RESULT_PATH = Path(
     "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
 )
+# --- CONFIRMATORY paths (trial 53981a4a) — distinct from the exploratory above ---
+# The confirmatory re-uses the EXACT exploratory pipeline on a FORWARD window read
+# from THIS receipt.  It NEVER reads the exploratory receipt (no cross-trial constant
+# contamination — the confirmatory has its own N_sel=1 SR0, p-thresholds, and seed).
+_CONFIRMATORY_PREREG_PATH = Path(
+    "references/pre-registrations/qrb6_confirmatory_cb_event_study.md"
+)
+_CONFIRMATORY_RECEIPT_PATH = Path(
+    "references/pre-registrations/qrb6_confirmatory_cb_event_study.FREEZE-RECEIPT.yaml"
+)
+_CONFIRMATORY_RESULT_PATH = Path(
+    "references/pre-registrations/qrb6_confirmatory_cb_event_study.STEP-RESULT.yaml"
+)
+_CONFIRMATORY_DRY_RUN_RESULT_PATH = Path(
+    "references/pre-registrations/qrb6_confirmatory_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
+)
+
 _CALENDAR_PATH = Path("data/rates/cb_decision_dates.parquet")
 _PROCESSED_DATA_DIR = Path("data/processed")
 _SPREADS_DATA_DIR = Path("data/spreads")
@@ -345,6 +362,54 @@ def _validate_receipt(receipt_path: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Forward-acquisition stub (CONFIRMATORY, trial 53981a4a) — DO NOT RUN YET
+# ---------------------------------------------------------------------------
+
+
+def forward_acquisition_stub() -> None:
+    """DO-NOT-RUN-YET: documents the forward CB calendar + OHLCV acquisition.
+
+    *** THIS IS A STUB. IT IS NOT EXECUTED AT FREEZE. ***
+
+    The QRB-6 CONFIRMATORY (trial 53981a4a) tests the EXACT exploratory
+    structure on a FORWARD event window [2026-04-07, <Math-derived look date>].
+    That forward event set does NOT EXIST YET — by construction (the unsnoopable
+    hold-out is unsnoopable precisely because it has not occurred).  Before the
+    one-shot look (a far-future post-freeze STEP gated by the calendar lock +
+    CEO ack), TWO things must be acquired under the anti-fabrication discipline:
+
+      1. FORWARD CB CALENDAR (post-2026-03-19).
+         The acquired calendar currently terminates 2026-03-19 (842 rows).
+         Forward {FED, BOJ, RBA, BOC} decisions (~30 verified-official
+         event-days/yr) must be fetched, graded, and committed.  The Scenario-A
+         verified-official default applies: rows graded
+         'training-memory-unverified' are INADMISSIBLE and are filtered at load
+         (build_scenario_a_event_set §3.1 verbatim filter).  Aggregator/memory
+         grades require a committed spot-check certification (analogous to the
+         fa0f982a AC-3a/C4 step) before they can be admitted.
+
+      2. FORWARD OHLCV (post-2026-04).
+         Daily bars for the 11 Scenario-A pairs covering the forward window plus
+         the D-1 / D+2 lookbehind/lookahead.  Gaps are handled by the frozen
+         exclude-not-impute rule; the n_event_cost_or_data_gap==0 invariant and
+         the cost-coverage gate carry forward unchanged.
+
+    NEITHER acquisition is doable at freeze time, and NEITHER is part of this
+    wave.  Until they are acquired and committed, the confirmatory forward window
+    yields ZERO events and the runner RULE-0s (see the empty-forward-window guard
+    in _run_pipeline).  This function exists purely to PIN the obligation in code;
+    calling it raises to make the not-yet-implemented status loud.
+    """
+    raise NotImplementedError(
+        "forward_acquisition_stub: the forward CB calendar (post-2026-03-19) and "
+        "forward OHLCV (post-2026-04) are a NAMED PRE-LOOK OBLIGATION — not doable "
+        "at freeze, not part of this wave. Acquire under the Scenario-A "
+        "verified-official anti-fabrication discipline before the look. Until then "
+        "the confirmatory runner RULE-0s on the empty forward window."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stub data generator (dry-run mode)
 # ---------------------------------------------------------------------------
 
@@ -399,6 +464,7 @@ def _run_pipeline(
     receipt: dict,
     dry_run: bool,
     cost_manifest_path: Path | None = None,
+    date_window: tuple[str | None, str | None] | None = None,
 ) -> dict:
     """Execute the full QRB-6 pipeline.
 
@@ -410,6 +476,16 @@ def _run_pipeline(
         If True, use synthetic stub data and skip data/processed reads.
     cost_manifest_path:
         Override cost manifest path (for testing; defaults to _COST_MANIFEST_PATH).
+    date_window:
+        CONFIRMATORY date-window (trial 53981a4a).  When None (DEFAULT — the
+        EXPLORATORY path, trial fa0f982a), the full 2010–2026 event set is used
+        and the exploratory 506-count guard is enforced — behaviour UNCHANGED.
+        When a ``(window_start, window_end)`` tuple is supplied, the SAME
+        pipeline runs on the forward-windowed subset (window_start = 2026-04-07,
+        window_end = the Math-derived look date).  The exploratory 506-count
+        guard is then relaxed (the forward window is a different, a-priori-unknown
+        count) and the confirmatory's own guards apply: the windowed event set
+        MUST be non-empty (a forward window before the data is acquired → RULE-0).
 
     Returns
     -------
@@ -422,6 +498,7 @@ def _run_pipeline(
         _BANK_PAIR_MAP,
         _EXPECTED_POST_2015_CUTOFF,
         _SCENARIO_A_BANKS,
+        apply_date_window,
         build_scenario_a_event_set,
         compute_dsr_qrb6,
         compute_event_sharpe_ann,
@@ -432,6 +509,13 @@ def _run_pipeline(
         is_spread_suppressed,
         run_bank_blocked_bootstrap,
     )
+
+    # Confirmatory mode is active iff a date_window is supplied.  In that mode the
+    # exploratory 506-count guard is relaxed (the forward window is a different
+    # count) and the confirmatory's window/empty-set guards apply instead.
+    confirmatory_mode = date_window is not None
+    window_start = date_window[0] if confirmatory_mode else None
+    window_end = date_window[1] if confirmatory_mode else None
     # politis_white_block_length is used inside run_bank_blocked_bootstrap
 
     # --- Load constants from receipt ---
@@ -502,9 +586,21 @@ def _run_pipeline(
         )
 
     # --- Step 1: Event-set construction (always reads calendar; structure only) ---
-    _log("qrb6_runner.event_set_build_start", calendar_path=str(_CALENDAR_PATH))
+    _log(
+        "qrb6_runner.event_set_build_start",
+        calendar_path=str(_CALENDAR_PATH),
+        confirmatory_mode=confirmatory_mode,
+        window_start=str(window_start),
+        window_end=str(window_end),
+    )
     try:
-        event_set = build_scenario_a_event_set(calendar_path=str(_CALENDAR_PATH))
+        # Exploratory path enforces the frozen 506-count guard; the confirmatory
+        # forward window is a different (a-priori-unknown) count, so the guard is
+        # relaxed there and replaced by the window/empty-set guards below.
+        event_set = build_scenario_a_event_set(
+            calendar_path=str(_CALENDAR_PATH),
+            enforce_exploratory_count=not confirmatory_mode,
+        )
     except Exception as exc:
         _log(
             "qrb6_runner.technical_failure",
@@ -513,6 +609,43 @@ def _run_pipeline(
             action="RULE_0_TECHNICAL_FAILURE",
         )
         raise
+
+    # Confirmatory date-window filter (trial 53981a4a).  No-op in exploratory mode
+    # (window_start/window_end are both None → event set returned unchanged).
+    if confirmatory_mode:
+        n_pre_window = len(event_set)
+        event_set = apply_date_window(event_set, window_start, window_end)
+        _log(
+            "qrb6_runner.confirmatory_window_applied",
+            window_start=str(window_start),
+            window_end=str(window_end),
+            n_pre_window=n_pre_window,
+            n_post_window=len(event_set),
+        )
+        # Empty-forward-window RULE-0: a forward window before the forward CB
+        # calendar + OHLCV are acquired yields ZERO events.  This MUST halt loudly
+        # (the forward acquisition is a named pre-look obligation — see
+        # forward_acquisition_stub below), NOT silently pass as a clean result.
+        if len(event_set) == 0:
+            _log(
+                "qrb6_runner.technical_failure",
+                reason="empty_forward_window",
+                window_start=str(window_start),
+                window_end=str(window_end),
+                action="RULE_0_TECHNICAL_FAILURE",
+                note=(
+                    "Forward-windowed event set is EMPTY. The forward CB calendar "
+                    "(post-2026-03-19) and forward OHLCV (post-2026-04) have not yet "
+                    "been acquired under the anti-fabrication discipline. See "
+                    "forward_acquisition_stub(). RULE-0 — do NOT interpret as a pass."
+                ),
+            )
+            raise RuntimeError(
+                "RULE_0_TECHNICAL_FAILURE: confirmatory forward window "
+                f"[{window_start}, {window_end}] yielded ZERO events. "
+                "Forward calendar/OHLCV not yet acquired (pre-look obligation). "
+                "See forward_acquisition_stub() in scripts/run_qrb6.py."
+            )
 
     n_total_events = len(event_set)
     post2015_mask = get_post_2015_mask(event_set)
@@ -1148,11 +1281,30 @@ def main() -> None:
             "stub data WITHOUT touching data/processed/ or requiring a receipt."
         ),
     )
+    parser.add_argument(
+        "--confirmatory",
+        action="store_true",
+        dest="confirmatory",
+        help=(
+            "CONFIRMATORY mode (trial 53981a4a): run the EXACT exploratory pipeline "
+            "on the FORWARD window [window_start, window_end] read from the "
+            "confirmatory freeze-receipt.  Uses the confirmatory receipt/paths/"
+            "constants (NOT the exploratory fa0f982a ones).  A live confirmatory "
+            "run also requires --ceo-ack and the committed confirmatory receipt; "
+            "the empty-forward-window RULE-0 fires until the forward data is acquired."
+        ),
+    )
     args = parser.parse_args()
+
+    confirmatory = args.confirmatory
 
     # Determine mode: live requires --ceo-ack; otherwise dry-run
     live_run = args.ceo_ack and not args.dry_run
     dry_run = not live_run
+
+    # Confirmatory window is read from the confirmatory receipt (live) or the
+    # confirmatory dry-run stub receipt below.  None in exploratory mode.
+    date_window: tuple[str | None, str | None] | None = None
 
     if dry_run and not args.ceo_ack:
         _log(
@@ -1166,21 +1318,44 @@ def main() -> None:
             "Pass --ceo-ack for the live one-shot run (requires freeze-receipt)."
         )
 
+    _active_receipt_path = _CONFIRMATORY_RECEIPT_PATH if confirmatory else _RECEIPT_PATH
+
     if live_run:
         # Live run: hard interlock — requires freeze-receipt AND --ceo-ack
         _log(
             "qrb6_runner.mode",
             mode="live",
-            receipt_path=str(_RECEIPT_PATH),
+            confirmatory=confirmatory,
+            receipt_path=str(_active_receipt_path),
         )
-        receipt = _validate_receipt(_RECEIPT_PATH)
+        receipt = _validate_receipt(_active_receipt_path)
 
-        # Interlock: constants must match embedded guards
-        from forex_system.harness.qrb6_decision import check_receipt_constants
-        check_receipt_constants(receipt)
+        if confirmatory:
+            # CONFIRMATORY (trial 53981a4a): the exploratory check_receipt_constants
+            # guards are fa0f982a-specific (N_sel=3 SR0, 506 count, 0.0378/0.0422
+            # p-thresholds) and would (correctly) reject the confirmatory's distinct
+            # N_sel=1 constants — so they are NOT applied here.  The confirmatory's
+            # own interlock is: receipt sha match (above) + window read from THIS
+            # receipt + the p-threshold receipt-constant checks already enforced via
+            # the hard-key receipt reads in _run_pipeline (no silent fallbacks).
+            date_window = (
+                receipt.get("window_start"),
+                receipt.get("window_end"),
+            )
+            _log(
+                "qrb6_runner.confirmatory_window_from_receipt",
+                window_start=str(date_window[0]),
+                window_end=str(date_window[1]),
+                trial_id=receipt.get("trial_id"),
+            )
+        else:
+            # Exploratory interlock: constants must match embedded guards
+            from forex_system.harness.qrb6_decision import check_receipt_constants
+            check_receipt_constants(receipt)
 
         _log(
             "qrb6_runner.gate_passed",
+            confirmatory=confirmatory,
             code_commit=receipt.get("code_commit", "UNKNOWN"),
             frozen_at_utc=receipt.get("frozen_at_utc", "UNKNOWN"),
         )
@@ -1192,23 +1367,48 @@ def main() -> None:
                 "NOTE: --ceo-ack ignored in --dry-run mode.  "
                 "Proceeding with synthetic stub data."
             )
-        # Stub receipt for dry-run (provides structure but no live SHA check)
-        receipt = {
-            "master_seed": 387992,
-            "K": 10000,
-            "sr0_pp": 0.026861,
-            "dsr_threshold": 0.95,
-            "spread_z_threshold": 3.0,
-            "p_straddle_hi": 0.0422,        # OBF extra-look penalty (former void-run value: 0.0522)
-            "p_reject_threshold": 0.0378,   # OBF extra-look penalty (former void-run value: 0.0478)
-            "kill_switch_threshold": 1.5883,
-            "scenario_a_event_days": 506,
-            "post_2015_a": 345,
-            "trial_id": "fa0f982a",
-            "n_sel": 3,
-            "code_commit": "UNCOMMITTED",
-            "frozen_at_utc": "DRY_RUN",
-        }
+        if confirmatory:
+            # CONFIRMATORY dry-run stub receipt (N_sel=1; distinct from exploratory).
+            # Values are placeholders for dry-run structure validation ONLY — the
+            # real N_sel=1 SR0, kill_switch, p-thresholds, and look date are filled
+            # at assembly from the Mathematician's derivation into the cut receipt.
+            # window_start is the frozen forward-window rule (2026-04-07); window_end
+            # is a placeholder look date (the real one is Math-derived at assembly).
+            receipt = {
+                "master_seed": 53981,
+                "K": 10000,
+                "sr0_pp": 0.0,  # PLACEHOLDER N_sel=1 — filled at assembly; NOT 0.026861
+                "dsr_threshold": 0.95,
+                "spread_z_threshold": 3.0,
+                "p_straddle_hi": 0.0,   # PLACEHOLDER — confirmatory's OWN value at assembly
+                "p_reject_threshold": 0.0,  # PLACEHOLDER — confirmatory's OWN value at assembly
+                "kill_switch_threshold": 0.0,  # PLACEHOLDER N_sel=1 — filled at assembly
+                "trial_id": "53981a4a",
+                "n_sel": 1,
+                "window_start": "2026-04-07",
+                "window_end": "2099-01-01",  # PLACEHOLDER look date (Math-derived at assembly)
+                "code_commit": "UNCOMMITTED",
+                "frozen_at_utc": "DRY_RUN",
+            }
+            date_window = (receipt["window_start"], receipt["window_end"])
+        else:
+            # Exploratory stub receipt (provides structure but no live SHA check)
+            receipt = {
+                "master_seed": 387992,
+                "K": 10000,
+                "sr0_pp": 0.026861,
+                "dsr_threshold": 0.95,
+                "spread_z_threshold": 3.0,
+                "p_straddle_hi": 0.0422,        # OBF extra-look penalty (former void-run value: 0.0522)
+                "p_reject_threshold": 0.0378,   # OBF extra-look penalty (former void-run value: 0.0478)
+                "kill_switch_threshold": 1.5883,
+                "scenario_a_event_days": 506,
+                "post_2015_a": 345,
+                "trial_id": "fa0f982a",
+                "n_sel": 3,
+                "code_commit": "UNCOMMITTED",
+                "frozen_at_utc": "DRY_RUN",
+            }
 
     # --- Import harness modules (deferred so --help works without scipy) ---
     try:
@@ -1228,11 +1428,17 @@ def main() -> None:
         sys.exit(1)
 
     run_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    _log("qrb6_runner.run_start", run_utc=run_utc, dry_run=dry_run)
+    _log(
+        "qrb6_runner.run_start",
+        run_utc=run_utc,
+        dry_run=dry_run,
+        confirmatory=confirmatory,
+        date_window=[str(date_window[0]), str(date_window[1])] if date_window else None,
+    )
 
     # --- Execute pipeline ---
     try:
-        result = _run_pipeline(receipt=receipt, dry_run=dry_run)
+        result = _run_pipeline(receipt=receipt, dry_run=dry_run, date_window=date_window)
     except SystemExit:
         raise
     except Exception as exc:
@@ -1246,7 +1452,12 @@ def main() -> None:
         sys.exit(1)
 
     # --- Write result YAML (dry-run NEVER writes to the canonical path) ---
-    result_path = _DRY_RUN_RESULT_PATH if dry_run else _RESULT_PATH
+    if confirmatory:
+        result_path = (
+            _CONFIRMATORY_DRY_RUN_RESULT_PATH if dry_run else _CONFIRMATORY_RESULT_PATH
+        )
+    else:
+        result_path = _DRY_RUN_RESULT_PATH if dry_run else _RESULT_PATH
     result_path.parent.mkdir(parents=True, exist_ok=True)
     with open(result_path, "w") as fh:
         yaml.dump(result, fh, default_flow_style=False, sort_keys=False)

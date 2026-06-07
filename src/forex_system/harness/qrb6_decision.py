@@ -174,6 +174,8 @@ def check_receipt_constants(receipt: dict) -> None:
 def build_scenario_a_event_set(
     calendar_path: str | None = None,
     calendar_df: pd.DataFrame | None = None,
+    *,
+    enforce_exploratory_count: bool = True,
 ) -> pd.DataFrame:
     """Build the Scenario A event set from the CB decision calendar.
 
@@ -194,6 +196,14 @@ def build_scenario_a_event_set(
         with calendar_df.
     calendar_df:
         Pre-loaded DataFrame (for testing without file I/O).
+    enforce_exploratory_count:
+        If True (DEFAULT — the EXPLORATORY path, trial fa0f982a), the deduped
+        count MUST equal _EXPECTED_SCENARIO_A_N (506) or a ValueError is raised.
+        This is the immutable exploratory guard and is UNCHANGED.
+        The CONFIRMATORY path (trial 53981a4a) sets this False because the
+        forward-windowed event set is a DIFFERENT (and a-priori unknown) count;
+        the confirmatory enforces its OWN guards (forward window > 2026-04-06,
+        non-empty event set → RULE-0) downstream in the runner.
 
     Returns
     -------
@@ -207,7 +217,8 @@ def build_scenario_a_event_set(
     ValueError
         If neither or both of calendar_path / calendar_df are provided.
     ValueError
-        If the deduped count does not match _EXPECTED_SCENARIO_A_N (506).
+        If enforce_exploratory_count is True and the deduped count does not
+        match _EXPECTED_SCENARIO_A_N (506).
     """
     if calendar_path is None and calendar_df is None:
         raise ValueError("Provide exactly one of calendar_path or calendar_df.")
@@ -235,7 +246,7 @@ def build_scenario_a_event_set(
     df_dedup = df.drop_duplicates(subset=["date"], keep="first").reset_index(drop=True)
 
     n_actual = len(df_dedup)
-    if n_actual != _EXPECTED_SCENARIO_A_N:
+    if enforce_exploratory_count and n_actual != _EXPECTED_SCENARIO_A_N:
         raise ValueError(
             f"Scenario A event set count mismatch: expected {_EXPECTED_SCENARIO_A_N} "
             f"deduped event-days, got {n_actual}.  Check the calendar parquet and "
@@ -244,6 +255,58 @@ def build_scenario_a_event_set(
         )
 
     return df_dedup
+
+
+def apply_date_window(
+    event_set: pd.DataFrame,
+    window_start: str | pd.Timestamp | None,
+    window_end: str | pd.Timestamp | None,
+) -> pd.DataFrame:
+    """Restrict an event set to the inclusive forward window [start, end].
+
+    This is the CONFIRMATORY date-window filter (trial 53981a4a).  The SAME
+    exploratory pipeline (sign, y_e, banks-as-blocks, cost manifest,
+    exclude-not-impute, decision functional) runs on the windowed subset.
+
+    Frozen confirmatory rule (CONF-holdout):
+      - window_start = 2026-04-07 (strictly AFTER the exploratory terminus
+        2026-04-06; zero event-day overlap with fa0f982a).
+      - window_end   = the Math-derived look date (filled at assembly).
+      - Both endpoints INCLUSIVE.
+
+    Exploratory invariance: when BOTH window_start and window_end are None,
+    the event set is returned UNCHANGED (the full 2010–2026 window).  The
+    exploratory runner never passes a window, so its behaviour is preserved
+    byte-for-byte.
+
+    Parameters
+    ----------
+    event_set:
+        Output of build_scenario_a_event_set (has a ``date`` column).
+    window_start:
+        Inclusive lower bound (date >= window_start).  None = no lower bound.
+    window_end:
+        Inclusive upper bound (date <= window_end).  None = no upper bound.
+
+    Returns
+    -------
+    pd.DataFrame
+        The windowed event set with the integer index reset.  May be EMPTY —
+        the caller (runner) is responsible for the empty-window RULE-0 (a forward
+        window before the data is acquired yields zero events and must HALT, not
+        silently pass).
+    """
+    if window_start is None and window_end is None:
+        # Exploratory path — no window; return unchanged (full-window behaviour).
+        return event_set
+
+    dates = pd.to_datetime(event_set["date"])
+    mask = pd.Series(True, index=event_set.index)
+    if window_start is not None:
+        mask &= dates >= pd.Timestamp(window_start)
+    if window_end is not None:
+        mask &= dates <= pd.Timestamp(window_end)
+    return event_set[mask].reset_index(drop=True)
 
 
 def get_post_2015_mask(event_set: pd.DataFrame) -> pd.Series:

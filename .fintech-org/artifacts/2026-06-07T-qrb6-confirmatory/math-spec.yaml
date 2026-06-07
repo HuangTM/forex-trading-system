@@ -1,0 +1,227 @@
+role: mathematician
+artifact_type: derivation-review
+decision: sound
+timestamp: "2026-06-07T00:00:00Z"
+subtask_ref: qrb6-confirmatory-math
+subtask_id: qrb6-confirmatory-2026-06-07:phase1:task1.0
+trial_id: 53981a4a
+claimed_domains:
+  - formal-modeling-and-derivations
+  - numerical-method-selection-and-stability
+  - convergence-and-error-analysis
+
+n_sel_1_sr0:
+  sr0_pp: 0.0
+  sr0_ann: 0.0
+  contrast_with_exploratory: >-
+    Exploratory (fa0f982a) charged N_sel=3 -> bracket(3)=0.852804, dispersion 0.50 ->
+    SR0_ann_sel=0.426402, SR0_pp_sel=0.026861. At N_sel=1 the BLdP expected-maximum-of-N
+    bracket collapses: E[max of 1 standardized draw] = 0 exactly (the (1-gamma)*Z^-1(1-1/N)
+    term -> Z^-1(0) = -inf is the large-N asymptotic formula BREAKING DOWN at N=1; the
+    finite-sample truth is that a single draw has expected-max equal to its own mean = 0
+    in standardized units). Hence SR0_ann_conf = dispersion * 0 = 0 and SR0_pp_conf = 0.
+    The selection-deflation benchmark VANISHES. This is exactly why the confirmatory can
+    clear what the exploratory could not: the exploratory's DSR was deflated against a
+    benchmark of 0.026861 per-event (=0.4264 ann) that the N_sel=3 selection charge
+    imposed; at N_sel=1 the DSR tests SR>0 against a ZERO benchmark, so the entire
+    0.4264-ann selection penalty (=1.5883-1.1619 at the SAME T) is removed.
+
+look_design:
+  choice: single-look
+  basis: >-
+    Forward run-rate ~30 verified-official event-days/yr ({FED,BOJ,RBA,BOC}). A 2-look
+    OBF interim at +2.5yr yields only ~75 event-days, which (a) sits AT/BELOW the
+    banks-as-blocks bootstrap-validity floor and (b) spends alpha at an interim look with
+    ~8-10% power -- wasteful self-handicapping. The carry confirmatory used 2-look OBF
+    because it had 252 daily bars/yr (630 bars at +2.5yr); the QRB-6 event rate is ~8x
+    sparser, so the carry pattern does NOT transfer. A single honest terminal look spends
+    the full alpha=0.05 once, retains maximum (still-low) sensitivity, and avoids an
+    under-powered interim. The terminal look is BINDING (no extend, no re-parameterize).
+  bootstrap_validity_floor: >-
+    Banks-as-blocks stationary circular bootstrap with 4 bank-blocks {FED,BOJ,RBA,BOC}
+    and Politis-White auto block lengths ~1-3 (per-bank, as in fa0f982a STEP-RESULT:
+    FED=3, BOJ=1, RBA=1, BOC=1). For a non-degenerate pooled resample distribution and a
+    stable HAC-studentized mean, the floor is set at >= 90 deduped event-days at the
+    terminal look (>= ~22-23 events per bank on average across 4 blocks, enough that each
+    bank-block contributes multiple block draws and the geometric-block resample explores
+    cross-bank variation rather than collapsing onto a handful of events). Below 90 the
+    look is statistically void (TECHNICAL_FAILURE, re-freeze). This floor is the binding
+    reason an interim at ~75 events is rejected.
+  z_boundaries_or_single_alpha: >-
+    Single terminal look, full one-sided alpha=0.05 spent once. No spending function.
+    Operative boundary on the bootstrap-p scale: reject H0 iff terminal bootstrap
+    p <= 0.05 (equivalently t_obs >= z_0.95 = 1.644854). The +/- MC-SE straddle at the
+    boundary (K=10000, MC-SE=0.002179 at p=0.05): PASS requires p < 0.0478, KILL requires
+    p > 0.0522, closed straddle [0.0478, 0.0522] -> AMBIGUOUS (mirrors the exploratory's
+    pre-remediation single-look straddle convention; the confirmatory has NO extra-look
+    penalty because it is genuinely a first single look on unsnooped data).
+
+power:
+  planning_sharpe_haircut: >-
+    Plan at SR_plan_ann = (1/3) * 1.3521 = 0.4507 annualized. The exploratory in-sample
+    pooled ann Sharpe 1.352 is selection-biased (argmax of a 2-finalist comparison over an
+    11-proposal pool) AND in-sample-overfit. A 1/3 retention is a defensible
+    published-event-study OOS decay (pre-decision / pre-FOMC drift effects typically retain
+    a third-to-half out-of-sample after cost+decay haircut; Lucca-Moench 2015 anchor). This
+    lands in the same [0.3,0.5] band as the exploratory's own frozen planning anchor
+    (SR0_ann_sel=0.4264), so it is consistent with the exploratory discipline while being a
+    fresh, separately-justified number. Per-event effect g_pp = SR_plan_ann/sqrt(252) =
+    0.028392 (inheriting the exploratory's frozen lambda = SR_pp*sqrt(n) convention verbatim).
+  n_star_for_80pct: 7670
+  curve_points:
+    - {n: 30,  years: 1.0, lambda: 0.15551, power: 0.068}
+    - {n: 60,  years: 2.0, lambda: 0.21993, power: 0.077}
+    - {n: 90,  years: 3.0, lambda: 0.26935, power: 0.085}
+    - {n: 120, years: 4.0, lambda: 0.31102, power: 0.091}
+    - {n: 150, years: 5.0, lambda: 0.34773, power: 0.097}
+    - {n: 180, years: 6.0, lambda: 0.38092, power: 0.103}
+  lock_horizon_years: 4.0
+  look_date: "2030-04-07"
+
+kill_switch_threshold: 2.3936
+
+seed:
+  hex_arithmetic_shown: >-
+    int('53981a',16): digits 5,3,9,8,1,a(=10). 5*16^5=5242880; 3*16^4=196608;
+    9*16^3=36864; 8*16^2=2048; 1*16^1=16; 10*16^0=10. Sum =
+    5242880+196608+36864+2048+16+10 = 5478426. 5478426 mod 1000000 = 478426.
+    (orchestrator-verified: int('53981a',16)=5478426, mod 1e6 = 478426.)
+  master_seed: 478426
+
+constants:
+  K: 10000
+  alpha: 0.05
+  mc_se: >-
+    MC-SE = sqrt(p(1-p)/K) at K=10000: p=0.01 -> 0.000995; p=0.05 -> 0.002179;
+    p=0.10 -> 0.003000; p=0.50 -> 0.005000. Straddle half-width at the boundary = 0.0022.
+  bootstrap_scheme: >-
+    banks-as-blocks stationary circular block bootstrap
+    (bank_level_blocks_stationary_circular), Politis-White (2004)+PPW(2009) auto block
+    length per bank group, K=10000 resamples, +1/+1 p-value convention
+    p=(1+#{t*>=t_obs})/(K+1), de-meaned null d_e=y_e-mean(y), HAC-studentized mean
+    (Newey-West Bartlett, bandwidth max(L-1,1)) recomputed on each resample. Identical
+    machinery to fa0f982a (reality_check.py); RNG numpy.PCG64 seeded by master_seed.
+
+assumptions:
+  - "y_e = sign(close(D)-close(D-1))*R_post is stationary across the forward event set
+     (same construction as fa0f982a, frozen)."
+  - "The forward run-rate ~30 verified-official event-days/yr holds; the actual count is
+     read at the look, and n>=90 is the hard validity floor (else TECHNICAL_FAILURE)."
+  - "The frozen lambda = (SR_ann/sqrt(252))*sqrt(n) per-event power convention is inherited
+     verbatim from fa0f982a PART II 5.2 for cross-trial consistency; under it 80% power is
+     structurally unreachable (n*~7670, ~256yr) -- the test is disclosed-underpowered, the
+     honest planning posture (mirrors carry 3.5 and exploratory 5)."
+  - "var_term reference = 1 for the frozen kill_switch field; the runner recomputes
+     var_term with the hold-out's OWN skew/kurtosis at evaluation (SR_pp small => var_term
+     ~ 1; the second pass moves the value < 0.001, as in the exploratory and carry)."
+  - "N_sel=1 is legitimate because the structure is pre-committed before any forward event
+     exists; the selection event (11-proposal -> 2-finalist -> QRB-6) was already charged
+     and spent in fa0f982a (N_sel=3). The confirmatory look introduces NO new selection."
+
+assumptions-identified:
+  - "BLdP expected-max bracket is a large-N asymptotic; at N=1 it is replaced by the exact
+     finite value E[max of 1 draw]=0. Stated explicitly so no one mechanically plugs N=1
+     into the two-quantile formula and gets -inf."
+  - "Dispersion convention (exploratory's 0.50 planning dispersion) is IRRELEVANT at N=1:
+     SR0_ann = dispersion * bracket(1) = dispersion * 0 = 0 for any finite dispersion. So
+     the N=1 SR0 does not depend on the 0.50-vs-0.426 dispersion debate at all."
+  - "Single-look removes the alpha-spending multiplicity entirely; the only multiplicity
+     charge remaining is the (now-zero) N_sel=1 DSR selection charge."
+
+failure-regimes:
+  - "If the forward run-rate is materially below 30/yr (e.g. a bank suspends scheduled
+     decisions), n at +4yr falls below 120; if it falls below the 90-event validity floor
+     the terminal look is a TECHNICAL_FAILURE (re-freeze with a later look date), NOT a
+     KILL -- a thin sample must never be read as a strategy verdict."
+  - "If forward event-to-event autocorrelation is high, the Politis-White L grows, the HAC
+     SE widens, effective n shrinks, and realized power falls BELOW the iid-event curve
+     above (which is therefore an UPPER bound). Disclosed."
+  - "If the realized hold-out skew/kurtosis are large, var_term departs from 1 and the
+     run-time kill_switch shifts slightly from the frozen 2.3936 anchor (recomputed at
+     evaluation; the field is the var_term=1 anchor, conservative since SR_pp is small)."
+  - "DSR degenerate pins carried verbatim: SR_ann_holdout <= 0 -> DSR=0; var_term <= 0 ->
+     DSR=0 (gate FAIL, not technical failure)."
+
+alternative-methods:
+  - "2-look OBF (carry pattern): REJECTED -- interim at ~75 events is below the bootstrap
+     floor and ~9% power; spending alpha there is self-handicapping at this event rate."
+  - "Longer single-look horizon (e.g. +6yr/n=180 or +10yr/n=300) to LOWER the kill_switch
+     (2.39 at n=120 -> 1.95 at n=180 -> 1.51 at n=300): considered; rejected as primary
+     because power gains are marginal (9.1% -> 10.3% -> ~12%) and the firm should not defer
+     a binary a decade for a sub-2% power gain. +4yr is the defensible
+     validity-vs-deferral balance. The horizon-kill_switch curve is disclosed in the body
+     so the CEO can elect a longer horizon if a lower kill bar is preferred."
+  - "James-Stein / posterior shrinkage of 1.352 toward 0: lands in a similar 0.4-0.6 band;
+     the 1/3 literature-decay is chosen as the single auditable number over a second free
+     shrinkage parameter."
+
+proof-sketch-or-reference: >-
+  (1) N_sel=1 SR0: BLdP (Bailey-Lopez de Prado 2014) SR0 = sqrt(Var[SR]) * E[max of N
+  standardized candidate Sharpes]; the gamma-weighted two-quantile bracket
+  (1-gamma)Z^-1(1-1/N)+gamma*Z^-1(1-1/(Ne)) is the asymptotic expected-max for N>=2; at
+  N=1 the expected max of a single standard-normal draw is 0 by definition, so SR0=0. The
+  exploratory's bracket(3)=0.852804 -> SR0_ann=0.4264 is the contrast.
+  (2) kill_switch: DSR=0.95 <=> z_dsr=Phi^-1(0.95)=1.644854; z_dsr=(SR_pp-SR0_pp)*sqrt(T-1)
+  /sqrt(var_term); with SR0_pp=0, var_term=1, T=120: SR_pp=1.644854/sqrt(119)=0.150783,
+  SR_ann=SR_pp*sqrt(252)=2.3936. Same two-pass brentq discipline as carry 4 and exploratory
+  6; var_term=1 anchor.
+  (3) power: pooled event-study non-centrality lambda=(SR_ann/sqrt(252))*sqrt(n),
+  power=Phi(lambda-z_0.95); convention inherited verbatim from fa0f982a 5.2.
+
+numerical-question-routed: >-
+  QD: confirm via scipy.stats.norm (PCG64 irrelevant for these deterministic constants):
+  (1) bracket(N=1) degeneracy -> SR0_pp_conf=0.0, SR0_ann_conf=0.0 (and the contrast
+  bracket(3)=0.852804); (2) z_0.95=norm.ppf(0.95)=1.644854; (3) kill_switch two-pass solve
+  at SR0_pp=0, T=120, var_term=1 -> 1.644854/sqrt(119)*sqrt(252)=2.3936 (and the
+  horizon-curve points T=90->2.7678, 150->2.1391, 180->1.9516, 300->1.5101);
+  (4) power curve points at g_pp=0.028392 (n=30->0.068 ... n=180->0.103) and n*(80%)=7670;
+  (5) master_seed: int('53981a',16)=5478426 mod 1e6 = 478426.
+
+evidence:
+  - "references/pre-registrations/qrb6_cb_event_study.md:375-385 -- exploratory bracket(3)=
+     0.852804, SR0_ann_sel=0.426402, SR0_pp_sel=0.026861, N_sel=3, disp=0.50."
+  - "references/pre-registrations/qrb6_cb_event_study.md:546-566 -- frozen power convention
+     lambda=SR_pp*sqrt(n), power=Phi(lambda-z95); disclosed ~13-18% at n=506."
+  - "references/pre-registrations/qrb6_cb_event_study.md:574-588 -- exploratory kill_switch
+     1.5883 at SR0_pp=0.026861, T=506, N_sel=3 (var_term=1, two-pass)."
+  - "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.yaml:5-11 -- exploratory
+     result: p_agg=0.0231, p_post2015=0.0027, dsr=0.907, sr_ann_pooled=1.3521; per-bank PW
+     block lengths FED=3 BOJ=1 RBA=1 BOC=1."
+  - "references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml:6-16 -- exploratory
+     master_seed=387992 (int('fa0f98',16)=16387992 mod 1e6), K=10000, sr0_pp=0.026861,
+     n_sel=3, kill_switch=1.5883."
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md:439-467 -- carry
+     confirmatory kill_switch two-pass solve discipline (1.2906 at SR0_pp=0.034921,N=6,T=1260)."
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md:477-479 -- seed
+     rule int(first6hex,16) mod 1e6 (f2fb41->15924033->924033)."
+  - ".fintech-org/artifacts/2026-06-07T-qrb6-confirmatory/pm-acceptance-criteria.yaml:146-251
+     -- CONF-statistic/CONF-interim/CONF-kill-switch-threshold ownership and constraints."
+
+confidence: high
+body: |
+  Full derivations in math-sections.md (PART II echoing the QR structure by reference).
+  Headline frozen set for trial 53981a4a:
+    N_sel=1 -> SR0_pp_conf=0.0, SR0_ann_conf=0.0 (BLdP expected-max bracket collapses at
+      N=1; the 0.4264-ann selection penalty that sank the exploratory's DSR is removed).
+    Look design: SINGLE TERMINAL LOOK, full alpha=0.05 once (NOT 2-look OBF -- the ~30
+      events/yr rate makes an interim under-powered and below the bootstrap floor).
+    Bootstrap-validity floor: n >= 90 deduped event-days (4 bank-blocks, PW L~1-3).
+    Planning Sharpe: 1/3 * 1.3521 = 0.4507 ann (per-event g_pp=0.028392); 80% power
+      unreachable (n*~7670, ~256yr) under the inherited per-event convention -- disclosed.
+    Lock horizon: +4yr -> terminal n~120 events -> LOOK DATE 2030-04-07.
+    kill_switch_threshold = 2.3936 (min ann Sharpe to clear DSR>=0.95 at SR0_pp=0, T=120,
+      var_term=1; LOWER than the exploratory's 1.5883 WOULD be at equal T -- at T=506 the
+      N=1 value is 1.1619 vs 1.5883, the 0.4264 difference being exactly the removed SR0;
+      it is HIGHER than 1.5883 here ONLY because T=120 << 506 shortens the sqrt(T-1) lever).
+    master_seed = 478426 (int('53981a',16)=5478426 mod 1e6).
+    Constants: K=10000, alpha=0.05, MC-SE 0.002179 at p=0.05, banks-as-blocks stationary
+      bootstrap, PW auto block length, +1/+1 convention.
+  decision: sound. NHT to review the single-look election and the disclosed underpower.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

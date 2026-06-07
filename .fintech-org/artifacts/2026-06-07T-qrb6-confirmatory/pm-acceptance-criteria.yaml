@@ -1,0 +1,467 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-07T00:00:00Z"
+subtask_ref: qrb6-confirmatory
+subtask_id: qrb6-confirmatory-2026-06-07:phase1:task1.0
+task-statement: >-
+  Author and crypto-freeze a confirmatory-only pre-registration for QRB-6 exactly
+  as executed (trial fa0f982a), on post-2026-04-06 CB-event data, with N_sel=1.
+deliverable-type: spec-completion
+deadline: 2026-06-08T23:59:00Z
+
+instrument-universe:
+  # FED decisions — USD-cross pairs
+  - EURUSD (FED)
+  - GBPUSD (FED)
+  - USDJPY (FED)
+  - USDCAD (FED)
+  - AUDUSD (FED)
+  - NZDUSD (FED)
+  # BOJ decisions — JPY-cross pairs
+  - USDJPY (BOJ)
+  - EURJPY (BOJ)
+  - GBPJPY (BOJ)
+  - AUDJPY (BOJ)
+  - CADJPY (BOJ)
+  - NZDJPY (BOJ)
+  # RBA decisions — AUD-cross pairs
+  - AUDUSD (RBA)
+  - AUDJPY (RBA)
+  # BOC decisions — CAD-cross pairs
+  - USDCAD (BOC)
+  - CADJPY (BOC)
+  # Banks: FED, BOJ, RBA, BOC (Scenario-A verified-official only)
+  # Pair-bank map pinned as-executed in trial fa0f982a §3.2 (fa0f982a.STEP-RESULT.yaml)
+  # No Scenario B (BOE/ECB/RBNZ) — those require a separate C4 certification step
+  #   that has not been completed; they are NOT part of this confirmatory structure.
+
+hard-constraints:
+  # Machine-checkable list — any violation is a VOID condition
+  - "single_structure_equals_fa0f982a: true — the ONLY structure under test is QRB-6 as
+     executed in trial fa0f982a (receipt sha 7438b0a): signed product y_e =
+     sign(close(D)−close(D-1))·R_post, K_pre=1, K_post=2, close(D)→close(D+2),
+     entry D+1 under entry_delay_bars=1, Scenario-A verified-official banks {FED, BOJ,
+     RBA, BOC}, pair×bank map pinned at §3.2 of fa0f982a pre-reg, banks-as-blocks
+     stationary block bootstrap (bank_level_blocks_stationary_circular),
+     Politis-White auto block-length per bank group, K=10000, spread_z=3.0 overlay,
+     exclude-not-impute (n_event_cost_or_data_gap MUST be 0). Any structural deviation
+     VOIDS the confirmatory."
+  - "n_sel_equals_1: true — the structure is pre-committed before the look; no finalist
+     comparison, no portfolio selection at evaluation time. N_sel=1. This is the
+     WHOLE POINT: the DSR selection-deflation charge that sank the exploratory
+     (fa0f982a DSR=0.907 at N_sel=3) is removed. The Mathematician must derive fresh
+     SR0_pp and kill_switch_threshold at N_sel=1. Do NOT copy fa0f982a values."
+  - "future_events_only_after_2026_04_06: true — the confirmatory event set consists
+     exclusively of CB decisions from 2026-04-07 forward (strictly AFTER the exploratory
+     terminus 2026-04-06). Zero event-day overlap with the fa0f982a sample. Any event
+     on or before 2026-04-06 entering the confirmatory test VOIDS it."
+  - "forward_calendar_and_price_acquisition_is_a_pre_look_obligation: true — the acquired
+     CB calendar currently terminates 2026-03-19 (842 rows, git 62421b6) and OHLCV
+     terminates ~2026-04. BOTH the forward CB calendar AND the forward price data MUST
+     be acquired and committed BEFORE the look-date. This acquisition is a named
+     pre-look obligation; it is NOT doable at freeze time and is NOT part of this
+     wave. Forward run-rate: ~30 verified-official event-days/year ({FED,BOJ,RBA,BOC}
+     ~8 decisions each/yr). Acquisition follows the Scenario-A-only verified-official
+     default (anti-fabrication discipline applies; aggregator/memory grades inadmissible
+     unless a committed spot-check certifies)."
+  - "verified_official_grade_only: true — forward events must be verified-official-grade
+     (same acquisition discipline as the Scenario-A primary in fa0f982a). Aggregator
+     or training-memory-unverified grade events are inadmissible unless a spot-check
+     artifact (analogous to AC-3a/C4 in fa0f982a) is committed. The runner MUST filter
+     at load: df = df[df['verification'] != 'training-memory-unverified'], verbatim."
+  - "no_return_data_before_freeze: true — no computation of any strategy performance
+     (return series, equity curve, Sharpe, p-value, test statistic) on any post-2026-04-06
+     bar before the freeze-receipt is cut and committed to git. Schema/index/row-count
+     inspection on price data is NOT a return examination; computing a return IS.
+     Early-peek VOIDS the test."
+  - "power_derived_lock_horizon: true — the Mathematician derives the number of future
+     event-days needed for adequate power at a planning effect size (the exploratory
+     pooled Sharpe 1.352 is the in-sample estimate; the confirmatory plans on a
+     DECAYED/haircut value — Math decides the decay and the target power level).
+     At ~30 events/yr the Mathematician converts the required event-count to a calendar
+     look date. The Mathematician also decides single-look vs 2-look OBF (flagged
+     below as the most important design decision). The lock horizon is NOT set by PM;
+     it is the Mathematician's frozen output. The carry confirmatory used 2-look OBF
+     with looks at +2.5yr/+5yr as the reference pattern."
+  - "fresh_kill_switch_threshold: true — the Mathematician derives a NEW kill_switch_threshold
+     for this confirmatory from the N_sel=1 SR0 formula and the confirmatory T_holdout.
+     Do NOT use fa0f982a's 1.5883 (N_sel=3) or the r5-confirmatory's 1.2906 (different
+     study). Different N_sel and different T_holdout produce a different threshold."
+  - "reuse_frozen_cost_manifest: true — the cost manifest config/cost_freeze_qrb6.yaml
+     (sha256 6ec6937e6a8de84e32c49001c68d0335cc72b5c2932676eba73f4f6514c8b283) is
+     immutably frozen. The confirmatory runner MUST use this exact manifest. No
+     re-derivation, no per-pair discretion, no update. The cost-coverage gate
+     (n_event_cost_or_data_gap MUST be 0) applies equally to the forward event set."
+  - "new_trial_burned: true — the confirmatory consumes a NEW org-wide trial id.
+     Org counter was at 41 at fa0f982a registration; the confirmatory increments to 42.
+     The new trial_id is registered in .fintech-org/trials.jsonl at the authoring spawn.
+     It NEVER reuses fa0f982a (the exploratory) or any prior id."
+  - "immutable_prior_freezes: true — fa0f982a pre-reg (qrb6_cb_event_study.md),
+     its FREEZE-RECEIPT.yaml, its STEP-RESULT.yaml, the r5 family artifacts, and the
+     r5-confirmatory artifacts are ALL immutable. This track never edits them.
+     References only."
+
+criteria:
+  - id: CONF-structure
+    description: >-
+      The exact QRB-6 structure is pinned verbatim from fa0f982a. The signed-product
+      construction y_e = sign(close(D)−close(D-1))·R_post, K_pre=1, K_post=2
+      (close(D)→close(D+2), entry D+1), the exact pair×bank map for Scenario-A banks
+      {FED, BOJ, RBA, BOC} carried from §3.2 of fa0f982a, the banks-as-blocks stationary
+      block bootstrap, the mechanical cost manifest config/cost_freeze_qrb6.yaml
+      (sha 6ec6937e), the spread_z=3.0 overlay, and the exclude-not-impute rule
+      are ALL frozen verbatim. The confirmatory pre-reg explicitly cites fa0f982a
+      receipt sha 7438b0a as the source. No parameter search, no structural variant,
+      no new pair. Scenario B (BOE/ECB/RBNZ) is out of scope for this confirmatory
+      (C4 certification not yet complete; separate governance step if ever).
+    owner: quant-researcher
+    done_when: >-
+      Pre-reg document explicitly declares the single structure with verbatim parameter
+      pins (signed-product construction, K_pre, K_post, pair×bank map, cost manifest sha,
+      spread_z, exclude-not-impute, entry_delay_bars=1), cites fa0f982a receipt sha
+      7438b0a as lineage, and declares N_sel=1 with stated rationale. QR signs the
+      structure section.
+
+  - id: CONF-holdout
+    description: >-
+      The hold-out window rule is frozen as a RULE: CB decisions strictly after
+      2026-04-06 (the fa0f982a exploratory terminus). Zero overlap with any event
+      day the exploratory saw. The forward event run-rate (~30 verified-official
+      event-days/yr) and the resulting calendar look date(s) are derived by the
+      Mathematician from the power requirement. The pre-reg states: (a) the hold-out
+      start rule (events after 2026-04-06), (b) the forward acquisition obligation
+      (both CB calendar and OHLCV must be acquired before the look — named obligation,
+      not doable at freeze), (c) minimum event-day count for block-bootstrap validity
+      (Mathematician's derivation), and (d) a provenance gate: the forward events must
+      be verified-official-grade with the same filter as Scenario A in fa0f982a.
+    owner: quant-researcher + mathematician (co-sign)
+    done_when: >-
+      Pre-reg contains a frozen date-rule specifying: (a) forward event start > 2026-04-06,
+      (b) named forward acquisition obligation (calendar + OHLCV) as a pre-look step
+      explicitly out of this wave, (c) minimum event-day count / bootstrap-validity guard
+      (Math-derived), (d) verified-official grade requirement for forward events,
+      (e) HoQR + Math co-signatures on this section.
+
+  - id: CONF-statistic
+    description: >-
+      The confirmatory test uses a SINGLE pre-specified structure (N_sel=1) — no
+      portfolio, no finalist comparison. The null is H0: E[y_e] <= 0 (no positive
+      post-decision net-of-cost edge on unsnooped forward events). The test statistic
+      is the banks-as-blocks stationary block bootstrap HAC-studentized mean (same
+      machinery as fa0f982a, pinned on the hold-out series). The Mathematician derives:
+      (a) the N_sel=1 SR0_pp for the fresh DSR gate (different from fa0f982a's N_sel=3
+      value of 0.026861 and from the r5-confirmatory's 0.034921), (b) the confirmatory
+      DSR gate threshold (DSR >= 0.95), (c) the decision functional mapping p-value +
+      DSR to PASS/KILL/AMBIGUOUS. No cross-trial constant import from fa0f982a or any
+      prior trial's thresholds. The selection charge now attaches ONLY through the
+      pre-commitment of the structure (N_sel=1 in the DSR SR0 formula); the p-gate
+      uses the confirmatory alpha-spending boundary (single or 2-look — see CONF-interim).
+    owner: mathematician
+    done_when: >-
+      Pre-reg contains: (a) frozen null hypothesis for single-structure confirmatory test,
+      (b) N_sel=1 election with rationale (structure pre-committed, no finalist comparison),
+      (c) fresh SR0_pp derivation at N_sel=1 (shown arithmetic, NOT copied from fa0f982a),
+      (d) the test statistic and bootstrap mechanics (same HAC-studentized mean, same
+      banks-as-blocks block bootstrap with K=10000, Politis-White auto block length,
+      same estimator conventions as fa0f982a), (e) the decision functional with explicit
+      PASS/KILL/AMBIGUOUS branches, (f) Mathematician signature.
+
+  - id: CONF-interim
+    description: >-
+      The Mathematician determines single-look vs 2-look design and derives the look
+      date(s). The planning effect size is a DECAYED/haircut of the exploratory's
+      pooled in-sample Sharpe (1.352 is selection-biased upward; the Mathematician
+      applies an honest shrinkage — analogous to the carry confirmatory's SR_plan =
+      SR0_ann_conf). At ~30 verified-official event-days/yr the power curve is stated
+      in event-days and calendar years. The carry confirmatory used 2-look OBF (looks
+      at +2.5yr/+5yr of daily bars), but the QRB-6 event rate is ~30 events/yr not
+      ~252 bars/yr — so the look horizon may differ materially. The Mathematician
+      derives the lock horizon and decides whether 2-look OBF or single-look is
+      appropriate given the power reality. If 2-look: the alpha-spending function
+      (Lan-DeMets sfLDOF recommended, matching carry pattern) is frozen with the two
+      look dates and per-look boundaries. If single-look: the Mathematician explicitly
+      justifies and commits a single look date. NHT reviews the power statements and
+      the look design.
+    owner: mathematician
+    done_when: >-
+      Pre-reg contains: (a) the planning Sharpe (haircut derivation shown, NOT the
+      raw exploratory 1.352), (b) the power curve at each planned look in event-days
+      and calendar years, (c) the frozen look date(s) — either single or 2-look OBF,
+      (d) if 2-look: the alpha-spending function, per-look boundaries, and information
+      fraction, (e) the terminal look is declared BINDING (no extend, no re-parameterize),
+      (f) Mathematician signature. NHT review of power statements is a done_when condition.
+
+  - id: CONF-decision-map
+    description: >-
+      Every outcome at every look maps to a named firm action. Required branches:
+      (1) p-reject AND DSR >= 0.95 at any look → GRADUATE to named next step (observe-only
+      paper canary under a fresh ratification with a new trial_id; NO CAPITAL);
+      (2) fail to reject at the final look → KILL the structure (archive FALSIFIED;
+      QRB-3 queued runner-up still does NOT auto-advance — QRB-3 advanced only on a
+      post-2015 KILL in fa0f982a, not on a confirmatory KILL of fa0f982a's structure);
+      (3) optional futility at an interim look (if Mathematician freezes one) → early KILL;
+      (4) CONTINUE to next look (bounded; unavailable at the final look);
+      (5) TECHNICAL FAILURE (code error, data fault, freeze mismatch, provenance breach)
+      → HALT, root-cause, re-freeze, re-run; trial counter NOT incremented.
+      There is NO "inconclusive, keep spending" branch. The final look is TERMINAL.
+    owner: quant-researcher
+    done_when: >-
+      Pre-reg decision map covers all five outcome categories with named firm actions.
+      The kill action at the final look is explicit and binding at any power level.
+      PASS is conditional on BOTH p-rejection AND DSR gate. QRB-3 advance rule is
+      stated (does NOT advance on confirmatory KILL — different condition than fa0f982a).
+      QR signs the decision map.
+
+  - id: CONF-monitoring
+    description: >-
+      The interim observe-only state between freeze and the first look date is specified:
+      (a) no new research spend on the QRB-6 structure during the interim;
+      (b) no new variant, bank, or pair search;
+      (c) data pipeline accrual continues passively (CB calendar updates and OHLCV ingestion
+      are passive accrual, NOT evaluation);
+      (d) quarterly mechanical data-integrity checks on price data without computing
+      any strategy return or statistic (early-peek-safe; analogous to the carry-confirmatory
+      interim monitoring pattern);
+      (e) active research capacity redirected to genuinely-new alpha hypotheses (separate
+      tracks, separate pre-registrations).
+    owner: quant-researcher
+    done_when: >-
+      Pre-reg contains an interim monitoring-state section covering all five items above.
+      The no-peek discipline (no statistic on post-2026-04-06 data before a frozen look
+      date) is stated as a VOID condition. QR signs.
+
+  - id: CONF-kill-switch-threshold
+    description: >-
+      The pre-reg must contain a verbatim kill_switch_threshold field (required by the
+      repo pre-commit hook). The threshold is derived FRESH by the Mathematician at N_sel=1
+      and the confirmatory T_holdout (the number of event-days expected at the terminal
+      look, ~30/yr × lock horizon in years). It is NOT copied from fa0f982a (1.5883,
+      which used N_sel=3) and NOT from the r5-confirmatory (1.2906, different study
+      entirely). The threshold is the minimum pooled annualized Sharpe on the hold-out
+      that clears DSR >= 0.95 at the N_sel=1 SR0_pp and the terminal T_holdout.
+      The Mathematician shows arithmetic (two-pass brentq-style solve, same discipline
+      as the carry confirmatory), states the DSR formula inputs, and signs the derivation.
+    owner: mathematician
+    done_when: >-
+      Pre-reg YAML or structured section contains `kill_switch_threshold: <value>` freshly
+      derived from the N_sel=1 DSR formula. The derivation shows: (a) N_sel=1, (b) fresh
+      SR0_pp_conf at N_sel=1, (c) T_holdout at the terminal look in event-days, (d)
+      DSR >= 0.95 gate, (e) two-pass solve for the minimum passing ann Sharpe.
+      Mathematician signature present. Value is strictly different from 1.5883 and 1.2906.
+
+  - id: CONF-qd-runner
+    description: >-
+      The QRB-6 runner requires a date-window parameter to restrict the event set to
+      forward events only (post-2026-04-06). The Quant Developer provides: (a) the
+      date-window parameter to the existing runner (analogous to the hold-out window
+      in the carry confirmatory — the runner filters events by date >= 2026-04-07);
+      (b) a forward-acquisition tooling stub: tooling/scaffold that will, when the
+      forward calendar and OHLCV become available, fetch/validate/commit verified-official
+      CB events post-2026-04-06 (this stub is the PLAN for the pre-look obligation —
+      the actual acquisition happens before the look, not at freeze); (c) the freeze
+      target pointing to a `qrb6_confirmatory` receipt target in cut_freeze_receipt.py
+      (analogous to the confirmatory target added for r5 in F-003 remediation).
+      The runner is REFUSE-WITHOUT-RECEIPT: it verifies the committed freeze-receipt
+      before touching any hold-out data.
+    owner: quant-developer
+    done_when: >-
+      QD provides: (a) PR or patch adding the date-window parameter to the QRB-6 runner
+      (filter: event date > 2026-04-06), (b) a committed acquisition-stub or plan document
+      naming the tooling that will acquire forward verified-official CB dates at look time,
+      (c) the `qrb6_confirmatory` target registered in cut_freeze_receipt.py with the
+      correct field-spec (new trial_id, N_sel=1 SR0_pp, kill_switch_threshold derived
+      by Math, look date(s)), (d) the runner verifies the freeze-receipt before touching
+      any hold-out data. QD signs the implementation.
+
+  - id: NHT-audit
+    description: >-
+      The null-hypothesis tester performs an adversarial audit of the confirmatory pre-reg,
+      checking: (a) N_sel=1 is correctly charged — the structure is genuinely pre-committed
+      and no residual selection path exists at evaluation time; (b) the hold-out is
+      genuinely post-2026-04-06 and there is no snooping path (the forward acquisition
+      obligation is a pre-look step, not a peek); (c) the alpha-spending function and
+      look schedule do not allow unconstrained spending; (d) the decision map has no
+      hidden "keep spending" escape; (e) the power reality is honestly stated (NHT
+      reviews the Mathematician's planning Sharpe and power curve); (f) the cost-coverage
+      gate (n_event_cost_or_data_gap MUST be 0) carries forward to the forward event set.
+      NHT dissent is append-only (agent-accountability dissent primitive), never erased.
+    owner: null-hypothesis-tester
+    done_when: >-
+      NHT audit artifact written to .agent-accountability/dissents/ under the
+      qrb6-confirmatory track id. Severity recorded (informational/concern/strong_objection/
+      block-threshold). If block-threshold: pre-reg revised before principal-reviewer sees it.
+      NHT explicitly adjudicates: does N_sel=1 correctly remove the selection-deflation
+      charge that produced fa0f982a's DSR=0.907 < 0.95, and is that removal legitimate
+      given the structure was pre-committed before the look?
+
+  - id: PR-review
+    description: >-
+      The principal reviewer performs a full review of the complete confirmatory pre-reg
+      (all sections: structure, holdout, statistic, interim/power, decision map, monitoring,
+      kill-switch, freeze mechanics, forward acquisition obligation). Review follows the
+      review-plan skill rubric: every verdict cites specific text, no rubber-stamping.
+      All blocking issues resolved before CONSENSUS.
+    owner: principal-reviewer
+    done_when: >-
+      Principal reviewer emits APPROVED / NEEDS WORK / REJECTED verdict with dimension
+      scores and issue list. If APPROVED: proceeds to CONSENSUS. If NEEDS WORK: QR/Math
+      revise and PR re-reviews. Budget 3 rounds before a gap artifact fires (per
+      agent-accountability protocol).
+
+  - id: CONSENSUS-freeze
+    description: >-
+      A CONSENSUS artifact is produced co-signed by QR, Mathematician, NHT, and
+      principal-reviewer, analogous to CONSENSUS_2026-06-06_r5_confirmatory_prereg.md.
+      CEO ratification required before the freeze-receipt is committed (freeze-receipt
+      is the irreversible step; CEO sign-off precedes it). The consensus records:
+      (a) the new trial_id (org counter 42), (b) the frozen look date(s) and alpha-spending
+      boundaries, (c) the N_sel=1 SR0_pp and kill_switch_threshold, (d) all role sign-offs
+      and any surviving NHT reservations verbatim. The freeze-receipt (via
+      cut_freeze_receipt.py --target qrb6_confirmatory --cut) is committed to git
+      BEFORE any post-2026-04-06 hold-out data is accessed or any metric computed.
+    owner: pm (orchestrates); all roles co-sign
+    done_when: >-
+      CONSENSUS YAML/MD exists in .fintech-org/artifacts/2026-06-07T-qrb6-confirmatory/,
+      lists all co-signers, records the new trial_id and look schedule, and the
+      agent-accountability ratification record is written to
+      .agent-accountability/ratifications/ under the qrb6-confirmatory track id before
+      the freeze-receipt is cut.
+
+out-of-scope:
+  - "The forward CB calendar acquisition (post-2026-04-06 verified-official events) — a named pre-look obligation, separate STEP gated by CEO ack"
+  - "The forward OHLCV acquisition — same pre-look obligation, not doable at freeze"
+  - "The one-shot look execution — calendar-locked until the power-derived look date(s), separate STEP with CEO ack at that time"
+  - "Scenario B activation (BOE/ECB/RBNZ) — C4 certification not complete; out of scope for this confirmatory structure"
+  - "QRB-3 advancement — QRB-3 does NOT advance on this confirmatory; it advanced only on a post-2015 KILL in fa0f982a (a different branch)"
+  - "Any edit to frozen fa0f982a artifacts (qrb6_cb_event_study.md, FREEZE-RECEIPT.yaml, STEP-RESULT.yaml, cost_freeze_qrb6.yaml)"
+  - "Live or paper trading actions; any capital deployment"
+  - "Re-opening the 11-proposal new-alpha portfolio or re-running the QRB-6 exploratory"
+
+roles-staffed:
+  - "quant-researcher (opus): Authors the confirmatory pre-reg — the single-structure
+    declaration echoing fa0f982a, the future-event-window definition (post-2026-04-06),
+    the forward-acquisition obligation (named pre-look step, out of this wave), the
+    falsification criteria and VOID conditions mirroring fa0f982a §1.4 for the confirmatory
+    context, retirement triggers, interim monitoring state, and the decision map (PASS/KILL/
+    AMBIGUOUS/CONTINUE/TECHNICAL-FAILURE branches). QR co-signs holdout and decision-map."
+  - "mathematician (opus): Derives N_sel=1 SR0_pp (fresh, not copied from fa0f982a or r5);
+    derives the confirmatory DSR gate; decides single-look vs 2-look OBF and the planning
+    Sharpe (haircut from exploratory 1.352 — Math decides the decay); derives the power
+    curve → the lock horizon / look date(s); derives the fresh kill_switch_threshold
+    (from N_sel=1 SR0_pp + T_holdout at terminal look); derives the seed rule from the
+    new trial id (same hex-mod-1e6 convention as r5-confirmatory). Mathematician signs
+    all quantitative sections."
+  - "quant-developer (sonnet): (a) Adds date-window parameter to the QRB-6 runner
+    (filter post-2026-04-06 events); (b) provides forward-acquisition tooling stub
+    (plan for acquiring verified-official forward CB events at look time);
+    (c) registers `qrb6_confirmatory` target in cut_freeze_receipt.py with correct
+    field-spec; (d) ensures runner is REFUSE-WITHOUT-RECEIPT. QD is NOT conditional
+    here — the date-window parameter and receipt-target changes are required to cut a
+    valid freeze-receipt."
+  - "null-hypothesis-tester (opus): Adversarial audit — verifies N_sel=1 is legitimately
+    applied (structure pre-committed, no residual selection), holdout is unsnooped, power
+    is honestly stated, no hidden escape paths. Adjudicates whether the N_sel=1 election
+    correctly removes the selection-deflation charge. Dissent append-only."
+  - "principal-reviewer (opus): Full review of the complete confirmatory pre-reg; blocks
+    on unresolved findings before CONSENSUS. Follows review-plan skill rubric."
+  - "pm (this role): Writes acceptance criteria (this document), orchestrates wave sequence,
+    produces CONSENSUS artifact, coordinates CEO ratification before freeze-receipt is cut."
+
+wraps_invocation_of: []
+
+evidence:
+  - "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.yaml — trial fa0f982a
+     verdict RULE_4_AMBIGUOUS: p_post2015=0.0027 (clean reject), p_agg=0.0231 (clean
+     reject), DSR=0.907 < 0.95 (gate fail), sr_ann_pooled=1.352, N_sel=3, SR0_pp_sel=0.026861,
+     kill_switch_threshold=1.5883. DSR shortfall caused by N_sel=3 selection-deflation charge."
+  - "references/pre-registrations/qrb6_cb_event_study.FREEZE-RECEIPT.yaml — prereg_sha256
+     7438b0a... (the frozen structure; confirmatory pre-reg must cite this sha as lineage)."
+  - "references/pre-registrations/qrb6_cb_event_study.md §1.4 — VOID conditions for the
+     exploratory; mirrored for the confirmatory with N_sel=1 substitution."
+  - "references/pre-registrations/qrb6_cb_event_study.md §3.2 — pair×bank map carried
+     verbatim (FED→6 pairs, BOJ→6 pairs, RBA→2 pairs, BOC→2 pairs, Scenario A only)."
+  - "config/cost_freeze_qrb6.yaml (sha 6ec6937e6a8de84e32c49001c68d0335cc72b5c2932676eba73f4f6514c8b283)
+     — immutably frozen cost manifest; reused verbatim."
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md — carry
+     confirmatory as the structural template: single-structure declaration, unsnoopable
+     hold-out, N_conf derivation, 2-look OBF, power disclosure, decision map. Analogous
+     pattern to follow."
+  - ".fintech-org/trials.jsonl — last entry fa0f982a COMPLETE RULE_4_AMBIGUOUS (counter 41);
+     confirmatory increments to 42."
+
+assumptions:
+  - "Post-2026-04-06 CB calendar (verified-official grade) will be acquired before the
+     look — this is a named pre-look obligation. If the acquisition fails for any bank,
+     that bank's post-freeze events cannot be included without a governance exception."
+  - "Post-2026-04-06 OHLCV for the 11 Scenario-A pairs will be available via the existing
+     pipeline at look time. If gaps occur, the exclude-not-impute rule applies; the
+     n_event_cost_or_data_gap MUST be 0 gate is the enforcement mechanism."
+  - "The ~30 verified-official event-days/yr run rate ({FED,BOJ,RBA,BOC} ~8/yr each) is
+     directionally correct for power planning; the Mathematician refines based on the
+     actual forward run rate at freeze."
+  - "The N_sel=1 election is legitimate because the structure is pre-committed before
+     the look — the DSR selection-deflation charge attaches to the selection event, which
+     was fa0f982a's 11-proposal → 2-finalist → QRB-6 selection. That charge is already
+     spent (fa0f982a burned the trial); the confirmatory pre-commits the structure and
+     runs it on data neither the firm nor the model has seen, removing the new-selection
+     charge for this look. NHT must explicitly adjudicate this claim."
+  - "The cost manifest config/cost_freeze_qrb6.yaml covers the 11 Scenario-A pairs with
+     non-zero costs. Any post-freeze universe change (new pair added to a bank's coverage)
+     requires a governance exception — it cannot be silently absorbed."
+  - "CEO ratification is required before the freeze-receipt is committed; this track does
+     not have authority to cut the freeze-receipt autonomously."
+
+confidence: high
+
+body: |
+  This acceptance-criteria document governs Wave 1 of track qrb6-confirmatory-2026-06-07.
+
+  The QRB-6 exploratory (trial fa0f982a) ran 2026-06-07 and returned RULE_4_AMBIGUOUS:
+  p_post2015=0.0027 (clean reject), p_agg=0.0231 (clean reject), pooled ann Sharpe=1.352,
+  BUT DSR=0.907 < 0.95 — the selection-deflation charge (N_sel=3: best of 11-proposal
+  portfolio + 2-finalist comparison) eats the edge and the DSR gate does not clear.
+
+  The CEO has elected confirmatory under pre-reg §4.2 RULE 4. This burns a NEW trial
+  (org counter 41 → 42). The logic: by pre-committing the structure NOW — before any
+  forward data exists — the confirmatory removes the selection charge from this new look.
+  N_sel=1 at the look. The Mathematician derives the resulting (substantially lower) SR0,
+  and the fresh kill_switch_threshold will be materially lower than fa0f982a's 1.5883.
+
+  The forward event set (post-2026-04-06) is unsnoopable because it does not yet exist.
+  Both the forward CB calendar and the forward OHLCV must be acquired before the look —
+  this is a named pre-look obligation explicitly out of this wave. At ~30 events/yr, the
+  lock horizon is likely multi-year (the Mathematician derives the exact look date from
+  the power curve at the planning Sharpe). The carry confirmatory (2028-10-06 / 2031-04-06)
+  is the structural reference for lock horizon shape.
+
+  The cost manifest (config/cost_freeze_qrb6.yaml) is reused immutably — no re-derivation.
+  The cost-coverage gate (n_event_cost_or_data_gap MUST be 0) applies to the forward event
+  set; any gap in cost coverage for a forward event is a loud EXCLUDE, never a silent zero.
+
+  Wave 1 deliverable: a complete, frozen, CEO-ratified confirmatory pre-reg. The forward
+  acquisition and the one-shot look are post-freeze STEPs gated by the calendar lock + CEO ack.
+
+knowledge_gaps:
+  - "The N_sel=1 SR0_pp value — the Mathematician must derive this fresh; PM cannot pre-compute
+     it. The direction is clear (lower than fa0f982a's N_sel=3 SR0_pp_sel=0.026861), but the
+     exact value requires the BLdP formula at N_sel=1 with the QRB-6 dispersion."
+  - "The planning Sharpe (haircut from the exploratory's 1.352) — the Mathematician decides
+     the decay function. The in-sample 1.352 is selection-biased upward; the honest planning
+     value is lower. Carry-confirmatory used SR_plan = SR0_ann_conf as the conservative anchor."
+  - "Single-look vs 2-look OBF decision — flagged to the Mathematician as the most important
+     design decision (see final message). This determines whether the look design mirrors
+     carry-confirmatory or departs from it."
+  - "The exact lock horizon (look date(s)) — derived by the Mathematician from the power
+     curve at the planning Sharpe and the ~30 events/yr run rate."
+  - "Fresh kill_switch_threshold — derived by the Mathematician at N_sel=1 SR0_pp and
+     T_holdout at the terminal look."
+  - "Whether the existing QRB-6 runner requires substantive new code or only date-window
+     parameter addition — QD assessment at the start of the wave."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,130 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-07T15:40:00Z"
+subtask_ref: qrb6-confirmatory-qd
+subtask_id: qrb6-confirmatory-2026-06-07:phase1:task1.0
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+
+commit_hash: uncommitted
+files_changed:
+  - src/forex_system/harness/qrb6_decision.py
+  - scripts/run_qrb6.py
+  - scripts/cut_freeze_receipt.py
+  - tests/harness/test_qrb6_confirmatory.py
+tests_added: 25
+tests_passing:
+  new_confirmatory_tests: "25 passed (tests/harness/test_qrb6_confirmatory.py)"
+  full_harness_suite: "482 passed, 3 skipped (tests/harness/) — exploratory STILL passes"
+  sacred_no_lookahead: "9 passed, 1360 deselected (-k test_no_lookahead)"
+  ruff: "All checks passed! (4 changed files)"
+
+sacred_test_status: PASS (test_no_lookahead — 9 passed, unmodified)
+kill_test_executed: false
+
+date_window_param: >-
+  Additive. (1) A pure standalone filter apply_date_window(event_set, window_start,
+  window_end) added to qrb6_decision.py: inclusive [start,end], resets the integer
+  index, and returns the event set UNCHANGED (identity, no copy) when BOTH endpoints
+  are None — the exploratory invariance hook. (2) build_scenario_a_event_set gained a
+  keyword-only enforce_exploratory_count=True (default) so the frozen 506-count guard
+  is UNCHANGED on the exploratory path; the confirmatory passes False (forward count
+  is a-priori unknown). (3) _run_pipeline gained date_window: tuple|None = None
+  (default None = exploratory, full pipeline byte-identical). When a window is supplied
+  (confirmatory_mode), the SAME pipeline (sign, y_e, banks-as-blocks, frozen cost
+  manifest, exclude-not-impute, evaluate_decision) runs on the windowed subset.
+  (4) main() gained --confirmatory: live mode reads (window_start, window_end) from the
+  confirmatory receipt (NOT the exploratory receipt — no cross-trial constants), writes
+  to confirmatory result paths, and skips the fa0f982a-specific check_receipt_constants
+  guard (which would correctly reject the distinct N_sel=1 constants). window_start is
+  frozen at 2026-04-07; window_end is the Math-derived look date read from the receipt.
+
+exploratory_path_unaffected: >-
+  Verified four ways. (a) Full harness suite 482 passed / 3 skipped — every pre-existing
+  test_qrb6_decision / test_qrb6_freeze_receipt / test_qrb6_cost_coverage test green.
+  (b) Regression tests in the new file: default build still enforces 506; a short
+  calendar still raises 'count mismatch'; apply_date_window(None,None) returns identity.
+  (c) `python scripts/run_qrb6.py --dry-run` still completes and writes the exploratory
+  DRY-RUN result (decision RULE_1_KILL_POST2015 on synthetic stubs). (d) The exploratory
+  stub-receipt branch in main() is unchanged; date_window stays None whenever
+  --confirmatory is absent.
+
+receipt_target_added: >-
+  'qrb6_confirmatory' added to cut_freeze_receipt._TARGETS. prereg
+  references/pre-registrations/qrb6_confirmatory_cb_event_study.md ; receipt
+  ...qrb6_confirmatory_cb_event_study.FREEZE-RECEIPT.yaml. Fields: trial_id 53981a4a,
+  n_sel 1, dsr_threshold 0.95, spread_z_threshold 3.0, window_start "2026-04-07",
+  window_end "[ASSEMBLY]", cost_manifest_sha256
+  6ec6937e6a8de84e32c49001c68d0335cc72b5c2932676eba73f4f6514c8b283 (CONFIRMED exact
+  from config/cost_freeze_qrb6.yaml — frozen exploratory manifest reused verbatim),
+  scipy_required true, and [ASSEMBLY] placeholders for master_seed/K/sr0_pp/alpha/
+  p_reject_threshold/p_straddle_hi/kill_switch_threshold. sr0_note is the distinct
+  N_sel=1 string ("QRB-6-CONFIRMATORY N_sel=1 constants ONLY — NOT exploratory
+  fa0f982a, NOT R5, NOT carry-confirmatory; runner reads THIS receipt"). The
+  cost-coverage gate now runs for target qrb6_confirmatory too (cut path branch
+  widened to ('qrb6','qrb6_confirmatory')). The 3 prior targets (r5, confirmatory,
+  qrb6) are byte-unchanged and still dry-run their correct paths.
+
+gap_proofing_inherited: >-
+  The confirmatory runner inherits, unchanged, every exploratory gap-guard because it
+  IS the same _run_pipeline: exclude-not-impute (events with empty pair_returns are
+  EXCLUDED, never zero-imputed), the cost-manifest interlock (RULE_0 if manifest absent
+  or a registered pair missing), the cost-coverage / positivity gate, the
+  n_event_cost_or_data_gap==0 live invariant, and the hard-key receipt reads for
+  p_reject_threshold / p_straddle_hi / kill_switch_threshold (no silent fallbacks — the
+  interlock checks THIS receipt's values). Added: an empty-forward-window RULE-0 — when
+  the windowed event set is empty (forward data not yet acquired) the runner raises
+  RULE_0_TECHNICAL_FAILURE loudly rather than silently passing. Plus a DO-NOT-RUN-YET
+  forward_acquisition_stub() documenting that the forward CB calendar (post-2026-03-19)
+  and forward OHLCV (post-2026-04) must be acquired under the Scenario-A
+  verified-official anti-fabrication discipline before the look; it raises
+  NotImplementedError to keep the not-yet-status loud.
+
+evidence:
+  - "pytest tests/harness/test_qrb6_confirmatory.py -q → 25 passed in 0.64s"
+  - "pytest tests/harness/ -q → 482 passed, 3 skipped in 16.12s"
+  - "pytest -k test_no_lookahead -q → 9 passed, 1360 deselected"
+  - "ruff check (4 changed files) → All checks passed!"
+  - "cut_freeze_receipt.py --target qrb6_confirmatory (dry-run) → prints correct prereg/receipt paths, writes nothing; r5/confirmatory/qrb6 dry-runs unchanged"
+  - "run_qrb6.py --dry-run → exploratory unchanged (RULE_1_KILL_POST2015 on stubs)"
+  - "run_qrb6.py --confirmatory --dry-run → forward window [2026-04-07, placeholder] filters 506→0 forward events → RULE_0_TECHNICAL_FAILURE (empty forward window, data not yet acquired)"
+  - "cost_manifest_sha256 of config/cost_freeze_qrb6.yaml confirmed = 6ec6937e6a8de84e32c49001c68d0335cc72b5c2932676eba73f4f6514c8b283"
+
+assumptions:
+  - "window_end and the N_sel=1 SR0/kill_switch/p-thresholds are Math-derived at assembly; left as [ASSEMBLY] placeholders pre-consensus (correct per the receipt-cut discipline)."
+  - "The confirmatory prereg .md (qrb6_confirmatory_cb_event_study.md) is authored by the QR; the cut target points at it and will hash it at freeze."
+  - "The exploratory check_receipt_constants guards are fa0f982a-specific by design; the confirmatory intentionally does NOT call them (it would reject the distinct N_sel=1 constants). The confirmatory's interlock is sha-match + window-read + hard-key p-threshold reads."
+
+confidence: high
+
+body: |
+  Implemented the additive date-window mechanism so the EXACT QRB-6 exploratory
+  pipeline runs on a forward event window read from the confirmatory receipt, without
+  altering exploratory behavior. The window filter is a pure function
+  (apply_date_window) plus a relaxable count guard (enforce_exploratory_count); both
+  default to the exploratory behavior. _run_pipeline threads an optional date_window;
+  None reproduces the exploratory run byte-for-byte. main() gained --confirmatory which
+  uses the confirmatory receipt/paths/constants only.
+
+  The qrb6_confirmatory freeze target was registered with n_sel=1, the frozen
+  window_start (2026-04-07), the reused exploratory cost-manifest sha, distinct sr0_note,
+  and [ASSEMBLY] placeholders for the Math-derived constants. The cost-coverage gate now
+  gates the confirmatory cut too. All gap-proofing (exclude-not-impute, manifest
+  interlock, coverage gate, n_event_cost_or_data_gap==0 invariant, p-threshold
+  receipt-constant checks) is inherited; an empty-forward-window RULE-0 and a
+  DO-NOT-RUN-YET forward-acquisition stub were added so a forward window with no
+  events HALTs loudly instead of silently passing.
+
+  Verified: 25 new tests green, 482 harness tests green (exploratory unaffected),
+  sacred test green, ruff clean, all four receipt-target dry-runs correct and writing
+  nothing. No git commit performed; no live run or look executed.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -112,6 +112,53 @@ _TARGETS: dict[str, dict[str, Any]] = {
             ),
         },
     },
+    "qrb6_confirmatory": {
+        "prereg_path": Path(
+            "references/pre-registrations/qrb6_confirmatory_cb_event_study.md"
+        ),
+        "receipt_path": Path(
+            "references/pre-registrations/qrb6_confirmatory_cb_event_study.FREEZE-RECEIPT.yaml"
+        ),
+        # QRB-6 CONFIRMATORY (trial 53981a4a) — re-uses the EXACT exploratory
+        # structure on a FORWARD event window [window_start, window_end].  N_sel=1
+        # (the structure is pre-committed; no finalist comparison at the look), so
+        # the SR0/kill_switch/p-thresholds are DISTINCT from the exploratory
+        # fa0f982a (N_sel=3) values — derived FRESH by the Mathematician at assembly.
+        #
+        # CROSS-TRIAL CONTAMINATION GUARD:
+        #   sr0_pp here is the N_sel=1 confirmatory value — NOT the exploratory
+        #   fa0f982a 0.026861, NOT R5 0.022906, NOT carry-confirmatory 0.034921.
+        #   The runner reads sr0_pp / p-thresholds / window from THIS receipt.
+        #   Placeholders ([ASSEMBLY]) are filled from the MATH derivation at
+        #   consensus assembly (AC-7) before --cut.
+        #
+        # Cost manifest is REUSED immutably from the frozen exploratory manifest
+        # (config/cost_freeze_qrb6.yaml, sha 6ec6937e…) — no re-derivation.  The
+        # cost-coverage gate runs for this target too (all {FED,BOJ,RBA,BOC} pairs).
+        "fields": {
+            "trial_id": "53981a4a",
+            "master_seed": "[ASSEMBLY]",   # int('53981a',16) % 1e6 rule, filled at assembly
+            "K": "[ASSEMBLY]",             # bootstrap resamples; MATH
+            "sr0_pp": "[ASSEMBLY]",        # N_sel=1 value — NOT 0.026861 NOT R5 NOT carry-conf
+            "n_sel": 1,                    # structure pre-committed; no finalist comparison
+            "dsr_threshold": 0.95,         # firm-wide DSR gate
+            "alpha": "[ASSEMBLY]",         # total one-sided alpha; MATH
+            "p_reject_threshold": "[ASSEMBLY]",  # confirmatory's OWN p-reject; MATH (not fa0f982a's 0.0378)
+            "p_straddle_hi": "[ASSEMBLY]",       # confirmatory's OWN KILL threshold; MATH (not fa0f982a's 0.0422)
+            "kill_switch_threshold": "[ASSEMBLY]",  # fresh N_sel=1 + T_holdout; MATH
+            "window_start": "2026-04-07",  # frozen forward-window rule (strictly > exploratory terminus 2026-04-06)
+            "window_end": "[ASSEMBLY]",    # Math-derived look date (power-curve lock horizon)
+            "cost_manifest_sha256": (
+                "6ec6937e6a8de84e32c49001c68d0335cc72b5c2932676eba73f4f6514c8b283"
+            ),  # REUSED frozen exploratory manifest; confirmed from config/cost_freeze_qrb6.yaml
+            "spread_z_threshold": 3.0,     # frozen QRB-2 overlay (reused verbatim)
+            "scipy_required": True,        # scipy.stats required; no approximation
+            "sr0_note": (
+                "QRB-6-CONFIRMATORY N_sel=1 constants ONLY — NOT exploratory fa0f982a, "
+                "NOT R5, NOT carry-confirmatory; runner reads THIS receipt"
+            ),
+        },
+    },
     "r5": {
         "prereg_path": Path("references/pre-registrations/r5_carry_universe_kill_test.md"),
         "receipt_path": Path(
@@ -377,8 +424,11 @@ def main() -> None:
     #
     # GENERALISATION: any future pre-reg that names a pair universe must have
     # an analogous gate call here.  CTO owns this enforcement point.
-    if args.target == "qrb6":
-        print("Checking QRB-6 cost-coverage gate before cutting receipt...")
+    # The confirmatory REUSES the frozen exploratory manifest verbatim, so the
+    # same cost-coverage gate (all {FED,BOJ,RBA,BOC} pairs present and positive)
+    # must pass for it too before the confirmatory receipt is cut.
+    if args.target in ("qrb6", "qrb6_confirmatory"):
+        print(f"Checking QRB-6 cost-coverage gate for target {args.target!r}...")
         _assert_qrb6_cost_coverage()  # exits non-zero if gate fails
 
     prereg_sha256 = _sha256_file(prereg_path)

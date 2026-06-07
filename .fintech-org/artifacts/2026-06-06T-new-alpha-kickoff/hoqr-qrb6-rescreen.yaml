@@ -1,0 +1,618 @@
+---
+# HoQR QRB-6 Re-score — CB Calendar Acquisition Outcome
+# Applies the FROZEN rubric (hoqr-rubric.yaml) without modification.
+# Data source now confirmed present; scoring is scenario-conditioned per task instructions.
+
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve
+timestamp: "2026-06-06T10:00:00Z"
+
+subtask_ref: qrb6-rescreen-hoqr
+subtask_id: "new-alpha-kickoff-2026-06-06:phase2:task2.2"
+trial_id: "no-trial-proposal-only-wave"
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - research-capacity-allocation
+
+no-capital-instruction: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# PREAMBLE: WHAT CHANGED AND WHAT DID NOT
+# ════════════════════════════════════════════════════════════════════════════
+acquisition_outcome_summary: |
+  The CB decision-date calendar is now ACQUIRED and verified:
+  data/rates/cb_decision_dates.parquet — 842 rows, all scheduled=True.
+  Breakdown by verification grade:
+    verified-official:          528 (FED all years, BOJ all years, RBA all years, BOC 2019–2026)
+    aggregator-only:            271 (BOE all years, ECB mostly, RBNZ 2024–2026)
+    training-memory-unverified:  43 (ECB hold-meeting years with no rate change: 2010, 2017, 2018, 2020, 2021)
+  Key gaps:
+    BOC 2010–2018: entirely absent (anti-fabrication rule; no data to fill)
+    RBNZ 2010–2023: entirely absent (RBNZ 403s; anti-fabrication rule)
+    ECB 5 years: training-memory-unverified (no rate changes → cannot anchor-verify)
+    BOE: all years aggregator-only (official BoE URL returned 403 throughout)
+  Total verified-official events:     528
+  Total verified+aggregator events:   799
+  Total excluding unverified:         799
+  (The 43 unverified ECB events are excluded from both scenarios below.)
+
+scenario_definitions:
+  scenario_a: >
+    VERIFIED-OFFICIAL ONLY. Banks: FED (129), BOJ (169), RBA (172), BOC (58, 2019+ only).
+    Total: 528 events. Pre-2015: 167 (FED+BOJ+RBA only; BOC gap). Post-2015: 361.
+  scenario_b: >
+    VERIFIED + AGGREGATOR. Adds BOE (158, all years), ECB (102, aggregator-only years),
+    RBNZ (11, 2024–2026 only). Total: 799 events. Pre-2015: 271. Post-2015: 528.
+    BOE risk caveat: all years rest on calendar-arithmetic Thursday-check + spot aggregator
+    confirmation for 2 years (2019 via atfx.com; 2025 7/8 via investing.com). 7-day shift
+    errors in 2010–2018, 2020–2024 cannot be excluded. Two date corrections applied (CORR-001,
+    CORR-002: 2026 BoE dates corrected from Friday → Thursday).
+
+# ════════════════════════════════════════════════════════════════════════════
+# QRB-6 RE-SCORE
+# Rubric applied exactly as frozen. Only dimensions genuinely changed by the
+# acquisition are re-scored; all others carried forward from hoqr-ranking.yaml.
+# ════════════════════════════════════════════════════════════════════════════
+qrb6_rescore:
+
+  # ─── DIMENSIONS UNCHANGED BY ACQUISITION ────────────────────────────────
+  # (Carried forward verbatim; re-justified below for auditability.)
+
+  mechanism_quality:
+    score: 4
+    unchanged: true
+    anchor_cited: >
+      Anchor 4 (frozen rubric): "Named counterparty + a CONSTRAINT that forces
+      them to keep losing." Uncertainty-bearing speculative accounts re-position
+      at announcement resolution; pre-decision drift is driven by risk-premium
+      compression (documented Lucca-Moench 2015). Scheduled, observable calendar
+      dates. The acquisition does not change this; the mechanism was already
+      scored 4. Would reach 5 only if post-2015 survival is confirmed — that
+      requires the backtest, not the data acquisition. Score held at 4.
+
+  novelty_vs_archive:
+    score: 5
+    unchanged: true
+    anchor_cited: >
+      Anchor 5 (frozen rubric): "Distinct mechanism the firm has a specific
+      data/structural reason to test that most public actors cannot easily
+      replicate at daily/4h cadence." The acquisition reinforces novelty:
+      the calendar is now in-hand and integrated with OHLCV infrastructure.
+      No archived family triggers on CB announcement calendar dates. NHT PASS
+      confirmed.
+    hard_gate_status: PASS (score >= 2)
+
+  falsifiability_sharpness:
+    score: 4
+    unchanged: true
+    anchor_cited: >
+      Anchor 4 (frozen rubric): "Pre-committed, single-backtest kill criterion."
+      Pre-registered single post-event window; White reality-check bootstrap;
+      mandatory post-2015 sub-window structural decay test (NHT binding condition 1).
+      The acquisition does not sharpen or weaken this — the falsification design
+      was already specified. Score held at 4.
+
+  cost_survival_plausibility:
+    score: 5
+    unchanged: true
+    anchor_cited: >
+      Anchor 5 (frozen rubric): "Mechanism is inherently low-turnover; cost is a
+      rounding error on the gross edge." ~64 decisions/yr across 8 banks, 2 trades
+      per event per pair. Documented pre-drift magnitude (tens of basis points) vs
+      ~2–3 pip round-trip. NHT: "FAVOURABLE." Structural decay post-2015 is the
+      constraint, not cost. Score unchanged.
+    hard_gate_status: PASS (score >= 2)
+
+  capacity_robustness:
+    score: 4
+    unchanged: true
+    anchor_cited: >
+      Anchor 4 (frozen rubric): "Robust across the cross-section." 8 banks x
+      their affected currency pairs; mechanism predicts which pairs per bank.
+      Cross-bank replication is structural. Only free parameter is pre-window
+      length (pre-registered). Acquisition confirms 7 banks present (RBNZ thin
+      but present); does not change this score.
+
+  # ─── DIMENSIONS CHANGED BY ACQUISITION ─────────────────────────────────
+  # The two dimensions that MUST be re-scored: data_readiness and
+  # statistical_tractability (event counts now known precisely).
+
+  data_readiness:
+    prior_score: 2
+    scenario_a:
+      score: 4
+      anchor_cited: >
+        Anchor 4 (frozen rubric): "Fully available now: OHLCV (12 daily + 3×4h),
+        spreads, executions, or rate_differentials, all verified present. No
+        acquisition." The CB calendar is now in data/rates/cb_decision_dates.parquet,
+        842 rows, verification column populated. Scenario A uses only the
+        verified-official 528 events (FED/BOJ/RBA all years, BOC 2019+). These
+        events are clean and verifiable from official primary sources. The parquet
+        exists in the pipeline inventory.
+        Does NOT reach 5 because: (a) the parquet is newly acquired and has not
+        been run through the existing data pipeline validation (zero ingestion risk
+        cannot yet be claimed — the file exists but has not been used in a backtest
+        run); (b) BOC gap 2010–2018 means the pre-2015/post-2015 structural test
+        will have asymmetric bank coverage (BOC missing from the pre-2015 window,
+        reducing cross-bank comparison cleanness). Score 4: available now, verified
+        primary sources, zero further acquisition needed for Scenario A events.
+      soft_gate_status: ELIGIBLE (score >= 3; data_readiness >= 3 is sufficient since
+        the hard gate is data_readiness <= 2 → ineligible; at 4, eligible for candidate
+        slot per rubric)
+    scenario_b:
+      score: 4
+      anchor_cited: >
+        Anchor 4 (frozen rubric): Same base as Scenario A — the calendar exists,
+        verified-official + aggregator-only events total 799. Scenario B adds BOE
+        (158, aggregator-only), ECB aggregator years (102), RBNZ (11).
+        Does NOT reach 5 because: (a) same pipeline-validation caveat as Scenario A;
+        (b) BOE risk: all 158 BOE events are aggregator-only; 7-day shift errors
+        cannot be excluded for the bulk of the sample (2010–2018, 2020–2024);
+        two corrections were already found and applied (CORR-001, CORR-002), meaning
+        the verification process is not complete; (c) RBNZ is thin (11 events) and
+        aggregator-only, providing marginal incremental value. Score 4: available now
+        but residual date-accuracy risk in the aggregator-tier events.
+      soft_gate_status: ELIGIBLE (score 4 >= 3)
+    change_from_prior: >
+      data_readiness moved from 2 → 4 in BOTH scenarios. The dataset now exists in
+      the verified inventory. This closes the sole prior blocker for first-candidate
+      eligibility. Hard constraint from the rubric: "acquisition_required proposals
+      are INELIGIBLE this wave — CEO-only." CEO authorized the acquisition; it
+      executed; the rubric soft-gate condition (data_readiness <= 2 → ineligible) no
+      longer fires. QRB-6 is now ELIGIBLE for the first-candidate slot under the
+      rubric's data_readiness gate.
+
+  statistical_tractability:
+    prior_score: 5
+    scenario_a:
+      score: 4
+      raw_event_count: 528
+      pre_2015_count: 167
+      post_2015_count: 361
+      banks_present: [FED, BOJ, RBA, "BOC (2019+ only)"]
+      anchor_cited: >
+        Prior score was 5: "Abundant effective N AND the cross-section provides
+        independent replicas." Re-evaluation against confirmed event counts:
+
+        TOTAL POOL: 528 verified-official events across 4 banks. This is still a
+        large event pool — adequate for the pooled event study.
+
+        STRUCTURAL BREAK TEST (NHT BINDING CONDITION 1): The post-2015 sub-window
+        isolation test (the one that matters for OOS deployment) has 361 events in
+        Scenario A. This is adequate for a block-bootstrap (the bootstrap operates
+        on independent bank-level blocks, of which there are 4 × ~11 yrs post-2015
+        ≈ well-powered).
+
+        HOWEVER: Anchor 5 requires "cross-section provides INDEPENDENT replicas" —
+        the same mechanism tested across uncorrelated pairs. In Scenario A, only
+        4 banks are present (FED, BOJ, RBA, BOC). BOC is missing entirely pre-2019,
+        creating asymmetric bank coverage across the pre/post-2015 split. The pre-2015
+        window has only 3 banks (FED, BOJ, RBA). This weakens the cross-bank
+        independence argument for the structural break test specifically — the set of
+        banks being compared pre vs post is not the same.
+
+        The structural break test (2015 endpoint is load-bearing per NHT) will
+        compare a 3-bank pool (pre-2015) against a 4-bank pool (post-2015), with
+        BOC entering only post-2019 within the post-2015 window. This is confounded:
+        any pre/post difference could partly reflect the addition of BOC to the pool,
+        not genuine structural decay. The test is still informative but this
+        confound must be pre-registered.
+
+        Score: 4 (not 5). Still "Good effective N — cross-sectional pooling gives
+        hundreds of independent observations, enough to power an honest OOS DSR test."
+        Does not reach 5 because: (a) the structural break test's cross-bank
+        asymmetry introduces a confound; (b) Anchor 5 explicitly requires the cross-
+        section to provide "independent replicas" of the SAME mechanism — with only
+        4 banks and BOC missing pre-2015, the cross-section claim is partial.
+      hard_gate_status: PASS (score 4 >> 1; not a kill)
+
+    scenario_b:
+      score: 5
+      raw_event_count: 799
+      pre_2015_count: 271
+      post_2015_count: 528
+      banks_present: [FED, BOJ, RBA, BOC, BOE, ECB, "RBNZ (thin)"]
+      anchor_cited: >
+        Anchor 5 (frozen rubric): "Abundant effective N AND the cross-section
+        provides independent replicas (the same mechanism tested across uncorrelated
+        pairs), so a pass is itself a robustness check."
+
+        In Scenario B: 799 events across 7 banks (6 substantial, RBNZ thin).
+        Pre-2015: 271 events across 5 banks (FED/BOJ/RBA/BOE/ECB). Post-2015:
+        528 events across 6 banks. The structural break test now compares 5-bank
+        pools pre vs post-2015, with the same set of major banks (FED/BOJ/RBA/BOE/ECB)
+        present in both windows. BOC adds post-2019 only, same as Scenario A, but
+        its marginal weight is smaller in the larger pool.
+
+        The pre-2015 pool in Scenario B (271 events, 5 banks) provides the richest
+        pre-break reference, and the post-2015 pool (528 events, 6 banks) is the
+        largest event study in the portfolio. The cross-bank asymmetry confound is
+        materially reduced (dominant banks FED/BOJ/RBA/BOE/ECB all present both
+        sides of 2015).
+
+        BOE caveat: all 158 BOE events are aggregator-only with residual date-accuracy
+        risk. However, the mechanism is robust to a few individual date errors (the
+        pre-decision drift is measured as a window average, not a single-bar return;
+        off-by-1-day errors in a subset of events attenuate the signal, they do not
+        flip it). RBNZ 11 events is negligible in the pool.
+
+        Score: 5 maintained. Abundant N; cross-section provides genuine independent
+        replicas (7 uncorrelated central banks, different currency pairs); structural
+        break test is cleanly powered; BOE date-quality caveat is material to register
+        but not a power-kill.
+      hard_gate_status: PASS (score 5; strongest in portfolio)
+
+    change_from_prior: >
+      Prior score was 5. Scenario A: re-scored to 4 due to the BOC 2010–2018 gap
+      creating a confounded structural break test (asymmetric bank pool pre vs post
+      2015). Scenario B: score 5 maintained — the larger bank set resolves the
+      confound, and the BOE date-quality caveat is material but not a power-kill.
+      The prior-score-5 claim was well-founded for the idealized dataset; Scenario A
+      exposes a real limitation in the verified-official subset alone.
+
+  # ─── WEIGHTED TOTALS ────────────────────────────────────────────────────
+
+  scenario_a:
+    dimension_scores:
+      mechanism_quality:          4   # weight 0.28
+      novelty_vs_archive:         5   # weight 0.20
+      falsifiability_sharpness:   4   # weight 0.16
+      cost_survival_plausibility: 5   # weight 0.16
+      statistical_tractability:   4   # weight 0.12
+      data_readiness:             4   # weight 0.05
+      capacity_robustness:        4   # weight 0.03
+    calculation: >
+      0.28×4 + 0.20×5 + 0.16×4 + 0.16×5 + 0.12×4 + 0.05×4 + 0.03×4
+      = 1.12 + 1.00 + 0.64 + 0.80 + 0.48 + 0.20 + 0.12
+      = 4.36
+    weighted_total: 4.36
+    hard_gates:
+      novelty_vs_archive_ge2: PASS (score 5)
+      cost_survival_ge2: PASS (score 5)
+      statistical_tractability_ge2: PASS (score 4)
+    soft_gate_data_readiness:
+      score: 4
+      status: ELIGIBLE (score >= 3; no longer blocked by acquisition requirement)
+    first_candidate_bar_check:
+      all_dims_ge3: true        # min score = 4; all clear
+      mechanism_ge4: true       # score 4
+      novelty_ge4: true         # score 5
+      cost_ge4: true            # score 5
+      stat_ge4: true            # score 4
+      falsifiability_ge3: true  # score 4
+      data_available_now: true  # score 4; data exists in pipeline
+      nht_survive: true         # NHT conditional-survive; binding conditions apply
+      clears_bar: true
+      caveat: >
+        NHT binding conditions are NON-OPTIONAL at pre-registration:
+        (1) Post-2015 sub-window structural break test is mandatory (not advisory).
+        (2) The ~65% reversal figure must NOT be hard-coded as the pre-registered target.
+        (3) Multi-bank pooling must treat banks as independent blocks.
+        Additionally, the BOC 2010–2018 gap must be disclosed in the pre-registration
+        protocol (the structural break test uses asymmetric bank sets; this is a
+        confound that must be pre-registered, not discovered post-hoc).
+
+  scenario_b:
+    dimension_scores:
+      mechanism_quality:          4   # weight 0.28
+      novelty_vs_archive:         5   # weight 0.20
+      falsifiability_sharpness:   4   # weight 0.16
+      cost_survival_plausibility: 5   # weight 0.16
+      statistical_tractability:   5   # weight 0.12
+      data_readiness:             4   # weight 0.05
+      capacity_robustness:        4   # weight 0.03
+    calculation: >
+      0.28×4 + 0.20×5 + 0.16×4 + 0.16×5 + 0.12×5 + 0.05×4 + 0.03×4
+      = 1.12 + 1.00 + 0.64 + 0.80 + 0.60 + 0.20 + 0.12
+      = 4.48
+    weighted_total: 4.48
+    hard_gates:
+      novelty_vs_archive_ge2: PASS (score 5)
+      cost_survival_ge2: PASS (score 5)
+      statistical_tractability_ge2: PASS (score 5)
+    soft_gate_data_readiness:
+      score: 4
+      status: ELIGIBLE
+    first_candidate_bar_check:
+      all_dims_ge3: true
+      mechanism_ge4: true
+      novelty_ge4: true
+      cost_ge4: true
+      stat_ge4: true        # score 5
+      falsifiability_ge3: true
+      data_available_now: true
+      nht_survive: true
+      clears_bar: true
+      caveat: >
+        Same NHT binding conditions apply. Additional Scenario B caveat:
+        BOE 158 events are aggregator-only; date errors cannot be excluded for
+        the bulk of the sample. The pre-registration protocol must pre-register
+        the BOE date-quality caveat as a sensitivity analysis: if BOE events
+        are excluded (falling back to Scenario A), the direction of findings
+        should not reverse. This is a pre-committed robustness check, not a
+        post-hoc exclusion.
+
+# ════════════════════════════════════════════════════════════════════════════
+# FINAL RECOMMENDATION: QRB-3 vs QRB-6 FOR THE SINGLE CEO-AUTHORIZED TRIAL
+# ════════════════════════════════════════════════════════════════════════════
+final_recommendation:
+  pick: QRB-6
+  scenario_dependence: >
+    QRB-6 clears the first-candidate bar under BOTH scenarios. The pick does
+    not flip by scenario. Under Scenario A the total is 4.36 (vs QRB-3 = 4.02);
+    under Scenario B the total is 4.48 (vs QRB-3 = 4.02). QRB-6 is the
+    recommendation under both.
+
+  basis: |
+    ## Why QRB-6, not QRB-3
+
+    QRB-3 WAS the correct recommendation when the rubric's soft gate applied
+    (data_readiness = 2 → ineligible). That gate was the SOLE reason QRB-6
+    did not hold the first-candidate slot; all other dimensions had already
+    cleared the bar. The acquisition has closed that gate.
+
+    The re-score is mechanical, not a judgment call: QRB-6 now scores 4.36
+    (Scenario A) or 4.48 (Scenario B) against QRB-3's unchanged 4.02. Every
+    dimension of QRB-6 meets or exceeds the first-candidate bar. The rubric's
+    tie-break ordering is not invoked because QRB-6 wins on the weighted total
+    outright.
+
+    MECHANISM: QRB-6 = 4 (uncertainty-bearing speculative accounts; scheduled
+    CB calendar dates; Lucca-Moench documented); QRB-3 = 4 (passive index fund
+    mandate). Equal. No advantage to either.
+
+    STATISTICAL POWER: QRB-6 = 4 (Sc-A) or 5 (Sc-B); QRB-3 = 4. QRB-6 is
+    superior under Scenario B. The structural break test (post-2015 sub-window)
+    has 361 events in Scenario A and 528 in Scenario B — both adequate. QRB-3
+    has ~190 independent month-turns, which is adequate but thinner.
+
+    COST SURVIVAL: QRB-6 = 5 (mechanism inherently low-turnover; cost rounding
+    error on documented drift); QRB-3 = 4. QRB-6 is superior.
+
+    NOVELTY: QRB-6 = 5; QRB-3 = 4. QRB-6 is superior.
+
+    FALSIFIABILITY: Both = 4. Equal.
+
+    DATA READINESS: Both = 4 after acquisition. Equal.
+
+    CAPACITY ROBUSTNESS: QRB-6 = 4; QRB-3 = 3. QRB-6 is superior.
+
+    HONEST RISK COMPARISON:
+    - QRB-3 risk: McLean-Pontiff decay from a 2015-published paper; the effect
+      was partially pre-traded by FX desks; ~190 month-turn events; mechanism
+      relies on a documented-but-fading behavioral mandate. The NHT binding
+      condition (stability-across-halves) is the kill test. Failure mode: the
+      effect is real but decayed; the post-2015 sub-sample is flat.
+    - QRB-6 risk: Structural decay of the pre-FOMC drift post-2015 per the
+      "disappeared after 2015" NHT carried-forward finding. The same mandatory
+      post-2015 sub-window test applies. Both proposals have the SAME central
+      risk: a structural break circa 2015. QRB-6's pre-2015 effect is more
+      academically documented (Lucca-Moench 2015 in a top journal; QRB-3's
+      Melvin & Prins 2015 is also documented but in FX practitioner literature).
+      The post-2015 survival question is equally open for both — but QRB-6
+      has higher statistical power to answer it cleanly.
+
+    PR-F1 MECHANISM-JUDGMENT FRAGILITY (OWNED BY HOQR):
+    QRB-3 has one disclosed fragility: it is ONE trade per month per pair (12
+    trades/year), which means a bad year produces very few observations to
+    diagnose failure. QRB-6 at ~64 decisions/year provides richer per-event
+    information density. A QRB-6 backtest that fails is more informative about
+    WHY it failed than a QRB-3 backtest with one trade per month.
+
+    THE RUBRIC SAYS NOTHING ABOUT PREFERRING THE PRIOR RECOMMENDATION:
+    The rubric scores proposals on their merits. QRB-3 was the correct call when
+    QRB-6 was ineligible. QRB-6 is now eligible, scores higher on every
+    differentiating dimension, and clears the bar in both scenarios. The rubric
+    does not contain a "conservatism premium" for the prior recommendation; the
+    prior recommendation was itself a consequence of the acquisition constraint,
+    which is now removed.
+
+    CONCLUSION: QRB-6 is the recommended first candidate. QRB-3 is not retired;
+    it becomes the runner-up (see below).
+
+  qrb3_honest_acknowledgment: >
+    QRB-3 remains a sound proposal. It clears the first-candidate bar (4.02 total,
+    all dimensions >= 3, all mandatory dims >= 4). Its lower score reflects three
+    genuine differences: (a) lower novelty (4 vs 5; QRB-3's mechanism is better-
+    known in practitioner literature); (b) lower cost_survival (4 vs 5; QRB-6 is
+    mechanically lower-turnover); (c) lower capacity_robustness (3 vs 4; QRB-3
+    is one-trade-per-month, fragile in thin OOS folds). QRB-3's McLean-Pontiff
+    decay risk is real but not worse than QRB-6's post-2015 drift disappearance
+    risk — both are structural-break risks of similar character.
+
+  runner_up_disposition: >
+    QRB-3 is QUEUED as the next candidate for the subsequent wave (wave N+2 if
+    QRB-6 is wave N+1). It does not die; it holds its 4.02 score and first-
+    candidate-bar CLEARS status. If QRB-6 fails its mandatory post-2015 structural
+    break test, QRB-3 advances immediately to pre-registration without re-scoring.
+    This is the correct sequential posture: QRB-6 first (higher score, better
+    information density); QRB-3 second (robust runner-up, same central risk
+    question answered from a different mechanism angle).
+
+    NO OTHER PROPOSAL advances as an additional candidate this wave. Max-trials =
+    1 (DSR denominator discipline, unchanged).
+
+ranked_alternatives:
+  - rank: 1
+    id: QRB-3
+    weighted_total: 4.02
+    status: runner-up; queued for wave N+2
+    note: First-candidate-bar CLEARS; advances if QRB-6 fails.
+  - rank: 2
+    id: QRA-2
+    weighted_total: 3.58
+    status: does-not-clear-bar; roadmap only
+  - rank: 3
+    id: QRA-5
+    weighted_total: 3.67
+    status: does-not-clear-bar (cost=2, mechanism=3); roadmap only
+  - rank: 4
+    id: QRA-1
+    weighted_total: 3.27
+    status: does-not-clear-bar; roadmap only
+
+overlays_unchanged:
+  - "QRB-2 (spread-blowout gate) -- attaches to QRB-6 as pre-registered modifier; suppress CB-event trades when spread_z exceeds pre-registered threshold. Not a separate trial."
+  - "QRB-4-GATE -- ineligible as standalone; overlay for any 4h-based primary signal if one advances in a later wave."
+
+retirement_criteria: []
+
+# ════════════════════════════════════════════════════════════════════════════
+# EVIDENCE, ASSUMPTIONS, CONFIDENCE
+# ════════════════════════════════════════════════════════════════════════════
+evidence:
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml"
+    note: >
+      Frozen rubric read in full. All dimension weights, anchors, gate definitions,
+      and first-candidate bar requirements applied verbatim. No weights or anchors
+      modified. Weights verified: 0.28+0.20+0.16+0.16+0.12+0.05+0.03 = 1.00.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml"
+    note: >
+      Prior QRB-6 score (data_readiness=2, total=4.38 per arithmetic correction)
+      and QRB-3 score (4.02, first-candidate-bar CLEARS) read. Both re-scored
+      against the same frozen rubric anchors.
+  - path: "data/rates/cb_decision_dates.parquet"
+    note: >
+      Acquired and inspected via pandas. Confirmed: 842 rows, all scheduled=True,
+      columns [bank, currency, date, scheduled, verification, source_tier].
+      Verification counts verified programmatically: verified-official=528,
+      aggregator-only=271, training-memory-unverified=43. Per-bank counts confirmed
+      (FED=129, BOJ=169, RBA=172, BOC=58, BOE=158, ECB=145, RBNZ=11).
+      BOC date range confirmed 2019-01-09 to 2026-03-18 (no 2010–2018 data).
+      Post-2015 counts: Scenario A = 361, Scenario B = 528.
+  - path: "references/cb_decision_dates_PROVENANCE.md"
+    note: >
+      Provenance document read in full. Source tiers, verification grades, corrections
+      applied (CORR-001/002 for BoE 2026 dates), and gap analysis confirmed.
+      Key finding: BOC 2010–2018 entirely absent (anti-fabrication). RBNZ 2010–2023
+      entirely absent. ECB 5 years training-memory-unverified. BoE all years
+      aggregator-only with residual 7-day shift risk for bulk of sample.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml"
+    note: >
+      NHT QRB-6 verdict and binding conditions read (rows 429–478 of nht-screen.yaml).
+      Three binding conditions confirmed: (1) post-2015 sub-window structural break
+      test mandatory; (2) ~65% reversal figure unverified → must not be hard-coded;
+      (3) multi-bank pooling treats banks as independent blocks. All adopted verbatim.
+
+assumptions:
+  - >
+    The 43 training-memory-unverified ECB events (hold-meeting years) are excluded
+    from both scenarios. Including them would add noise without verifiable accuracy;
+    excluding them is the conservative, defensible choice.
+  - >
+    All 842 dataset rows are scheduled=True (confirmed programmatically). No
+    emergency/inter-meeting events are in the dataset; emergency exclusions were
+    applied during acquisition (documented in provenance).
+  - >
+    The BOE 7-day shift risk is material but not a kill: a few date errors attenuate
+    the pre-decision drift signal; they do not flip it. The pre-registration protocol
+    must include a BOE exclusion sensitivity analysis (Scenario A as a robustness check
+    against Scenario B).
+  - >
+    The DSR-denominator discipline (max 1 trial this wave) is unchanged. The acquisition
+    of the calendar does not create additional trial slots; it upgrades QRB-6 from
+    ineligible to eligible within the existing single-trial authorization.
+  - >
+    QRB-3's NHT binding conditions and score (4.02) are unchanged. No information
+    from the CB calendar acquisition affects QRB-3's mechanism or data.
+  - >
+    The NHT QRB-6 rescreen file (nht-qrb6-rescreen.yaml) is noted as being produced
+    in parallel. The scores in this artifact are conditioned on scenarios (A/B) that
+    the NHT ruling will calibrate. If the NHT rescreen imposes additional conditions
+    or changes the admissibility ruling (e.g., declares Scenario A events insufficient
+    for the post-2015 structural break test and requires Scenario B), those conditions
+    supersede this artifact's scenario_a first_candidate_bar CLEARS verdict. This
+    artifact is scenario-conditioned on the NHT ruling being within the bounds of
+    "Scenario A clears or Scenario B clears."
+
+confidence: high
+confidence_note: >
+  The re-scoring is grounded in programmatically verified event counts from the
+  actual parquet file, verbatim application of frozen rubric anchors, and direct
+  reading of the provenance document. The judgment calls (data_readiness=4 not 5;
+  statistical_tractability=4 in Scenario A not 5) are anchored to specific, stated
+  rubric language. No weights or anchors were bent.
+
+body: |
+  ## Summary of the Re-Score
+
+  The CB decision-date calendar acquisition changes exactly two dimensions for QRB-6:
+  data_readiness (2 → 4 in both scenarios) and statistical_tractability (5 → 4 in
+  Scenario A, unchanged 5 in Scenario B). All other dimensions are unchanged. The
+  weighted totals are:
+
+    Scenario A (verified-official only, 528 events): 4.36
+    Scenario B (verified + aggregator, 799 events): 4.48
+
+  QRB-3 (unchanged): 4.02
+
+  QRB-6 clears the first-candidate bar under both scenarios. QRB-3 also clears.
+  QRB-6 is the recommendation.
+
+  ## Why data_readiness lands at 4, not 5
+
+  Anchor 5 requires "available now AND already clean/validated in the pipeline,
+  zero ingestion risk." The parquet exists and is verified. However: (a) it has not
+  been run through the existing backtest pipeline (zero ingestion risk cannot yet be
+  claimed without a test run); (b) the BOE date-quality residual caveat prevents a
+  clean Anchor 5 claim. Score 4 is the honest assessment.
+
+  ## Why statistical_tractability drops to 4 in Scenario A
+
+  Anchor 5 requires "cross-section provides independent replicas." In Scenario A,
+  BOC is absent 2010–2018, creating an asymmetric bank pool across the 2015 structural
+  break: 3 banks pre-2015 vs 4 banks post-2015. This confounds the structural break
+  test — the addition of BOC post-2015 is not the same as a structural decay of the
+  pre-FOMC drift. Anchor 4 (good effective N, adequate for honest OOS DSR test) still
+  applies cleanly; Anchor 5 does not. Score 4 is the honest call.
+
+  ## The structural break risk is the same for QRB-6 and QRB-3
+
+  Both proposals face a circa-2015 structural break as their central kill risk:
+  QRB-6 (pre-FOMC drift "disappeared after 2015" per NHT carried-forward finding);
+  QRB-3 (McLean-Pontiff decay from 2015-published Melvin & Prins effect). The rubric
+  does not penalize QRB-6 for this more than QRB-3; the post-2015 stability test is
+  a mandatory NHT binding condition for QRB-6, and the stability-across-halves test
+  is a mandatory NHT binding condition for QRB-3. The kill machinery is equivalent.
+  QRB-6 answers the question with more events and more banks.
+
+  ## The single-trial constraint is unchanged
+
+  Max 1 trial this wave. QRB-6 is the recommended trial. QRB-3 is the queued
+  runner-up for wave N+2. No other proposal advances.
+
+knowledge_gaps:
+  - >
+    The NHT QRB-6 rescreen (nht-qrb6-rescreen.yaml) is being produced in parallel.
+    Its effective-N admissibility ruling — specifically whether Scenario A alone
+    provides sufficient power for the post-2015 structural break test — may adjust
+    which scenario governs the pre-registration protocol. This artifact is scenario-
+    conditioned pending that ruling.
+  - >
+    The BOE date-quality risk (7-day shift errors in 2010–2018, 2020–2024) cannot be
+    resolved without direct access to the official BoE MPC minutes PDFs (which
+    returned 403 during acquisition). The pre-registration must pre-commit to a
+    BOE-exclusion sensitivity analysis.
+  - >
+    The post-2015 survival of the pre-FOMC drift in FX (vs equity, where the original
+    Lucca-Moench paper measured it) has not been empirically verified at this firm.
+    This is the central unknown — the mandatory post-2015 sub-window test in the
+    pre-registration will answer it.
+  - >
+    The ~65% post-announcement reversal figure is unverified (NHT: WebFetch 403 to
+    NY Fed and ResearchGate). Must not be used as a pre-registered target.
+
+policy_violations_detected: []
+
+sources:
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml"
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/nht-screen.yaml"
+  - "data/rates/cb_decision_dates.parquet"
+  - "references/cb_decision_dates_PROVENANCE.md"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

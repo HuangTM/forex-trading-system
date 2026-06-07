@@ -1,0 +1,576 @@
+---
+role: cto
+artifact_type: architecture-review
+decision: approve-with-conditions
+timestamp: '2026-06-06T08:30:00Z'
+subtask_ref: new-alpha-cto-advisory
+subtask_id: 'new-alpha-kickoff-2026-06-06:phase2:task2.0'
+rubric_applied: review-plan
+no-capital-instruction: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTION A: QRB-3 pre-registration track — architecture/effort/blast-radius
+# ─────────────────────────────────────────────────────────────────────────────
+option_a_assessment:
+
+  effort: |
+    INCREMENTAL — LOW. The only net-new code surface is a turn-of-month signal
+    harness: a new Strategy subclass (e.g. TurnOfMonthStrategy) implementing the
+    Strategy ABC (src/forex_system/core/interfaces.py), registered in
+    scripts/strategies/registry.py. The signal computation is a pure function on
+    the OHLCV DatetimeIndex already available in data/processed/*_daily.parquet —
+    no new data ingestion. Rough estimate: 80–150 LOC for the strategy class +
+    a pre-registration .md + a sidecar .triggers.yaml (both templated from the
+    r5/confirmatory track). The freeze machinery (cut_freeze_receipt.py) requires
+    one new entry in the _TARGETS dict (~15 LOC) with a new target name (e.g.
+    "qrb3"). The run harness (run_backtest.py, run_falsification_trial.py) is
+    reused without modification — the strategy factory pattern absorbs new
+    strategies without touching the engine.
+
+    The conditioning equity proxy for v2 (cross-pair FX-bloc return) is derivable
+    from existing parquet closes — no new acquisition. The QRB-2 spread-gate
+    overlay (pre-registered as a modifier, not a separate trial) reuses
+    data/spreads/*_daily_spreads.parquet already validated.
+
+  reuse: |
+    HIGH reuse of the complete R5/confirmatory pre-registration and run machinery:
+
+      - scripts/cut_freeze_receipt.py: add one _TARGETS entry, no other change.
+      - scripts/run_r5_step4.py pattern: a QRB-3-specific runner follows the same
+        gate structure (--i-am-runner + --freeze-receipt required; SHA-256 receipt
+        validation; one-shot write-once result YAML).
+      - src/forex_system/harness/preregistration.py: no change — the PreRegistrationSpec
+        dataclass and .triggers.yaml sidecar pattern are reused verbatim.
+      - src/forex_system/harness/reality_check.py (Politis-White + White RC):
+        reused. QRB-3 will need a block-bootstrap on the ~190 month-turn return
+        series; the existing r5c_hansen_spa / politis_white_block_length_multivariate
+        functions are already generic.
+      - src/forex_system/backtest/ (vectorized engine + metrics): zero change.
+        The engine already handles arbitrary Strategy.generate_signals() outputs.
+      - The .triggers.yaml sidecar pattern established for all 17 existing
+        pre-registrations is reused for QRB-3.
+
+    Net-new: one Strategy subclass, one pre-reg .md, one .triggers.yaml, one
+    _TARGETS entry in cut_freeze_receipt.py, one runner script (~200–300 LOC total).
+
+  blast_radius_to_frozen_artifacts: |
+    ZERO — by construction. The frozen artifacts are pinned by content SHA-256 and
+    git commit reference. Two existing frozen receipts are:
+
+      references/pre-registrations/r5_carry_universe_kill_test.FREEZE-RECEIPT.yaml
+        prereg_sha256: c7780f3d...  code_commit: 350cbd4b...
+      references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+        prereg_sha256: c40c6ad7...  code_commit: f0d10546...
+
+    Guarantee mechanism: cut_freeze_receipt.py has a write-once guard (sys.exit(1)
+    if receipt already exists). Any modification to the r5 or confirmatory pre-reg
+    .md files would invalidate the stored SHA-256 — the runner would refuse to
+    proceed. QRB-3's new _TARGETS entry uses a DISTINCT target name and DISTINCT
+    receipt path; the existing "r5" and "confirmatory" keys are read-only by the
+    write-once guard. Adding a third target does NOT touch, overwrite, or invalidate
+    either existing receipt.
+
+    Additional hardening: the new QRB-3 runner script MUST NOT import or reference
+    the r5_decision.py constants (SR0_PP = 0.022906 is R5-only; the confirmatory
+    sr0_pp = 0.034921 is confirmatory-only). These are separate trials with separate
+    pre-registered constants — the cut_freeze_receipt.py guard and the sr0_note field
+    already enforce this for the confirmatory track; QRB-3 must follow the same
+    pattern.
+
+  rollback: |
+    CLEAN. Option A introduces only additive changes:
+      - New strategy class: delete the file, remove registry entry.
+      - New pre-reg .md + .triggers.yaml: delete files (pre-reg is only binding
+        if the freeze-receipt is also cut — no receipt = no commitment).
+      - New _TARGETS entry in cut_freeze_receipt.py: revert the ~15-LOC diff.
+      - New runner script: delete.
+    None of these touch any existing file in ways that cannot be undone by a
+    single git revert. The frozen R5 and confirmatory receipts are immutable and
+    survive any rollback of QRB-3 work. If the pre-registration is drafted but
+    the freeze-receipt has not yet been cut (pre-consensus), rollback cost is
+    zero — no trial counter increment has occurred.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTION B: QRB-6 CB calendar acquisition
+# ─────────────────────────────────────────────────────────────────────────────
+option_b_assessment:
+
+  vendor_ruling: |
+    NOT A NEW VENDOR. PR-REVIEW PATH — not red-team + CEO required.
+
+    Basis: The firm's vendor/datastore red-team scope (as applied to prior waves)
+    distinguishes between (a) a new ongoing external data relationship introducing
+    custody, credential, SLA, cost, or API-surface risk, and (b) a one-time
+    hand-construction of a reference file from official public primary sources.
+    Central-bank scheduled decision calendars fall unambiguously in category (b):
+
+      - Sources are official government/quasi-government websites
+        (federalreserve.gov, ecb.europa.eu, boj.or.jp, bankofengland.co.uk,
+        rba.gov.au, bankofcanada.ca, snb.ch, rbnz.govt.nz) plus corroborating
+        secondary sources (ForexFactory economic calendar).
+      - No API credentials, no subscription, no recurring ingestion pipeline,
+        no vendor contract. This is a single file construction event.
+      - The output is a static reference CSV/Parquet (scheduled decision dates
+        2010–2026, ~900 rows across 8 banks) — structurally identical to a
+        hand-curated lookup table, not a live feed.
+      - The acquisition effort (curation + UTC normalization + scheduled/emergency
+        flagging) is analogous to adding a new pair's historical data from a
+        public source — a PR-review action in this firm's prior practice.
+
+    Ruling: calendar file construction routes to quant-developer as a PR.
+    CEO authorization of the acquisition intent is still required by the wave
+    rules (the CONSENSUS-SUMMARY explicitly gates on it), but the technical
+    implementation does not require red-team security review or vendor vetting.
+    CEO authorization = "go build this file"; it is not a vendor onboarding action.
+
+  effort: |
+    LOW. Routed to quant-developer. Rough scope:
+
+      Curation (~1–2 days):
+        - Collect scheduled decision dates for Fed, ECB, BoJ, BoE, RBA, BoC,
+          SNB, RBNZ for 2010–2026 from official websites.
+        - Cross-validate against ForexFactory economic calendar (secondary source).
+        - Flag scheduled vs emergency/inter-meeting decisions.
+        - Normalize all dates/times to UTC (key DST discipline: use the announced
+          UTC time, not local bank time — same clock discipline as the 4h spread
+          profile in the existing codebase).
+
+      File construction (~0.5 days):
+        - Output: data/calendars/cb_decision_dates.parquet (see format below).
+        - Provenance log alongside file (see provenance_requirements).
+        - Unit test: verify no look-ahead against OHLCV date index alignment.
+
+      PR review (~0.5 days): standard code review, no special process.
+
+    Total elapsed: 2–3 working days for a focused quant-developer. No data
+    purchase, no API setup, no infrastructure change.
+
+  provenance_requirements: |
+    PRE-REGISTRATION INTEGRITY REQUIREMENT. Because QRB-6 will eventually be
+    a pre-registered trial, the calendar file is load-bearing evidence. The firm
+    must be able to prove the dates are correct at the point of pre-registration
+    freeze, not just at construction. Required artifacts:
+
+      1. data/calendars/cb_decision_dates_provenance.yaml — machine-readable log:
+           per-row source URL, access date, and verification method (primary site
+           vs secondary corroboration). Every date must have a primary-source entry.
+
+      2. Cross-validation report: for each bank, diff between primary-source dates
+         and ForexFactory dates; any discrepancy flagged and resolved with
+         documentary evidence. The provenance log records the resolution.
+
+      3. SHA-256 of the final cb_decision_dates.parquet recorded in the provenance
+         log at construction time. When the QRB-6 pre-registration is frozen, the
+         freeze-receipt will pin this SHA-256 alongside the pre-reg SHA-256 and
+         code commit — establishing an unbroken chain from raw dates to registered
+         test.
+
+      4. OHLCV alignment check: a script verifying no cb_decision_dates entry falls
+         on a non-trading day in the OHLCV index (i.e. no look-ahead violation from
+         date-matching). This must be documented and archived alongside the file.
+
+      The ~65% post-announcement reversal figure cited in the QRB-6 proposal is
+      explicitly UNVERIFIED (NHT binding condition 2 adopted). The provenance log
+      must NOT record this as a verified datum; the pre-registration must not use
+      it as a point target.
+
+  format_recommendation: |
+    Consistent with data/ conventions (Parquet, UTC DatetimeIndex):
+
+      Path: data/calendars/cb_decision_dates.parquet
+      Schema:
+        decision_date: date (UTC, no intraday time — the decision window is computed
+                       from daily OHLCV bars, not intraday ticks)
+        bank: str  (e.g. "FED", "ECB", "BOJ", "BOE", "RBA", "BOC", "SNB", "RBNZ")
+        scheduled: bool  (True = pre-scheduled; False = emergency/inter-meeting)
+        pair_scope: str  (pipe-separated affected pairs, e.g. "EURUSD|GBPUSD")
+        source_url: str  (primary source URL; denormalized for auditability)
+
+      Companion provenance log: data/calendars/cb_decision_dates_provenance.yaml
+      (not a Parquet — human-readable audit trail).
+
+      Rationale for Parquet: consistent with all other data/* files; supports
+      pandas read_parquet with the existing data pipeline; SHA-256 is stable
+      (binary content is deterministic given the same schema and row order;
+      document the sort order: bank ASC, decision_date ASC).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PARALLELISM RULING
+# ─────────────────────────────────────────────────────────────────────────────
+parallelism_ruling: |
+  PARALLEL — NO TECHNICAL CONFLICT. Options A and B can proceed simultaneously.
+
+  Shared blast radius: NONE. The QRB-3 pre-registration track touches
+  src/forex_system/strategies/, scripts/cut_freeze_receipt.py, and
+  references/pre-registrations/. The QRB-6 calendar acquisition touches only
+  data/calendars/ (a new directory with no existing content). There is no file
+  overlap. The trial counter (.fintech-org/trials.jsonl) is incremented only
+  when a freeze-receipt is cut for QRB-3, not during Option B acquisition work —
+  so Option B creates no DSR-denominator pressure until QRB-6 is eventually
+  pre-registered in a future wave.
+
+  One caveat: if the QRB-3 pre-registration draft (Strategy class + pre-reg .md)
+  is under active review at the same time the quant-developer is building the
+  calendar file, there is no code conflict — different files, different developers.
+  The only coordination point is the wave rule: the current wave's max_trials = 1
+  (QRB-3 only). Option B's calendar acquisition does NOT constitute a trial
+  registration and does NOT count against this wave's trial budget. QRB-6
+  advances to first candidate in the NEXT wave, separately ratified.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONDITIONS FOR APPROVAL
+# ─────────────────────────────────────────────────────────────────────────────
+conditions:
+  - id: C1
+    target: option_a
+    severity: blocking
+    text: >
+      The QRB-3 pre-registration MUST follow the write-once freeze-receipt protocol
+      verbatim (cut_freeze_receipt.py --target qrb3 --cut, post-consensus only).
+      No backtest data may be examined before the freeze-receipt is committed to git.
+      Violation voids the pre-registration; the trial becomes classified as
+      post-hoc and cannot contribute to validated OOS alpha.
+
+  - id: C2
+    target: option_a
+    severity: blocking
+    text: >
+      The new runner script for QRB-3 MUST NOT import or hard-code constants from
+      r5_decision.py (SR0_PP = 0.022906) or the confirmatory receipt
+      (sr0_pp = 0.034921). QRB-3 has its own pre-registered thresholds; cross-
+      contamination of frozen constants across trials is a pre-registration
+      integrity failure.
+
+  - id: C3
+    target: option_a
+    severity: blocking
+    text: >
+      The NHT binding conditions adopted verbatim in the CONSENSUS (conditions 1–3
+      for QRB-3 + the QRB-2 overlay adoption) must be mechanically encoded in the
+      .triggers.yaml sidecar, not just stated in prose. The falsification_evaluator
+      must be able to evaluate all kill conditions without human interpretation.
+      Condition 3 (stability-across-halves: 2010–2017 vs 2018–2026 sign flip = kill)
+      requires that the runner compute both sub-window results and write them to the
+      result YAML before the decision functional fires.
+
+  - id: C4
+    target: option_b
+    severity: non-blocking
+    text: >
+      The provenance log (cb_decision_dates_provenance.yaml) must be constructed
+      during acquisition, not reconstructed afterward. Each row's source URL and
+      access date are ephemeral; retroactive provenance is not credible for
+      pre-registration integrity. Quant-developer must log sources as they work.
+
+  - id: C5
+    target: option_b
+    severity: non-blocking
+    text: >
+      The OHLCV alignment check script (verifying no decision date falls on a
+      non-trading day, and confirming no look-ahead in the date-matching logic)
+      must be committed alongside the calendar file in the same PR. This is a
+      pre-condition for QRB-6's eventual pre-registration; establishing it now
+      avoids blocking the future wave's step 3.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT THE CTO REFUSED TO DO
+# ─────────────────────────────────────────────────────────────────────────────
+what_you_refused_to_do:
+  - >
+    Signal design for QRB-3 (window W definition, v1 vs v2 conditioning logic,
+    FX-bloc equity proxy construction). That is HoQR + Quant Researcher territory.
+    I assessed that the signal fits the existing engine; I did not evaluate whether
+    the signal itself has alpha.
+  - >
+    Statistical adjudication of QRB-3 (mechanism quality, McLean-Pontiff decay
+    magnitude, effective-N adequacy, bootstrap power). Those are NHT and HoQR
+    assessments already ratified. I accepted them as inputs.
+  - >
+    Central-bank calendar construction itself (the actual date lookup, UTC
+    normalization, scheduled/emergency classification). That is quant-developer
+    implementation work; I scoped it and routed it.
+  - >
+    Assessment of whether QRB-6's mechanism (pre-FOMC drift, post-announcement
+    reversal) is real and survives the post-2015 structural decay test. That is
+    HoQR + NHT territory in the next wave after the calendar is acquired.
+  - >
+    Cost modeling or spread analysis for either QRB-3 or QRB-6. Those inputs are
+    already provided by the NHT screen and HoQR ranking.
+  - >
+    Web research on central-bank calendar data sources. The acquisition_notes in
+    hoqr-ranking.yaml (QRB-6 section) already enumerate the correct primary sources
+    (federalreserve.gov, ECB, BoJ, BoE, RBA, BoC, SNB, RBNZ official websites;
+    ForexFactory). I did not consume my research budget on information already
+    documented in the firm's own artifacts.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTING
+# ─────────────────────────────────────────────────────────────────────────────
+routed_to:
+  - role: quant-developer
+    scope: >
+      Option A: Implement TurnOfMonthStrategy class (Strategy ABC), register in
+      strategy registry, draft pre-registration .md + .triggers.yaml sidecar,
+      add "qrb3" target to cut_freeze_receipt.py, implement one-shot runner.
+      All work is additive; no existing file modifications except the _TARGETS
+      dict extension in cut_freeze_receipt.py.
+    condition: After CEO authorizes QRB-3 pre-registration track.
+
+  - role: quant-developer
+    scope: >
+      Option B: Construct data/calendars/cb_decision_dates.parquet from official
+      central-bank primary sources (8 banks, 2010–2026), with provenance log,
+      cross-validation against ForexFactory, scheduled/emergency flagging,
+      UTC normalization, and OHLCV alignment check. Standard PR review.
+    condition: After CEO authorizes QRB-6 calendar acquisition.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODES CONSIDERED
+# ─────────────────────────────────────────────────────────────────────────────
+failure_modes_considered:
+  - id: FM-1
+    label: Frozen-receipt contamination via constant reuse
+    description: >
+      A QRB-3 runner that accidentally imports SR0_PP from r5_decision.py (0.022906)
+      or the confirmatory threshold (0.034921) would apply the wrong pre-registered
+      threshold to QRB-3's result. This is a silent correctness failure — the result
+      YAML would report a decision, but against the wrong benchmark. The cut_freeze_receipt.py
+      sr0_note guard catches this at receipt-cut time only if the runner reads from
+      the receipt; a runner that hard-codes the wrong constant bypasses the guard.
+    mitigation: >
+      Condition C2 above. The quant-developer MUST source all QRB-3 thresholds from
+      QRB-3's own pre-registration document; the runner must validate against the
+      QRB-3 receipt, not the R5 or confirmatory receipts.
+    severity: blocking if triggered
+
+  - id: FM-2
+    label: Pre-registration data snooping (receipt cut after return examination)
+    description: >
+      If the QRB-3 pre-reg .md is drafted, then return data is informally inspected
+      to "check if the signal looks reasonable," and THEN the receipt is cut, the
+      pre-registration integrity is void even though the protocol appears to have been
+      followed. This is the highest-risk failure mode for a small firm running sequential
+      trials — the temptation to "just look" before committing is high.
+    mitigation: >
+      Condition C1 above. The orchestrator must enforce the order: pre-reg draft →
+      consensus ratification → CEO sign-off → receipt cut → commit → THEN any data
+      access. The fact that QRB-3 uses EXISTING data (no new acquisition) makes the
+      temptation higher, not lower — the data is already on disk.
+    severity: blocking if triggered (voids pre-registration)
+
+  - id: FM-3
+    label: Calendar file look-ahead via date-matching error
+    description: >
+      If cb_decision_dates.parquet contains decision dates but the date-matching
+      logic aligns the signal with the SAME bar as the decision (bar T) rather than
+      the bar AFTER (bar T+1 per entry_delay_bars=1), any pre-decision drift captured
+      would be contaminated by the announcement return itself. This is a
+      look-ahead bug at the join level, not in the strategy compute logic.
+    mitigation: >
+      Condition C5 above. The OHLCV alignment check must include a specific test
+      that the signal at bar T (decision date) uses only information available at
+      bar T-1 close. This parallels the existing test_no_lookahead sacred test in
+      the backtest engine.
+    severity: blocking if triggered (invalidates QRB-6 backtest)
+
+  - id: FM-4
+    label: DSR denominator pressure from premature Option B trial registration
+    description: >
+      If QRB-6 is acquired AND then immediately pre-registered in the same wave as
+      QRB-3, the trial counter increases by 2 in one wave. HoQR already established
+      max_trials_this_wave = 1 with explicit DSR-denominator rationale (honest-N=11,
+      0 validated OOS alpha). Registering QRB-6 this wave would tighten the bar on
+      QRB-3's ongoing test and on all previously registered trials.
+    mitigation: >
+      The parallelism ruling is explicit: Option B acquisition does NOT constitute a
+      trial registration. QRB-6 advances to first candidate in the NEXT wave. The
+      acquisition work in Option B is a data-file PR, not a trial registration event.
+      The quant-developer must not cut a QRB-6 freeze-receipt until a future wave's
+      consensus ratifies it.
+    severity: high if triggered
+
+  - id: FM-5
+    label: Calendar provenance gaps discovered at pre-registration time
+    description: >
+      If the CB calendar is acquired without a per-row provenance log and the future
+      wave's NHT auditor asks "how do we know date X is correct for bank Y?", the
+      firm cannot answer. A calendar with gaps in provenance cannot be used as a
+      pre-registered data source without re-acquisition (which resets the SHA-256
+      and requires re-consensus).
+    mitigation: >
+      Condition C4 above (provenance log built during acquisition, not retroactively).
+      The SHA-256 of the final parquet is pinned at construction time and recorded in
+      the provenance log; any subsequent correction to the file changes the SHA-256
+      and requires a new PR + new provenance entry.
+    severity: moderate (delays QRB-6 pre-registration by one wave)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSUMPTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+assumptions:
+  - >
+    The existing Strategy ABC (src/forex_system/core/interfaces.py) and strategy
+    registry (src/forex_system/strategies/registry.py) support additive new strategy
+    classes without interface changes — verified by inspection of the registry pattern
+    and the 10 existing strategy classes.
+  - >
+    The Politis-White + White RC functions in src/forex_system/harness/reality_check.py
+    are generic (not carry-universe-specific) and can be applied to the QRB-3
+    month-turn return series without modification — assessed from the function
+    signatures visible in run_r5_step4.py (pair_returns, master_seed, block_length, B).
+  - >
+    The cut_freeze_receipt.py _TARGETS dict is the canonical multi-target extension
+    point, as documented in the script's own §FREEZE BLOCK note. Adding a "qrb3"
+    target follows the established "confirmatory" extension precedent exactly.
+  - >
+    data/calendars/ does not yet exist as a directory. The quant-developer creates it
+    as a new leaf under data/; it does not conflict with any existing data/ subdirectory
+    (verified: data/ contains cf_t9_state.json, processed/, rates/, raw/, results/,
+    spreads/, trades/, predictions/ — no calendars/ directory).
+  - >
+    The trial counter is at 40 (wc -l .fintech-org/trials.jsonl = 40) with honest-N=11
+    and 0 validated OOS alpha — consistent with the CONSENSUS-SUMMARY and HoQR ranking.
+    This grounds the DSR-denominator rationale for max_trials_this_wave = 1.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIDENCE AND BODY
+# ─────────────────────────────────────────────────────────────────────────────
+confidence: high
+
+body: |
+  ## CTO Architecture Summary
+
+  ### Option A (QRB-3): APPROVE WITH CONDITIONS
+
+  The pre-registration track for QRB-3 is architecturally sound and low-risk.
+  The entire machinery — freeze-receipt protocol, bootstrap harness, backtest engine,
+  Strategy ABC, pre-reg + sidecar pattern — already exists from two completed tracks
+  this week (R5 kill-test, R5-confirmatory). Option A is almost entirely a matter of
+  writing one Strategy subclass (~100 LOC) and wiring it into existing infrastructure.
+
+  The only blast-radius concern — protecting the two frozen receipts (R5 at commit
+  350cbd4b; confirmatory at commit f0d10546) — is handled by the write-once guard
+  already present in cut_freeze_receipt.py. The CTO's additional condition (C2)
+  closes the only gap the existing guard does not cover: the wrong-constant
+  contamination risk from a developer who reaches across trial boundaries for
+  "convenience." This is a known failure mode in multi-trial harnesses; it is
+  enumerated and mitigated, not assumed away.
+
+  Rollback is trivially clean: all Option A changes are additive new files.
+
+  ### Option B (QRB-6 Calendar Acquisition): APPROVE FOR ACQUISITION
+
+  Vendor ruling is clear and non-controversial: official central-bank websites
+  are public primary sources. Constructing a reference file from them is a
+  data-file PR, not a vendor onboarding. The CEO authorization required by wave
+  rules is an intent gate, not a security gate.
+
+  The acquisition effort is genuinely low (2–3 days quant-developer time).
+  The provenance requirements are non-negotiable for pre-registration integrity —
+  they are specified precisely because the failure mode (retroactive provenance
+  reconstruction) is a real temptation and a real integrity gap.
+
+  ### Parallelism: YES, with no shared blast radius
+
+  A and B touch different files, different developers, no shared resources.
+  Option B does not increment the trial counter and creates no DSR-denominator
+  pressure. They can proceed simultaneously the moment the CEO authorizes both.
+
+  ### What the CTO did not do
+
+  Signal design, statistical assessment, cost modeling, and the actual calendar
+  construction work are explicitly not CTO scope. The routing is clear:
+  quant-developer for both build tasks, under conditions C1–C5.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVIDENCE (files read, not inferred)
+# ─────────────────────────────────────────────────────────────────────────────
+evidence:
+  - path: .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml
+    note: >
+      Read in full. QRB-3 scores, NHT conditions, QRB-6 acquisition notes, and
+      data_readiness assessments all sourced from here. Weighted totals and
+      first-candidate bar outcomes verified against the YAML content.
+  - path: .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml
+    note: >
+      Read in full. QRB-3 and QRB-6 detailed proposals, data_availability fields,
+      cost_survival assessments, and falsification sketches confirmed.
+  - path: docs/decisions/CONSENSUS-SUMMARY_2026-06-06_new_alpha_kickoff.md
+    note: >
+      Read. Decision context, top-3 risks, CEO open items, and wave rules confirmed.
+  - path: scripts/cut_freeze_receipt.py
+    note: >
+      Read in full. _TARGETS dict pattern, write-once guard (receipt_path.exists()),
+      multi-target extension mechanism, and sr0_note field for cross-trial constant
+      guard confirmed by direct inspection.
+  - path: scripts/run_r5_step4.py
+    note: >
+      Read in full. Gate structure (--i-am-step4 + --freeze-receipt), receipt
+      validation flow, harness imports, and result YAML write pattern confirmed.
+  - path: src/forex_system/core/interfaces.py
+    note: >
+      Read (first 60 lines). Strategy ABC contract confirmed: __init__(params, *,
+      rate_data=None), additive subclass pattern. Registry supports new classes
+      without interface changes.
+  - path: src/forex_system/strategies/registry.py
+    note: >
+      Read. 10 existing strategy classes confirmed; STRATEGY_REGISTRY dict is the
+      extension point for new strategies.
+  - path: references/pre-registrations/r5_carry_universe_kill_test.FREEZE-RECEIPT.yaml
+    note: >
+      Read. Frozen SHA-256 (c7780f3d...) and code_commit (350cbd4b...) confirmed.
+      Write-once guard verified to protect this file.
+  - path: references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+    note: >
+      Read (first 20 lines). Frozen SHA-256 (c40c6ad7...) and code_commit (f0d10546...)
+      confirmed. Separate trial_id (f2fb41fd) and sr0_pp (0.034921) confirmed distinct
+      from R5 constants.
+  - path: .fintech-org/trials.jsonl
+    note: >
+      wc -l confirmed 40 lines (trial counter = 40). Consistent with CONSENSUS-SUMMARY
+      and HoQR max_trials_this_wave rationale.
+  - path: src/forex_system/harness/preregistration.py
+    note: >
+      Read (first 80 lines). .triggers.yaml sidecar pattern and PreRegistrationSpec
+      dataclass confirmed reusable for QRB-3 without modification.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# META FIELDS
+# ─────────────────────────────────────────────────────────────────────────────
+knowledge_gaps:
+  - >
+    Whether the Politis-White block-length function in reality_check.py handles
+    a sparse event-style series (~190 events from a daily OHLCV index with mostly-zero
+    signals outside the turn-of-month window) without modification. The function takes
+    pair_returns as input; if QRB-3 generates a sparse signal (many zeros), the block-
+    length estimate may need to operate on the non-zero subset only. This is a
+    quant-developer and HoQR concern at pre-registration design time, not a blocker
+    for the architecture ruling.
+  - >
+    The exact DST handling implications for the CB calendar's UTC normalization when
+    decision times straddle DST transitions (e.g. Fed decisions announced at 14:00 ET,
+    which is 19:00 UTC or 18:00 UTC depending on DST). This is a quant-developer
+    implementation detail for Option B.
+
+policy_violations_detected: []
+
+sources:
+  - .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-ranking.yaml
+  - .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml
+  - docs/decisions/CONSENSUS-SUMMARY_2026-06-06_new_alpha_kickoff.md
+  - scripts/cut_freeze_receipt.py
+  - scripts/run_r5_step4.py
+  - src/forex_system/core/interfaces.py
+  - src/forex_system/strategies/registry.py
+  - references/pre-registrations/r5_carry_universe_kill_test.FREEZE-RECEIPT.yaml
+  - references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.FREEZE-RECEIPT.yaml
+  - .fintech-org/trials.jsonl
+  - src/forex_system/harness/preregistration.py
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+research_budget_rationale: >
+  All required information was present in firm artifacts (hoqr-ranking.yaml acquisition
+  notes enumerate the exact public sources for the CB calendar; CONSENSUS-SUMMARY
+  confirms decision context). No web research was needed or consumed.

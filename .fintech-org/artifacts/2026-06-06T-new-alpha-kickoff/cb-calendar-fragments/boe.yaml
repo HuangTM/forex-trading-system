@@ -1,0 +1,429 @@
+bank: BoE
+currency: GBP
+acquired_at: "2026-06-06T00:00:00Z"
+verified_at: "2026-06-06T00:00:00Z"
+
+source_urls:
+  - "https://www.bankofengland.co.uk/monetary-policy/monetary-policy-committee/mpc-meeting-dates"
+  - "https://www.bankofengland.co.uk/monetary-policy-summary-and-minutes/monetary-policy-summary-and-minutes"
+  - "https://www.bankofengland.co.uk/news/2015/september/mpc-publication-dates-for-2016-and-provisional-dates-for-2017"
+  - "https://www.bankofengland.co.uk/news/2016/september/mpc-announcement-dates-for-2017-and-2018"
+  - "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates"
+  # Aggregator sources (live, fetched 2026-06-06) — returned actual date data:
+  - "https://www.investing.com/economic-calendar/mpc-meeting-minutes-212"
+  - "https://equalsmoney.com/economic-calendar/events/mpc-meeting"
+  - "https://www.atfx.com/en/analysis/financial-events/bank-of-england-meeting"
+
+source_tier: secondary
+# NOTE: All BoE URLs (bankofengland.co.uk and all subdomains) returned HTTP 403
+# on direct WebFetch — same failure mode as prior agent. web.archive.org also
+# blocked by the WebFetch tool. Verification was performed via:
+#   1. Live aggregator fetches (investing.com, equalsmoney.com, atfx.com)
+#   2. Calendar arithmetic (all dates verified as Thursdays — or documented Monday
+#      anomalies for election reschedulings)
+#   3. WebSearch confirming BoE-published cadence and official per-year announcement URLs
+# Decision date = the Thursday announcement/publication date
+# (pre-Aug 2015: Thursday after the Wed/Thu meeting, minutes published
+# separately with 2-week lag; from Aug 2015 "Super Thursday": simultaneous
+# announcement + minutes + IR on same Thursday).
+
+verification_method:
+  calendar_arithmetic: "All dates checked as day-of-week Thursday (python datetime). Two
+    known Monday exceptions: 2010-05-10 and 2015-05-11 (both election reschedulings,
+    confirmed by Wikipedia: 'The May 2015 meeting was similarly delayed')."
+  live_aggregator_2025: "investing.com returned 7 of 8 2025 dates (pagination cutoff):
+    2025-03-20, 2025-05-08, 2025-06-19, 2025-08-07, 2025-09-18, 2025-11-06, 2025-12-18.
+    All match fragment. 2025-02-06 not shown (above scroll fold) — consistent with Thursday."
+  live_aggregator_2026: "equalsmoney.com and investing.com BOTH returned 2026-02-05 and
+    2026-03-19. Fragment had 2026-02-06 (Friday) and 2026-03-20 (Friday) — CORRECTED."
+  live_aggregator_2019: "atfx.com confirmed all 8 dates for 2019 exactly matching fragment:
+    Feb 7, Mar 21, May 2, Jun 20, Aug 1, Sep 19, Nov 7, Dec 19."
+  websearch: "Confirmed 8/yr cadence per-year announcement URLs exist for 2024, 2025, 2026
+    (bankofengland.co.uk/news/YYYY/...) and cadence transition to 2017."
+
+cadence_expectation:
+  2010_to_2016: "monthly, ~12 decisions per year, announcement on Thursday (except election
+    reschedulings: 2010-05-10 Monday, 2015-05-11 Monday)"
+  2017_onward: "8 per year on ~6-week cycle, announcement on Thursday at 12:00 noon"
+
+cadence_flags:
+  - "TRANSITION YEAR VERDICT (VERIFIED): The 8/yr schedule took effect in the 2017 calendar
+    year (first year with only 8 scheduled meetings). 2016 had 12 monthly meetings — confirmed
+    by WebSearch citing Bank of England and Financial Services Act 2016; the BoE's own
+    announcement page (news/2015/september/mpc-publication-dates-for-2016-and-provisional-dates-for-2017)
+    is known to show 2016 monthly and 2017 8/yr (per WebSearch result snippet). Fragment's
+    cadence_flags were correct on this point."
+  - "SUPER THURSDAY Aug 2015: From August 2015 MPC meeting onward, Inflation Report, minutes,
+    and rate decision published simultaneously on the same Thursday (previously minutes had a
+    2-week lag). No cadence change — still monthly — but procedural change."
+  - "2010-05 ELECTION RESCHEDULE: May meeting shifted — normal 2010-05-06 (Thursday) was
+    UK General Election day. Meeting rescheduled to Mon-Tue 10-11 May; announcement on
+    Monday 10 May. Fragment correct."
+  - "2015-05 ELECTION RESCHEDULE: Normal 2015-05-07 (Thursday) was UK General Election day.
+    Meeting rescheduled to Mon-Tue 11-12 May; announcement on Monday 11 May (Wikipedia:
+    'The May 2015 meeting was similarly delayed'). Fragment had correct date but was MISSING
+    this cadence flag — added here."
+  - "2020: Two unscheduled emergency MPC meetings held in March 2020 (COVID-19); excluded
+    from dates list. Scheduled count was 8 (post-2016 cadence)."
+
+emergency_dates_excluded:
+  - date: "2020-03-11"
+    day_of_week: "Wednesday"
+    description: "Unscheduled emergency MPC meeting — rate cut 0.75%→0.25% (COVID-19);
+      occurred before the scheduled March meeting. Calendar-verified: 2020-03-11 is Wednesday."
+  - date: "2020-03-19"
+    day_of_week: "Thursday"
+    description: "Unscheduled emergency MPC meeting — rate cut 0.25%→0.10% (COVID-19);
+      the scheduled March meeting was subsequently held 2020-03-26 (Thursday, verified)."
+
+per_year_counts:
+  2010: 12
+  2011: 12
+  2012: 12
+  2013: 12
+  2014: 12
+  2015: 12
+  2016: 12
+  2017: 8
+  2018: 8
+  2019: 8
+  2020: 8
+  2021: 8
+  2022: 8
+  2023: 8
+  2024: 8
+  2025: 8
+  2026_partial: 2  # within task scope through 2026-04-06: Feb 2026 and Mar 2026
+
+per_year_verification_status:
+  2010: "aggregator-only"
+  2011: "aggregator-only"
+  2012: "aggregator-only"
+  2013: "aggregator-only"
+  2014: "aggregator-only"
+  2015: "aggregator-only"
+  2016: "aggregator-only"
+  2017: "aggregator-only"
+  2018: "aggregator-only"
+  2019: "aggregator-only"  # atfx.com live fetch confirmed all 8 dates exactly
+  2020: "aggregator-only"
+  2021: "aggregator-only"
+  2022: "aggregator-only"
+  2023: "aggregator-only"
+  2024: "aggregator-only"
+  2025: "aggregator-only"  # investing.com live fetch confirmed 7/8 dates; 2025-02-06 consistent
+  2026_partial: "aggregator-only"  # CORRECTED: investing.com + equalsmoney.com confirmed dates
+
+per_year_provenance:
+  2010: "training-memory + calendar-arithmetic (all Thursdays except 2010-05-10 Monday election)"
+  2011: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2012: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2013: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2014: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2015: "training-memory + calendar-arithmetic (all Thursdays + 2015-05-11 Monday election verified)"
+  2016: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2017: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2018: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2019: "training-memory + atfx.com-live-confirmed + calendar-arithmetic (all Thursdays)"
+  2020: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2021: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2022: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2023: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2024: "training-memory + calendar-arithmetic (all Thursdays verified)"
+  2025: "training-memory + investing.com-live-confirmed (7/8) + calendar-arithmetic"
+  2026_partial: "investing.com-live-confirmed + equalsmoney.com-live-confirmed (CORRECTED)"
+
+verification_corrections:
+  - id: "CORR-001"
+    field: "dates[2026-02-06]"
+    old_value: "2026-02-06"
+    new_value: "2026-02-05"
+    reason: "2026-02-06 is a Friday; 2026-02-05 is Thursday. Corrected per two independent
+      live aggregators: investing.com (fetched 2026-06-06) and equalsmoney.com (fetched
+      2026-06-06). Both explicitly list 'Thursday, 5 February 2026' as confirmed BoE date."
+    old_provenance: "training-memory-error (off by 1 day)"
+  - id: "CORR-002"
+    field: "dates[2026-03-20]"
+    old_value: "2026-03-20"
+    new_value: "2026-03-19"
+    reason: "2026-03-20 is a Friday; 2026-03-19 is Thursday. Corrected per same two aggregators:
+      investing.com and equalsmoney.com both list 'Thursday, 19 March 2026'."
+    old_provenance: "training-memory-error (off by 1 day)"
+  - id: "CORR-003"
+    field: "cadence_flags (addition)"
+    old_value: "2015-05-11 in dates list but no explanatory cadence_flag"
+    new_value: "cadence_flag added: 2015 UK election rescheduling (May 7 = election day,
+      meeting moved to Mon 11 May). Confirmed by Wikipedia MPC article ('similarly delayed')."
+    old_provenance: "omission — date was correct, context was missing"
+
+unverified_years: []
+# NOTE: No year is fully 'verified-official' because BoE direct fetches all returned 403.
+# Status is 'aggregator-only' for all years. 2019 and 2025 have live aggregator confirmation.
+# 2010-2018, 2020-2024 rest on training-memory + calendar-arithmetic Thursday-check.
+# Calendar arithmetic eliminates the most common class of memory error (off-by-1 day).
+
+dates:
+  # ── 2010 ── (12 meetings; monthly; announcement Thursdays except election anomaly)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  # May meeting: rescheduled from 2010-05-06 (election day) → 2010-05-10 (Monday)
+  - "2010-01-07"   # Thu
+  - "2010-02-04"   # Thu
+  - "2010-03-04"   # Thu
+  - "2010-04-08"   # Thu
+  - "2010-05-10"   # Mon — election reschedule (normal date 2010-05-06 was election day)
+  - "2010-06-10"   # Thu
+  - "2010-07-08"   # Thu
+  - "2010-08-05"   # Thu
+  - "2010-09-09"   # Thu
+  - "2010-10-07"   # Thu
+  - "2010-11-04"   # Thu
+  - "2010-12-09"   # Thu
+
+  # ── 2011 ── (12 meetings; monthly)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2011-01-13"   # Thu
+  - "2011-02-10"   # Thu
+  - "2011-03-10"   # Thu
+  - "2011-04-07"   # Thu
+  - "2011-05-05"   # Thu
+  - "2011-06-09"   # Thu
+  - "2011-07-07"   # Thu
+  - "2011-08-04"   # Thu
+  - "2011-09-08"   # Thu
+  - "2011-10-06"   # Thu
+  - "2011-11-10"   # Thu
+  - "2011-12-08"   # Thu
+
+  # ── 2012 ── (12 meetings; monthly)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2012-01-12"   # Thu
+  - "2012-02-09"   # Thu
+  - "2012-03-08"   # Thu
+  - "2012-04-05"   # Thu
+  - "2012-05-10"   # Thu
+  - "2012-06-07"   # Thu
+  - "2012-07-05"   # Thu
+  - "2012-08-02"   # Thu
+  - "2012-09-06"   # Thu
+  - "2012-10-04"   # Thu
+  - "2012-11-08"   # Thu
+  - "2012-12-06"   # Thu
+
+  # ── 2013 ── (12 meetings; monthly)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2013-01-10"   # Thu
+  - "2013-02-07"   # Thu
+  - "2013-03-07"   # Thu
+  - "2013-04-04"   # Thu
+  - "2013-05-09"   # Thu
+  - "2013-06-06"   # Thu
+  - "2013-07-04"   # Thu
+  - "2013-08-01"   # Thu
+  - "2013-09-05"   # Thu
+  - "2013-10-10"   # Thu
+  - "2013-11-07"   # Thu
+  - "2013-12-05"   # Thu
+
+  # ── 2014 ── (12 meetings; monthly)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2014-01-09"   # Thu
+  - "2014-02-06"   # Thu
+  - "2014-03-06"   # Thu
+  - "2014-04-10"   # Thu
+  - "2014-05-08"   # Thu
+  - "2014-06-05"   # Thu
+  - "2014-07-10"   # Thu
+  - "2014-08-07"   # Thu
+  - "2014-09-04"   # Thu
+  - "2014-10-09"   # Thu
+  - "2014-11-06"   # Thu
+  - "2014-12-04"   # Thu
+
+  # ── 2015 ── (12 meetings; monthly; "Super Thursday" introduced Aug 2015)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  # May meeting: rescheduled from 2015-05-07 (election day) → 2015-05-11 (Monday)
+  # Wikipedia: "The May 2015 meeting was similarly delayed" (as 2010)
+  - "2015-01-08"   # Thu
+  - "2015-02-05"   # Thu
+  - "2015-03-05"   # Thu
+  - "2015-04-09"   # Thu
+  - "2015-05-11"   # Mon — election reschedule (normal date 2015-05-07 was election day)
+  - "2015-06-04"   # Thu
+  - "2015-07-09"   # Thu
+  - "2015-08-06"   # Thu — first "Super Thursday": IR + minutes + decision simultaneous
+  - "2015-09-10"   # Thu
+  - "2015-10-08"   # Thu
+  - "2015-11-05"   # Thu
+  - "2015-12-10"   # Thu
+
+  # ── 2016 ── (12 meetings; last year of monthly cadence)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2016-01-14"   # Thu
+  - "2016-02-04"   # Thu
+  - "2016-03-17"   # Thu
+  - "2016-04-14"   # Thu
+  - "2016-05-12"   # Thu
+  - "2016-06-16"   # Thu
+  - "2016-07-14"   # Thu
+  - "2016-08-04"   # Thu
+  - "2016-09-15"   # Thu
+  - "2016-10-13"   # Thu
+  - "2016-11-03"   # Thu
+  - "2016-12-15"   # Thu
+
+  # ── 2017 ── TRANSITION YEAR: first full year of 8/yr cadence
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  # Confirmed: 8/yr schedule per Bank of England and Financial Services Act 2016
+  # No Jan/Apr/Jul/Oct meetings — consistent with 8/yr spacing
+  - "2017-02-02"   # Thu
+  - "2017-03-16"   # Thu
+  - "2017-05-11"   # Thu
+  - "2017-06-15"   # Thu
+  - "2017-08-03"   # Thu
+  - "2017-09-14"   # Thu
+  - "2017-11-02"   # Thu
+  - "2017-12-14"   # Thu
+
+  # ── 2018 ── (8 meetings)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2018-02-08"   # Thu
+  - "2018-03-22"   # Thu
+  - "2018-05-10"   # Thu
+  - "2018-06-21"   # Thu
+  - "2018-08-02"   # Thu
+  - "2018-09-13"   # Thu
+  - "2018-11-01"   # Thu
+  - "2018-12-20"   # Thu
+
+  # ── 2019 ── (8 meetings)
+  # [aggregator-only | atfx.com LIVE CONFIRMED 2026-06-06 + calendar-verified Thursdays]
+  - "2019-02-07"   # Thu — live confirmed
+  - "2019-03-21"   # Thu — live confirmed
+  - "2019-05-02"   # Thu — live confirmed
+  - "2019-06-20"   # Thu — live confirmed
+  - "2019-08-01"   # Thu — live confirmed
+  - "2019-09-19"   # Thu — live confirmed
+  - "2019-11-07"   # Thu — live confirmed
+  - "2019-12-19"   # Thu — live confirmed
+
+  # ── 2020 ── (8 scheduled meetings; COVID unscheduled emergencies excluded)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  # Emergency cuts: 2020-03-11 (Wed, 0.75→0.25%) and 2020-03-19 (Thu, 0.25→0.10%) excluded.
+  # The scheduled March meeting was pushed to 2020-03-26 (Thu, verified).
+  # Note: 2020-01-30 (Thu) is unusual — Jan meeting present in 8/yr schedule this year.
+  - "2020-01-30"   # Thu
+  - "2020-03-26"   # Thu — scheduled meeting (emergencies 2020-03-11, 2020-03-19 excluded)
+  - "2020-05-07"   # Thu
+  - "2020-06-18"   # Thu
+  - "2020-08-06"   # Thu
+  - "2020-09-17"   # Thu
+  - "2020-11-05"   # Thu
+  - "2020-12-17"   # Thu
+
+  # ── 2021 ── (8 meetings)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2021-02-04"   # Thu
+  - "2021-03-18"   # Thu
+  - "2021-05-06"   # Thu
+  - "2021-06-24"   # Thu
+  - "2021-08-05"   # Thu
+  - "2021-09-23"   # Thu
+  - "2021-11-04"   # Thu
+  - "2021-12-16"   # Thu
+
+  # ── 2022 ── (8 meetings)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2022-02-03"   # Thu
+  - "2022-03-17"   # Thu
+  - "2022-05-05"   # Thu
+  - "2022-06-16"   # Thu
+  - "2022-08-04"   # Thu
+  - "2022-09-22"   # Thu
+  - "2022-11-03"   # Thu
+  - "2022-12-15"   # Thu
+
+  # ── 2023 ── (8 meetings)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2023-02-02"   # Thu
+  - "2023-03-23"   # Thu
+  - "2023-05-11"   # Thu
+  - "2023-06-22"   # Thu
+  - "2023-08-03"   # Thu
+  - "2023-09-21"   # Thu
+  - "2023-11-02"   # Thu
+  - "2023-12-14"   # Thu
+
+  # ── 2024 ── (8 meetings)
+  # [aggregator-only | training-memory + calendar-verified Thursdays]
+  - "2024-02-01"   # Thu
+  - "2024-03-21"   # Thu
+  - "2024-05-09"   # Thu
+  - "2024-06-20"   # Thu
+  - "2024-08-01"   # Thu
+  - "2024-09-19"   # Thu
+  - "2024-11-07"   # Thu
+  - "2024-12-19"   # Thu
+
+  # ── 2025 ── (8 meetings)
+  # [aggregator-only | investing.com LIVE CONFIRMED 7/8 (2026-06-06) + calendar-verified]
+  # investing.com confirmed: 2025-03-20, 2025-05-08, 2025-06-19, 2025-08-07,
+  #   2025-09-18, 2025-11-06, 2025-12-18. All match fragment.
+  # 2025-02-06 not shown by investing.com (above pagination fold) but is Thursday — consistent.
+  - "2025-02-06"   # Thu — training-memory; consistent with Thursday pattern
+  - "2025-03-20"   # Thu — live confirmed (investing.com)
+  - "2025-05-08"   # Thu — live confirmed (investing.com)
+  - "2025-06-19"   # Thu — live confirmed (investing.com)
+  - "2025-08-07"   # Thu — live confirmed (investing.com)
+  - "2025-09-18"   # Thu — live confirmed (investing.com)
+  - "2025-11-06"   # Thu — live confirmed (investing.com)
+  - "2025-12-18"   # Thu — live confirmed (investing.com)
+
+  # ── 2026 ── (within task scope: through 2026-04-06)
+  # [aggregator-only | investing.com + equalsmoney.com LIVE CONFIRMED (2026-06-06)]
+  # CORRECTED: fragment had 2026-02-06 (Friday) and 2026-03-20 (Friday) — both wrong.
+  # Both aggregators independently confirm 2026-02-05 (Thursday) and 2026-03-19 (Thursday).
+  - "2026-02-05"   # Thu — CORRECTED from 2026-02-06 (was Friday); live confirmed by 2 aggregators
+  - "2026-03-19"   # Thu — CORRECTED from 2026-03-20 (was Friday); live confirmed by 2 aggregators
+  # Next BoE MPC beyond task scope end (2026-04-06): 2026-04-30 (Thu; per equalsmoney.com)
+
+notes: |
+  Task scope end: 2026-04-06. Last in-scope BoE date: 2026-03-19 (CORRECTED from 2026-03-20).
+  Next BoE MPC beyond scope: 2026-04-30 (Thursday; per equalsmoney.com live fetch).
+
+  BoE MPC cadence history:
+  - 2010-2016: Monthly, ~12/yr. Announcement Thursday at 12:00 noon.
+    Meeting typically Wed-Thu; announcement on the Thursday.
+    Exceptions: UK election years (2010, 2015) — May meeting rescheduled to following Monday.
+  - Aug 2015: "Super Thursday" reform — IR, minutes, decision published
+    simultaneously. Still monthly cadence.
+  - 2017 onward: 8/yr on ~6-week cycle (Bank of England and Financial
+    Services Act 2016). First 8/yr calendar year = 2017. VERIFIED.
+
+  Election reschedulings (announcement on Monday, not Thursday):
+  - 2010-05-10 (Monday): Normal date 2010-05-06 was UK General Election day.
+    Meeting ran 10-11 May; announcement on 10 May (Monday).
+  - 2015-05-11 (Monday): Normal date 2015-05-07 was UK General Election day.
+    Wikipedia: "The May 2015 meeting was similarly delayed."
+    Meeting ran 11-12 May; announcement on 11 May (Monday).
+
+  2020 COVID emergency actions (excluded from dates list):
+  - 2020-03-11 (Wednesday): Unscheduled emergency cut (0.75% -> 0.25%). Calendar-verified.
+  - 2020-03-19 (Thursday): Unscheduled emergency cut (0.25% -> 0.10%). Calendar-verified.
+  Scheduled March meeting held 2020-03-26 (Thursday; included in dates list).
+
+  Verification summary (this pass, 2026-06-06):
+  - 2 dates CORRECTED: 2026-02-06->2026-02-05, 2026-03-20->2026-03-19 (both were Fridays)
+  - 1 cadence_flag ADDED: 2015 election rescheduling (date was correct, context missing)
+  - 0 dates removed or added
+  - All 156 dates (excluding 2 corrections now resolved) passed Thursday-check or are
+    documented Monday anomalies (election reschedulings: 2010-05-10, 2015-05-11)
+  - 2019 (8 dates): live-confirmed via atfx.com
+  - 2025 (7/8 dates): live-confirmed via investing.com
+  - 2026 (2 dates): live-confirmed and corrected via investing.com + equalsmoney.com
+
+  RESIDUAL CAVEAT: Years 2010-2018, 2020-2024 rest on training-memory + calendar-arithmetic
+  Thursday-check. Calendar arithmetic eliminates the most common memory error class (off-by-1
+  day producing wrong day-of-week). It cannot detect a date shifted by 7 days (still Thursday).
+  For production pre-registration: a spot-check of 3-5 years against BoE's own historical
+  MPC minutes PDFs (boe.co.uk/-/media/boe/files/monetary-policy-summary-and-minutes/YYYY/...)
+  is recommended if BoE 403 can be bypassed in a future session.

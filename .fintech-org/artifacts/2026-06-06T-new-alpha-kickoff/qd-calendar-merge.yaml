@@ -1,0 +1,163 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-06T00:00:00Z"
+subtask_ref: new-alpha-qd-calendar-merge
+subtask_id: "new-alpha-kickoff-2026-06-06:phase2:task2.1"
+
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+
+commit_hash: uncommitted
+
+files_changed:
+  - data/rates/cb_decision_dates.parquet
+  - references/cb_decision_dates_PROVENANCE.md
+  - tests/data/test_cb_decision_dates.py
+  - scripts/build_cb_decision_dates.py
+
+tests_added:
+  - tests/data/test_cb_decision_dates.py
+
+tests_passing:
+  test_cb_decision_dates: 40/40
+  sacred_test_no_lookahead: PASS
+  broad_suite_excluding_governance: see below
+
+sacred_test_status: PASS
+# tests/backtest/test_engine.py::test_no_lookahead PASSED
+# + 8 additional no-lookahead variant tests PASSED
+
+kill_test_executed: false
+no-capital-instruction: true
+
+dataset_summary:
+  total_rows: 842
+  window: "2010-01-01 to 2026-04-06"
+  banks:
+    FED:
+      rows: 129
+      currency: USD
+      source_tier: official
+      verification_grades: {verified-official: 129, aggregator-only: 0, training-memory-unverified: 0}
+      gap_years: []
+    ECB:
+      rows: 145
+      currency: EUR
+      source_tier: mixed
+      verification_grades: {verified-official: 0, aggregator-only: 102, training-memory-unverified: 43}
+      unverified_years: [2010, 2017, 2018, 2020, 2021]
+      gap_years: []  # dates present but unverified quality
+    BOE:
+      rows: 158
+      currency: GBP
+      source_tier: secondary
+      verification_grades: {verified-official: 0, aggregator-only: 158, training-memory-unverified: 0}
+      corrections_applied: 2  # 2026-02-06→2026-02-05, 2026-03-20→2026-03-19
+      gap_years: []
+    BOJ:
+      rows: 169
+      currency: JPY
+      source_tier: official
+      verification_grades: {verified-official: 169, aggregator-only: 0, training-memory-unverified: 0}
+      gap_years: []
+    BOC:
+      rows: 58
+      currency: CAD
+      source_tier: official
+      verification_grades: {verified-official: 58, aggregator-only: 0, training-memory-unverified: 0}
+      gap_years: [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018]
+    RBA:
+      rows: 172
+      currency: AUD
+      source_tier: official
+      verification_grades: {verified-official: 172, aggregator-only: 0, training-memory-unverified: 0}
+      gap_years: []
+    RBNZ:
+      rows: 11
+      currency: NZD
+      source_tier: secondary
+      verification_grades: {verified-official: 0, aggregator-only: 11, training-memory-unverified: 0}
+      gap_years: [2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+      partial_years: [2025]  # Jan-Jul missing
+
+firewall-self-review: |
+  This task is calendar-date construction only — no market data, no signals, no
+  returns, no capital at risk. The Execution-Researcher Firewall applies to
+  signal/execution code; it is not applicable here. No price data touched.
+  No TradeIntent spec was translated into executable trading logic.
+
+deviations-from-instructions:
+  - >
+    RBNZ 2025 partial-year: fma.govt.nz is described in the fragment as
+    "near-primary" (NZ government regulator citing RBNZ directly). The
+    instructions specify 4 allowed verification grades; "near-primary" is not
+    one of them. Mapped to "aggregator-only" (next-closest tier) rather than
+    inventing a fifth grade. This is conservative and transparent.
+  - >
+    ECB "anchor-verified" grade: The instructions listed "anchor-verified" as
+    one of the 4 allowed grades. The fragment used "aggregator-only-partial"
+    for partially-verified ECB years. Mapped to "aggregator-only" as the
+    appropriate four-valued-schema grade for years where only some dates are
+    anchor-confirmed. The "anchor-verified" grade is technically available but
+    would misrepresent years where the majority of dates are still
+    training-memory-unverified. Per-year grade assigned conservatively.
+
+evidence:
+  - "python3 scripts/build_cb_decision_dates.py → 842 rows written, no assertion errors"
+  - "pytest tests/data/test_cb_decision_dates.py → 40/40 PASSED"
+  - "pytest -k test_no_lookahead → 9/9 PASSED"
+  - "ruff check scripts/build_cb_decision_dates.py tests/data/test_cb_decision_dates.py → All checks passed"
+  - "Per-bank per-year counts verified to match fragment per_year_counts exactly"
+  - "BoE Thursday-check and Monday-exception list verified in test_boe_thursdays_with_exceptions"
+
+assumptions:
+  - >
+    ECB 2020-03-12: The fragment notes this is contested (scheduled meeting that
+    did take place vs. emergency classification). The fragment's final decision
+    was to include it in the scheduled dates list. Followed fragment verdict.
+  - >
+    BoJ 2020-03-16: Fragment states this is a scheduled MPM (not emergency).
+    Included as scheduled. COVID extra meeting was 2020-05-22.
+  - >
+    RBNZ 2026-04-08: This tradingeconomics date falls after the 2026-04-06
+    terminus and is excluded from the dataset. Only 2026-02-18 included.
+
+confidence: high
+# High for: dataset construction fidelity, test correctness, grade mapping,
+# emergency exclusions, terminus enforcement, BoE corrections applied.
+# Lower for: ECB unverified years (5 years training-memory-unverified),
+# BoC 2010-2018 gap, RBNZ 2010-2023 gap, BoE calendar-arithmetic residual risk.
+
+body: |
+  Canonical central-bank decision-date dataset built from all seven verified
+  fragment files. Construction:
+  1. All 7 fragments read and all dates, grades, emergency exclusions extracted.
+  2. Grade mapping: fragment per-year verification status → 4-valued schema
+     (verified-official | anchor-verified | aggregator-only |
+     training-memory-unverified).
+  3. Emergency dates excluded per each fragment's emergency_dates_excluded list.
+  4. Window filter: 2010-01-01 through 2026-04-06 applied.
+  5. BoC 2010-2018 and RBNZ 2010-2023: anti-fabrication rule enforced — zero
+     rows for these bank/year combinations.
+  6. BoE corrections applied: 2026-02-06→2026-02-05, 2026-03-20→2026-03-19.
+  7. Sorted by (date, bank). No duplicates. All 842 rows scheduled=True.
+  8. Parquet written to data/rates/cb_decision_dates.parquet.
+  9. 40-test suite written and verified. Sacred no-lookahead: PASS. Ruff: clean.
+
+knowledge_gaps:
+  - "BoC 2010-2018: unverified — 9 years of FAD dates missing from dataset"
+  - "RBNZ 2010-2023: unverified — 14 years missing; RBNZ.govt.nz returns 403"
+  - "RBNZ 2025 Jan-Jul: partial — 4 dates missing from the year"
+  - "ECB unverified years: 2010, 2017, 2018, 2020, 2021 (no-rate-change meetings cannot be anchored)"
+  - "BoE residual: calendar-arithmetic cannot detect 7-day-shift memory errors"
+
+policy_violations_detected: []
+
+sources:
+  - "Fragment files in .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/cb-calendar-fragments/"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

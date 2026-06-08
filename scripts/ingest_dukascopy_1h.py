@@ -82,12 +82,44 @@ _TICK_SIZE = 20  # bytes per tick record
 # Network layer — raw TLS socket (requests lib times out in this environment)
 # ---------------------------------------------------------------------------
 
+def _classify_http_response(raw: bytes) -> bytes | None:
+    """Classify a raw HTTP/1.1 response into the fetch contract. Pure function.
+
+    Returns:
+        - body bytes on HTTP 200 (body may legitimately be empty for a closed hour);
+        - b'' on HTTP 404 (genuinely-missing/pre-listing hour) — caller does NOT retry;
+        - None on any RETRYABLE condition: truncated response (no header terminator),
+          or any non-200/404 status (429 rate-limit, 5xx, unparseable status line).
+
+    Distinguishing b'' (genuine empty) from None (failure) is the crux of the
+    data-integrity fix: collapsing failures into b'' silently drops bars.
+    """
+    sep = raw.find(b"\r\n\r\n")
+    if sep == -1:
+        return None  # truncated/no complete header → retryable
+    header = raw[:sep].decode("utf-8", errors="replace")
+    status_line = header.splitlines()[0] if header else ""
+    parts = status_line.split()
+    code = parts[1] if len(parts) >= 2 and parts[1].isdigit() else ""
+    if code == "200":
+        return raw[sep + 4:]
+    if code == "404":
+        return b""
+    return None  # 429 / 5xx / unparseable → retryable
+
+
 def _fetch_bi5(instrument: str, year: int, month_0based: int, day: int, hour: int,
-               timeout: float = 30.0) -> bytes:
+               timeout: float = 30.0) -> bytes | None:
     """Fetch a single bi5 tick file from Dukascopy.
 
-    Returns the raw (LZMA-compressed) body bytes.  Returns b'' if the file
-    does not exist (204/404 responses or empty body — normal for weekend hours).
+    Returns the raw (LZMA-compressed) body bytes on success.  Returns b'' for a
+    genuinely-empty hour (HTTP 200 with empty body — a closed weekend hour — or
+    HTTP 404 — a non-existent/pre-listing hour); the caller treats b'' as a valid
+    empty bar and does NOT retry.  Returns None on a RETRYABLE failure (socket
+    timeout, OS/connection error, truncated response, or any non-200/404 status
+    such as a 429 rate-limit or 5xx); the caller retries on None.  Distinguishing
+    these is critical: collapsing failures into b'' silently drops bars and, over
+    a full window, can cache an entire empty year as if it were genuine.
 
     Args:
         instrument: Dukascopy instrument code e.g. 'EURUSD'.
@@ -116,31 +148,23 @@ def _fetch_bi5(instrument: str, year: int, month_0based: int, day: int, hour: in
                     break
                 chunks.append(chunk)
     except socket.timeout:
-        logger.warning(f"Timeout fetching {path}")
-        return b""
+        logger.warning(f"Timeout fetching {path} — retryable")
+        return None
     except OSError as e:
-        logger.warning(f"Socket error fetching {path}: {e}")
-        return b""
+        logger.warning(f"Socket error fetching {path}: {e} — retryable")
+        return None
 
-    raw = b"".join(chunks)
-    sep = raw.find(b"\r\n\r\n")
-    if sep == -1:
-        return b""
-    header = raw[:sep].decode("utf-8", errors="replace")
-    body = raw[sep + 4:]
-
-    status_line = header.splitlines()[0] if header else ""
-    if "200" not in status_line:
-        logger.debug(f"Non-200 response for {path}: {status_line!r}")
-        return b""
-    return body
+    result = _classify_http_response(b"".join(chunks))
+    if result is None:
+        logger.warning(f"Retryable response for {path} (truncated or non-200/404)")
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Tick parsing and OHLCV resampling
 # ---------------------------------------------------------------------------
 
-def _decode_bi5(body: bytes, bar_start_utc: datetime, instrument: str) -> pd.DataFrame:
+def _decode_bi5(body: bytes | None, bar_start_utc: datetime, instrument: str) -> pd.DataFrame:
     """Decompress and parse a bi5 body into a tick DataFrame.
 
     Returns a DataFrame with columns [timestamp_utc, mid, ask_vol] where

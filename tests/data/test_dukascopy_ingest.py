@@ -27,11 +27,55 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from ingest_dukascopy_1h import (
     JPY_PAIRS,
+    _classify_http_response,
     _decode_bi5,
     _resample_ticks_to_1h,
     spot_check_weekend_gap,
     validate_1h_schema,
 )
+
+
+# ---------------------------------------------------------------------------
+# Tests: _classify_http_response — the fetch failure/empty contract.
+#
+# Regression guard for the data-integrity bug where network failures (timeout,
+# OSError, 429 rate-limit, 5xx, truncated reads) were swallowed as b'' and
+# treated as legitimate empty hours, silently dropping bars and — over a full
+# year window — caching an entire empty year as if it were genuine. The
+# contract: 200 → body, 404 → b'' (genuine-missing, no retry), everything
+# else → None (retryable).
+# ---------------------------------------------------------------------------
+
+class TestClassifyHttpResponse:
+    def test_200_with_body_returns_body(self):
+        raw = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"
+        assert _classify_http_response(raw) == b"hello"
+
+    def test_200_empty_body_is_genuine_empty(self):
+        # A closed weekend hour: HTTP 200, zero-length body. Genuine empty, no retry.
+        raw = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+        assert _classify_http_response(raw) == b""
+
+    def test_404_is_genuine_missing_not_retry(self):
+        raw = b"HTTP/1.1 404 Not Found\r\n\r\n"
+        assert _classify_http_response(raw) == b""
+
+    def test_429_rate_limit_is_retryable(self):
+        # The correlated-gap killer under concurrent pulls — MUST be None, not b''.
+        raw = b"HTTP/1.1 429 Too Many Requests\r\n\r\n"
+        assert _classify_http_response(raw) is None
+
+    def test_503_server_error_is_retryable(self):
+        raw = b"HTTP/1.1 503 Service Unavailable\r\n\r\n"
+        assert _classify_http_response(raw) is None
+
+    def test_truncated_no_header_terminator_is_retryable(self):
+        raw = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"  # no blank line → cut off
+        assert _classify_http_response(raw) is None
+
+    def test_unparseable_status_is_retryable(self):
+        raw = b"garbage-not-http\r\n\r\nbody"
+        assert _classify_http_response(raw) is None
 
 
 # ---------------------------------------------------------------------------

@@ -1,924 +1,784 @@
 role: cto
 artifact_type: architecture-review
-decision: route-to-ceo  # CEO-gated vendor/datastore decision — CTO scopes and red-teams; CEO approves onboarding
-timestamp: "2026-06-07"
+decision: route-to-ceo
+timestamp: '2026-06-07'
 subtask_ref: data-capability-redteam
-subtask_id: "data-capability-2026-06-07:phase1:task1.0"
-rubric_applied: review-plan  # SKILL.md applied: architecture-review mode, high-risk (new data tier, multi-source selection)
-forbidden_interim_flag: true  # CEO-gated — DO NOT onboard any vendor until CEO approves
+subtask_id: data-capability-2026-06-07:phase1:task1.0
+rubric_applied: review-plan
+forbidden_interim_flag: true
 no_capital_instruction: true
 web_research_conducted: true
 websearch_used: true
 webfetch_used: true
-
-# ============================================================
-# REQUIREMENT
-# ============================================================
-
 requirement:
-  target_frequency: "1h and/or 15m OHLCV bars for all 12 pairs"
-  pairs: [AUDJPY, AUDUSD, CADJPY, EURGBP, EURJPY, EURUSD, GBPJPY, GBPUSD, NZDJPY, NZDUSD, USDCAD, USDJPY]
-  current_state: >
-    Daily bars for all 12 pairs (~2010-01 to 2026-04).
-    4h bars for only 3 pairs (EURUSD, GBPUSD, USDJPY).
-    Zero volume data (FX has no central exchange volume — see note).
-    Confirmable-strategy validation requires ~3-5 years OOS at daily frequency.
-  why: >
-    Adding 1h bars multiplies available bars ~24x vs daily; 15m adds ~96x.
-    This brings per-strategy validation timelines under ~2 years for
-    sufficiently frequent signals, breaking the current confirmability wall.
-  volume_note: >
-    Real FX spot has NO central exchange volume. Any "volume" column from a
-    broker or data vendor is that venue's tick-count or notional traded —
-    a proxy, not exchange volume. This is true across ALL sources evaluated.
-    Flag this honestly in any intraday strategy that incorporates volume.
+  target_frequency: 1h and/or 15m OHLCV bars for all 12 pairs
+  pairs:
+  - AUDJPY
+  - AUDUSD
+  - CADJPY
+  - EURGBP
+  - EURJPY
+  - EURUSD
+  - GBPJPY
+  - GBPUSD
+  - NZDJPY
+  - NZDUSD
+  - USDCAD
+  - USDJPY
+  current_state: 'Daily bars for all 12 pairs (~2010-01 to 2026-04). 4h bars for only 3 pairs (EURUSD, GBPUSD, USDJPY). Zero
+    volume data (FX has no central exchange volume — see note). Confirmable-strategy validation requires ~3-5 years OOS at
+    daily frequency.
 
-  honest_caveat_intraday_is_new_design_space: >
-    CRITICAL — READ BEFORE ANY INTRADAY WORK BEGINS.
+    '
+  why: 'Adding 1h bars multiplies available bars ~24x vs daily; 15m adds ~96x. This brings per-strategy validation timelines
+    under ~2 years for sufficiently frequent signals, breaking the current confirmability wall.
 
-    Acquiring intraday data does NOT validate the firm's existing daily-bar
-    hypotheses. An intraday signal is a DIFFERENT strategy with its own
-    per-event Sharpe, its own design phase, its own NHT pre-registration,
-    and its own OOS test. This acquisition unlocks a NEW design space that
-    must be generated and screened from scratch, starting at QRB-0.
+    '
+  volume_note: 'Real FX spot has NO central exchange volume. Any "volume" column from a broker or data vendor is that venue''s
+    tick-count or notional traded — a proxy, not exchange volume. This is true across ALL sources evaluated. Flag this honestly
+    in any intraday strategy that incorporates volume.
 
-    It does not compress the validation timeline for daily strategies.
-    It does not constitute confirmation of any current hypothesis.
-    The QRB-6 CB-calendar event study is a daily-bar strategy. Intraday
-    data acquisition is orthogonal to it — a parallel research track, not
-    a shortcut through the current pipeline.
+    '
+  honest_caveat_intraday_is_new_design_space: 'CRITICAL — READ BEFORE ANY INTRADAY WORK BEGINS.
 
-    Any internal communication, plan, or strategy doc that implies otherwise
-    must be corrected before work proceeds.
+    Acquiring intraday data does NOT validate the firm''s existing daily-bar hypotheses. An intraday signal is a DIFFERENT
+    strategy with its own per-event Sharpe, its own design phase, its own NHT pre-registration, and its own OOS test. This
+    acquisition unlocks a NEW design space that must be generated and screened from scratch, starting at QRB-0.
 
-# ============================================================
-# SOURCE OPTIONS  (web-verified; hedges noted inline)
-# ============================================================
+    It does not compress the validation timeline for daily strategies. It does not constitute confirmation of any current
+    hypothesis. The QRB-6 CB-calendar event study is a daily-bar strategy. Intraday data acquisition is orthogonal to it —
+    a parallel research track, not a shortcut through the current pipeline.
 
+    Any internal communication, plan, or strategy doc that implies otherwise must be corrected before work proceeds.
+
+    '
 source_options:
+- name: Dukascopy Bank — Historical Data Export (free)
+  tier: free
+  pairs_covered:
+    verdict: LIKELY FULL 12 — verified partial, hedged on crosses
+    evidence: 'Dukascopy documentation states 1600+ instruments including all major forex pairs (EURUSD, GBPUSD, USDJPY, USDCHF,
+      AUDUSD, USDCAD, NZDUSD) plus crosses and minors. The dukascopy-node tool confirms "Forex major currencies" category.
+      Majors (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD) are confirmed; JPY crosses (AUDJPY, CADJPY, GBPJPY, EURJPY, NZDJPY)
+      and EURGBP/NZDUSD likely included but not individually verified per pair via web fetch (Dukascopy tool requires browser
+      interaction to enumerate pair-level dates). Hedge: verify CADJPY, NZDJPY by programmatically querying the download endpoint
+      before relying on them.
 
-  # ----------------------------------------------------------
-  - name: "Dukascopy Bank — Historical Data Export (free)"
-    tier: free
-    pairs_covered:
-      verdict: "LIKELY FULL 12 — verified partial, hedged on crosses"
-      evidence: >
-        Dukascopy documentation states 1600+ instruments including all major
-        forex pairs (EURUSD, GBPUSD, USDJPY, USDCHF, AUDUSD, USDCAD, NZDUSD)
-        plus crosses and minors. The dukascopy-node tool confirms "Forex major
-        currencies" category. Majors (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD)
-        are confirmed; JPY crosses (AUDJPY, CADJPY, GBPJPY, EURJPY, NZDJPY)
-        and EURGBP/NZDUSD likely included but not individually verified per
-        pair via web fetch (Dukascopy tool requires browser interaction to
-        enumerate pair-level dates). Hedge: verify CADJPY, NZDJPY by
-        programmatically querying the download endpoint before relying on them.
-      verified_via:
-        - "https://www.dukascopy.com/swiss/english/marketwatch/historical/"
-        - "https://www.dukascopy-node.app/"
-        - "https://github.com/Leo4815162342/dukascopy-node"
+      '
+    verified_via:
+    - https://www.dukascopy.com/swiss/english/marketwatch/historical/
+    - https://www.dukascopy-node.app/
+    - https://github.com/Leo4815162342/dukascopy-node
+  frequencies_available:
+  - tick
+  - 1m
+  - 1h
+  - daily
+  - monthly
+  frequency_note: 'Tick, 1-minute, hourly, daily, monthly confirmed via dukascopy-node docs. 15m is NOT explicitly listed
+    as a native download frequency — would need to be resampled from 1m ticks or 1m bars. The dukascopy-node CLI supports
+    custom aggregation but this should be verified before relying on it. verified_via: "https://www.dukascopy-node.app/ —
+    ''Tick, minutely, hourly, daily, monthly''"
 
-    frequencies_available: [tick, 1m, 1h, daily, monthly]
-    frequency_note: >
-      Tick, 1-minute, hourly, daily, monthly confirmed via dukascopy-node docs.
-      15m is NOT explicitly listed as a native download frequency — would need
-      to be resampled from 1m ticks or 1m bars. The dukascopy-node CLI
-      supports custom aggregation but this should be verified before relying on it.
-      verified_via: "https://www.dukascopy-node.app/ — 'Tick, minutely, hourly, daily, monthly'"
+    '
+  history_depth:
+    verdict: ~2003-2007 for most pairs; some instruments to 1990
+    evidence: 'dukascopy-node docs: ''Historical data from 1990-2000 to the present day.'' Blue Capital Trading confirms:
+      ''extends to 2003-2007 for most pairs.'' Specific per-pair start dates require querying the API tool directly (Tickstory
+      page returned 403 Forbidden). Assume ~2004 for JPY crosses as a conservative hedge; verify before committing to a required
+      history window.
 
-    history_depth:
-      verdict: "~2003-2007 for most pairs; some instruments to 1990"
-      evidence: >
-        dukascopy-node docs: 'Historical data from 1990-2000 to the present day.'
-        Blue Capital Trading confirms: 'extends to 2003-2007 for most pairs.'
-        Specific per-pair start dates require querying the API tool directly
-        (Tickstory page returned 403 Forbidden). Assume ~2004 for JPY crosses
-        as a conservative hedge; verify before committing to a required history window.
-      verified_via:
-        - "https://www.dukascopy-node.app/"
-        - "https://www.bluecapitaltrading.com/products/free-historical-data/"
+      '
+    verified_via:
+    - https://www.dukascopy-node.app/
+    - https://www.bluecapitaltrading.com/products/free-historical-data/
+  volume_availability: Tick count proxy only — not exchange volume. See requirement.volume_note.
+  cost: Free. No registration required for the HTTP data export endpoint.
+  license: 'Data is described as free for research/download use. No explicit commercial license restriction found in web research.
+    Hedge: the firm should review Dukascopy''s Terms of Service before publishing any strategy that relies on this data, particularly
+    if the firm moves to a regulated structure.
 
-    volume_availability: "Tick count proxy only — not exchange volume. See requirement.volume_note."
-    cost: "Free. No registration required for the HTTP data export endpoint."
-    license: >
-      Data is described as free for research/download use. No explicit
-      commercial license restriction found in web research. Hedge: the
-      firm should review Dukascopy's Terms of Service before publishing
-      any strategy that relies on this data, particularly if the firm
-      moves to a regulated structure.
-    ingest_effort:
-      schema: "CSV: timestamp, open, high, low, close, volume (tick count)"
-      tz: "UTC (verified by dukascopy-node community documentation — but TZ MUST be tested)"
-      effort: >
-        MODERATE. The dukascopy-node CLI can download directly to CSV/JSON.
-        A Python wrapper (duka, or dukascopy-node via subprocess) can automate
-        pair/date-range loops. The firm's existing parquet pipeline
-        (data/processed/{PAIR}_{freq}.parquet) needs a new loader tier for 1h/15m.
-        This is ~200-400 LOC of new ingestion code + provenance metadata +
-        QC tests — comparable scope to the QRB-6 CB-calendar data tier.
-        15m will require resample from 1m: add ~50 LOC.
-      precedent: "QRB-6 CB-calendar tier is the architectural precedent."
+    '
+  ingest_effort:
+    schema: 'CSV: timestamp, open, high, low, close, volume (tick count)'
+    tz: UTC (verified by dukascopy-node community documentation — but TZ MUST be tested)
+    effort: 'MODERATE. The dukascopy-node CLI can download directly to CSV/JSON. A Python wrapper (duka, or dukascopy-node
+      via subprocess) can automate pair/date-range loops. The firm''s existing parquet pipeline (data/processed/{PAIR}_{freq}.parquet)
+      needs a new loader tier for 1h/15m. This is ~200-400 LOC of new ingestion code + provenance metadata + QC tests — comparable
+      scope to the QRB-6 CB-calendar data tier. 15m will require resample from 1m: add ~50 LOC.
 
-    redteam_risks:
-      - risk: "TZ/timestamp correctness — #1 ingest risk"
-        detail: >
-          The QRB-6 confirmatory trial was voided by a timezone bug. Dukascopy
-          timestamps must be verified UTC-correct before any bars are stored.
-          The dukascopy-node tool claims UTC output but this MUST be spot-checked
-          against a known market event (e.g., NFP release time on a Friday bar)
-          before bulk ingest. A wrong tz assumption silently misaligns signals.
-        severity: BLOCKING_GATE
-      - risk: "Cross-pair coverage gaps for obscure JPY crosses"
-        detail: >
-          CADJPY, NZDJPY coverage start dates are unverified. If Dukascopy
-          starts these pairs later than 2010 the firm's daily baseline
-          comparison window is broken. Verify start dates programmatically
-          on Day 1 of any ingest sprint.
-        severity: HIGH
-      - risk: "15m not a native frequency"
-        detail: >
-          No documented 15m bar download. Resampling from 1m adds complexity
-          and an OHLC resampling correctness requirement (open=first, high=max,
-          low=min, close=last, aggregating tick-count volume). The no-lookahead
-          invariant must be re-validated after any resample.
-        severity: MEDIUM
-      - risk: "Broker-venue data, not ECN composite"
-        detail: >
-          Dukascopy data reflects their own platform's bid/ask feed. Spreads
-          and liquidity may differ from live Saxo execution. For backtest
-          cost modeling, the firm should cross-check spreads against Saxo's
-          actual pair spread parameters already in config/default.yaml.
-        severity: LOW
+      '
+    precedent: QRB-6 CB-calendar tier is the architectural precedent.
+  redteam_risks:
+  - risk: 'TZ/timestamp correctness — #1 ingest risk'
+    detail: 'The QRB-6 confirmatory trial was voided by a timezone bug. Dukascopy timestamps must be verified UTC-correct
+      before any bars are stored. The dukascopy-node tool claims UTC output but this MUST be spot-checked against a known
+      market event (e.g., NFP release time on a Friday bar) before bulk ingest. A wrong tz assumption silently misaligns signals.
 
-  # ----------------------------------------------------------
-  - name: "HistData.com — 1-Minute Bar Data (free)"
-    tier: free
-    pairs_covered:
-      verdict: "66 forex pairs — likely covers all 12 target pairs but not individually confirmed"
-      evidence: >
-        HistData.com states 66 forex pairs including major pairs and crosses.
-        The FAQ shows EURUSD and AUDCAD examples; other search results confirm
-        EUR/USD, GBP/USD, USD/JPY, USD/CAD, AUD/USD, EUR/JPY, EUR/GBP are
-        listed. NZDJPY and NZDUSD are the least certain — 'NZD crosses' are
-        implied by 66-pair coverage but not individually named in web results.
-        Hedge: check the download page pair list before relying on NZD pairs.
-      verified_via:
-        - "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
-        - "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
+      '
+    severity: BLOCKING_GATE
+  - risk: Cross-pair coverage gaps for obscure JPY crosses
+    detail: 'CADJPY, NZDJPY coverage start dates are unverified. If Dukascopy starts these pairs later than 2010 the firm''s
+      daily baseline comparison window is broken. Verify start dates programmatically on Day 1 of any ingest sprint.
 
-    frequencies_available: [1m, tick]
-    frequency_note: >
-      M1 (1-minute bar) and Tick data are the native formats. No native 1h or
-      15m — both would require resampling from 1m, same resample note as Dukascopy.
-      verified_via: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
+      '
+    severity: HIGH
+  - risk: 15m not a native frequency
+    detail: 'No documented 15m bar download. Resampling from 1m adds complexity and an OHLC resampling correctness requirement
+      (open=first, high=max, low=min, close=last, aggregating tick-count volume). The no-lookahead invariant must be re-validated
+      after any resample.
 
-    history_depth:
-      verdict: "~2000 for major pairs; examples show data from Feb 2012 in docs"
-      evidence: >
-        HistData.com FAQ examples reference files from 2012 but state data
-        organized by forex-pair/year/month with long history. GitHub mirror
-        (philipperemy/FX-1-Minute-Data) confirms long history for EURUSD
-        and major pairs. Exact per-pair start years not individually confirmed
-        in web fetch — hedge to 2004-2008 for crosses.
-      verified_via: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
+      '
+    severity: MEDIUM
+  - risk: Broker-venue data, not ECN composite
+    detail: 'Dukascopy data reflects their own platform''s bid/ask feed. Spreads and liquidity may differ from live Saxo execution.
+      For backtest cost modeling, the firm should cross-check spreads against Saxo''s actual pair spread parameters already
+      in config/default.yaml.
 
-    volume_availability: >
-      YES — volume column present in all formats (confirmed in FAQ). However
-      this is trade count/tick-count at the HistData venue, not central exchange
-      volume. Same caveat as all FX sources.
-    cost: "Free. ZIP archives downloadable without registration."
-    license: >
-      UNVERIFIED. The FAQ states 'use the data at your own will and risk' with
-      no explicit warranty or certification. No commercial license or research
-      use restriction found in web research, but the Terms of Service page was
-      not fetched. The firm MUST review HistData's ToS before any publication
-      or commercial use. This is a risk gate.
-      verified_via: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
+      '
+    severity: LOW
+- name: HistData.com — 1-Minute Bar Data (free)
+  tier: free
+  pairs_covered:
+    verdict: 66 forex pairs — likely covers all 12 target pairs but not individually confirmed
+    evidence: 'HistData.com states 66 forex pairs including major pairs and crosses. The FAQ shows EURUSD and AUDCAD examples;
+      other search results confirm EUR/USD, GBP/USD, USD/JPY, USD/CAD, AUD/USD, EUR/JPY, EUR/GBP are listed. NZDJPY and NZDUSD
+      are the least certain — ''NZD crosses'' are implied by 66-pair coverage but not individually named in web results. Hedge:
+      check the download page pair list before relying on NZD pairs.
 
-    ingest_effort:
-      schema: >
-        Generic ASCII: DateTime;Open;High;Low;Close;Volume
-        All dates in Eastern Standard Time WITHOUT daylight saving adjustments.
-        THIS IS A CRITICAL TZ HAZARD — see redteam_risks.
-      tz: "EST fixed (no DST) — NOT UTC. REQUIRES conversion."
-      effort: >
-        MODERATE-HIGH. The EST-no-DST timestamp format is a non-standard
-        offset that requires careful conversion: EST = UTC-5 always. No DST
-        adjustment means US summer hours will be UTC-4 in reality but stored
-        as UTC-5 in the file — this creates a systematic 1-hour misalignment
-        during DST months if naively converted. The firm's pipeline uses UTC
-        throughout; a bespoke parser with this edge case handled correctly is
-        mandatory. Budget ~100-200 LOC extra beyond Dukascopy for correct tz handling.
-      precedent: "More effort than Dukascopy due to non-standard tz format."
+      '
+    verified_via:
+    - https://www.histdata.com/f-a-q/data-files-detailed-specification/
+    - https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid
+  frequencies_available:
+  - 1m
+  - tick
+  frequency_note: 'M1 (1-minute bar) and Tick data are the native formats. No native 1h or 15m — both would require resampling
+    from 1m, same resample note as Dukascopy. verified_via: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
 
-    redteam_risks:
-      - risk: "EST-no-DST timestamp — #1 risk, confirmed BLOCKING"
-        detail: >
-          Confirmed by HistData FAQ: 'Eastern Standard Time (EST) time-zone
-          WITHOUT Day Light Savings adjustments.' This means during US DST
-          (March-November), a naive UTC conversion (UTC = EST + 5h) will be
-          wrong by 1 hour. Any FX signal that relies on intraday timing
-          (e.g., London open, NY close, CB announcement) will be silently
-          misaligned for ~8 months of the year. This is a worse tz risk than
-          a simple offset error — it is time-varying and likely to pass
-          unit tests that only check non-DST months.
-          This risk is HIGH SEVERITY and must be a red gate before any
-          intraday strategy uses HistData bars.
-        severity: BLOCKING_GATE
-      - risk: "License ambiguity"
-        detail: >
-          No explicit research-use license grant found. ToS review is required
-          before storing or publishing derived work.
-        severity: MEDIUM
-      - risk: "No native 1h/15m — resample required"
-        detail: >
-          Same resample correctness burden as Dukascopy.
-        severity: MEDIUM
-      - risk: "Single-venue bid/ask midpoint"
-        detail: >
-          Source and venue not disclosed on the public site. Data quality is
-          generally considered good by the community but provenance is less
-          transparent than Dukascopy (which identifies the source as their
-          own bank feed).
-        severity: LOW
+    '
+  history_depth:
+    verdict: ~2000 for major pairs; examples show data from Feb 2012 in docs
+    evidence: 'HistData.com FAQ examples reference files from 2012 but state data organized by forex-pair/year/month with
+      long history. GitHub mirror (philipperemy/FX-1-Minute-Data) confirms long history for EURUSD and major pairs. Exact
+      per-pair start years not individually confirmed in web fetch — hedge to 2004-2008 for crosses.
 
-  # ----------------------------------------------------------
-  - name: "TrueFX — Tick Data (free, registration required)"
-    tier: free
-    pairs_covered:
-      verdict: "16+ major pairs — likely covers most of the 12 but NZD/CAD crosses uncertain"
-      evidence: >
-        TrueFX states '16+ major currency pairs with tick-by-tick market data.'
-        The firm's 12 pairs include some crosses (AUDJPY, CADJPY, GBPJPY,
-        EURJPY, NZDJPY) that may not be in TrueFX's 16-pair list which focuses
-        on majors and common crosses. EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD,
-        NZDUSD, EURGBP, EURJPY likely covered; AUDJPY, CADJPY, GBPJPY, NZDJPY
-        are uncertain. Full pair list requires registering and accessing the
-        download portal.
-      verified_via:
-        - "https://www.truefx.com/"
-        - "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
+      '
+    verified_via: https://www.histdata.com/f-a-q/data-files-detailed-specification/
+  volume_availability: 'YES — volume column present in all formats (confirmed in FAQ). However this is trade count/tick-count
+    at the HistData venue, not central exchange volume. Same caveat as all FX sources.
 
-    frequencies_available: [tick]
-    frequency_note: >
-      Tick-by-tick only with millisecond timestamps. No pre-aggregated bars.
-      1m/1h/15m bars must be built from tick data — higher processing burden
-      but richest raw source for spread analysis.
-      verified_via: "https://www.truefx.com/truefx-historical-downloads/"
+    '
+  cost: Free. ZIP archives downloadable without registration.
+  license: 'UNVERIFIED. The FAQ states ''use the data at your own will and risk'' with no explicit warranty or certification.
+    No commercial license or research use restriction found in web research, but the Terms of Service page was not fetched.
+    The firm MUST review HistData''s ToS before any publication or commercial use. This is a risk gate. verified_via: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
 
-    history_depth:
-      verdict: "Since May 2009"
-      evidence: >
-        Multiple sources confirm data available 'since May 2009.' This covers
-        the firm's current 2010-2026 window with 1 year of additional pre-history.
-        verified_via: "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
+    '
+  ingest_effort:
+    schema: 'Generic ASCII: DateTime;Open;High;Low;Close;Volume All dates in Eastern Standard Time WITHOUT daylight saving
+      adjustments. THIS IS A CRITICAL TZ HAZARD — see redteam_risks.
 
-    volume_availability: >
-      No volume column — tick data contains only timestamp, bid, ask.
-      Tick count per bar can be computed during aggregation as a proxy.
-    cost: "Free. Registration required (free account)."
-    license: >
-      Data described as 'indicative, not executable.' Sourced from Integral OCX
-      (institutional ECN). Explicitly listed as suitable for 'historic back-testing'
-      in TrueFX FAQ. This is the clearest research-use license endorsement of
-      all free sources evaluated.
-      verified_via: "https://www.truefx.com/truefx-market-data-faq/"
+      '
+    tz: EST fixed (no DST) — NOT UTC. REQUIRES conversion.
+    effort: 'MODERATE-HIGH. The EST-no-DST timestamp format is a non-standard offset that requires careful conversion: EST
+      = UTC-5 always. No DST adjustment means US summer hours will be UTC-4 in reality but stored as UTC-5 in the file — this
+      creates a systematic 1-hour misalignment during DST months if naively converted. The firm''s pipeline uses UTC throughout;
+      a bespoke parser with this edge case handled correctly is mandatory. Budget ~100-200 LOC extra beyond Dukascopy for
+      correct tz handling.
 
-    ingest_effort:
-      schema: "CSV: CurrencyPair,Timestamp,Bid,Ask (no header, no OHLC)"
-      tz: "UTC (millisecond timestamps) — community-confirmed, must be spot-checked"
-      effort: >
-        HIGH. Tick data requires aggregation to OHLC bars before the firm's
-        pipeline can consume it. A correct tick-to-bar aggregator must handle:
-        bid/ask → midpoint or bid-only selection, OHLC bar construction,
-        timestamp binning at bar boundaries (no lookahead in aggregation),
-        and gap handling for weekends/holidays. This is the largest ingest
-        effort of the free options — likely 400-600 LOC including tests.
-        Upside: tick data can produce any bar frequency, and spread data is
-        available for cost-model calibration.
-      precedent: "No direct precedent in firm's codebase — new aggregation tier required."
+      '
+    precedent: More effort than Dukascopy due to non-standard tz format.
+  redteam_risks:
+  - risk: 'EST-no-DST timestamp — #1 risk, confirmed BLOCKING'
+    detail: 'Confirmed by HistData FAQ: ''Eastern Standard Time (EST) time-zone WITHOUT Day Light Savings adjustments.'' This
+      means during US DST (March-November), a naive UTC conversion (UTC = EST + 5h) will be wrong by 1 hour. Any FX signal
+      that relies on intraday timing (e.g., London open, NY close, CB announcement) will be silently misaligned for ~8 months
+      of the year. This is a worse tz risk than a simple offset error — it is time-varying and likely to pass unit tests that
+      only check non-DST months. This risk is HIGH SEVERITY and must be a red gate before any intraday strategy uses HistData
+      bars.
 
-    redteam_risks:
-      - risk: "Pair coverage gap for JPY crosses"
-        detail: >
-          TrueFX focuses on 16 'major' pairs. CADJPY, NZDJPY, AUDJPY,
-          GBPJPY may not be included. If even 2-3 of the 12 target pairs
-          are missing, TrueFX cannot be the sole source — it would need
-          to be combined with Dukascopy.
-        severity: HIGH
-      - risk: "Registration required — account dependency"
-        detail: >
-          Download access requires a TrueFX account. If TrueFX changes its
-          free tier policy or the service is discontinued, historical data
-          access is cut off with no automated fallback.
-        severity: MEDIUM
-      - risk: "Tick aggregation complexity — correctness risk"
-        detail: >
-          Building OHLC bars from ticks introduces multiple correctness hazards:
-          bar boundary alignment (which tick goes in which bar), bid/ask choice
-          (use mid, bid, or ask for OHLC?), volume proxy definition. Each choice
-          must be documented as a strategy design decision, not an implementation
-          default. Any inconsistency between backtest and forward period will
-          invalidate OOS comparisons.
-        severity: MEDIUM
-      - risk: "History starts 2009 — short for pre-2009 analysis"
-        detail: >
-          If a strategy requires pre-2009 data (e.g., GFC period), TrueFX is
-          insufficient. Dukascopy reaches 2003-2007 and is the better choice
-          for longer history windows.
-        severity: LOW
+      '
+    severity: BLOCKING_GATE
+  - risk: License ambiguity
+    detail: 'No explicit research-use license grant found. ToS review is required before storing or publishing derived work.
 
-  # ----------------------------------------------------------
-  - name: "Saxo Bank OpenAPI — Chart Data (first-party, firm account)"
-    tier: first-party-free
-    pairs_covered:
-      verdict: "All 12 pairs — confirmed for FX instruments via firm's existing Saxo account"
-      evidence: >
-        Saxo OpenAPI documentation confirms FX spot (FxSpot asset type) is
-        supported. The firm has an active Saxo Bank account, giving authenticated
-        access to the chart endpoint. All 12 pairs are standard FX pairs that
-        Saxo trades; access is confirmed by first-party account status.
-        UIC codes for each pair would be needed — obtainable via the instrument
-        reference endpoint.
-      verified_via:
-        - "https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices"
-        - "https://www.developer.saxo/openapi/learn/chart"
+      '
+    severity: MEDIUM
+  - risk: No native 1h/15m — resample required
+    detail: 'Same resample correctness burden as Dukascopy.
 
-    frequencies_available: ["1m through 1M (all standard intervals verified: 1m, 5m, 15m, 30m, 1h, 4h, daily, weekly, monthly)"]
-    frequency_note: >
-      Saxo docs confirm 'chart samples for a set number of horizons from
-      1 minute to 1 month.' 15m and 1h explicitly supported (tutorial confirms
-      1m, and the developer docs reference multiple horizons). All target
-      frequencies (1h, 15m) are available.
-      verified_via: "https://www.developer.saxo/openapi/learn/chart"
+      '
+    severity: MEDIUM
+  - risk: Single-venue bid/ask midpoint
+    detail: 'Source and venue not disclosed on the public site. Data quality is generally considered good by the community
+      but provenance is less transparent than Dukascopy (which identifies the source as their own bank feed).
 
-    history_depth:
-      verdict: "Some FX data back to 2002; depth not uniformly guaranteed"
-      evidence: >
-        Saxo developer docs explicitly state 'some Forex data dating back as
-        long as 2002.' This implies depth varies by pair — it is NOT a guarantee
-        that all 12 pairs have 2002-depth. Assume EURUSD/GBPUSD/USDJPY reach
-        2002-2005; crosses may be shorter. Must be verified per pair via API query.
-      verified_via: "https://www.developer.saxo/openapi/learn/chart"
+      '
+    severity: LOW
+- name: TrueFX — Tick Data (free, registration required)
+  tier: free
+  pairs_covered:
+    verdict: 16+ major pairs — likely covers most of the 12 but NZD/CAD crosses uncertain
+    evidence: 'TrueFX states ''16+ major currency pairs with tick-by-tick market data.'' The firm''s 12 pairs include some
+      crosses (AUDJPY, CADJPY, GBPJPY, EURJPY, NZDJPY) that may not be in TrueFX''s 16-pair list which focuses on majors and
+      common crosses. EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, NZDUSD, EURGBP, EURJPY likely covered; AUDJPY, CADJPY, GBPJPY,
+      NZDJPY are uncertain. Full pair list requires registering and accessing the download portal.
 
-    critical_constraint:
-      max_count_per_request: 1200
-      evidence: >
-        Search result confirms: 'The /chart/v1/charts/ endpoint is limited to
-        1200 datapoints per request (if available).'
-      bulk_backfill_feasibility: >
-        FEASIBLE but requires pagination. At 1h frequency for 15+ years:
-        ~15yr × 252 trading days × ~17h FX active hours = ~64,260 hourly bars
-        → ~54 paginated requests per pair. At 15m: ~216 requests per pair.
-        For 12 pairs: ~648 (1h) to ~2,592 (15m) API requests total.
-        At reasonable rate limits this is a few hours of sequential polling.
-        The 24h token expiry (verified: Saxo tokens are 24h TTL) means
-        bulk backfill must complete within one token lifecycle OR implement
-        token refresh — this is the primary operational friction.
-      verified_via:
-        - "https://www.developer.saxo/openapi/referencedocs/chart/v3/charts/get__chart (search result)"
-        - "memory: Saxo OAuth tokens are 24h TTL — confirmed in firm memory"
+      '
+    verified_via:
+    - https://www.truefx.com/
+    - https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid
+  frequencies_available:
+  - tick
+  frequency_note: 'Tick-by-tick only with millisecond timestamps. No pre-aggregated bars. 1m/1h/15m bars must be built from
+    tick data — higher processing burden but richest raw source for spread analysis. verified_via: "https://www.truefx.com/truefx-historical-downloads/"
 
-    volume_availability: "Bid and Ask OHLC are both provided. No exchange volume — tick count proxy only."
-    cost: "No additional cost — firm has existing Saxo Bank account. API access included."
-    license: >
-      First-party data from the firm's own broker account. Suitable for
-      internal backtest and research use. NOT suitable for redistribution.
-      This is the cleanest license posture for proprietary strategy development.
-    ingest_effort:
-      schema: "OHLC + bid/ask variants, UTC timestamps (Saxo uses UTC)"
-      tz: "UTC — lower tz risk than HistData (no DST conversion needed)"
-      effort: >
-        MODERATE. Requires: OAuth token management (24h refresh), UIC lookup
-        per pair, paginated request loop, OHLC extraction from JSON response,
-        write to parquet. ~300-500 LOC. The existing Saxo API infrastructure
-        (references/saxo-bank-api-research.md) is a head start.
-        Key friction: token management for a multi-hour bulk pull.
-      precedent: "Saxo API is already known to the firm (account + research notes exist)."
+    '
+  history_depth:
+    verdict: Since May 2009
+    evidence: 'Multiple sources confirm data available ''since May 2009.'' This covers the firm''s current 2010-2026 window
+      with 1 year of additional pre-history. verified_via: "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
 
-    redteam_risks:
-      - risk: "24h token expiry creates bulk-backfill operational hazard"
-        detail: >
-          A bulk historical pull for all 12 pairs × 15+ years at 15m resolution
-          may take multiple hours. If the token expires mid-pull, the job fails
-          and must be restarted. The fix is a token-refresh loop (Saxo supports
-          refresh tokens) but this adds implementation complexity. This is
-          LOW SEVERITY if refresh tokens are implemented, HIGH SEVERITY if
-          they are not.
-          verified_via: "firm memory: 'Saxo tokens are 24h TTL'"
-        severity: MEDIUM (addressable)
-      - risk: "History depth varies by pair — not a uniform guarantee"
-        detail: >
-          'Some FX data back to 2002' does not mean all 12 pairs. JPY crosses
-          added to Saxo's platform later may have shorter history. Verify per
-          pair before planning a backtest window.
-        severity: MEDIUM
-      - risk: "Saxo's feed = Saxo execution data — good for strategy validation, not universal"
-        detail: >
-          Saxo bars reflect Saxo's own liquidity pool. For strategies the firm
-          plans to run on Saxo (the likely execution venue), this is a FEATURE
-          not a bug — backtest data matches live execution venue. If the firm
-          ever moves to another broker, data provenance would need to be revisited.
-        severity: LOW (actually a feature for this firm)
-      - risk: "API terms of service for derived backtest outputs"
-        detail: >
-          Using Saxo API data to generate internal backtest results for a
-          trading strategy is standard account use. However if outputs are
-          published externally, check Saxo's API ToS for data redistribution
-          clauses.
-        severity: LOW
+      '
+  volume_availability: 'No volume column — tick data contains only timestamp, bid, ask. Tick count per bar can be computed
+    during aggregation as a proxy.
 
-  # ----------------------------------------------------------
-  - name: "Polygon.io — FX (paid)"
-    tier: paid
-    pairs_covered:
-      verdict: "1000+ currency pairs — all 12 confirmed by major-pair coverage"
-      evidence: >
-        Polygon.io states '1,000+ currency pairs with tick-level data, aggregated bars.'
-        All 12 target pairs are standard forex pairs well within major coverage.
-        verified_via: "https://stratbase.ai/en/tools/polygon-io"
+    '
+  cost: Free. Registration required (free account).
+  license: 'Data described as ''indicative, not executable.'' Sourced from Integral OCX (institutional ECN). Explicitly listed
+    as suitable for ''historic back-testing'' in TrueFX FAQ. This is the clearest research-use license endorsement of all
+    free sources evaluated. verified_via: "https://www.truefx.com/truefx-market-data-faq/"
 
-    frequencies_available: [tick, 1m, 5m, 15m, 1h, daily]
-    frequency_note: >
-      REST API supports aggregated bars at custom time windows over date ranges.
-      Tick-level data available at paid tiers. All target frequencies confirmed.
-      verified_via: "https://polygon.io/docs/rest/forex/aggregates/previous-day-bar"
+    '
+  ingest_effort:
+    schema: 'CSV: CurrencyPair,Timestamp,Bid,Ask (no header, no OHLC)'
+    tz: UTC (millisecond timestamps) — community-confirmed, must be spot-checked
+    effort: 'HIGH. Tick data requires aggregation to OHLC bars before the firm''s pipeline can consume it. A correct tick-to-bar
+      aggregator must handle: bid/ask → midpoint or bid-only selection, OHLC bar construction, timestamp binning at bar boundaries
+      (no lookahead in aggregation), and gap handling for weekends/holidays. This is the largest ingest effort of the free
+      options — likely 400-600 LOC including tests. Upside: tick data can produce any bar frequency, and spread data is available
+      for cost-model calibration.
 
-    history_depth:
-      verdict: "Multi-year — exact depth unverified; assumed similar to other providers"
-      evidence: >
-        Polygon's forex aggregate endpoint supports 'custom date ranges.'
-        Exact history start year for FX spot was not returned in web fetches
-        (pricing page redirected to massive.com which returned no content).
-        Hedge: assume adequate history for liquid pairs (EURUSD to ~2010+);
-        verify before purchase.
-      verified_via: "https://polygon.io/docs/rest/forex/aggregates/previous-day-bar (partial)"
+      '
+    precedent: No direct precedent in firm's codebase — new aggregation tier required.
+  redteam_risks:
+  - risk: Pair coverage gap for JPY crosses
+    detail: 'TrueFX focuses on 16 ''major'' pairs. CADJPY, NZDJPY, AUDJPY, GBPJPY may not be included. If even 2-3 of the
+      12 target pairs are missing, TrueFX cannot be the sole source — it would need to be combined with Dukascopy.
 
-    volume_availability: "Tick count proxy — same FX caveat as all sources."
-    cost:
-      estimate: "Paid tiers; free tier is end-of-day only for FX"
-      detail: >
-        Polygon pricing page redirected to massive.com and returned no content.
-        Search results indicate intraday FX requires a paid tier (free/basic tier
-        gives reference data and EOD OHLCV only). Specific monthly cost not
-        verified — estimate $29-$199/month based on comparable providers.
-        Hedge: check massive.com/pricing directly before budgeting.
-      verified_via: "newyorkcityservers.com comparison article (indirect)"
+      '
+    severity: HIGH
+  - risk: Registration required — account dependency
+    detail: 'Download access requires a TrueFX account. If TrueFX changes its free tier policy or the service is discontinued,
+      historical data access is cut off with no automated fallback.
 
-    license: "Commercial API — licensed for backtest and strategy development per standard API ToS."
-    ingest_effort:
-      schema: "OHLCV JSON via REST API; standard format compatible with firm's pipeline"
-      tz: "Eastern Time per docs — requires UTC conversion (same DST caveat as HistData but simpler to handle)"
-      effort: "LOW-MODERATE. Well-documented API, pandas/polars-friendly output. ~200-300 LOC."
+      '
+    severity: MEDIUM
+  - risk: Tick aggregation complexity — correctness risk
+    detail: 'Building OHLC bars from ticks introduces multiple correctness hazards: bar boundary alignment (which tick goes
+      in which bar), bid/ask choice (use mid, bid, or ask for OHLC?), volume proxy definition. Each choice must be documented
+      as a strategy design decision, not an implementation default. Any inconsistency between backtest and forward period
+      will invalidate OOS comparisons.
 
-    redteam_risks:
-      - risk: "Cost vs. free alternatives — hard to justify"
-        detail: >
-          Dukascopy and Saxo first-party data are free and cover the same
-          frequencies. Polygon adds cost without a clear quality advantage for
-          FX spot backtest use. Primary advantage over free alternatives is
-          clean API, stable SLA, and official support — worth considering only
-          if free sources prove unreliable after initial quality checks.
-        severity: LOW (cost risk)
-      - risk: "ET timezone, not UTC"
-        detail: >
-          Polygon FX aggregates are in Eastern Time per documentation. DST
-          conversion required — same class of risk as HistData but the DST
-          handling IS standard (ET = UTC-5 winter / UTC-4 summer), not the
-          exotic EST-fixed-no-DST variant. Lower severity.
-        severity: LOW (well-understood, standard conversion)
-      - risk: "FX aggregates are from quotes not trades"
-        detail: >
-          Polygon docs note: 'Unlike stocks or options, these aggregates are
-          generated from quoted bid/ask prices rather than executed trades.'
-          This is accurate for spot FX — no central exchange. Makes the data
-          suitable for backtest but volume column is a quote-derived proxy.
-        severity: INFO (expected for FX)
+      '
+    severity: MEDIUM
+  - risk: History starts 2009 — short for pre-2009 analysis
+    detail: 'If a strategy requires pre-2009 data (e.g., GFC period), TrueFX is insufficient. Dukascopy reaches 2003-2007
+      and is the better choice for longer history windows.
 
-  # ----------------------------------------------------------
-  - name: "Databento (paid)"
-    tier: paid
-    pairs_covered:
-      verdict: "FX FUTURES confirmed; spot FX coverage uncertain"
-      evidence: >
-        Databento search results show coverage of 'futures on FX' and '40+ venues'
-        including CME. CME FX futures (6A=AUDUSD, 6B=GBPUSD, 6J=JPYUSD, etc.) are
-        available. Spot FX data was NOT confirmed — Databento's primary strength is
-        exchange-traded instruments. For this firm's 12 FX spot pairs, Databento
-        may not be the right fit unless the firm is willing to proxy spot with
-        futures (different instruments, different microstructure).
-      verified_via:
-        - "https://databento.com/futures"
-        - "https://databento.com/historical"
+      '
+    severity: LOW
+- name: Saxo Bank OpenAPI — Chart Data (first-party, firm account)
+  tier: first-party-free
+  pairs_covered:
+    verdict: All 12 pairs — confirmed for FX instruments via firm's existing Saxo account
+    evidence: 'Saxo OpenAPI documentation confirms FX spot (FxSpot asset type) is supported. The firm has an active Saxo Bank
+      account, giving authenticated access to the chart endpoint. All 12 pairs are standard FX pairs that Saxo trades; access
+      is confirmed by first-party account status. UIC codes for each pair would be needed — obtainable via the instrument
+      reference endpoint.
 
-    frequencies_available: [tick, 1m, "intraday aggregations"]
-    history_depth:
-      verdict: "Deep tick history for exchange venues — 16 petabytes of intraday data"
-      evidence: "databento.com website verified: '16 petabytes of intraday tick history'"
-      verified_via: "https://databento.com/tick-data"
+      '
+    verified_via:
+    - https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices
+    - https://www.developer.saxo/openapi/learn/chart
+  frequencies_available:
+  - '1m through 1M (all standard intervals verified: 1m, 5m, 15m, 30m, 1h, 4h, daily, weekly, monthly)'
+  frequency_note: 'Saxo docs confirm ''chart samples for a set number of horizons from 1 minute to 1 month.'' 15m and 1h explicitly
+    supported (tutorial confirms 1m, and the developer docs reference multiple horizons). All target frequencies (1h, 15m)
+    are available. verified_via: "https://www.developer.saxo/openapi/learn/chart"
 
-    volume_availability: "Yes — exchange-traded FX futures have real exchange volume (not a proxy)."
-    cost:
-      estimate: "Starting at ~$199/month; $125 free credits for new users"
-      verified_via: "https://www.quantvps.com/blog/databento-review"
-    license: "Commercial — standard research and strategy development permitted."
-    ingest_effort: "MODERATE-HIGH — custom schema, DBN format, Python client available."
+    '
+  history_depth:
+    verdict: Some FX data back to 2002; depth not uniformly guaranteed
+    evidence: 'Saxo developer docs explicitly state ''some Forex data dating back as long as 2002.'' This implies depth varies
+      by pair — it is NOT a guarantee that all 12 pairs have 2002-depth. Assume EURUSD/GBPUSD/USDJPY reach 2002-2005; crosses
+      may be shorter. Must be verified per pair via API query.
 
-    redteam_risks:
-      - risk: "Spot vs futures instrument mismatch"
-        detail: >
-          This firm trades FX spot (confirmed: Saxo account, current backtest
-          is spot OHLCV). Databento's strength is exchange-traded FX futures.
-          Proxying spot strategies with futures data introduces basis risk,
-          roll risk, and contract-expiry gaps that are not present in spot.
-          This is a fundamental mismatch unless the firm explicitly decides
-          to research futures strategies — a separate strategy design decision.
-        severity: HIGH (instrument mismatch for current firm mandate)
-      - risk: "Cost premium without spot data advantage"
-        detail: >
-          At $199/month for FX futures data, Databento is the most expensive
-          option and does NOT cover the spot FX pairs the firm currently uses.
-          Not recommended for current pipeline.
-        severity: HIGH
+      '
+    verified_via: https://www.developer.saxo/openapi/learn/chart
+  critical_constraint:
+    max_count_per_request: 1200
+    evidence: 'Search result confirms: ''The /chart/v1/charts/ endpoint is limited to 1200 datapoints per request (if available).''
 
-# ============================================================
-# ARCHITECTURAL ASSESSMENT
-# ============================================================
+      '
+    bulk_backfill_feasibility: 'FEASIBLE but requires pagination. At 1h frequency for 15+ years: ~15yr × 252 trading days
+      × ~17h FX active hours = ~64,260 hourly bars → ~54 paginated requests per pair. At 15m: ~216 requests per pair. For
+      12 pairs: ~648 (1h) to ~2,592 (15m) API requests total. At reasonable rate limits this is a few hours of sequential
+      polling. The 24h token expiry (verified: Saxo tokens are 24h TTL) means bulk backfill must complete within one token
+      lifecycle OR implement token refresh — this is the primary operational friction.
 
+      '
+    verified_via:
+    - https://www.developer.saxo/openapi/referencedocs/chart/v3/charts/get__chart (search result)
+    - 'memory: Saxo OAuth tokens are 24h TTL — confirmed in firm memory'
+  volume_availability: Bid and Ask OHLC are both provided. No exchange volume — tick count proxy only.
+  cost: No additional cost — firm has existing Saxo Bank account. API access included.
+  license: 'First-party data from the firm''s own broker account. Suitable for internal backtest and research use. NOT suitable
+    for redistribution. This is the cleanest license posture for proprietary strategy development.
+
+    '
+  ingest_effort:
+    schema: OHLC + bid/ask variants, UTC timestamps (Saxo uses UTC)
+    tz: UTC — lower tz risk than HistData (no DST conversion needed)
+    effort: 'MODERATE. Requires: OAuth token management (24h refresh), UIC lookup per pair, paginated request loop, OHLC extraction
+      from JSON response, write to parquet. ~300-500 LOC. The existing Saxo API infrastructure (references/saxo-bank-api-research.md)
+      is a head start. Key friction: token management for a multi-hour bulk pull.
+
+      '
+    precedent: Saxo API is already known to the firm (account + research notes exist).
+  redteam_risks:
+  - risk: 24h token expiry creates bulk-backfill operational hazard
+    detail: 'A bulk historical pull for all 12 pairs × 15+ years at 15m resolution may take multiple hours. If the token expires
+      mid-pull, the job fails and must be restarted. The fix is a token-refresh loop (Saxo supports refresh tokens) but this
+      adds implementation complexity. This is LOW SEVERITY if refresh tokens are implemented, HIGH SEVERITY if they are not.
+      verified_via: "firm memory: ''Saxo tokens are 24h TTL''"
+
+      '
+    severity: MEDIUM (addressable)
+  - risk: History depth varies by pair — not a uniform guarantee
+    detail: '''Some FX data back to 2002'' does not mean all 12 pairs. JPY crosses added to Saxo''s platform later may have
+      shorter history. Verify per pair before planning a backtest window.
+
+      '
+    severity: MEDIUM
+  - risk: Saxo's feed = Saxo execution data — good for strategy validation, not universal
+    detail: 'Saxo bars reflect Saxo''s own liquidity pool. For strategies the firm plans to run on Saxo (the likely execution
+      venue), this is a FEATURE not a bug — backtest data matches live execution venue. If the firm ever moves to another
+      broker, data provenance would need to be revisited.
+
+      '
+    severity: LOW (actually a feature for this firm)
+  - risk: API terms of service for derived backtest outputs
+    detail: 'Using Saxo API data to generate internal backtest results for a trading strategy is standard account use. However
+      if outputs are published externally, check Saxo''s API ToS for data redistribution clauses.
+
+      '
+    severity: LOW
+- name: Polygon.io — FX (paid)
+  tier: paid
+  pairs_covered:
+    verdict: 1000+ currency pairs — all 12 confirmed by major-pair coverage
+    evidence: 'Polygon.io states ''1,000+ currency pairs with tick-level data, aggregated bars.'' All 12 target pairs are
+      standard forex pairs well within major coverage. verified_via: "https://stratbase.ai/en/tools/polygon-io"
+
+      '
+  frequencies_available:
+  - tick
+  - 1m
+  - 5m
+  - 15m
+  - 1h
+  - daily
+  frequency_note: 'REST API supports aggregated bars at custom time windows over date ranges. Tick-level data available at
+    paid tiers. All target frequencies confirmed. verified_via: "https://polygon.io/docs/rest/forex/aggregates/previous-day-bar"
+
+    '
+  history_depth:
+    verdict: Multi-year — exact depth unverified; assumed similar to other providers
+    evidence: 'Polygon''s forex aggregate endpoint supports ''custom date ranges.'' Exact history start year for FX spot was
+      not returned in web fetches (pricing page redirected to massive.com which returned no content). Hedge: assume adequate
+      history for liquid pairs (EURUSD to ~2010+); verify before purchase.
+
+      '
+    verified_via: https://polygon.io/docs/rest/forex/aggregates/previous-day-bar (partial)
+  volume_availability: Tick count proxy — same FX caveat as all sources.
+  cost:
+    estimate: Paid tiers; free tier is end-of-day only for FX
+    detail: 'Polygon pricing page redirected to massive.com and returned no content. Search results indicate intraday FX requires
+      a paid tier (free/basic tier gives reference data and EOD OHLCV only). Specific monthly cost not verified — estimate
+      $29-$199/month based on comparable providers. Hedge: check massive.com/pricing directly before budgeting.
+
+      '
+    verified_via: newyorkcityservers.com comparison article (indirect)
+  license: Commercial API — licensed for backtest and strategy development per standard API ToS.
+  ingest_effort:
+    schema: OHLCV JSON via REST API; standard format compatible with firm's pipeline
+    tz: Eastern Time per docs — requires UTC conversion (same DST caveat as HistData but simpler to handle)
+    effort: LOW-MODERATE. Well-documented API, pandas/polars-friendly output. ~200-300 LOC.
+  redteam_risks:
+  - risk: Cost vs. free alternatives — hard to justify
+    detail: 'Dukascopy and Saxo first-party data are free and cover the same frequencies. Polygon adds cost without a clear
+      quality advantage for FX spot backtest use. Primary advantage over free alternatives is clean API, stable SLA, and official
+      support — worth considering only if free sources prove unreliable after initial quality checks.
+
+      '
+    severity: LOW (cost risk)
+  - risk: ET timezone, not UTC
+    detail: 'Polygon FX aggregates are in Eastern Time per documentation. DST conversion required — same class of risk as
+      HistData but the DST handling IS standard (ET = UTC-5 winter / UTC-4 summer), not the exotic EST-fixed-no-DST variant.
+      Lower severity.
+
+      '
+    severity: LOW (well-understood, standard conversion)
+  - risk: FX aggregates are from quotes not trades
+    detail: 'Polygon docs note: ''Unlike stocks or options, these aggregates are generated from quoted bid/ask prices rather
+      than executed trades.'' This is accurate for spot FX — no central exchange. Makes the data suitable for backtest but
+      volume column is a quote-derived proxy.
+
+      '
+    severity: INFO (expected for FX)
+- name: Databento (paid)
+  tier: paid
+  pairs_covered:
+    verdict: FX FUTURES confirmed; spot FX coverage uncertain
+    evidence: 'Databento search results show coverage of ''futures on FX'' and ''40+ venues'' including CME. CME FX futures
+      (6A=AUDUSD, 6B=GBPUSD, 6J=JPYUSD, etc.) are available. Spot FX data was NOT confirmed — Databento''s primary strength
+      is exchange-traded instruments. For this firm''s 12 FX spot pairs, Databento may not be the right fit unless the firm
+      is willing to proxy spot with futures (different instruments, different microstructure).
+
+      '
+    verified_via:
+    - https://databento.com/futures
+    - https://databento.com/historical
+  frequencies_available:
+  - tick
+  - 1m
+  - intraday aggregations
+  history_depth:
+    verdict: Deep tick history for exchange venues — 16 petabytes of intraday data
+    evidence: 'databento.com website verified: ''16 petabytes of intraday tick history'''
+    verified_via: https://databento.com/tick-data
+  volume_availability: Yes — exchange-traded FX futures have real exchange volume (not a proxy).
+  cost:
+    estimate: Starting at ~$199/month; $125 free credits for new users
+    verified_via: https://www.quantvps.com/blog/databento-review
+  license: Commercial — standard research and strategy development permitted.
+  ingest_effort: MODERATE-HIGH — custom schema, DBN format, Python client available.
+  redteam_risks:
+  - risk: Spot vs futures instrument mismatch
+    detail: 'This firm trades FX spot (confirmed: Saxo account, current backtest is spot OHLCV). Databento''s strength is
+      exchange-traded FX futures. Proxying spot strategies with futures data introduces basis risk, roll risk, and contract-expiry
+      gaps that are not present in spot. This is a fundamental mismatch unless the firm explicitly decides to research futures
+      strategies — a separate strategy design decision.
+
+      '
+    severity: HIGH (instrument mismatch for current firm mandate)
+  - risk: Cost premium without spot data advantage
+    detail: 'At $199/month for FX futures data, Databento is the most expensive option and does NOT cover the spot FX pairs
+      the firm currently uses. Not recommended for current pipeline.
+
+      '
+    severity: HIGH
 architectural_assessment:
+  current_pipeline_state: 'data/processed/{PAIR}_{daily,4h}.parquet — daily for all 12 pairs, 4h for EURUSD/GBPUSD/USDJPY
+    only. Validated by 6 OHLCV quality checks in data/ module. The no-lookahead guarantee (entry_delay_bars=1) is validated
+    by a sacred test in tests/backtest/test_engine.py.
 
-  current_pipeline_state: >
-    data/processed/{PAIR}_{daily,4h}.parquet — daily for all 12 pairs,
-    4h for EURUSD/GBPUSD/USDJPY only. Validated by 6 OHLCV quality checks
-    in data/ module. The no-lookahead guarantee (entry_delay_bars=1) is
-    validated by a sacred test in tests/backtest/test_engine.py.
-
+    '
   ingest_lift_to_add_1h_15m_tier:
-    estimate: "MODERATE — 2-4 week engineering sprint for a single source"
+    estimate: MODERATE — 2-4 week engineering sprint for a single source
     steps:
-      1: >
-        New data loader: src/forex_system/data/loaders/dukascopy.py (or saxo.py)
-        — fetches, validates schema, writes to data/raw/{PAIR}/{PAIR}_{1h,15m}.csv
-      2: >
-        New parquet writer tier: data/processed/{PAIR}_1h.parquet and
-        data/processed/{PAIR}_15m.parquet — following existing Parquet I/O patterns
-        in data/ module
-      3: >
-        OHLCV validation extension: existing 6 quality checks must run on
-        intraday bars; bar-boundary alignment check is a NEW check required
-        (intraday bars can have gaps at weekends/sessions that are normal,
-        unlike daily which has clean calendar gaps)
-      4: >
-        TZ correctness test: a hard-coded spot-check test that asserts a known
-        market event (e.g., 2020-03-05 NFP release at 13:30 UTC) appears in
-        the correct bar. THIS IS THE #1 INGEST GATE — the QRB-6 tz void
-        makes this non-negotiable.
-      5: >
-        15m resample (if source is 1m): add resample.py utility with
-        verified OHLC aggregation logic — open=first, high=max, low=min,
-        close=last, volume=sum
-      6: >
-        features/registry.py: no changes needed — indicator naming {type}_{params}
-        is frequency-agnostic. Strategy classes receive the bar DataFrame;
-        intraday bars are a config-level parameter selection.
-      7: >
-        New tests: test_intraday_no_lookahead (equivalent of sacred test at 1h/15m),
-        test_tz_correct (spot-check), test_15m_resample_ohlc_correctness,
+      1: 'New data loader: src/forex_system/data/loaders/dukascopy.py (or saxo.py) — fetches, validates schema, writes to
+        data/raw/{PAIR}/{PAIR}_{1h,15m}.csv
+
+        '
+      2: 'New parquet writer tier: data/processed/{PAIR}_1h.parquet and data/processed/{PAIR}_15m.parquet — following existing
+        Parquet I/O patterns in data/ module
+
+        '
+      3: 'OHLCV validation extension: existing 6 quality checks must run on intraday bars; bar-boundary alignment check is
+        a NEW check required (intraday bars can have gaps at weekends/sessions that are normal, unlike daily which has clean
+        calendar gaps)
+
+        '
+      4: 'TZ correctness test: a hard-coded spot-check test that asserts a known market event (e.g., 2020-03-05 NFP release
+        at 13:30 UTC) appears in the correct bar. THIS IS THE #1 INGEST GATE — the QRB-6 tz void makes this non-negotiable.
+
+        '
+      5: '15m resample (if source is 1m): add resample.py utility with verified OHLC aggregation logic — open=first, high=max,
+        low=min, close=last, volume=sum
+
+        '
+      6: 'features/registry.py: no changes needed — indicator naming {type}_{params} is frequency-agnostic. Strategy classes
+        receive the bar DataFrame; intraday bars are a config-level parameter selection.
+
+        '
+      7: 'New tests: test_intraday_no_lookahead (equivalent of sacred test at 1h/15m), test_tz_correct (spot-check), test_15m_resample_ohlc_correctness,
         test_pair_coverage_completeness (all 12 pairs present for full date range)
 
-  precedent_for_new_data_tier: >
-    QRB-6 CB-calendar tier (842 dates, per-date verification grades,
-    anti-fabrication hold) is the firm's reference for adding a new data
-    source with full provenance and quality gates. The intraday tier should
-    follow the same pattern: provenance metadata file per source,
-    verification grade per pair, anti-fabrication spot-check before any
-    strategy uses the data.
+        '
+  precedent_for_new_data_tier: 'QRB-6 CB-calendar tier (842 dates, per-date verification grades, anti-fabrication hold) is
+    the firm''s reference for adding a new data source with full provenance and quality gates. The intraday tier should follow
+    the same pattern: provenance metadata file per source, verification grade per pair, anti-fabrication spot-check before
+    any strategy uses the data.
 
-  no_lookahead_preservation: >
-    The no-lookahead guarantee (test_no_lookahead) operates at the strategy
-    signal layer — signals at bar N execute at bar N+1 via entry_delay_bars.
-    This guarantee is frequency-agnostic if the bar DataFrame index is
-    correct. However: at 1h/15m resolution, 'bar N' is an intraday bar.
-    The firm must explicitly document that entry_delay_bars=1 means
-    'next bar' — i.e., a 1h signal fires at the OPEN of the next 1h bar,
-    not the next calendar day. This semantic must be tested explicitly.
+    '
+  no_lookahead_preservation: 'The no-lookahead guarantee (test_no_lookahead) operates at the strategy signal layer — signals
+    at bar N execute at bar N+1 via entry_delay_bars. This guarantee is frequency-agnostic if the bar DataFrame index is correct.
+    However: at 1h/15m resolution, ''bar N'' is an intraday bar. The firm must explicitly document that entry_delay_bars=1
+    means ''next bar'' — i.e., a 1h signal fires at the OPEN of the next 1h bar, not the next calendar day. This semantic
+    must be tested explicitly.
 
-  top_1_ingest_risk: >
-    TIMEZONE CORRECTNESS. The QRB-6 confirmatory trial was voided due to
-    a timezone alignment bug. For intraday data, tz errors that are 1 hour
-    off silently misalign signals at every session boundary. The HistData
-    EST-no-DST format is the worst case (time-varying offset); Dukascopy
-    and Saxo are UTC-native (better). Regardless of source, the tz
-    spot-check test (Step 4 above) is a HARD GATE before any strategy
-    uses intraday bars. This is not optional.
+    '
+  top_1_ingest_risk: 'TIMEZONE CORRECTNESS. The QRB-6 confirmatory trial was voided due to a timezone alignment bug. For intraday
+    data, tz errors that are 1 hour off silently misalign signals at every session boundary. The HistData EST-no-DST format
+    is the worst case (time-varying offset); Dukascopy and Saxo are UTC-native (better). Regardless of source, the tz spot-check
+    test (Step 4 above) is a HARD GATE before any strategy uses intraday bars. This is not optional.
 
-# ============================================================
-# RECOMMENDATION
-# ============================================================
-
+    '
 recommendation:
-
   ranked:
     1:
-      source: "Dukascopy (free, open HTTP endpoint)"
-      basis: >
-        Deepest free history (~2003-2007), all target frequencies including 1h
-        as a native download (no resample needed for 1h strategies), 1600+
-        instruments making all 12 pairs likely covered, UTC timestamps (lower
-        tz risk than HistData), well-supported by multiple open-source Python
-        tools (dukascopy-node, duka). The firm gets ~20 years of 1h bars for
-        confirmed pairs — far more than needed for the 2yr-to-validate target.
-        Best combination of depth, coverage, and ingest effort for backtest.
-      caveat: "Verify CADJPY, NZDJPY pair availability and start dates on Day 1. TZ spot-check mandatory."
+      source: Dukascopy (free, open HTTP endpoint)
+      basis: 'Deepest free history (~2003-2007), all target frequencies including 1h as a native download (no resample needed
+        for 1h strategies), 1600+ instruments making all 12 pairs likely covered, UTC timestamps (lower tz risk than HistData),
+        well-supported by multiple open-source Python tools (dukascopy-node, duka). The firm gets ~20 years of 1h bars for
+        confirmed pairs — far more than needed for the 2yr-to-validate target. Best combination of depth, coverage, and ingest
+        effort for backtest.
 
+        '
+      caveat: Verify CADJPY, NZDJPY pair availability and start dates on Day 1. TZ spot-check mandatory.
     2:
-      source: "Saxo Bank OpenAPI (first-party, firm account)"
-      basis: >
-        First-party data from the firm's own execution venue — the gold standard
-        for strategy validation because backtest data matches live execution.
-        15m and 1h both natively available. Authenticated access already
-        established. Best choice for FORWARD DATA / paper trading canary
-        (real-time bars) and for cross-validation of Dukascopy backtest results
-        on the overlapping period. Limited to 1200 bars/request requiring
-        pagination but feasible (~648-2592 requests for full 12-pair backfill).
-        24h token TTL is the only friction — addressable with refresh token logic.
-      caveat: >
-        Secondary to Dukascopy for historical depth due to 1200-bar pagination
-        overhead and token management. PRIMARY recommendation for forward/live
-        data and cross-validation. Do NOT use as sole backtest source until
-        per-pair history depth is verified (some pairs may not reach 2010).
+      source: Saxo Bank OpenAPI (first-party, firm account)
+      basis: 'First-party data from the firm''s own execution venue — the gold standard for strategy validation because backtest
+        data matches live execution. 15m and 1h both natively available. Authenticated access already established. Best choice
+        for FORWARD DATA / paper trading canary (real-time bars) and for cross-validation of Dukascopy backtest results on
+        the overlapping period. Limited to 1200 bars/request requiring pagination but feasible (~648-2592 requests for full
+        12-pair backfill). 24h token TTL is the only friction — addressable with refresh token logic.
 
+        '
+      caveat: 'Secondary to Dukascopy for historical depth due to 1200-bar pagination overhead and token management. PRIMARY
+        recommendation for forward/live data and cross-validation. Do NOT use as sole backtest source until per-pair history
+        depth is verified (some pairs may not reach 2010).
+
+        '
     3:
-      source: "TrueFX (free, tick data, registration required)"
-      basis: >
-        Clearest research-use license endorsement of the free sources.
-        Institutional ECN source (Integral OCX). Millisecond tick timestamps
-        allow custom bar construction at any frequency. History since 2009.
-        Best source for spread-modeling calibration (bid/ask ticks).
-        Recommend as a SUPPLEMENTARY source for spread data and for
-        verifying Dukascopy OHLC quality against an independent tick source.
-      caveat: >
-        JPY cross coverage uncertain — verify before relying on it for
-        AUDJPY/CADJPY/GBPJPY/NZDJPY. Do not use as primary source unless
-        Dukascopy fails pair-coverage verification.
+      source: TrueFX (free, tick data, registration required)
+      basis: 'Clearest research-use license endorsement of the free sources. Institutional ECN source (Integral OCX). Millisecond
+        tick timestamps allow custom bar construction at any frequency. History since 2009. Best source for spread-modeling
+        calibration (bid/ask ticks). Recommend as a SUPPLEMENTARY source for spread data and for verifying Dukascopy OHLC
+        quality against an independent tick source.
 
+        '
+      caveat: 'JPY cross coverage uncertain — verify before relying on it for AUDJPY/CADJPY/GBPJPY/NZDJPY. Do not use as primary
+        source unless Dukascopy fails pair-coverage verification.
+
+        '
     4:
-      source: "HistData.com (free, 1m bars)"
-      basis: >
-        Widely used, 66 pairs, long history. However, the EST-no-DST timestamp
-        format is a CONFIRMED BLOCKING risk that adds ingest complexity and
-        the highest tz error probability of all evaluated sources.
-        Recommend only as a FALLBACK if Dukascopy has pair-coverage gaps.
-        The tz parser must be independently tested before any bar is stored.
-      caveat: "EST-no-DST is a blocking ingest risk. ToS verification also pending."
+      source: HistData.com (free, 1m bars)
+      basis: 'Widely used, 66 pairs, long history. However, the EST-no-DST timestamp format is a CONFIRMED BLOCKING risk that
+        adds ingest complexity and the highest tz error probability of all evaluated sources. Recommend only as a FALLBACK
+        if Dukascopy has pair-coverage gaps. The tz parser must be independently tested before any bar is stored.
 
+        '
+      caveat: EST-no-DST is a blocking ingest risk. ToS verification also pending.
     5:
-      source: "Polygon.io (paid)"
-      basis: >
-        Clean API, good SLA, all 12 pairs confirmed. But cost is unjustified
-        when Dukascopy and Saxo cover the same use case for free. Consider
-        only if free sources prove unreliable after quality checks, or if
-        the firm needs guaranteed SLA for production data feeds.
-      caveat: "Pricing not fully verified — check massive.com/pricing before budgeting."
+      source: Polygon.io (paid)
+      basis: 'Clean API, good SLA, all 12 pairs confirmed. But cost is unjustified when Dukascopy and Saxo cover the same
+        use case for free. Consider only if free sources prove unreliable after quality checks, or if the firm needs guaranteed
+        SLA for production data feeds.
 
+        '
+      caveat: Pricing not fully verified — check massive.com/pricing before budgeting.
     6:
-      source: "Databento (paid)"
-      basis: >
-        DOES NOT RECOMMEND for current use case. Databento's strength is
-        exchange-traded FX futures, not spot FX. This firm currently operates
-        on spot FX (Saxo account, existing backtest). Instrument mismatch
-        makes Databento a poor fit at $199+/month.
-      caveat: "Reconsider only if firm explicitly pivots to FX futures strategy research."
+      source: Databento (paid)
+      basis: 'DOES NOT RECOMMEND for current use case. Databento''s strength is exchange-traded FX futures, not spot FX. This
+        firm currently operates on spot FX (Saxo account, existing backtest). Instrument mismatch makes Databento a poor fit
+        at $199+/month.
 
-  top_pick: "Dukascopy (historical backtest) + Saxo API (forward/cross-validation)"
-  top_pick_basis: >
-    Dukascopy provides the deepest free tick/1m/1h data for backtest.
-    Saxo API provides first-party live data from the firm's own execution
-    venue for forward testing and cross-validation. Together they form a
-    complete data stack: historical confirmation + live canary feed.
-    Both are zero marginal cost given existing firm infrastructure.
+        '
+      caveat: Reconsider only if firm explicitly pivots to FX futures strategy research.
+  top_pick: Dukascopy (historical backtest) + Saxo API (forward/cross-validation)
+  top_pick_basis: 'Dukascopy provides the deepest free tick/1m/1h data for backtest. Saxo API provides first-party live data
+    from the firm''s own execution venue for forward testing and cross-validation. Together they form a complete data stack:
+    historical confirmation + live canary feed. Both are zero marginal cost given existing firm infrastructure.
 
-# ============================================================
-# FAILURE MODES CONSIDERED
-# ============================================================
-
+    '
 failure_modes_considered:
-
   1:
-    scenario: "Timezone misalignment silently corrupts all intraday bars"
+    scenario: Timezone misalignment silently corrupts all intraday bars
     likelihood: HIGH (given QRB-6 void precedent)
-    consequence: >
-      Every intraday strategy backtested on corrupted bars produces false
-      signal alignments. NHT results are invalid. Months of research effort
-      is wasted. This is the exact failure mode that voided the QRB-6
-      confirmatory trial.
-    mitigation: >
-      Hard gate: TZ spot-check test (known market event at known UTC time
-      maps to correct bar) must PASS before any bar is stored in parquet.
-      Recommended event: 2020-01-10 US NFP release at 13:30:00 UTC —
-      should appear in the 13:00-14:00 UTC hourly bar.
-    addressed_in_plan: YES
+    consequence: 'Every intraday strategy backtested on corrupted bars produces false signal alignments. NHT results are invalid.
+      Months of research effort is wasted. This is the exact failure mode that voided the QRB-6 confirmatory trial.
 
+      '
+    mitigation: 'Hard gate: TZ spot-check test (known market event at known UTC time maps to correct bar) must PASS before
+      any bar is stored in parquet. Recommended event: 2020-01-10 US NFP release at 13:30:00 UTC — should appear in the 13:00-14:00
+      UTC hourly bar.
+
+      '
+    addressed_in_plan: true
   2:
-    scenario: "Dukascopy missing 2-3 JPY cross pairs — design assumes full 12-pair coverage"
+    scenario: Dukascopy missing 2-3 JPY cross pairs — design assumes full 12-pair coverage
     likelihood: MEDIUM
-    consequence: >
-      Any intraday strategy designed around all 12 pairs silently trains/tests
-      on an incomplete universe. Portfolio-level metrics are wrong. A strategy
-      that appears diversified is actually concentrated.
-    mitigation: >
-      Day-1 pair enumeration check: programmatically query the Dukascopy
-      download endpoint for all 12 pairs and record earliest available date.
-      If a pair is missing or starts later than 2012, fallback to TrueFX
-      for that pair. Document any pair gaps in provenance metadata.
+    consequence: 'Any intraday strategy designed around all 12 pairs silently trains/tests on an incomplete universe. Portfolio-level
+      metrics are wrong. A strategy that appears diversified is actually concentrated.
+
+      '
+    mitigation: 'Day-1 pair enumeration check: programmatically query the Dukascopy download endpoint for all 12 pairs and
+      record earliest available date. If a pair is missing or starts later than 2012, fallback to TrueFX for that pair. Document
+      any pair gaps in provenance metadata.
+
+      '
     addressed_in_plan: YES (as caveat in recommendation)
-
   3:
-    scenario: "No-lookahead invariant broken for intraday bars due to semantic ambiguity"
+    scenario: No-lookahead invariant broken for intraday bars due to semantic ambiguity
     likelihood: MEDIUM
-    consequence: >
-      Backtest shows spuriously high Sharpe on intraday strategies. OOS test
-      fails to replicate. Sacred test test_no_lookahead passes (it tests daily
-      bars) while intraday lookahead is undetected. The firm pre-registers an
-      NHT trial on a contaminated hypothesis.
-    mitigation: >
-      New test: test_intraday_no_lookahead — same oracle pattern as the
-      sacred test but at 1h and 15m resolution. Explicitly document that
-      entry_delay_bars=1 means 'next BAR (not next day)' in the strategy
-      config for intraday frequencies.
-    addressed_in_plan: YES
+    consequence: 'Backtest shows spuriously high Sharpe on intraday strategies. OOS test fails to replicate. Sacred test test_no_lookahead
+      passes (it tests daily bars) while intraday lookahead is undetected. The firm pre-registers an NHT trial on a contaminated
+      hypothesis.
 
+      '
+    mitigation: 'New test: test_intraday_no_lookahead — same oracle pattern as the sacred test but at 1h and 15m resolution.
+      Explicitly document that entry_delay_bars=1 means ''next BAR (not next day)'' in the strategy config for intraday frequencies.
+
+      '
+    addressed_in_plan: true
   4:
-    scenario: "Saxo token expires mid-bulk-backfill — incomplete parquet files"
+    scenario: Saxo token expires mid-bulk-backfill — incomplete parquet files
     likelihood: LOW-MEDIUM (24h token, multi-hour pull)
-    consequence: >
-      Partial bar history is silently treated as complete. Strategies trained
-      on the incomplete period produce biased results. The missing bars may
-      be exactly the high-volatility or event-rich periods that matter most.
-    mitigation: >
-      Implement idempotent paginated downloader with checkpointing: record
-      last successfully downloaded date per pair per frequency. On restart,
-      resume from checkpoint. Validate parquet completeness (bar count vs
-      expected calendar count) as a post-ingest check.
+    consequence: 'Partial bar history is silently treated as complete. Strategies trained on the incomplete period produce
+      biased results. The missing bars may be exactly the high-volatility or event-rich periods that matter most.
+
+      '
+    mitigation: 'Implement idempotent paginated downloader with checkpointing: record last successfully downloaded date per
+      pair per frequency. On restart, resume from checkpoint. Validate parquet completeness (bar count vs expected calendar
+      count) as a post-ingest check.
+
+      '
     addressed_in_plan: YES (in ingest_effort notes)
-
   5:
-    scenario: "CEO approves intraday acquisition and team pivots to intraday — existing daily pipeline deferred, QRB-6 confirmatory stalls"
+    scenario: CEO approves intraday acquisition and team pivots to intraday — existing daily pipeline deferred, QRB-6 confirmatory
+      stalls
     likelihood: MEDIUM (shiny-object risk)
-    consequence: >
-      The firm's current R5/QRB-6 confirmatory research track (with binding NHT
-      conditions and a pre-registered trial) is deprioritized. Intraday is a NEW
-      design space requiring QRB-0 restart. Six months later the firm has no
-      confirmed alpha and the QRB-6 window has passed.
-    mitigation: >
-      The honest caveat in requirement.honest_caveat_intraday_is_new_design_space
-      is the primary defense. CEO should treat intraday data acquisition as a
-      parallel track with its own resource allocation — not a replacement for
-      the current pipeline. CTO recommends no more than 20% capacity on
-      intraday data infrastructure while QRB-6 confirmatory is active.
+    consequence: 'The firm''s current R5/QRB-6 confirmatory research track (with binding NHT conditions and a pre-registered
+      trial) is deprioritized. Intraday is a NEW design space requiring QRB-0 restart. Six months later the firm has no confirmed
+      alpha and the QRB-6 window has passed.
+
+      '
+    mitigation: 'The honest caveat in requirement.honest_caveat_intraday_is_new_design_space is the primary defense. CEO should
+      treat intraday data acquisition as a parallel track with its own resource allocation — not a replacement for the current
+      pipeline. CTO recommends no more than 20% capacity on intraday data infrastructure while QRB-6 confirmatory is active.
+
+      '
     addressed_in_plan: YES (prominent honest caveat)
-
-# ============================================================
-# CONDITIONS (red-team gates before any chosen source is used)
-# ============================================================
-
 conditions:
-  - condition: "TZ correctness gate MUST pass"
-    detail: >
-      Before any intraday bar is written to parquet, a spot-check test must
-      confirm a known market event (e.g., 2020-01-10 NFP at 13:30 UTC) maps
-      to the correct bar. This is a HARD BLOCK — no strategy work begins
-      until this test is green.
-  - condition: "12-pair coverage completeness verified"
-    detail: >
-      All 12 target pairs must be enumerated from the chosen source with their
-      actual start dates recorded in provenance metadata. Any gap must be
-      documented and a fallback source identified before strategy design begins.
-  - condition: "License review complete"
-    detail: >
-      For HistData: ToS must be reviewed. For Dukascopy: Terms confirm research
-      use. For Saxo: internal use confirmed by account ToS. No strategy results
-      derived from unclear-license data are published or shared externally.
-  - condition: "No-lookahead test extended to intraday resolution"
-    detail: >
-      test_intraday_no_lookahead at 1h and 15m must be written and passing
-      before any intraday strategy enters NHT pre-registration.
-  - condition: "QRB-6 confirmatory is not deprioritized"
-    detail: >
-      Intraday data acquisition is a parallel track. The CRO/CTO must confirm
-      that QRB-6 confirmatory NHT conditions remain binding and on schedule
-      before any intraday sprint begins. Resource allocation must be explicit.
+- condition: TZ correctness gate MUST pass
+  detail: 'Before any intraday bar is written to parquet, a spot-check test must confirm a known market event (e.g., 2020-01-10
+    NFP at 13:30 UTC) maps to the correct bar. This is a HARD BLOCK — no strategy work begins until this test is green.
 
-# ============================================================
-# WHAT THE CTO REFUSED TO DO
-# ============================================================
+    '
+- condition: 12-pair coverage completeness verified
+  detail: 'All 12 target pairs must be enumerated from the chosen source with their actual start dates recorded in provenance
+    metadata. Any gap must be documented and a fallback source identified before strategy design begins.
 
+    '
+- condition: License review complete
+  detail: 'For HistData: ToS must be reviewed. For Dukascopy: Terms confirm research use. For Saxo: internal use confirmed
+    by account ToS. No strategy results derived from unclear-license data are published or shared externally.
+
+    '
+- condition: No-lookahead test extended to intraday resolution
+  detail: 'test_intraday_no_lookahead at 1h and 15m must be written and passing before any intraday strategy enters NHT pre-registration.
+
+    '
+- condition: QRB-6 confirmatory is not deprioritized
+  detail: 'Intraday data acquisition is a parallel track. The CRO/CTO must confirm that QRB-6 confirmatory NHT conditions
+    remain binding and on schedule before any intraday sprint begins. Resource allocation must be explicit.
+
+    '
 what_you_refused_to_do:
-  - "Did NOT onboard any vendor or data source — forbidden interim, CEO-gated"
-  - "Did NOT write any downloader, ingestion code, or pipeline changes"
-  - "Did NOT pre-register any intraday strategy hypothesis"
-  - "Did NOT assert that acquiring intraday data validates existing daily hypotheses"
-  - "Did NOT select a vendor without explicit CEO approval"
-  - "Did NOT sign up for any paid service or free registration on behalf of the firm"
-  - "Did NOT fetch data from Saxo API using the firm's live token"
-
-# ============================================================
-# EVIDENCE (URLs verified via web tools)
-# ============================================================
-
+- Did NOT onboard any vendor or data source — forbidden interim, CEO-gated
+- Did NOT write any downloader, ingestion code, or pipeline changes
+- Did NOT pre-register any intraday strategy hypothesis
+- Did NOT assert that acquiring intraday data validates existing daily hypotheses
+- Did NOT select a vendor without explicit CEO approval
+- Did NOT sign up for any paid service or free registration on behalf of the firm
+- Did NOT fetch data from Saxo API using the firm's live token
 evidence:
-  saxo_historical_prices: "https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices"
-  saxo_chart_learn: "https://www.developer.saxo/openapi/learn/chart"
-  saxo_chart_v3_ref: "https://developer.saxobank.com/openapi/referencedocs/chart/v3/charts"
-  saxo_1200_limit_source: "Search result confirming 1200 datapoints/request limit"
-  dukascopy_historical: "https://www.dukascopy.com/swiss/english/marketwatch/historical/"
-  dukascopy_node: "https://www.dukascopy-node.app/"
-  dukascopy_github: "https://github.com/Leo4815162342/dukascopy-node"
-  dukascopy_blue_capital: "https://www.bluecapitaltrading.com/products/free-historical-data/"
-  histdata_faq: "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
-  histdata_main: "http://www.histdata.com/"
-  truefx_main: "https://www.truefx.com/"
-  truefx_faq: "https://www.truefx.com/truefx-market-data-faq/"
-  truefx_downloads: "https://www.truefx.com/truefx-historical-downloads/"
-  polygon_forex_api: "https://polygon.io/docs/rest/forex/aggregates/previous-day-bar"
-  databento_historical: "https://databento.com/historical"
-  databento_review: "https://www.quantvps.com/blog/databento-review"
-  comparison_article: "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
-
-# ============================================================
-# ASSUMPTIONS
-# ============================================================
-
+- 'saxo_historical_prices: https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices'
+- 'saxo_chart_learn: https://www.developer.saxo/openapi/learn/chart'
+- 'saxo_chart_v3_ref: https://developer.saxobank.com/openapi/referencedocs/chart/v3/charts'
+- 'saxo_1200_limit_source: Search result confirming 1200 datapoints/request limit'
+- 'dukascopy_historical: https://www.dukascopy.com/swiss/english/marketwatch/historical/'
+- 'dukascopy_node: https://www.dukascopy-node.app/'
+- 'dukascopy_github: https://github.com/Leo4815162342/dukascopy-node'
+- 'dukascopy_blue_capital: https://www.bluecapitaltrading.com/products/free-historical-data/'
+- 'histdata_faq: https://www.histdata.com/f-a-q/data-files-detailed-specification/'
+- 'histdata_main: http://www.histdata.com/'
+- 'truefx_main: https://www.truefx.com/'
+- 'truefx_faq: https://www.truefx.com/truefx-market-data-faq/'
+- 'truefx_downloads: https://www.truefx.com/truefx-historical-downloads/'
+- 'polygon_forex_api: https://polygon.io/docs/rest/forex/aggregates/previous-day-bar'
+- 'databento_historical: https://databento.com/historical'
+- 'databento_review: https://www.quantvps.com/blog/databento-review'
+- 'comparison_article: https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid'
 assumptions:
-  - "Dukascopy covers CADJPY, NZDJPY — listed in 1600+ instruments but not individually confirmed via web fetch. Treat as assumed pending Day-1 enumeration check."
-  - "Saxo history back to 2002 for major pairs; JPY crosses may start later — hedge in recommendation."
-  - "TrueFX 16+ pairs likely excludes some JPY crosses — pending registration to confirm."
-  - "HistData.com covers all 12 pairs — 66-pair claim implies coverage but individual pairs not confirmed for NZD crosses."
-  - "Polygon pricing requires a paid tier for intraday FX — pricing page was not fetchable; cost estimate is a hedge."
-  - "Dukascopy timestamps are UTC-native — community documentation confirms this; must be verified by spot-check."
-  - "Firm's entry_delay_bars=1 semantic works correctly for intraday bars if bar index is correct — requires explicit testing."
-
-# ============================================================
-# KNOWLEDGE GAPS
-# ============================================================
-
+- Dukascopy covers CADJPY, NZDJPY — listed in 1600+ instruments but not individually confirmed via web fetch. Treat as assumed
+  pending Day-1 enumeration check.
+- Saxo history back to 2002 for major pairs; JPY crosses may start later — hedge in recommendation.
+- TrueFX 16+ pairs likely excludes some JPY crosses — pending registration to confirm.
+- HistData.com covers all 12 pairs — 66-pair claim implies coverage but individual pairs not confirmed for NZD crosses.
+- Polygon pricing requires a paid tier for intraday FX — pricing page was not fetchable; cost estimate is a hedge.
+- Dukascopy timestamps are UTC-native — community documentation confirms this; must be verified by spot-check.
+- Firm's entry_delay_bars=1 semantic works correctly for intraday bars if bar index is correct — requires explicit testing.
 knowledge_gaps:
-  - "Exact Dukascopy start dates for CADJPY, NZDJPY, AUDJPY — requires API enumeration"
-  - "TrueFX exact pair list — requires free registration to access download portal"
-  - "Polygon.io current pricing for FX intraday — pricing page returned no content"
-  - "Saxo per-pair history depth for JPY crosses — requires API query per UIC"
-  - "HistData.com Terms of Service for research/backtest use — page not fetched"
-  - "Dukascopy rate limits for the HTTP data export endpoint — not documented in web results"
-
-# ============================================================
-# CONFIDENCE AND METADATA
-# ============================================================
-
+- Exact Dukascopy start dates for CADJPY, NZDJPY, AUDJPY — requires API enumeration
+- TrueFX exact pair list — requires free registration to access download portal
+- Polygon.io current pricing for FX intraday — pricing page returned no content
+- Saxo per-pair history depth for JPY crosses — requires API query per UIC
+- HistData.com Terms of Service for research/backtest use — page not fetched
+- Dukascopy rate limits for the HTTP data export endpoint — not documented in web results
 confidence: medium
-confidence_basis: >
-  Core specifications (Saxo 1200-bar limit, Dukascopy free tick/1m/1h history ~2003,
-  HistData EST-no-DST format, TrueFX since 2009, Polygon forex API existence) are
-  web-verified. Pair-level coverage for non-major pairs and exact pricing for paid
-  tiers are hedged. Saxo 1200-datapoint limit is from a search result snippet, not
-  a primary fetched page — medium confidence, verify against the v3 chart endpoint
-  reference before engineering the paginator.
+confidence_basis: 'Core specifications (Saxo 1200-bar limit, Dukascopy free tick/1m/1h history ~2003, HistData EST-no-DST
+  format, TrueFX since 2009, Polygon forex API existence) are web-verified. Pair-level coverage for non-major pairs and exact
+  pricing for paid tiers are hedged. Saxo 1200-datapoint limit is from a search result snippet, not a primary fetched page
+  — medium confidence, verify against the v3 chart endpoint reference before engineering the paginator.
 
+  '
 policy_violations_detected: []
+body: 'This artifact scopes the data-capability acquisition needed to break the firm''s confirmability wall. Six sources were
+  evaluated and red-teamed via live web verification. The top recommendation is Dukascopy (free, deep history, 1h native)
+  for historical backtest combined with Saxo API (first-party, 15m/1h, forward-safe) for cross-validation and forward data.
+  HistData is a viable fallback but its EST-no-DST timestamp format is a confirmed BLOCKING risk requiring dedicated parser
+  work. TrueFX is the best supplementary source for spread data and license clarity. Polygon and Databento are not cost-justified
+  for this firm''s current spot-FX mandate.
 
-body: >
-  This artifact scopes the data-capability acquisition needed to break the firm's
-  confirmability wall. Six sources were evaluated and red-teamed via live web
-  verification. The top recommendation is Dukascopy (free, deep history, 1h native)
-  for historical backtest combined with Saxo API (first-party, 15m/1h, forward-safe)
-  for cross-validation and forward data. HistData is a viable fallback but its
-  EST-no-DST timestamp format is a confirmed BLOCKING risk requiring dedicated
-  parser work. TrueFX is the best supplementary source for spread data and license
-  clarity. Polygon and Databento are not cost-justified for this firm's current
-  spot-FX mandate.
+  The #1 ingest risk across all sources is timezone correctness. A hard gate (TZ spot-check test) must pass before any intraday
+  bar enters the parquet pipeline. This is non-negotiable given the QRB-6 tz-void precedent.
 
-  The #1 ingest risk across all sources is timezone correctness. A hard gate
-  (TZ spot-check test) must pass before any intraday bar enters the parquet
-  pipeline. This is non-negotiable given the QRB-6 tz-void precedent.
+  The honest caveat is repeated here: intraday data acquisition does NOT validate any existing daily strategy. It opens a
+  new design space requiring full QRB-0 restart. CEO must explicitly authorize the intraday track as parallel to — not replacing
+  — the current QRB-6 confirmatory pipeline.
 
-  The honest caveat is repeated here: intraday data acquisition does NOT validate
-  any existing daily strategy. It opens a new design space requiring full QRB-0
-  restart. CEO must explicitly authorize the intraday track as parallel to —
-  not replacing — the current QRB-6 confirmatory pipeline.
-
+  '
 sources:
-  - "https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices"
-  - "https://www.developer.saxo/openapi/learn/chart"
-  - "https://developer.saxobank.com/openapi/referencedocs/chart/v3/charts"
-  - "https://www.dukascopy.com/swiss/english/marketwatch/historical/"
-  - "https://www.dukascopy-node.app/"
-  - "https://github.com/Leo4815162342/dukascopy-node"
-  - "https://www.bluecapitaltrading.com/products/free-historical-data/"
-  - "https://www.histdata.com/f-a-q/data-files-detailed-specification/"
-  - "http://www.histdata.com/"
-  - "https://www.truefx.com/"
-  - "https://www.truefx.com/truefx-market-data-faq/"
-  - "https://www.truefx.com/truefx-historical-downloads/"
-  - "https://polygon.io/docs/rest/forex/aggregates/previous-day-bar"
-  - "https://databento.com/historical"
-  - "https://www.quantvps.com/blog/databento-review"
-  - "https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid"
-  - "https://stratbase.ai/en/tools/polygon-io"
+- https://openapi.help.saxo/hc/en-us/articles/4405260778653-How-can-I-get-historical-prices
+- https://www.developer.saxo/openapi/learn/chart
+- https://developer.saxobank.com/openapi/referencedocs/chart/v3/charts
+- https://www.dukascopy.com/swiss/english/marketwatch/historical/
+- https://www.dukascopy-node.app/
+- https://github.com/Leo4815162342/dukascopy-node
+- https://www.bluecapitaltrading.com/products/free-historical-data/
+- https://www.histdata.com/f-a-q/data-files-detailed-specification/
+- http://www.histdata.com/
+- https://www.truefx.com/
+- https://www.truefx.com/truefx-market-data-faq/
+- https://www.truefx.com/truefx-historical-downloads/
+- https://polygon.io/docs/rest/forex/aggregates/previous-day-bar
+- https://databento.com/historical
+- https://www.quantvps.com/blog/databento-review
+- https://newyorkcityservers.com/blog/top-12-sources-to-download-forex-historical-data-free-paid
+- https://stratbase.ai/en/tools/polygon-io
+no-capital-instruction: true

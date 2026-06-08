@@ -235,6 +235,8 @@ def fetch_1h_bars(
     end: datetime,
     retry_attempts: int = 3,
     retry_delay: float = 1.0,
+    timeout: float = 30.0,
+    request_delay: float = 0.0,
 ) -> pd.DataFrame:
     """Fetch all 1h bars for an instrument over [start, end).
 
@@ -244,6 +246,10 @@ def fetch_1h_bars(
         end: End datetime (UTC, exclusive).
         retry_attempts: Number of retry attempts per hour on network error.
         retry_delay: Seconds to wait between retries.
+        timeout: Per-request socket timeout (s). Lower → fail fast under a
+            throttling/tarpit server instead of blocking the full default.
+        request_delay: Seconds to sleep after each hourly request. A small
+            value paces the fetch under a rate-limiting source.
 
     Returns:
         DataFrame with tz-aware UTC DatetimeIndex and OHLCV columns.
@@ -268,11 +274,12 @@ def fetch_1h_bars(
 
         body = b""
         for attempt in range(retry_attempts):
-            body = _fetch_bi5(instrument, current.year, month_0, current.day, current.hour)
+            body = _fetch_bi5(instrument, current.year, month_0, current.day,
+                              current.hour, timeout=timeout)
             if body is not None:  # b'' is valid (empty hour), only None means "retry"
                 break
             if attempt < retry_attempts - 1:
-                time.sleep(retry_delay)
+                time.sleep(retry_delay * (2 ** attempt))  # exponential backoff
 
         ticks_df = _decode_bi5(body, current, instrument)
         bar = _resample_ticks_to_1h(ticks_df, current)
@@ -284,6 +291,8 @@ def fetch_1h_bars(
         else:
             empty += 1
 
+        if request_delay:
+            time.sleep(request_delay)
         current += timedelta(hours=1)
 
     logger.info(f"Done: {fetched} bars fetched, {empty} empty hours (weekends/closed)")

@@ -46,10 +46,13 @@ PAIRS = [
 ]
 COLS = ["open", "high", "low", "close", "volume"]
 
-# A FULL (non-partial) calendar year of FX 1h bars is ~5,000-8,700. A non-partial
-# year with 0 < bars < this floor is almost certainly a partial pull (a transient
-# failure mid-year), not real data — flag it for review rather than trust it.
-SUSPECT_FLOOR = 1000
+# A FULL (non-partial) calendar month of active FX 1h bars is ~300-500. A
+# non-partial month with 0 < bars < this floor is almost certainly a partial
+# pull (interrupted/throttled mid-month), not real data — flag for review.
+# Checkpointing is MONTHLY (not yearly) so a stall loses ≤1 month of work, not
+# a whole year — learned the hard way: an 8h run with year-checkpoints stalled
+# on source throttling and saved nothing because no full year completed.
+SUSPECT_FLOOR = 100
 
 
 def _empty_1h_frame() -> pd.DataFrame:
@@ -58,9 +61,17 @@ def _empty_1h_frame() -> pd.DataFrame:
     return df
 
 
-def _is_partial_year(year: int, end_dt: datetime) -> bool:
-    """True if the window ends before this year is fully covered (the last year)."""
-    return datetime(year + 1, 1, 1, tzinfo=timezone.utc) > end_dt
+def _month_start(year: int, month: int) -> datetime:
+    """First instant of (year, month) in UTC; month is 1-based, rolls over Dec→Jan."""
+    if month == 12:
+        return datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    return datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+
+def _is_partial_month(year: int, month: int, end_dt: datetime) -> bool:
+    """True if the window ends before this month is fully covered."""
+    return _month_start(year, month) > end_dt
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,14 +81,17 @@ logging.basicConfig(
 log = logging.getLogger("backfill")
 
 
-def year_windows(start_year: int, end_dt: datetime):
-    """Yield (year, window_start, window_end) tuples, last window capped at end_dt."""
-    y = start_year
-    while datetime(y, 1, 1, tzinfo=timezone.utc) < end_dt:
-        ws = datetime(y, 1, 1, tzinfo=timezone.utc)
-        we = min(datetime(y + 1, 1, 1, tzinfo=timezone.utc), end_dt)
-        yield y, ws, we
-        y += 1
+def month_windows(start_year: int, end_dt: datetime):
+    """Yield (year, month, window_start, window_end), last window capped at end_dt."""
+    y, m = start_year, 1
+    while datetime(y, m, 1, tzinfo=timezone.utc) < end_dt:
+        ws = datetime(y, m, 1, tzinfo=timezone.utc)
+        we = min(_month_start(y, m), end_dt)
+        yield y, m, ws, we
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
 
 
 def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
@@ -86,16 +100,16 @@ def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
     tmp.replace(path)  # atomic on POSIX
 
 
-def _write_manifest(chunk_dir: Path, pair: str, counts: dict[int, int],
-                    suspects: list[tuple[int, int, str]]) -> None:
+def _write_manifest(chunk_dir: Path, pair: str, counts: dict[str, int],
+                    suspects: list[tuple[str, int, str]]) -> None:
     """Write a per-pair gap-detection manifest. Per-pair file (not a shared
     JSONL) so concurrent workers never race on the same path."""
     data = {
         "pair": pair,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_bars": sum(counts.values()),
-        "year_bar_counts": {str(y): n for y, n in sorted(counts.items())},
-        "suspect_years": [{"year": y, "bars": n, "flag": f} for y, n, f in suspects],
+        "month_bar_counts": {ym: n for ym, n in sorted(counts.items())},
+        "suspect_months": [{"month": ym, "bars": n, "flag": f} for ym, n, f in suspects],
     }
     mf = chunk_dir / f"{pair}_manifest.json"
     tmp = mf.with_suffix(".json.tmp")
@@ -104,37 +118,40 @@ def _write_manifest(chunk_dir: Path, pair: str, counts: dict[int, int],
 
 
 def pull_pair(pair: str, start_year: int, end_dt: datetime,
-              chunk_dir: Path, out_dir: Path
-              ) -> tuple[str, int, list[str], list[tuple[int, int, str]]]:
+              chunk_dir: Path, out_dir: Path, timeout: float, request_delay: float
+              ) -> tuple[str, int, list[str], list[tuple[str, int, str]]]:
     instrument = ing.DUKASCOPY_INSTRUMENTS[pair]
-    year_chunks: list[tuple[int, Path]] = []
+    month_chunks: list[tuple[str, Path]] = []
 
-    for y, ws, we in year_windows(start_year, end_dt):
-        cf = chunk_dir / f"{pair}_{y}.parquet"
+    for y, m, ws, we in month_windows(start_year, end_dt):
+        ym = f"{y}-{m:02d}"
+        cf = chunk_dir / f"{pair}_{ym}.parquet"
         if not cf.exists():
-            # retry_attempts/delay reach the now-working per-hour retry (the
-            # _fetch_bi5 None-on-failure contract; see ingest module).
-            df = ing.fetch_1h_bars(instrument, ws, we, retry_attempts=5, retry_delay=2.0)
+            # 5 retries w/ exponential backoff + fail-fast timeout reach the
+            # working per-hour retry (the _fetch_bi5 None-on-failure contract).
+            df = ing.fetch_1h_bars(instrument, ws, we, retry_attempts=5, retry_delay=2.0,
+                                   timeout=timeout, request_delay=request_delay)
             if df is None or df.empty:
                 df = _empty_1h_frame()
             _atomic_write_parquet(df, cf)
-            log.info("%s %d: %d bars", pair, y, len(df))
-        year_chunks.append((y, cf))
+            log.info("%s %s: %d bars", pair, ym, len(df))
+        month_chunks.append((ym, cf))
 
-    # Read each chunk once: build the concat frames, per-year counts, and suspects.
-    counts: dict[int, int] = {}
-    suspects: list[tuple[int, int, str]] = []
+    # Read each chunk once: build the concat frames, per-month counts, and suspects.
+    counts: dict[str, int] = {}
+    suspects: list[tuple[str, int, str]] = []
     frames: list[pd.DataFrame] = []
-    for y, cf in year_chunks:
+    for ym, cf in month_chunks:
+        y, m = int(ym[:4]), int(ym[5:])
         cdf = pd.read_parquet(cf)
-        counts[y] = len(cdf)
+        counts[ym] = len(cdf)
         if not cdf.empty:
             frames.append(cdf)
-        if not _is_partial_year(y, end_dt):
+        if not _is_partial_month(y, m, end_dt):
             if 0 < len(cdf) < SUSPECT_FLOOR:
-                suspects.append((y, len(cdf), "LOW"))    # partial pull — almost certainly a gap
+                suspects.append((ym, len(cdf), "LOW"))    # partial pull — almost certainly a gap
             elif len(cdf) == 0:
-                suspects.append((y, len(cdf), "ZERO"))   # pre-listing OR total outage — eyeball
+                suspects.append((ym, len(cdf), "ZERO"))   # pre-listing OR total outage — eyeball
 
     full = pd.concat(frames) if frames else _empty_1h_frame()
     if not full.empty:
@@ -146,7 +163,7 @@ def pull_pair(pair: str, start_year: int, end_dt: datetime,
     _write_manifest(chunk_dir, pair, counts, suspects)
 
     if suspects:
-        log.error("%s: SUSPECT years (review before trusting): %s", pair, suspects)
+        log.error("%s: %d SUSPECT months (review before trusting); see manifest", pair, len(suspects))
     log.info("%s: FINAL %d bars -> %s (issues=%s)", pair, len(full), out.name, issues)
     return pair, len(full), issues, suspects
 
@@ -156,10 +173,13 @@ def main() -> int:
     ap.add_argument("--start-year", type=int, default=2010)
     ap.add_argument("--end", default="2026-05-01", help="UTC end date, exclusive (YYYY-MM-DD)")
     ap.add_argument("--pairs", default=",".join(PAIRS), help="Comma-separated pair list")
-    ap.add_argument("--workers", type=int, default=4,
-                    help="Concurrent pairs (kept low to avoid Dukascopy rate-limiting; "
-                         "rate-limits now retry rather than corrupt, but fewer workers "
-                         "avoid triggering them)")
+    ap.add_argument("--workers", type=int, default=2,
+                    help="Concurrent pairs (kept low to fly under Dukascopy throttling, "
+                         "which tarpits sustained concurrent pulls)")
+    ap.add_argument("--timeout", type=float, default=8.0,
+                    help="Per-request socket timeout (s); low = fail fast under a throttle")
+    ap.add_argument("--request-delay", type=float, default=0.25,
+                    help="Seconds to sleep after each hourly request (paces the source)")
     a = ap.parse_args()
 
     end_dt = datetime.fromisoformat(a.end).replace(tzinfo=timezone.utc)
@@ -174,10 +194,12 @@ def main() -> int:
     chunk_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("Backfill %s  %d -> %s  workers=%d", pairs, a.start_year, a.end, a.workers)
-    results: dict[str, tuple[int, list[str], list[tuple[int, int, str]]]] = {}
+    log.info("Backfill %s  %d -> %s  workers=%d timeout=%.1fs delay=%.2fs (monthly checkpoints)",
+             pairs, a.start_year, a.end, a.workers, a.timeout, a.request_delay)
+    results: dict[str, tuple[int, list[str], list[tuple[str, int, str]]]] = {}
     with ThreadPoolExecutor(max_workers=a.workers) as ex:
-        futs = {ex.submit(pull_pair, p, a.start_year, end_dt, chunk_dir, out_dir): p for p in pairs}
+        futs = {ex.submit(pull_pair, p, a.start_year, end_dt, chunk_dir, out_dir,
+                          a.timeout, a.request_delay): p for p in pairs}
         for fut in as_completed(futs):
             p = futs[fut]
             try:
@@ -191,14 +213,13 @@ def main() -> int:
     any_suspect = False
     for p in pairs:
         n, issues, suspects = results.get(p, (None, None, []))
-        flag = ""
+        flag = f"  ⚠ {len(suspects)} suspect-months" if suspects else ""
         if suspects:
             any_suspect = True
-            flag = f"  ⚠ SUSPECT={suspects}"
         log.info("  %-7s %s bars  issues=%s%s", p, n, issues, flag)
     if any_suspect:
-        log.error("REVIEW REQUIRED: suspect years above are likely data gaps — inspect "
-                  "data/processed/_chunks/{PAIR}_manifest.json, delete the bad chunk, re-run to refetch.")
+        log.error("REVIEW REQUIRED: suspect months are likely data gaps — inspect "
+                  "data/processed/_chunks/{PAIR}_manifest.json, delete the bad chunk(s), re-run to refetch.")
     failed = [p for p, (n, _, _) in results.items() if n is not None and n < 0]
     return 1 if (failed or any_suspect) else 0
 

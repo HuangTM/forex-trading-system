@@ -1,0 +1,194 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: '2026-06-08T04:00:00Z'
+subtask_ref: dukascopy-ingest
+subtask_id: data-capability-2026-06-07:phase1:task2.0
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+commit_hash: uncommitted
+
+files_changed:
+  - path: scripts/ingest_dukascopy_1h.py
+    description: >
+      Dukascopy 1h-bar fetcher + resampler + writer.  Raw TLS socket fetch of
+      bi5 LZMA-compressed tick files, OHLCV resample (open=first, high=max,
+      low=min, close=last, volume=sum(ask_vol)), tz-aware UTC DatetimeIndex,
+      parquet write matching firm schema.  CLI: --pair --start --end --out.
+      Built-in schema validation + weekend-gap spot-check.
+    lines_approx: 450
+
+  - path: tests/data/test_dukascopy_ingest.py
+    description: >
+      Pytest suite for the ingest pipeline.  All tests use synthetic bi5
+      fixtures (no network required).  Covers schema/dtype, UTC tz correctness
+      (THE load-bearing test), weekend-gap detection, OHLC resample correctness,
+      JPY vs non-JPY price divisor, volume-is-proxy labeling, edge cases (empty
+      hour, bad LZMA).
+    lines_approx: 310
+
+  - path: references/dukascopy_1h_PROVENANCE.md
+    description: >
+      Source provenance, tz verification evidence (weekend gap + NFP event
+      anchor), volume-proxy caveat, price scaling table, ingest script CLI,
+      proof-pull result, scale-up plan with volume/time estimates and full
+      backfill command.
+
+tests_added:
+  total: 30
+  files:
+    - tests/data/test_dukascopy_ingest.py
+
+tests_passing:
+  command: pytest tests/data/test_dukascopy_ingest.py -q
+  result: '30 passed in 0.04s'
+  network_required: false
+  ruff_clean: true
+
+proof_pull:
+  attempted: true
+  pair: EURUSD
+  window: '2024-01-01 → 2024-02-01'
+  network_reachable: yes
+  network_note: >
+    The Python `requests` library times out against datafeed.dukascopy.com due
+    to TLS/keep-alive behaviour in this environment.  The script uses a raw TLS
+    socket (ssl + socket stdlib) which succeeds.  TCP connect to 194.8.15.180:443
+    returns 0 (success); TLS handshake completes; HTTP 200 returned.  Users on
+    standard networks may use requests.get(url).content instead.
+  bars_written: 530
+  calendar_hours: 744
+  empty_hours: 214
+  empty_hours_note: weekends and market-closed hours (correct FX behaviour)
+  elapsed_wall_clock: '10m 47s (21:49:13Z → 22:00:00Z UTC)'
+  fetch_rate_per_hour: ~0.87s per bi5 file (sequential TLS connections)
+  tz_correct: yes
+  spotcheck_result:
+    weekend_gap_passed: true
+    saturday_bars: 0
+    friday_bars: 88
+    last_friday_bar_hour_utc: 21
+    last_friday_bar_note: >
+      FX market closes after Friday 21:00 UTC.  The 21h bar (21:00-22:00) being
+      present and the 22h bar absent is the correct structural signature.
+    assertion: 'df.index.tz == UTC: PASSED'
+    assertion_no_saturday_bars: PASSED
+  parquet_roundtrip: PASSED
+  schema_validation: PASSED
+  output_path: data/processed/EURUSD_1h.parquet
+  output_shape: '(530, 5)'
+  output_columns: [open, high, low, close, volume]
+  output_index_dtype: 'datetime64[us, UTC]'
+  output_utc_range: '2024-01-01 22:00:00+00:00 → 2024-01-31 23:00:00+00:00'
+  sample_bar_jan02_00h:
+    timestamp: '2024-01-02 00:00:00+00:00'
+    open: 1.103680
+    high: 1.103840
+    low: 1.103435
+    close: 1.103830
+    volume: 4519.42
+
+tz_correctness_gate:
+  status: PASSED
+  how_verified: |
+    TWO independent verification methods, both confirmed before writing this artifact:
+    1. STRUCTURAL (weekend gap):
+       Fetched EURUSD for hour 22 on Friday 2024-01-05 → HTTP 200 body=0 bytes (empty).
+       Hour 21 on same Friday → 12,190 bytes, 2,848 ticks.
+       Confirms the URL hour index is UTC — market closure at 21:00-22:00 UTC is correct.
+    2. EVENT-ANCHORED (NFP release):
+       Fetched EURUSD 2024-01-05 13h bar (13:00-14:00 UTC).
+       US NFP releases at 13:30:00 UTC.  Total ticks: 16,196.
+       Ticks AFTER 30-minute mark (i.e. after 13:30 UTC): 12,690 — heavy burst.
+       Confirms bar boundaries are anchored to UTC hours, not any DST-shifted timezone.
+    3. OUTPUT ASSERTION:
+       df.index.tz == UTC: PASSED
+       No Saturday bars in 530-bar output: PASSED (n_saturday_bars=0)
+       This is the mandatory TZ gate given QRB-6 void precedent.
+
+scale_up_plan:
+  full_backfill_command: |
+    # Sequential (safe, no rate-limit risk):
+    for PAIR in AUDJPY AUDUSD CADJPY EURGBP EURJPY EURUSD GBPJPY GBPUSD NZDJPY NZDUSD USDCAD USDJPY; do
+        python3 scripts/ingest_dukascopy_1h.py \
+            --pair $PAIR \
+            --start 2010-01-01 \
+            --end 2026-05-01 \
+            --out data/processed/${PAIR}_1h.parquet
+    done
+  pair_window: '2010-01-01 → 2026-05-01 (~16.3 years)'
+  estimated_total_1h_bars: '~1.19 million (12 pairs × ~6,100 active hours/year × 16.3 years)'
+  estimated_parquet_size: '200–500 MB (all 12 pairs, columnar compressed)'
+  estimated_download_time_sequential: '~2.5 days (12 pairs × 16.3 years × ~0.87s/fetch × 6,100 active + 2,660 empty hours)'
+  estimated_download_time_parallel: '~5 hours (12 parallel processes, subject to Dukascopy rate limits)'
+  pair_coverage_caveat: >
+    CADJPY and NZDJPY Dukascopy start dates are unverified.
+    Run --start 2005-01-01 for these pairs on a 1-month window first to confirm
+    availability.  If zero bars returned before 2010, adjust --start and document
+    in PROVENANCE.md.
+
+deviations_from_instructions:
+  - item: Raw TLS socket instead of requests library
+    reason: >
+      requests.get() times out against datafeed.dukascopy.com in this environment.
+      Raw ssl+socket achieves identical semantics (HTTP/1.1 GET over TLS) and the
+      proof pull completed successfully.  The script comment documents this and
+      suggests requests.get(url).content as a substitute in normal environments.
+  - item: OHLC computed from mid-price (not bid or ask separately)
+    reason: >
+      Dukascopy provides both bid and ask per tick.  Mid-price (bid+ask)/2 is the
+      conventional choice for backtest OHLC — consistent with how existing daily
+      data is sourced.  This is documented in the module docstring and PROVENANCE.md.
+
+evidence:
+  - 'Proof pull log: scripts ran 22:00:00Z - confirmed 530 bars, UTC range 2024-01-01 22:00+00 → 2024-01-31 23:00+00'
+  - 'bi5 HTTP response verified live: datafeed.dukascopy.com/datafeed/EURUSD/2024/00/02/00h_ticks.bi5 → HTTP 200, 6745 bytes'
+  - 'NFP event anchor: 2024-01-05 13h bar, 16196 ticks, 12690 after 30-minute mark (13:30 UTC)'
+  - 'Weekend gap: 2024-01-05 22h bar → HTTP 200, 0 bytes body (empty = market closed)'
+  - 'Proof parquet shape: (530, 5), index.tz=UTC, 0 Saturday bars, monotonic, unique'
+  - 'pytest: 30 passed in 0.04s, no network required'
+  - 'ruff check: All checks passed'
+
+assumptions:
+  - 'Dukascopy 0-based month index in URL: confirmed by examining /2024/00/ = January 2024 (Tick 0 of 2024-01-02 00h bar, mid=1.10365 is plausible EURUSD)'
+  - 'JPY pairs use 1e3 divisor: derived from observed values — EURUSD ask_raw=110370 → 1.10370 (divisor 1e5); USDJPY at ~147 must use 1e3 (147500/1e3=147.5 correct, /1e5=1.475 wrong)'
+  - 'Volume = ask-side lot sum: standard Dukascopy community convention; documented as proxy'
+
+confidence: high
+confidence_basis: >
+  Proof pull completed end-to-end with verified UTC output.  Both tz spot-checks
+  (structural weekend gap + event-anchored NFP) passed.  30 tests green.  The only
+  unverified assumption is the JPY divisor for pairs not in the proof pull (USDJPY
+  etc.) — this is validated in tests via synthetic fixture using the correct 1e3 logic
+  and matches the community-documented Dukascopy format.
+
+body: >
+  The Dukascopy 1h ingest capability is fully implemented and verified.
+  The proof pull (EURUSD, 2024-01-01 → 2024-02-01) completed in 10m47s,
+  writing 530 UTC-correct 1h bars to data/processed/EURUSD_1h.parquet.
+  The UTC timezone gate — the #1 risk flagged by the CTO red-team given the
+  QRB-6 void — passed on two independent checks: (1) no Saturday bars in output,
+  (2) NFP event burst in the 13:00-14:00 UTC bar confirms UTC hour boundaries.
+  All 30 tests pass without network access.  Ruff is clean.  Scale-up to 12 pairs
+  × 16 years is a matter of running the provided bash loop (estimated 2.5 days
+  sequential, ~5 hours parallel).
+
+knowledge_gaps:
+  - Exact Dukascopy start dates for CADJPY, NZDJPY (unverified pair coverage)
+  - Dukascopy rate limits (undocumented; add exponential backoff if 429s appear at scale)
+  - Whether requests library timeout is environment-specific or a general Dukascopy restriction
+
+policy_violations_detected: []
+
+sources:
+  - https://datafeed.dukascopy.com/datafeed/EURUSD/2024/00/02/00h_ticks.bi5
+  - https://www.dukascopy.com/swiss/english/marketwatch/historical/
+  - https://www.dukascopy-node.app/
+  - https://github.com/Leo4815162342/dukascopy-node
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true

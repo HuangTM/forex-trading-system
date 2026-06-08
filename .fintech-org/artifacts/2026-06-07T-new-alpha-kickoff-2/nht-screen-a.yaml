@@ -1,0 +1,425 @@
+---
+# Null-Hypothesis Tester — SLICE A screen (kickoff-2, Wave 3 proposals QRA2-1..7)
+# Four kill axes: archive-dedup veto / base-rate prior / untestability-forking-paths /
+# CONFIRMABILITY recompute (NHT-independent years_to_validate governs).
+# READ-only + python3 arithmetic. NO return-data computation, no backtest, no capital.
+
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: per-proposal in verdicts list (1 confirmability-KILL, 1 dedup-KILL, 5 conditional-survive)
+
+timestamp: "2026-06-07T-nht-screen-a"
+subtask_ref: kickoff-2-nht-screen-a
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"
+
+claimed_domains:
+  - null-hypothesis-construction
+  - p-hacking-and-data-snooping-detection
+  - structural-skepticism-on-any-claim
+
+no-capital-instruction: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONFIRMABILITY METHOD (the new load-bearing axis)
+# ════════════════════════════════════════════════════════════════════════════
+# Frozen formula reproduced to zero delta against the QR self-scores:
+#   years_to_validate = 6.18527 / (haircut^2) / events_per_year ; haircut = (1/3)*SR_IS
+# QR arithmetic VERIFIED exact for all 7 (QRA2-1 1.661, -2 1.988, -3 1.852, -4 2.753,
+#   -5 2.062, -6 1.859, -7 2.130).
+# The gate is gamed in TWO directions and I challenge BOTH:
+#   (a) events_per_year INFLATION — pooled cross-pair counts treat highly-correlated FX
+#       pairs (USD-bloc / JPY-bloc; the 3 4h pairs all share the USD leg) as INDEPENDENT
+#       draws. Effective independent currencies ~6-7 of 12; effective 4h replicas ~1-2 of 3.
+#       The QR DISCLOSED this risk itself (qr assumptions: "if NHT treats them as
+#       correlated the years_to_validate rises"). Years scale 1/epy, so a 0.5 effective-N
+#       haircut DOUBLES years.
+#   (b) per_event_SR_IS OPTIMISM — IS Sharpe on a sub-pip microstructure fade net of a
+#       ~1.5pip round-trip shrinks materially OOS (selection + the haircut is only 1/3,
+#       generous for a never-backtested a-priori guess). Years scale 1/SR^2, so a 30% SR
+#       cut multiplies years x2.04.
+# CALIBRATION NOTE: applying BOTH haircuts compounds (years can x4) and would blanket-FAIL
+#   all seven — that is mis-calibrated alarmism. A graded skeptic applies the ONE
+#   most-defensible lever per proposal and flags the other. Result: ONE clean
+#   confirmability-KILL (QRA2-4, fails from EITHER lever independently), the other six
+#   degrade to the 3-5yr STRETCH band — i.e. NONE is the clean <=2yr first-candidate-grade
+#   the QR claims for five of them once IS-optimism is acknowledged.
+
+confirmability_sensitivity_anchors:
+  - "SR x0.70 -> years x2.04 ; SR x0.60 -> years x2.78 ; epy x0.50 -> years x2.00 (single-lever)."
+  - "QRA2-4 break-even: at QR's own SR=0.18, epy below ~350 crosses 5yr; the disclosed corr haircut alone (624->~300) yields 5.73yr FAIL. At SR=0.15, epy below ~500 fails. Robust kill from either direction."
+
+# ════════════════════════════════════════════════════════════════════════════
+# VERDICTS
+# ════════════════════════════════════════════════════════════════════════════
+verdicts:
+
+  - id: QRA2-1
+    name: 4h-overnight-range-compression-breakout-fade
+    dedup_verdict: >
+      CLEAN-ish. Distinct from archived QRA-5 (13:00 overlap-bar CLV reversion — different
+      trigger/window) and from ORB/tas_ceiling_4h (this FADES, conditioned on prior-range
+      COMPRESSION, opposite sign+regime). The compression-conditioning is a genuine
+      distinguisher. Not a carry/MA/band. PASS.
+    base_rate_verdict: >
+      MIXED prior. Liquidity-sweep fades of stop-clusters are a real, documented intraday
+      microstructure effect (not a sub-pip seasonal, not pure TA-with-no-counterparty), so
+      better than the worst reference class. BUT intraday breakout-fade on OHLC-only data
+      with no order-book is a crowded, decay-prone space; the firm has zero validated
+      intraday alpha. Skeptical-neutral prior.
+    testability_verdict: >
+      GOOD. Pre-registerable compression threshold (0.6x trailing-20 median Asia range),
+      pooled per-event mean test, pre-committed kill (<=0 net of 1.5pip AND must beat
+      unconditioned fade). SAME-backtest placebo (expanded ranges must NOT pay) is a real
+      negative control. Forking-path risk: the 0.6 / 1.4 / 20-bar constants are tunable —
+      pin them at pre-reg or this invites threshold-fishing. falsifiability anchor ~4-5.
+    confirmability_recompute:
+      qr_years_to_validate: 1.661
+      qr_input_challenged: "per_event_SR_IS=0.42 is the HIGHEST in the set for a never-tested compression-fade; optimistic. epy=190 plausible (not inflated)."
+      nht_events_per_year: 190
+      nht_per_event_SR: 0.30
+      nht_years_to_validate: 3.26
+      nht_gate_verdict: STRETCH (3-5yr) — GATE_PASS but NOT <=2yr first-candidate-grade
+    overall: conditional-survive
+    conditions_if_any: >
+      Survives the >5yr hard gate. NOT first-candidate-eligible: at a realistic IS Sharpe
+      (~0.30) it is a 3-5yr STRETCH, failing the rubric's confirmability>=4 (<=2yr) bar.
+      Pin compression/expansion thresholds at pre-registration (forking-path control).
+    kill_reason_if_kill: null
+
+  - id: QRA2-2
+    name: intrabar-CLV-momentum-continuation-4h
+    dedup_verdict: >
+      BORDERLINE. SAME raw statistic (CLV) as archived QRA-5, explicitly sign-and-clock
+      inverted (4h continuation vs daily reversion). The QR frames the pairing AS the
+      novelty. A sign-flip on a different clock is a defensible distinct CLAIM, but it
+      reuses the same information source — adjacent, not clean. Does not auto-veto, but it
+      is the closest the set comes to recycling an archived statistic. CONDITIONAL.
+    base_rate_verdict: >
+      UNFAVORABLE. CLV-continuation is close to short-horizon price-momentum on OHLC, a
+      class this firm has KILLED twice (Bet#1 momentum, archived QRA-3 vol-term-structure
+      momentum-gate). Thin per-event edge (SR 0.20) at HIGH turnover (700/yr) is the
+      canonical cost-death profile. Skeptical prior.
+    testability_verdict: >
+      GOOD on paper. Pre-committed |CLV|>0.8 threshold, pooled next-bar mean, dual-clock
+      negative control (daily must REVERT while 4h CONTINUES). Sharp. But the dual-sign
+      pre-commitment is also two sub-tests — if only one fires the QR can claim partial
+      support; pre-register the JOINT criterion. falsifiability ~4.
+    confirmability_recompute:
+      qr_years_to_validate: 1.988
+      qr_input_challenged: "BOTH levers: epy=700 is turnover-inflated (1-bar holds on 3 corr 4h pairs — not 700 independent draws), and SR=0.20 net of 1.5pip is itself fragile (QR self-flags cost_survival=2)."
+      nht_events_per_year: 500
+      nht_per_event_SR: 0.15
+      nht_years_to_validate: 4.95
+      nht_gate_verdict: STRETCH (3-5yr, at the very edge) — GATE_PASS by a whisker
+    overall: conditional-survive
+    conditions_if_any: >
+      Confirmability barely clears (~5.0yr at conservative inputs — a hair under the FAIL
+      line; if the cost-fragility the QR self-admits bites SR any harder this FAILS). The
+      BINDING kill here is cost (HG-2), as the QR concedes. Not first-candidate-grade.
+      Treat as a knife-edge: any worsening of SR or epy tips it to confirmability-FAIL.
+    kill_reason_if_kill: null
+
+  - id: QRA2-3
+    name: daily-vol-regime-conditioned-range-reversion
+    dedup_verdict: >
+      CLEAN. Distinct from bollinger_rsi (vol-agnostic band touch), from archived QRA-1
+      (triangular residual) and QRA-4 (cross-sectional dispersion — relative; this is
+      single-pair vol-state). The vol-TERCILE conditioning gate is the distinguisher. Note
+      proximity to archived QRA-3 (vol-term-structure regime gate, KILLED) — both gate a
+      reversion/trend rule on a vol-state — but the conditioning variable differs
+      (ATR-tercile vs intraday/daily GK ratio) and the killed one was a momentum gate.
+      Adjacent-but-distinct. PASS.
+    base_rate_verdict: >
+      NEUTRAL-to-favorable. Mean-reversion of outsized bars conditioned on low realized vol
+      has a plausible vol-targeter/stop-cascade counterparty and is low per-pair turnover —
+      the best base-rate profile of the 4 daily proposals. Not a sub-pip seasonal. Mild
+      concern that the tercile gate adds a researcher DOF.
+    testability_verdict: >
+      GOOD. Pre-committed outsized (|r|>2*20d std) + low-vol (ATR bottom tercile), pooled
+      forward-2d, kill <=0 net. Placebo (high-vol tercile must FAIL) is a real control.
+      Forking path: "bottom tercile" vs quartile/median is a choice — pin it. falsif ~5.
+    confirmability_recompute:
+      qr_years_to_validate: 1.852
+      qr_input_challenged: "epy=260 pooled over 12 CORRELATED pairs (effective ~6-7 currencies); the outsized&low-vol INTERSECTION is rarer than a flat per-pair rate. SR=0.34 mildly optimistic."
+      nht_events_per_year: 200
+      nht_per_event_SR: 0.28
+      nht_years_to_validate: 3.55
+      nht_gate_verdict: STRETCH (3-5yr) — GATE_PASS, not first-candidate-grade
+    overall: conditional-survive
+    conditions_if_any: >
+      Best-conditioned daily idea, but lands in STRETCH (~3.5yr) once correlated-pair
+      effective-N is honoured — fails confirmability>=4 (<=2yr). Survivable, not
+      first-candidate. Pin the tercile/2-sigma thresholds at pre-reg.
+    kill_reason_if_kill: null
+
+  - id: QRA2-4
+    name: monday-open-gap-reversion-after-quiet-friday
+    dedup_verdict: >
+      CONDITIONAL. The QR's distinction from KILLED QRB-5 (unconditional weekday
+      seasonality) is defensible — this is a CONDITIONAL gap-reversion (large Monday gap
+      AFTER a quiet Friday), not a day-of-week mean return; and distinct from archived
+      QRA-2 (overnight-gap ASYMMETRY) by the reversion-not-asymmetry thesis. Dedup would
+      NOT veto on its own — but it is moot: the proposal dies on confirmability below.
+    base_rate_verdict: >
+      UNFAVORABLE. Weekend-gap mean-reversion is a well-trodden, decay-prone retail-TA
+      space; thinnest per-event edge in the set (SR 0.18); the weekday/calendar axis is
+      the same axis on which QRB-5 was KILLED. Worst base-rate prior of the seven.
+    testability_verdict: >
+      ADEQUATE. Pre-committed quiet-Friday + large-gap thresholds, pooled forward-1d, kill
+      <=0 net, noisy-Friday placebo. BUT it stacks TWO conditioning filters (quiet Friday
+      AND large gap), each a tunable DOF — high forking-path surface for a thin effect.
+    confirmability_recompute:
+      qr_years_to_validate: 2.753
+      qr_input_challenged: >
+        events_per_year=624 is INFLATED — the headline gaming finding. There are only ~52
+        Mondays/yr; "624 pooled" multiplies by 12 HIGHLY-CORRELATED pairs and the QR's own
+        cost_profile says the quiet-Friday filter "roughly halves it," yet 624 is declared
+        at the full pre-filter pooled rate. Honest effective rate ~52 x (6-7 indep
+        currencies) x 0.5 filter ~ 180-300 independent signals/yr. SR=0.18 is also the
+        thinnest in the set.
+      nht_events_per_year: 300
+      nht_per_event_SR: 0.18
+      nht_years_to_validate: 5.73
+      nht_gate_verdict: GATE_FAIL (>5yr) — CONFIRMABILITY-KILL
+    overall: kill
+    conditions_if_any: null
+    kill_reason_if_kill: >
+      CONFIRMABILITY-KILL (HG-4). At the QR's OWN SR=0.18 and the correlated-pair effective
+      events the QR itself disclosed (624 -> ~300), years_to_validate = 5.73 > 5. The kill
+      is robust to direction: holding SR=0.18, epy below ~350 fails; or at SR=0.15 with the
+      QR's 624 it is 3.96 and below ~500 fails. The gate-pass at 2.75yr depended entirely
+      on counting 52 Mondays x 12 correlated pairs as ~624 independent draws — exactly the
+      events_per_year inflation HG-4 exists to catch. Compounded by the worst base-rate and
+      the calendar-axis adjacency to killed QRB-5.
+
+  - id: QRA2-5
+    name: wick-rejection-asymmetric-stop-cascade-daily
+    dedup_verdict: >
+      CLEAN. Wick-asymmetry (shadow lengths isolating the REJECTED extreme) is a distinct
+      OHLC decomposition from archived QRA-5's CLV (settle location) and from QRA-2
+      (overnight gap). Distinct from bollinger_rsi. PASS.
+    base_rate_verdict: >
+      NEUTRAL. Long-wick rejection-continuation is a recognised price-action pattern with a
+      plausible stopped-out-flow counterparty; low per-pair turnover. Better than the
+      seasonal/TA-only class but firmly in "novel to this firm, not to the world" — heavily
+      studied by retail TA, so decay/already-arbed risk. Mild-skeptical prior.
+    testability_verdict: >
+      GOOD. Pre-committed wick-size thresholds (wick > 2*body AND > 1.0*ATR), pooled
+      next-day, small-wick placebo (must show NO drift). Sharp. Threshold constants are a
+      forking DOF — pin at pre-reg. falsif ~5.
+    confirmability_recompute:
+      qr_years_to_validate: 2.062
+      qr_input_challenged: "epy=300 pooled over 12 correlated pairs; the size filter is strict (rarer than 25/pair/yr implies). SR=0.30 mildly optimistic for a known retail pattern net of cost."
+      nht_events_per_year: 230
+      nht_per_event_SR: 0.25
+      nht_years_to_validate: 3.87
+      nht_gate_verdict: STRETCH (3-5yr) — GATE_PASS, not first-candidate-grade
+    overall: conditional-survive
+    conditions_if_any: >
+      Clears the hard gate; STRETCH (~3.9yr) at conservative inputs, failing
+      confirmability>=4. Pin wick thresholds at pre-reg.
+    kill_reason_if_kill: null
+
+  - id: QRA2-6
+    name: 4h-session-handoff-air-pocket-reversion
+    dedup_verdict: >
+      DEDUP-VETO (the strongest dedup concern in the set). This FADES an outsized move in
+      the 16:00-20:00 UTC thin-liquidity 4h bucket. Archived QRB-4 (rollover-hole
+      fade/gate) ALREADY fades a thin-book overshoot in the verified high-spread late-NY 4h
+      bucket (the slice-B evidence pinned spread mean jumping to ~4.15 at hour 17 / 3.97 at
+      hour 18 UTC — the SAME window). Same mechanism (fade thin-book overshoot in the
+      US-afternoon liquidity hole), same window, same sign, same 3 pairs. The ONLY
+      difference is the trigger LABEL — QRB-4 keys on the spread-state, QRA2-6 keys on a
+      same-stamp vol z-score over the identical hours. That is "same flow/behavior, new
+      indicator name" — the HG-1 re-skin definition. QRB-4 is archived (not killed, but
+      catalogued), so this is a duplication of an existing slice-B idea.
+    base_rate_verdict: >
+      NEUTRAL — moot under the dedup veto. (Liquidity-hole reversion has a real
+      counterparty; but single-intraday-window, 3-corr-pair fragility is high.)
+    testability_verdict: >
+      GOOD — moot under veto. (Pre-committed window + 1.5*std outsized; deep-book
+      12:00-16:00 placebo is a real control.)
+    confirmability_recompute:
+      qr_years_to_validate: 1.859
+      qr_input_challenged: "epy=520 single-window on 3 corr 4h pairs (effective ~1-2 replicas); SR=0.24 optimistic. Even so, ~3.5yr — but the dedup veto governs."
+      nht_events_per_year: 400
+      nht_per_event_SR: 0.20
+      nht_years_to_validate: 3.48
+      nht_gate_verdict: STRETCH (3-5yr) — but OVERRIDDEN by dedup veto
+    overall: kill
+    conditions_if_any: null
+    kill_reason_if_kill: >
+      ARCHIVE-DEDUP KILL (HG-1 mirror). Re-skin of archived QRB-4 (NY-afternoon/rollover
+      liquidity-hole FADE): same US-afternoon thin-liquidity window (16:00-20:00 UTC vs the
+      verified hour-17/18 spread-hole), same fade-the-overshoot mechanism, same sign, same
+      3 pairs — differing only in whether the hole is defined by spread-state (QRB-4) or a
+      same-stamp vol z (QRA2-6). The QR's novelty_vs_archive note asserts "different window
+      and a liquidity-not-swap mechanism," but QRB-4 is a LIQUIDITY mechanism too (its fade
+      variant is explicitly thin-book overshoot reversion, not the swap artifact), and the
+      windows overlap. If the firm wants this, MERGE it into the QRB-4 line, do not spawn a
+      duplicate slice-A trial.
+
+  - id: QRA2-7
+    name: daily-range-expansion-persistence-volatility-clustering
+    dedup_verdict: >
+      CLEAN on mechanism. Direction-agnostic vol-clustering breakout is distinct from
+      momentum/Bet#1 (past-return sign), bollinger_rsi (band reversion), and is the
+      deliberate sign-opposite of QRA2-3 (same-wave, allowed). PASS.
+    base_rate_verdict: >
+      UNFAVORABLE on EDGE, not mechanism. Range/vol CLUSTERING (ARCH) is one of the most
+      robust, most-published regularities in finance — the QR admits "novelty-to-the-world
+      is low." The statistic certainly exists; the TRADEABLE net-of-cost edge via a
+      double-sided straddle is the unproven and dubious part. The option-seller "slow to
+      re-price" counterparty is the weakest mechanism story in the set (vol is the most
+      actively-traded surface there is). Skeptical prior on tradeability.
+    testability_verdict: >
+      ADEQUATE. Pre-committed expansion threshold + symmetric +/-0.3 ATR breakout, pooled
+      net expectancy, contraction-bar placebo. BUT the straddle has multiple tunable knobs
+      (1.5x median TR gate, 0.3 ATR breakout offset, hold-to-close) — the highest
+      forking-path surface in the set. falsif ~4.
+    confirmability_recompute:
+      qr_years_to_validate: 2.130
+      qr_input_challenged: "SR=0.33 is optimistic for a DOUBLE-SIDED straddle whose losing leg pays ~1.5pip whipsaw (QR self-scores cost_survival=2); realized net SR likely far lower. epy=240 ok."
+      nht_events_per_year: 200
+      nht_per_event_SR: 0.24
+      nht_years_to_validate: 4.83
+      nht_gate_verdict: STRETCH (3-5yr, near the edge) — GATE_PASS by a small margin
+    overall: conditional-survive
+    conditions_if_any: >
+      Clears the hard gate at ~4.8yr only because epy is honest; the double-sided cost
+      makes the SR fragile and could tip it to FAIL. The BINDING kill is cost (HG-2), as
+      the QR concedes. Low novelty-to-world. Not first-candidate-grade. If pursued, pin all
+      straddle knobs at pre-reg.
+    kill_reason_if_kill: null
+
+# ════════════════════════════════════════════════════════════════════════════
+# PORTFOLIO OBSERVATIONS
+# ════════════════════════════════════════════════════════════════════════════
+portfolio_observations:
+  - >
+    MECHANISM-CLASS CONCENTRATION: six of seven are the SAME family — "fade/trade an
+    outsized or extreme OHLC bar attributed to a thin-liquidity / stop-cascade
+    dislocation" (QRA2-1 compression-breakout fade, QRA2-3 outsized-bar fade, QRA2-5 wick
+    rejection, QRA2-6 air-pocket fade, plus QRA2-2 CLV and QRA2-7 vol-breakout as
+    near-relatives). Only the conditioning trigger varies. If the underlying "OHLC extreme
+    reverts net of 1.5pip" premise is false on this zero-volume data, the WHOLE slice falls
+    together — these are NOT 7 independent shots on goal. The portfolio's effective
+    diversification is ~2-3 distinct bets, not 7.
+  - >
+    CONFIRMABILITY OPTIMISM IS SYSTEMIC, NOT INCIDENTAL. Five proposals self-claim
+    <=2yr (first-candidate-grade). Under honest correlated-pair effective-N AND a realistic
+    IS-Sharpe haircut, ZERO clear <=2yr — five land in the 3-5yr STRETCH band, one FAILS
+    (QRA2-4), one is dedup-killed (QRA2-6). The gate-passes lean on two recurring levers:
+    (a) counting correlated pairs as independent (the QR disclosed this risk itself), and
+    (b) a-priori SR guesses with only a 1/3 haircut. The rubric's first_candidate_bar
+    (confirmability>=4 / <=2yr) is, on my numbers, met by NONE — consistent with NO-SPEND
+    being a defensible terminal outcome.
+  - >
+    TURNOVER/COST is the real binding gate for QRA2-2 and QRA2-7 (both self-scored
+    cost_survival=2), and confirmability and cost are CORRELATED failure modes here: the
+    high-frequency proposals that pass confirmability easiest (epy large) are exactly the
+    ones most likely to die on cost. The gate the QR optimised (confirmability) and the
+    gate that actually kills (cost) point opposite directions.
+
+# ════════════════════════════════════════════════════════════════════════════
+dissent-statement: >
+  STRUCTURAL DISSENT, recorded verbatim. The slice-A confirmability self-scores systematically
+  overstate validatability via two mechanisms the rubric's HG-4 exists to catch: (1) pooled
+  events_per_year treats highly-correlated FX pairs as independent draws (most egregiously
+  QRA2-4, where 52 Mondays x 12 correlated pairs are declared as 624 independent signals at
+  the FULL pre-filter rate despite a quiet-Friday filter the QR says "roughly halves it"); and
+  (2) per_event_SR_IS are a-priori guesses deflated only by 1/3, generous for never-backtested
+  sub-pip microstructure fades net of a 1.5pip floor. On my independent recompute NOT ONE of
+  the seven is the clean <=2yr first-candidate-grade the QR claims for five of them; five are
+  3-5yr STRETCH, one (QRA2-4) is a >5yr CONFIRMABILITY-KILL, and one (QRA2-6) is an
+  archive-dedup re-skin of QRB-4. Combined with the six-of-seven concentration in a single
+  "OHLC-extreme-reverts" mechanism class, the honest posture is: NO first-candidate clears the
+  bar on confirmability; NO-SPEND is defensible and at most ONE STRETCH proposal (QRA2-3, the
+  best-conditioned with the soundest counterparty) should advance, with thresholds pinned at
+  pre-registration and the 3-5yr forward wait disclosed.
+
+severity: high
+contamination-check: >
+  No return data, no backtest, no performance series touched. Inputs to my recompute are the
+  QR-declared (events_per_year, per_event_SR_IS) only; my haircuts are STRUCTURAL priors
+  (cross-pair correlation, IS-selection deflation), NOT estimated from any realized return.
+  No look-ahead, no peeking. Arithmetic via python3 on the frozen formula only.
+
+evidence:
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/qr-a-proposals.yaml:76-79"
+    note: "QRA2-1 epy=190, SR_IS=0.42, yv=1.661 — reproduced exact."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/qr-a-proposals.yaml:233-238"
+    note: "QRA2-4 epy=624 declared at full pre-filter pooled rate; cost_profile (line 231-234) admits quiet-Friday filter 'roughly halves it' — the inflation."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/qr-a-proposals.yaml:429"
+    note: "QR assumption: 'if NHT treats them as correlated (lower effective N) the years_to_validate rises — disclosed risk for QRA2-3/4/5/7' — the QR's own concession my haircut formalises."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/qr-a-proposals.yaml:301-337"
+    note: "QRA2-6 air-pocket fade, 16:00-20:00 UTC window, fade outsized thin-book move on 3 4h pairs."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml:225-271"
+    note: "Archived QRB-4 rollover/NY-afternoon liquidity-hole FADE, same US-afternoon thin-liquidity window — the QRA2-6 dedup target."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml:42-43"
+    note: "Slice-B verified spread mean jumps to 4.15 at hour 17 / 3.97 at hour 18 UTC — the SAME liquidity hole QRA2-6 re-keys with a vol z instead of spread."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-a-proposals.yaml:270-333"
+    note: "Archived QRA-5 (overlap-bar CLV reversion) — the same statistic QRA2-2 sign-inverts on a different clock."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:280-288"
+    note: "HG-4 unconfirmable_oos: years_to_validate>5 -> TOTAL=0, computed on NHT-verified inputs (A4)."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:349-355"
+    note: "Attestation A4: proposer-declared, NHT-RECOMPUTED and MAY OVERRIDE — the mandate for this re-derivation."
+
+assumptions:
+  - "FX pair-return correlation: 12 daily majors collapse to ~6-7 effectively-independent currency factors (USD bloc, JPY bloc); 3 4h pairs (EUR/GBP/USD-leg) to ~1-2. Effective-N haircuts of 0.45-0.55 (daily) / 0.55 (4h) follow — STRUCTURAL, not estimated from returns."
+  - "IS-to-OOS Sharpe shrinkage for never-backtested a-priori sub-pip microstructure fades net of a 1.5pip floor justifies an additional ~0.6-0.7x on the QR's SR_IS where SR is the gamed lever; 0.55x where cost is double-sided (QRA2-2/-7)."
+  - "Applying BOTH haircuts simultaneously compounds quadratically and would blanket-FAIL all seven; calibration requires the single most-defensible lever per proposal — hence one clean kill, not seven."
+  - "QRB-4 is ARCHIVED (catalogued, available-now), so QRA2-6 duplicating it is an HG-1 re-skin even though QRB-4 was never killed; spawning a duplicate slice-A trial is the waste HG-1 prevents."
+  - "The frozen formula and its constants (1.645, 0.842, 1/3 haircut) are taken as given; I challenge only the two INPUTS, per A4."
+
+confidence: medium
+confidence_calibration: >
+  HIGH confidence on the two structural verdicts (QRA2-4 confirmability-KILL — robust from
+  either lever; QRA2-6 dedup-KILL — same window/mechanism/sign as archived QRB-4, well
+  evidenced by the slice-B spread data). MEDIUM on the five STRETCH downgrades: the direction
+  (QR self-scores are optimistic) is well-supported by the QR's own disclosed correlated-N
+  caveat, but the exact haircut magnitudes are judgment, not measurement — a less aggressive
+  IS-Sharpe deflation could leave QRA2-1/-3/-5/-6 nearer the 2-3yr band. I am deliberately NOT
+  blanket-killing on compounded haircuts (that would be mis-calibrated alarmism). The
+  load-bearing, defensible claim is: NONE is clean <=2yr first-candidate-grade, one FAILS, one
+  is a re-skin — not that all seven are unconfirmable.
+
+body: |
+  ## Bottom line
+  One CONFIRMABILITY-KILL (QRA2-4, >5yr robust to direction), one ARCHIVE-DEDUP KILL
+  (QRA2-6, re-skin of archived QRB-4 rollover-hole fade). The remaining five clear the
+  >5yr hard gate but ALL degrade to the 3-5yr STRETCH band under honest correlated-pair
+  effective-N and realistic IS-Sharpe — so NONE meets the rubric's first-candidate
+  confirmability>=4 (<=2yr) bar. NO-SPEND is defensible; if one must advance, QRA2-3
+  (vol-regime-conditioned reversion) is the least-bad: soundest counterparty, cleanest
+  dedup, lowest per-pair turnover, STRETCH not FAIL.
+
+  ## Why QRA2-4 is the gate's intended catch
+  Its 2.75yr self-pass exists ONLY by declaring 624 independent Monday signals from 52
+  Mondays x 12 highly-correlated pairs at the FULL pre-filter rate — while the same file's
+  cost_profile concedes the quiet-Friday filter "roughly halves it." Honour either the
+  correlation (epy->~300 at the QR's own SR=0.18 -> 5.73yr) or a thinner SR, and it crosses
+  5yr. This is precisely the events_per_year inflation HG-4 was written for (QRB-6 lesson).
+
+  ## Why QRA2-6 is a re-skin
+  The slice-B work already VERIFIED the 16-18 UTC liquidity hole (spread mean ~4.15) and
+  archived QRB-4 to FADE thin-book overshoots in exactly that window on exactly those 3
+  pairs. QRA2-6 fades the same window, same sign, same pairs — swapping a spread-state
+  trigger for a same-stamp vol z. New indicator name, same flow. Merge into QRB-4; do not
+  spawn a duplicate.
+
+  ## The portfolio-level risk the per-proposal verdicts miss
+  Six of seven are the same "OHLC extreme reverts net of cost on zero-volume data" bet under
+  different conditioning. They are not 7 independent shots — effective diversification ~2-3.
+  And the gate the QR optimised (confirmability, favouring high-frequency ideas) points
+  opposite to the gate that actually kills (cost, which the high-frequency ideas fail). A
+  first candidate chosen on confirmability alone would likely die on cost.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

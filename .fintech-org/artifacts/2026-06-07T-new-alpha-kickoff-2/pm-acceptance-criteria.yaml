@@ -1,0 +1,642 @@
+---
+# PM Acceptance Criteria — New-Alpha Kickoff 2026-06-07 (Wave 2)
+# CONFIRMABILITY DISCIPLINE WAVE — structural change from prior kickoff
+# role: pm | artifact_type: acceptance-criteria
+# Produced by: PM / Chief of Staff (wave-1 only; no domain adjudication)
+#
+# LESSON ENCODED: QRB-6 was wound down 2026-06-07 because a real in-sample edge
+# (p_post2015=0.0027, SR=1.352) at ~30 events/yr with per-event SR ~0.085 requires
+# 12–256 years to confirm out-of-sample. It passed every prior screen and still
+# cost a void + remediation + full wind-down. CONFIRMABILITY is now a FIRST-CLASS
+# scored dimension with a hard gate. HoQR must author and freeze the rubric —
+# including the new dimension's weight, anchors, and gate threshold — BEFORE any
+# proposal is submitted. That sequencing is a binding hard constraint here.
+
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+
+timestamp: "2026-06-07T23:00:00Z"
+
+subtask_ref: new-alpha-kickoff-2
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+
+task-statement: >
+  Generate, adversarially screen (confirmability as a first-class kill axis), and
+  rank a portfolio of genuinely new FX alpha hypotheses; deliver a ranked 3-5
+  survivor shortlist with one recommended first candidate and explicit kill-list.
+
+deliverable-type: ranked-shortlist
+
+deadline: "2026-06-08T23:59:00Z"
+
+instrument-universe:
+  daily_pairs:
+    - AUDJPY
+    - AUDUSD
+    - CADJPY
+    - EURGBP
+    - EURJPY
+    - EURUSD
+    - GBPJPY
+    - GBPUSD
+    - NZDJPY
+    - NZDUSD
+    - USDCAD
+    - USDJPY
+  four_hour_pairs:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+  notes:
+    - "volume is uniformly ZERO in all processed files; no volume-based signals"
+    - "cb_decision_dates.parquet exists but CB-event studies are now known-unconfirmable per QRB-6 wind-down"
+    - "data/spreads/ parquet files verified present for all 12 daily + 3 four-hour pairs"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIRMABILITY FORMULA (machine-encodable)
+# Derived from power analysis in CONSENSUS_2026-06-07_qrb6_winddown.md.
+# Carried forward as a BINDING formula for HoQR to anchor the rubric gate.
+# ══════════════════════════════════════════════════════════════════════════════
+confirmability_formula:
+  definition: >
+    years_to_validate ≈ ((z_0.95 + z_0.80) / per_event_Sharpe)^2 / events_per_year
+    where z_0.95 = 1.645 (one-sided 5% significance), z_0.80 = 0.842 (80% power),
+    per_event_Sharpe = haircut × annualised_IS_Sharpe / sqrt(events_per_year),
+    haircut = 1/3 (standard deflation for selection bias).
+  formula_compact: "years = ((1.645 + 0.842) / per_event_SR)^2 / events_per_year"
+  worked_examples:
+    - label: "QRB-6 profile (GATE FAIL — wound down)"
+      events_per_year: 30
+      per_event_SR_haircut: 0.028
+      years_to_validate_80pct_power: "~256 yr (infeasible)"
+      verdict: GATE_FAIL
+    - label: "Daily-freq modest (SR 0.10, 250 events/yr)"
+      events_per_year: 250
+      per_event_SR_haircut: 0.100
+      years_to_validate_80pct_power: "~2.5 yr"
+      verdict: GATE_PASS
+    - label: "Daily-freq decent (SR 0.15, 250 events/yr)"
+      events_per_year: 250
+      per_event_SR_haircut: 0.150
+      years_to_validate_80pct_power: "~1.1 yr"
+      verdict: GATE_PASS
+    - label: "Weekly event moderate (SR 0.12, 52 events/yr)"
+      events_per_year: 52
+      per_event_SR_haircut: 0.120
+      years_to_validate_80pct_power: "~5.8 yr"
+      verdict: GATE_MARGINAL
+  hard_gate_threshold:
+    primary: "years_to_validate <= 3 yr at 80% power (preferred)"
+    stretch: "years_to_validate <= 5 yr at 80% power (stretch — must be disclosed and justified by HoQR)"
+    fail: "years_to_validate > 5 yr → CONFIRMABILITY HARD GATE FAIL; score zeroed regardless of other dimensions"
+  note: >
+    Every proposal MUST state its estimated events_per_year and plausible
+    per_event_Sharpe (IS estimate haircut-adjusted). The years_to_validate figure
+    computed from these is carried as a field in each proposal artifact and in the
+    shortlist. If a proposal cannot supply these estimates (mechanism is too vague to
+    bound event frequency or effect size), it fails confirmability by default.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HARD CONSTRAINTS (machine-checkable)
+# ══════════════════════════════════════════════════════════════════════════════
+hard-constraints:
+  - id: HC-1
+    name: no_backtest
+    statement: >
+      no_backtest_in_wave: true — this wave produces paper proposals only; no
+      return-performance data is touched, no backtests are executed, no Sharpe
+      estimates from actual runs. Structural facts (event counts, verified spreads,
+      bar availability) are permitted. Performance claims are not.
+
+  - id: HC-2
+    name: no_trial_increment
+    statement: >
+      no_trial_increment: true — the org trial counter (currently 42 spawned per
+      mandate) MUST NOT increment in this wave. A trial burns only when a chosen
+      candidate receives a full pre-registration + backtest in a dedicated follow-on
+      track. All artifacts carry trial_id: "no-trial-proposal-only-wave".
+
+  - id: HC-3
+    name: no_live_capital
+    statement: >
+      no_live_capital: true — backtest-only firm; no paper trading, no live orders,
+      no capital-at-risk actions at any stage of this wave.
+
+  - id: HC-4
+    name: confirmability_first_class
+    statement: >
+      confirmability_first_class: true — CONFIRMABILITY is a scored dimension with
+      its own weight in the rubric (not a tie-breaker, not a footnote). Each surviving
+      proposal MUST carry: estimated events_per_year, estimated per_event_Sharpe
+      (IS, haircut-adjusted), and computed years_to_validate. These fields are
+      required in both the QR proposal artifacts and the shortlist.
+
+  - id: HC-5
+    name: confirmability_hard_gate
+    statement: >
+      confirmability_hard_gate: true — any proposal with years_to_validate > 5 yr
+      at 80% power is HARD-GATE FAILED on confirmability: total score set to 0
+      (killed), regardless of all other dimension scores. The preferred threshold is
+      3 yr; the stretch allowance (3–5 yr) requires HoQR disclosure and explicit
+      justification. This gate would have killed QRB-6 at generation time.
+
+  - id: HC-6
+    name: rubric_frozen_before_proposals
+    statement: >
+      rubric_frozen_before_proposals: true — HoQR MUST publish and freeze the updated
+      rubric (including the new CONFIRMABILITY dimension, its weight, its anchors, and
+      the hard gate with the years_to_validate formula) BEFORE any QR proposal is
+      submitted. No rubric retroactive tuning. Any proposal submitted before the rubric
+      is frozen is out of sequence and must be held until the freeze artifact exists.
+
+  - id: HC-7
+    name: genuinely_new_no_reskins
+    statement: >
+      genuinely_new_no_reskins: true — no re-parameterizations or re-skins of prior
+      11 hypotheses (QRA-1 through QRB-6) or of archived families (carry, momentum/
+      Bet#1, ma_crossover, bollinger_rsi, tas_ceiling_4h, ORB). QRB-3 is QUEUED/
+      INDEPENDENT — not to be re-proposed, not to be duplicated in this wave. NHT
+      holds the dedup veto.
+
+  - id: HC-8
+    name: no_qrb3_duplication
+    statement: >
+      no_qrb3_duplication: true — QRB-3 (Turn-of-month rebalancing flow) remains
+      queued/independent under its own separate governance. It MUST NOT be re-proposed,
+      re-skinned, or substituted in this wave. Its queued status is unchanged.
+
+  - id: HC-9
+    name: shortlist_carries_confirmability_scores
+    statement: >
+      shortlist_carries_confirmability_scores: true — every entry in the terminal
+      shortlist (3–5 survivors) MUST explicitly carry: (a) its confirmability rubric
+      score from the frozen rubric, (b) its estimated years_to_validate value, and
+      (c) its confirmability hard-gate verdict (PASS / STRETCH-DISCLOSED / FAIL).
+      A shortlist entry missing any of these three fields is non-compliant.
+
+  - id: HC-10
+    name: no_spend_valid
+    statement: >
+      no_spend_valid: true — if NO proposal clears the first-candidate bar (including
+      the confirmability gate), the defensible terminal outcome is NO-SPEND. This is
+      a valid, documented outcome. The wave must not force a recommendation to avoid
+      a no-spend verdict.
+
+  - id: HC-11
+    name: cb_event_studies_blocked
+    statement: >
+      cb_event_studies_blocked: true — CB-decision event studies are now known-
+      unconfirmable (QRB-6 lesson, 30 events/yr → 12–256 yr validation). Proposals
+      in this family are auto-killed on confirmability grounds without further scoring.
+      cb_decision_dates.parquet exists but is not an eligible data source for a
+      primary alpha signal in this wave.
+
+  - id: HC-12
+    name: proposal_confirmability_fields_required
+    statement: >
+      proposal_confirmability_fields_required: true — every proposal from both QR
+      slices MUST include: events_per_year (estimated), per_event_SR_estimate
+      (IS haircut-adjusted), years_to_validate (computed from formula), and a
+      confirmability_gate_verdict (PASS / STRETCH / FAIL — self-assessed before NHT
+      review). Proposals missing these fields are returned to the QR for revision
+      before NHT screening proceeds.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CRITERIA (acceptance gates — one per role deliverable)
+# ══════════════════════════════════════════════════════════════════════════════
+criteria:
+
+  - id: RUBRIC-FREEZE
+    description: >
+      HoQR authors and freezes the updated scoring rubric BEFORE any QR proposal
+      is submitted. The rubric must:
+      (a) Carry CONFIRMABILITY as a first-class scored dimension — not an overlay,
+          not a tie-breaker, but a named dimension with an explicit weight and anchors.
+      (b) Reweight from the prior kickoff's dimensions (mechanism 0.28 / novelty 0.20 /
+          falsifiability 0.16 / cost 0.16 / stat-tractability 0.12 / data 0.05 /
+          capacity 0.03) to create room for CONFIRMABILITY. Weights must still sum to
+          1.00. The PM does not prescribe the exact reweight — HoQR authors it.
+      (c) Include a fourth hard gate: confirmability == GATE_FAIL → TOTAL = 0. Prior
+          three hard gates (novelty==1, cost_survival==1, stat_tractability==1) are
+          carried forward unchanged.
+      (d) Embed the years_to_validate formula as the ANCHOR for the confirmability
+          hard gate. The gate threshold (≲3 yr preferred, ≲5 yr stretch) is
+          PM-specified; HoQR specifies the per-score-level anchors within that frame.
+      (e) Carry a SINGLE-USE freeze declaration: governs only this 2026-06-07 kickoff-2
+          wave; a future wave re-freezes its own rubric before seeing proposals.
+      (f) Be authored before any QR generation artifact is dispatched (enforced by
+          wave sequencing: HoQR rubric is wave 2; QR generation is wave 3).
+    owner: head-of-quant-research
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      hoqr-rubric.yaml exists with: a confirmability dimension (named, weighted,
+      anchored), the years_to_validate formula embedded, the four hard gates stated
+      (novelty / cost_survival / stat_tractability / confirmability), weights summing
+      to 1.00, and a single-use freeze declaration. Timestamp on the rubric artifact
+      MUST precede timestamps on qr-a-proposals.yaml and qr-b-proposals.yaml.
+
+  - id: GEN-A
+    description: >
+      Quant Researcher A generates 4–7 genuinely new alpha hypotheses from SLICE A:
+      price, volatility, and cross-sectional structure sourced from available OHLCV.
+      Slice A coverage must span at least two of: (i) 4h microstructure-adjacent
+      patterns (EURUSD, GBPUSD, USDJPY), (ii) cross-pair relative value (spreads
+      between pairs, ratio series, cointegration residuals among the 12 daily pairs),
+      (iii) intraday-to-daily vol surface proxies (Parkinson, Garman-Klass, overnight
+      gap vs intraday range). No archived family re-skins. No QRB-3 duplication.
+      MANDATORY per-proposal confirmability fields: events_per_year (estimated),
+      per_event_SR_estimate (IS haircut-adjusted), years_to_validate (computed from
+      PM formula), confirmability_gate_verdict (self-assessed: PASS/STRETCH/FAIL).
+    owner: quant-researcher-A
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      qr-a-proposals.yaml exists with 4–7 proposal entries, each containing non-empty
+      fields for: hypothesis_name, mechanism, falsification_sketch, data_available
+      (boolean + source), cost_survival_sanity, archived_family_overlap (must be
+      "none"), events_per_year, per_event_SR_estimate, years_to_validate,
+      confirmability_gate_verdict. Proposals with archived_family_overlap != "none"
+      do NOT count toward the 4–7 minimum.
+
+  - id: GEN-B
+    description: >
+      Quant Researcher B generates 4–7 genuinely new alpha hypotheses from SLICE B:
+      event/calendar/macro-conditioning and alternative signal sources. Slice B
+      coverage must span at least two of: (i) rate differentials as a CONDITIONING
+      variable (NOT as the trade direction itself — carry is archived), (ii) calendar/
+      session effects EXCLUDING month-turn rebalancing flow (QRB-3, queued — do not
+      duplicate), (iii) spread data from data/spreads/ as a signal or conditioner,
+      (iv) trade execution data from data/trades/executions.parquet as a signal,
+      (v) data-acquisition-worthy ideas (clearly flagged acquisition_required: true).
+      CB-decision event studies are BLOCKED per HC-11. MANDATORY per-proposal
+      confirmability fields same as GEN-A. Data-acquisition proposals may survive
+      GEN-B but are INELIGIBLE for the recommended-first-candidate slot.
+    owner: quant-researcher-B
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      qr-b-proposals.yaml exists with 4–7 proposal entries, each containing non-empty
+      fields for: hypothesis_name, mechanism, falsification_sketch, data_available
+      (boolean + source or acquisition_required: true), cost_survival_sanity,
+      archived_family_overlap (must be "none"), events_per_year, per_event_SR_estimate,
+      years_to_validate, confirmability_gate_verdict. CB-decision proposals are
+      disqualified and do NOT count toward the 4–7 minimum. Proposals requiring
+      data acquisition are counted toward the minimum but must be flagged
+      acquisition_required: true.
+
+  - id: NHT-SCREEN
+    description: >
+      Null-Hypothesis Tester conducts adversarial screening of ALL proposals from
+      both slices BEFORE HoQR produces the final ranking. This wave adds a fourth
+      mandatory screen axis — CONFIRMABILITY — alongside the three from the prior
+      kickoff. The four screens are:
+      (1) Archive-dedup veto: re-skins of carry, momentum/Bet#1, ma_crossover,
+          bollinger_rsi, tas_ceiling_4h, ORB, or any prior QRA-1 through QRB-6
+          mechanism (including QRB-3 which is queued/independent) are auto-killed.
+          NHT states the specific mechanism overlap.
+      (2) Base-rate prior: NHT applies a base-rate adjustment at honest-N ≈ 11,
+          trial counter 42, zero validated OOS alpha. Assigns favorable/neutral/
+          unfavorable for each proposal with brief rationale.
+      (3) Untestability screen: proposals that cannot be falsified with available
+          data within a single well-powered backtest are flagged untestable and
+          removed.
+      (4) CONFIRMABILITY KILL AXIS: NHT independently evaluates each proposal's
+          confirmability_gate_verdict (self-assessed by QR) and may override it.
+          NHT must verify the events_per_year × per_event_SR_estimate → years_to_
+          validate computation. Any proposal with years_to_validate > 5 yr is
+          NHT-KILLED on confirmability, regardless of other dimensions. Proposals in
+          the 3–5 yr stretch zone must be explicitly flagged STRETCH with NHT comment.
+      NHT dissent is append-only per firm rule 6.
+    owner: null-hypothesis-tester
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      nht-screen.yaml exists with: for each proposal — nht_verdict (survive |
+      auto-kill | flagged), archive_dedup_result, base_rate_prior, testability_verdict,
+      AND confirmability_verdict (GATE_PASS | STRETCH_DISCLOSED | GATE_FAIL with
+      NHT's independently computed years_to_validate). Any confirmability override
+      of the QR self-assessment is documented with the formula values used. NHT
+      dissent on any survivor is recorded verbatim in nht_dissents list.
+
+  - id: HOQR-RANK
+    description: >
+      Head of Quant Research applies the FROZEN rubric (from RUBRIC-FREEZE) to all
+      NHT-surviving proposals and produces the final ranked portfolio. The ranking
+      must:
+      (a) Apply the frozen rubric mechanically — no retroactive weight adjustment.
+      (b) Show per-dimension scores for all survivors, including the confirmability
+          dimension score and hard-gate verdict.
+      (c) Show the confirmability score, estimated years_to_validate, and gate
+          verdict (PASS / STRETCH-DISCLOSED / FAIL) for every entry.
+      (d) Apply all four hard gates: any proposal failing novelty, cost_survival,
+          stat_tractability, OR confirmability has total score set to 0 (killed).
+      (e) Name exactly ONE recommended first candidate, or declare NO-SPEND if no
+          proposal clears the first-candidate bar (including the confirmability gate).
+      (f) Produce a direction view (≤ 200 words) written before seeing proposals,
+          updated from the prior kickoff's view to reflect the confirmability lesson.
+      HoQR does NOT run any backtests; ranking is mechanism-quality and confirmability
+      only.
+    owner: head-of-quant-research
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      hoqr-ranking.yaml exists containing: rubric reference (to hoqr-rubric.yaml),
+      direction_view (≤ 200 words), ranked_proposals (ordered list of all NHT-
+      surviving proposals with per-dimension rubric scores including confirmability),
+      explicit_kill_list (proposals killed at any stage with reason), and exactly ONE
+      recommended first candidate or an explicit NO-SPEND declaration. Every ranked
+      entry carries: confirmability_score, years_to_validate, confirmability_gate.
+
+  - id: PR-REVIEW
+    description: >
+      Principal Reviewer conducts an independent review of the ranked portfolio and
+      NHT screen after both are assembled. This wave's PR review adds a fifth check
+      — the confirmability check — to the four checks from the prior kickoff:
+      (a) NHT archive-dedup veto was applied to ALL proposals.
+      (b) HoQR frozen rubric was applied consistently; recommended first candidate
+          is the top-ranked survivor by that rubric.
+      (c) Every surviving proposal has all required elements: falsification sketch,
+          data availability, cost-survival note, AND confirmability fields
+          (events_per_year, per_event_SR_estimate, years_to_validate, gate_verdict).
+      (d) No backtest results, no return-performance data, no trial counter increments
+          appear anywhere in the wave artifacts.
+      (e) CONFIRMABILITY CHECK: PR independently spot-checks at least the top 3
+          ranked survivors' years_to_validate computations. Any discrepancy from the
+          formula is surfaced as a finding. PR confirms no proposal with years_to_
+          validate > 5 yr appears in the shortlist.
+      PR may flag proposals for re-review but does NOT run backtests or alter NHT
+      dissent record.
+    owner: principal-reviewer
+    done_when: >
+      An artifact at .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      pr-review.yaml exists with: decision (approve | needs-work | reject), findings
+      list (each with id, severity: blocking | non-blocking, description), confirmation
+      that all five checks (a)–(e) above were performed, and a specific note on the
+      confirmability spot-check results. A needs-work or reject verdict requires
+      identified roles to revise before CONSENSUS-shortlist is signed.
+
+  - id: CONSENSUS-shortlist
+    description: >
+      Terminal deliverable. PM assembles the ranked shortlist into a CONSENSUS document
+      after GEN-A, GEN-B, RUBRIC-FREEZE, NHT-SCREEN, HOQR-RANK, and PR-REVIEW are all
+      complete and PR-REVIEW decision is "approve." The CONSENSUS document must contain:
+      (a) A ranked shortlist of 3–5 surviving proposals (in ranked order), each with:
+          mechanism summary (≤ 1 paragraph), NHT verdict, rubric score (total and
+          per-dimension including confirmability), data tier, estimated years_to_validate,
+          and confirmability gate verdict (PASS / STRETCH-DISCLOSED / FAIL).
+      (b) ONE explicitly recommended first candidate for pre-registration in a follow-on
+          track, with rationale (≤ 100 words) that EXPLICITLY addresses confirmability
+          (why this candidate can validate within ≲ 3 yr or ≲ 5 yr). OR an explicit
+          NO-SPEND declaration with the reason.
+      (c) An explicit kill-list of all screened-out proposals with kill reasons including
+          any confirmability-gate kills (with the years_to_validate value that triggered
+          the kill).
+      (d) A statement that the org trial counter was NOT incremented in this wave and
+          the verified count (42) at wave close.
+      (e) All role signatures: quant-researcher-A, quant-researcher-B, HoQR, NHT,
+          principal-reviewer, PM.
+    owner: pm
+    done_when: >
+      A CONSENSUS_2026-06-07_new_alpha_kickoff_2.md file is committed to docs/decisions/
+      containing all five elements (a)–(e). The shortlist has 3–5 entries OR is declared
+      NO-SPEND. Every shortlist entry carries confirmability_score + years_to_validate +
+      gate_verdict. Exactly one recommended first candidate is named OR NO-SPEND is
+      declared. The kill-list is non-empty and includes confirmability-gate kills (if
+      any). All role signatures are present. PM confirms PR-review decision was "approve"
+      before signing.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEQUENCING (enforced — wave ordering is a hard constraint)
+# ══════════════════════════════════════════════════════════════════════════════
+wave_sequencing:
+  wave_1: "PM — this acceptance-criteria artifact"
+  wave_2: "HoQR — rubric FREEZE (RUBRIC-FREEZE criterion). Must complete before wave 3."
+  wave_3: "QR-A + QR-B in parallel — proposal generation (GEN-A, GEN-B). After rubric frozen."
+  wave_4: "NHT — adversarial screen with confirmability kill axis (NHT-SCREEN). After both QR slices complete."
+  wave_5: "HoQR — apply frozen rubric, produce final ranking (HOQR-RANK). After NHT-SCREEN complete."
+  wave_6: "Principal Reviewer — independent review (PR-REVIEW). After HOQR-RANK complete."
+  wave_7: "PM — assemble CONSENSUS-shortlist. After PR-REVIEW decision = approve."
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OUT OF SCOPE
+# ══════════════════════════════════════════════════════════════════════════════
+out-of-scope:
+  - "Actual pre-registration or full backtest of any selected candidate — this is a FUTURE dedicated track"
+  - "Trial counter increment — zero trials registered in this wave; counter stays at 42"
+  - "QRB-3 pre-registration — QRB-3 remains queued/independent under its own separate governance; not in scope here"
+  - "CB-decision event studies — blocked per HC-11 (QRB-6 lesson: confirmability hard-gate fail category)"
+  - "Carry family re-skins — calendar-locked until 2028-10-06 per trial f2fb41fd; all variants blocked"
+  - "Momentum re-skins — Bet#1 retired, archived"
+  - "MA-crossover, Bollinger-RSI, TAS-ceiling-4h re-skins — all archived"
+  - "ORB variants — archived family, blocked"
+  - "ML-model strategies — route to ml-researcher in a dedicated future track"
+  - "Live capital, paper trading, or any capital-at-risk action"
+  - "Code of any kind — no scripts, no indicator implementations, no notebooks"
+  - "Data purchases or external data acquisition — flagging is permitted; authorization is CEO-only and out of scope"
+  - "Strategy parameter search or optimization of any kind"
+  - "R5 confirmatory carry-universe test — tracked separately; not in scope here"
+  - "Re-adjudication of NHT dissents already recorded as append-only in prior CONSENSUS docs"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROLES STAFFED
+# ══════════════════════════════════════════════════════════════════════════════
+roles-staffed:
+  - role: pm
+    model: sonnet
+    rationale: >
+      Produces this acceptance-criteria artifact (wave 1) and assembles the terminal
+      CONSENSUS-shortlist (wave 7). Makes no domain or statistical adjudications.
+      The confirmability formula and hard-gate threshold (≲ 3 yr preferred, ≲ 5 yr
+      stretch) are PM-specified here; HoQR authors the per-level anchors within
+      that frame in wave 2.
+
+  - role: head-of-quant-research
+    model: opus
+    rationale: >
+      Owns two artifacts: (1) rubric FREEZE in wave 2 — sole authority to author the
+      updated rubric with the new CONFIRMABILITY dimension; (2) final ranking in wave 5
+      — sole authority to name the recommended first candidate or declare NO-SPEND.
+      Must carry QRB-6 lesson explicitly into the direction view: structural flows
+      with high events-per-year and plausible per-event Sharpe are now the prior;
+      low-frequency event studies are flagged as structural confirmability risk.
+
+  - role: quant-researcher-A
+    model: opus
+    rationale: >
+      Slice A generation — price, volatility, cross-sectional OHLCV structure. Must
+      provide mandatory confirmability fields per HC-12. Disjoint from slice B to
+      maximize coverage. Produces qr-a-proposals.yaml.
+
+  - role: quant-researcher-B
+    model: opus
+    rationale: >
+      Slice B generation — event/calendar/macro-conditioning, alternative signal
+      sources. Must provide mandatory confirmability fields per HC-12. CB-decision
+      studies are blocked. Produces qr-b-proposals.yaml.
+
+  - role: null-hypothesis-tester
+    model: opus
+    rationale: >
+      Adversarial screening with confirmability as an explicit fourth kill axis.
+      NHT independently verifies years_to_validate computations and may override
+      QR self-assessments. Append-only dissent per firm rule 6. Produces
+      nht-screen.yaml.
+
+  - role: principal-reviewer
+    model: opus
+    rationale: >
+      Independent review wave — spot-checks at least top 3 survivors' confirmability
+      computations; confirms no years_to_validate > 5 yr in the shortlist. Produces
+      pr-review.yaml. PR approval is a gate on the terminal CONSENSUS-shortlist.
+
+roles-NOT-staffed:
+  - role: cro
+    reason: >
+      No risk/capital surface in a proposal-only wave. CRO engagement is appropriate
+      when a candidate advances to pre-registration (where drawdown limits, capital
+      allocation, and execution risk are designed). Not required here.
+  - role: cto
+    reason: >
+      No architecture/infrastructure surface. CTO engagement is appropriate when a
+      candidate's pre-registration requires new data ingestion, pipeline changes, or
+      execution infrastructure. Not required here.
+
+wraps_invocation_of: []
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EVIDENCE (tool-verified facts, not assumptions)
+# ══════════════════════════════════════════════════════════════════════════════
+evidence:
+  - path: ".fintech-org/trials.jsonl"
+    note: >
+      File has 47 lines total (trial events including status updates). Mandate states
+      42 spawned trials (org-wide counter). This wave does not increment.
+  - path: "data/processed/"
+    note: >
+      Directory listing confirmed: 15 OHLCV parquet files — 12 daily pairs
+      (AUDJPY, AUDUSD, CADJPY, EURGBP, EURJPY, EURUSD, GBPJPY, GBPUSD, NZDJPY,
+      NZDUSD, USDCAD, USDJPY) + 3 four-hour pairs (EURUSD_4h, GBPUSD_4h, USDJPY_4h).
+      volume = ZERO uniformly in all processed files (carried from prior kickoff).
+  - path: "data/spreads/"
+    note: >
+      Directory listing confirmed present (carried from prior kickoff artifact
+      evidence). 15 spread parquet files matching 12 daily + 3 four-hour pairs.
+  - path: "docs/decisions/CONSENSUS_2026-06-07_qrb6_winddown.md"
+    note: >
+      Read in full. Source of QRB-6 wind-down lesson, power table, confirmability
+      formula derivation (Power formula: Φ(g·√n − z_0.95), one-sided), and the
+      encoded policy "future hypothesis generation must score CONFIRMABILITY up front."
+      The years_to_validate formula in this artifact is derived from the power
+      analysis in that document.
+  - path: "docs/decisions/CONSENSUS_2026-06-06_new_alpha_kickoff.md"
+    note: >
+      Read in full. Source of prior rubric structure (7 dimensions, weights, 3 hard
+      gates), prior shortlist (QRA-1 through QRB-6), kill rationales (QRA-3, QRB-5),
+      and QRB-3 queued-runner-up status. Grounds the no-reskins and no-qrb3-
+      duplication constraints.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml"
+    note: >
+      Read in full. Source of the exact prior rubric dimensions, weights, and anchors
+      used as the starting-point for the reweight instruction in RUBRIC-FREEZE.
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pm-acceptance-criteria.yaml"
+    note: >
+      Read in full. Source of prior PM AC structure, field schema, and wave sequencing
+      pattern reused here.
+
+assumptions:
+  - >
+    The archived-family set (carry, momentum/Bet#1, ma_crossover, bollinger_rsi,
+    tas_ceiling_4h, ORB, QRA-1 through QRB-6) is complete as of this wave. NHT
+    holds the authoritative dedup veto.
+  - >
+    Trial counter at 42 spawned is accurate per the mandate brief and the last
+    CONSENSUS (qrb6_winddown). The trials.jsonl file has 47 lines total (events
+    and status updates); spawned-trial count is mandate-stated at 42.
+  - >
+    honest-N ≈ 11 validated forex hypotheses (from the 2026-05-31 honest review)
+    remains the base-rate calibration figure.
+  - >
+    The ~1.5 pip round-trip + ~0.8–1.5 pip/day swap cost model from config/default.yaml
+    is representative of the realistic per-pair cost floor. HoQR's rubric anchors
+    should reference this figure as in the prior kickoff.
+  - >
+    cb_decision_dates.parquet exists on disk but CB-decision event studies are
+    blocked per HC-11 (QRB-6 lesson). The file is not an eligible signal source
+    for primary alpha proposals in this wave.
+  - >
+    "No live capital" is an absolute firm constraint that does not require further
+    ratification. The no-capital-instruction field is the machine-checkable record.
+
+confidence: high
+# All evidence claims backed by direct file reads and directory listings run before
+# writing this artifact. The trial counter (42 per mandate), data inventory (15 files),
+# archived families, and the confirmability formula are all tool-verified or derived
+# from CONSENSUS documents read in full.
+
+body: |
+  ## Purpose and structural change vs the prior kickoff
+
+  This wave is the firm's second systematic NEW-alpha hypothesis-generation cycle,
+  run under a new CONFIRMABILITY discipline learned from the QRB-6 wind-down. The
+  structural change is a single, load-bearing addition: CONFIRMABILITY is now a
+  first-class scored dimension with a hard gate in the ranking rubric, and its
+  parameters (events_per_year × per_event_Sharpe → years_to_validate) must be
+  stated in every proposal.
+
+  QRB-6 was the lesson: a real, statistically significant in-sample edge (p=0.0027,
+  pooled SR=1.352) at ~30 events/yr with per-event SR ~0.085 cannot be confirmed
+  out-of-sample in fewer than 12–256 years. It passed every prior generation-phase
+  screen and still cost a full exploratory trial (fa0f982a), a confirmatory design
+  (53981a4a, withdrawn-pre-freeze), a void + remediated rerun, and a wind-down
+  consensus. Confirmability failure is now a STRUCTURAL KILL — a proposal that
+  cannot be validated in ≲ 5 years of forward data will never contribute to the
+  firm's validated-alpha count regardless of in-sample beauty.
+
+  The CONFIRMABILITY hard gate would have killed QRB-6 at generation time. That is
+  the purpose of this wave's structural change.
+
+  ## Confirmability threshold rationale
+
+  The PM-specified gate is:
+    - ≲ 3 yr: GATE_PASS (preferred; realistic forward-test horizon for the firm)
+    - 3–5 yr: STRETCH (allowed; HoQR must disclose and justify; NHT must flag)
+    - > 5 yr: GATE_FAIL (killed; not confirmable on any tradeable horizon)
+
+  The 3-yr threshold corresponds (per the formula at one-sided 5% significance,
+  80% power, 1/3 haircut) to roughly: a daily-frequency signal at ~0.10 per-event
+  SR with 250 events/yr, or a weekly signal at ~0.20 per-event SR with 52 events/yr.
+  These are non-trivial but achievable profiles. The gate is calibrated to exclude
+  the QRB-6 class (low-frequency event studies with modest per-event effect sizes)
+  while permitting structural flow hypotheses with plausibly higher event density.
+
+  ## What this wave does NOT do
+
+  It does not produce: backtests, code, pre-registrations, trial counter increments,
+  or any output touching live or paper capital. The org trial counter remains at 42
+  at wave close. The actual pre-registration and backtest of any recommended candidate
+  is a FUTURE dedicated track.
+
+knowledge_gaps: []
+# No knowledge gaps identified that block wave execution. The predictions/2026-04.parquet
+# schema is uncharacterized (per prior kickoff) — QR-B inherits the caution: score it
+# data_readiness 3, not 4, until verified.
+
+policy_violations_detected: []
+
+sources: []
+# All context sourced from:
+#   docs/decisions/CONSENSUS_2026-06-07_qrb6_winddown.md (read in full)
+#   docs/decisions/CONSENSUS_2026-06-06_new_alpha_kickoff.md (read in full)
+#   .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml (read in full)
+#   .fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/pm-acceptance-criteria.yaml (read in full)
+#   .fintech-org/trials.jsonl (wc -l = 47, tail verified)
+#   data/processed/ directory listing (15 files, verified)
+#   CEO task brief (new-alpha-kickoff-2 mandate, verbatim constraints)
+# No external URLs cited.
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true
+# This wave produces paper hypothesis artifacts only. No trading recommendations,
+# no capital-at-risk actions, no paper trading, no live orders at any stage.
+# The firm remains backtest-only. This constraint cannot be waived by any role
+# in this wave including the PM.

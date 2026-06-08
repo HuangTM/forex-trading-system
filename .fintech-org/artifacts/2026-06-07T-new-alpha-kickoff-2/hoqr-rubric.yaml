@@ -1,0 +1,453 @@
+---
+# HoQR Scoring Rubric — New-Alpha Kickoff-2 (Wave 2, 2026-06-07)
+# FROZEN BEFORE ANY PROPOSAL EXISTS. The timestamp on this artifact precedes the
+# timestamps on qr-a-proposals.yaml and qr-b-proposals.yaml by construction; that
+# ordering IS the anti-gaming guarantee — a rubric authored after proposals exist
+# can be bent to favour them, a rubric authored before cannot.
+#
+# Structural change vs the 2026-06-06 kickoff rubric: CONFIRMABILITY is added as a
+# first-class scored dimension (weight 0.12) with a FOURTH hard gate. This is the
+# QRB-6 lesson made structural — a real in-sample edge (p=0.0027, pooled SR=1.352)
+# that nonetheless needs 12-256 years to confirm out-of-sample must die at
+# GENERATION TIME, not after a void + remediation + wind-down.
+
+role: head-of-quant-research
+artifact_type: scoring-rubric
+decision: approve
+
+timestamp: "2026-06-07T23:30:00Z"   # AFTER pm-acceptance-criteria (23:00:00Z), BEFORE any QR proposal
+
+subtask_ref: kickoff-2-rubric
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"
+
+frozen_before_proposals: true
+
+no-capital-instruction: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONFIRMABILITY FORMULA — frozen here verbatim (anti-gaming attestation A3)
+# ════════════════════════════════════════════════════════════════════════════
+# This is the BINDING anchor for the confirmability dimension AND its hard gate.
+# It is copied verbatim from pm-acceptance-criteria.yaml (PM-specified) and is the
+# SAME power algebra independently reproduced by HoQR and NHT to zero delta in the
+# QRB-6 wind-down (CONSENSUS_2026-06-07_qrb6_winddown.md, Power Table).
+confirmability_formula:
+  formula_verbatim: "years_to_validate = ((1.645 + 0.842) / per_event_SR_haircut)^2 / events_per_year"
+  haircut_definition: "per_event_SR_haircut = (1/3) * per_event_SR_estimate_IS"
+  constants:
+    z_0.95: 1.645   # one-sided 5% significance
+    z_0.80: 0.842   # 80% power
+    "(z_0.95 + z_0.80)^2": 6.1852
+    haircut: 0.3333   # 1/3 standard selection-bias deflation
+  semantics: >
+    years_to_validate is the forward calendar time, at the proposal's estimated
+    event run-rate, required to reject the null at one-sided 5% with 80% power
+    GIVEN a haircut-adjusted per-event Sharpe. It is computed from two
+    proposer-DECLARED inputs (events_per_year, per_event_SR_estimate_IS) which NHT
+    independently RECOMPUTES and MAY OVERRIDE. The years figure is the anchor for
+    both the confirmability dimension score and the confirmability hard gate.
+  verification_anchors:
+    - "QRB-6 (events_per_year=30, per_event_SR_IS=0.08518 -> haircut 0.02839): years_to_validate = 6.1852/(0.02839^2)/30 = 255.8 yr -> GATE_FAIL (matches wind-down consensus, would have killed at generation)"
+    - "Daily modest (events_per_year=250, per_event_SR_haircut=0.10): years = 6.1852/(0.10^2)/250 = 2.47 yr -> score 3 (<=3yr), GATE_PASS"
+    - "Daily decent (events_per_year=250, per_event_SR_haircut=0.15): years = 6.1852/(0.15^2)/250 = 1.10 yr -> score 4 (<=2yr), clears first-candidate bar"
+    - "Weekly moderate (events_per_year=52, per_event_SR_haircut=0.12): years = 6.1852/(0.12^2)/52 = 8.26 yr -> GATE_FAIL"
+
+# ════════════════════════════════════════════════════════════════════════════
+# THE FROZEN RUBRIC
+# ════════════════════════════════════════════════════════════════════════════
+rubric:
+  scoring_scale: "1-5 integer per dimension, anchored. Higher is better."
+
+dimensions:
+
+  # ── DIMENSION 1: mechanism_quality (carried forward, weight reduced 0.28 -> 0.25)
+  - name: mechanism_quality
+    weight: 0.25
+    description: >
+      WHO loses money to this trade, and WHY do they persist in losing? Flows,
+      constraints, mandates, behavioral biases — NOT a price pattern. A pattern is
+      'X tends to follow Y'; a mechanism names the counterparty and the structural
+      reason they cannot or will not stop. Top weight: patterns are free, mechanisms
+      are scarce. Weight reduced 0.28->0.25 to fund confirmability; mechanism remains
+      the single highest-weighted dimension.
+    anchors_1_to_5:
+      "1": "Pure pattern. No counterparty named. 'Prices mean-revert after a gap' with no account of who supplies liquidity or why. Indistinguishable from data-mining a chart."
+      "2": "A plausible-sounding story but the loser is hand-waved ('the market overreacts'). No structural reason the edge survives being known."
+      "3": "A named counterparty class (month-end rebalancers, retail stop-clusters, hedgers indifferent to price) but the persistence argument is weak — could be arbitraged away."
+      "4": "Named counterparty + a CONSTRAINT that forces them to keep losing (a mandate, a regulatory cadence, an inelastic hedging need, a structurally price-insensitive flow). Edge survives being known because the loser is not optimizing P&L."
+      "5": "As 4, plus the constraint is documented/observable AND the firm cannot itself be on the losing side. Persistence is mechanical, not a behavioral hope. Rare; reserve for genuinely structural flows."
+
+  # ── DIMENSION 2: novelty_vs_archive (HARD GATE, carried forward, 0.20 -> 0.17)
+  - name: novelty_vs_archive
+    weight: 0.17
+    hard_gate: true
+    description: >
+      Is the MECHANISM (not the indicator) distinct from every archived family:
+      carry (all variants — calendar-locked to 2028-10-06), momentum/Bet#1,
+      ma_crossover, bollinger_rsi, tas_ceiling_4h, ORB, and prior QRA-1..QRB-6
+      (QRB-3 queued/independent, must not be duplicated)? HARD GATE at level 1:
+      novelty==1 -> TOTAL=0. NHT holds the authoritative dedup veto; this dimension
+      mirrors it. Weight reduced 0.20->0.17 to fund confirmability.
+    anchors_1_to_5:
+      "1": "HARD-GATE FAIL -> score zeroed. A re-skin of an archived family: same flow/behavior, new indicator name. Includes ANY signal that is a monotone function of the rate differential (carry wearing a hat), trend-following on a different MA, or band-touch mean-reversion. NHT veto mirror."
+      "2": "Adjacent to an archived family — different trigger but the SAME economic edge being harvested. Survives the hard gate only if NHT clears it; otherwise zeroed."
+      "3": "Distinct mechanism, but well-known in public literature and likely already arbitraged. Novelty to THIS firm, not to the world."
+      "4": "Distinct mechanism, sparsely covered in literature, no archived-family overlap. A non-obvious flow or structure."
+      "5": "Distinct mechanism the firm has a specific data/structural reason to test that most public actors cannot easily replicate at daily/4h cadence."
+
+  # ── DIMENSION 3: falsifiability_sharpness (carried forward, 0.16 -> 0.14)
+  - name: falsifiability_sharpness
+    weight: 0.14
+    description: >
+      How cheaply and cleanly does ONE backtest kill this? A sharp hypothesis names
+      the specific result (sign, magnitude, on which pairs) that falsifies it, with
+      a pre-committed threshold — not 'we'll see if it's profitable.' Distinct from
+      confirmability: falsifiability is 'can ONE in-sample backtest cleanly KILL it';
+      confirmability is 'can a FORWARD test CONFIRM it on a feasible horizon.' A
+      hypothesis can be sharply falsifiable in-sample yet unconfirmable out-of-sample
+      (that is exactly the QRB-6 shape). Weight reduced 0.16->0.14.
+    anchors_1_to_5:
+      "1": "No kill criterion. 'Backtest it and look at Sharpe.' Unfalsifiable in practice — any result can be rationalized."
+      "2": "Vague direction ('expect positive returns') with no magnitude or pre-committed threshold."
+      "3": "A threshold stated but it is post-hoc-movable, or requires many sub-tests that invite multiple-comparisons fishing."
+      "4": "One pre-committed, sign-and-magnitude-specific kill criterion checkable in a single backtest on a named pair set. Clean."
+      "5": "As 4, plus a built-in placebo/negative control the SAME backtest produces (the effect must vanish in a shuffled or off-mechanism condition), so a spurious pass is itself caught cheaply."
+
+  # ── DIMENSION 4: cost_survival_plausibility (HARD GATE, carried forward, 0.16 -> 0.15)
+  - name: cost_survival_plausibility
+    weight: 0.15
+    hard_gate: true
+    description: >
+      Does the signal plausibly exceed realistic friction? Verified cost model:
+      ~1.5 pips round-trip on majors (0.5 spread + 0.5 slippage + 0.5 commission),
+      wider on crosses (~1.9 pips on JPY crosses), plus swap ~0.8-1.5 pips/day
+      carried overnight. Daily-bar frequent trading is a KNOWN killer. HARD GATE at
+      level 1: cost_survival==1 -> TOTAL=0. Weight reduced 0.16->0.15.
+    anchors_1_to_5:
+      "1": "HARD-GATE FAIL -> score zeroed. Implied edge per trade is below the ~1.5-pip round-trip floor, OR turnover is so high that cumulative friction obviously exceeds any plausible signal. Cost-blind intraday ideas land here."
+      "2": "Edge is of the same order as friction (within ~2x) — survives only if everything else is perfect; net-of-cost margin is wishful."
+      "3": "Edge is a few-x friction on the modeled pairs, but turnover-sensitive; plausible but margin-thin."
+      "4": "Edge comfortably exceeds friction (>=5x round-trip) AND turnover is low enough that swap/spread accumulation does not erode it. Low trade count per year is a positive here, not a negative."
+      "5": "As 4, and the mechanism is INHERENTLY low-turnover (holds across friction by design — infrequent, large, structurally-timed moves), so cost is a rounding error on the gross edge."
+
+  # ── DIMENSION 5: statistical_tractability (HARD GATE, carried forward, 0.12 -> 0.10)
+  - name: statistical_tractability
+    weight: 0.10
+    hard_gate: true
+    description: >
+      Can the AVAILABLE data deliver enough EFFECTIVE sample size to reject the null
+      at this firm's DSR-gated bar IN-SAMPLE? 'Can we test it at all / is the statistic
+      clean.' Be explicit about what caps power: monthly-stale feeds, rare events
+      (per-event not per-bar samples), autocorrelation (overlapping windows inflate
+      naive N). HARD GATE at level 1: stat_tractability==1 -> TOTAL=0.
+      DO-NOT-DOUBLE-COUNT vs confirmability: stat_tractability asks 'can we form a
+      clean, well-powered IN-SAMPLE statistic at all?'; confirmability asks 'can we
+      VALIDATE it OUT-OF-SAMPLE on a feasible forward horizon (years_to_validate)?'.
+      QRB-6 scored well here (a clean pooled statistic existed) yet failed
+      confirmability (256 yr forward) — that is precisely why these are SEPARATE
+      dimensions. Weight reduced 0.12->0.10.
+    anchors_1_to_5:
+      "1": "HARD-GATE FAIL -> score zeroed. Effective N too small to ever clear a DSR gate in-sample — an untestably-rare event (a handful of occurrences), or a signal that only exists at monthly cadence with <~50 independent observations. No backtest can be well-powered."
+      "2": "Effective N marginal (~50-150 independent obs after de-overlapping); power is low; a null result would be uninformative (could not distinguish 'no edge' from 'underpowered')."
+      "3": "Adequate effective N on a single pair (~150-400 independent obs), but thin once split into OOS, or reliant on one pair's history."
+      "4": "Good effective N — cross-sectional pooling across the 12 daily pairs or dense 4h bars gives hundreds-to-thousands of independent observations, enough to power an honest in-sample test."
+      "5": "Abundant effective N AND the cross-section provides independent replicas (same mechanism tested across uncorrelated pairs), so a pass is itself a robustness check."
+
+  # ── DIMENSION 6: confirmability (NEW — first-class, HARD GATE, weight 0.12) ──
+  - name: confirmability
+    weight: 0.12
+    hard_gate: true
+    description: >
+      THE HEADLINE DIMENSION (new this wave). Can this edge be CONFIRMED
+      OUT-OF-SAMPLE on a feasible forward horizon? Scored DIRECTLY off
+      years_to_validate from the frozen formula:
+      years_to_validate = ((1.645+0.842)/per_event_SR_haircut)^2 / events_per_year,
+      where per_event_SR_haircut = (1/3)*per_event_SR_estimate_IS. Inputs
+      (events_per_year, per_event_SR_estimate_IS) are PROPOSER-DECLARED but
+      NHT-RECOMPUTED and may be overridden. HARD GATE: years_to_validate > 5 yr ->
+      GATE_FAIL -> TOTAL=0 (the 4th zeroing gate). 3-5 yr = STRETCH (allowed, MUST be
+      disclosed in the ranking). CLEAN DISTINCTION from statistical_tractability:
+      stat_tractability = 'can we form a clean, well-powered IN-SAMPLE statistic at
+      all?'; confirmability = 'can we VALIDATE it OUT-OF-SAMPLE within a tradeable
+      number of years?'. A proposal can score 5 on stat_tractability (clean pooled
+      in-sample statistic) and 1 on confirmability (centuries to confirm forward) —
+      that is the QRB-6 shape. Scorers must NOT double-count: do not penalize
+      confirmability for a thin in-sample N (that is stat_tractability), and do not
+      penalize stat_tractability for a long forward horizon (that is confirmability).
+      The anchor scale is monotonic in years_to_validate (fewer years = higher score).
+    anchors_1_to_5:
+      "5": "years_to_validate <= ~1 yr. Confirmable within a single forward year — high event density (e.g. daily, hundreds/yr) with a non-trivial per-event SR. The ideal: a verdict arrives fast."
+      "4": "years_to_validate <= ~2 yr. Confirmable in two forward years. REQUIRED FLOOR for the recommended first candidate (the firm only spends a trial on what it can validate fast)."
+      "3": "years_to_validate <= ~3 yr. PM-preferred GATE_PASS ceiling. Confirmable but the firm waits ~3 yr for a verdict — acceptable, not first-candidate-grade."
+      "2": "years_to_validate in (3, 5] yr. STRETCH zone — GATE-allowed but MUST be disclosed and justified in the ranking and flagged STRETCH by NHT. A 3-5 yr forward wait is a real cost; permitted only with explicit rationale."
+      "1": "years_to_validate > 5 yr. HARD-GATE FAIL -> TOTAL=0. Not confirmable on any tradeable horizon. The QRB-6 class (low-frequency event studies with modest per-event effect) lands here — QRB-6 itself = 256 yr. Auto-killed regardless of every other dimension."
+
+  # ── DIMENSION 7: data_readiness (soft gate, carried forward, 0.05 -> 0.04)
+  - name: data_readiness
+    weight: 0.04
+    hard_gate: "soft — see first_candidate_bar; acquisition_required cannot be the recommended first candidate"
+    description: >
+      Is every input in the VERIFIED inventory now, or does it need acquisition
+      (CEO-only, out of scope this wave)? SOFT gate: data_readiness<=2 does not zero
+      the total but renders a proposal INELIGIBLE for the recommended-first-candidate
+      slot. Weight reduced 0.05->0.04.
+    anchors_1_to_5:
+      "1": "Requires data not in inventory and not acquirable cheaply (tick order-flow, proprietary positioning). Speculative."
+      "2": "Requires external acquisition that is feasible but CEO-gated; cannot be the first candidate this wave."
+      "3": "Available now but in an UNCHARACTERIZED file (e.g. predictions/2026-04 schema not yet inventoried) — needs a verification step first."
+      "4": "Fully available now: OHLCV (12 daily + 3x4h), spreads, executions — all verified present. No acquisition."
+      "5": "Available now AND already clean/validated in the pipeline (processed parquet), zero ingestion risk."
+
+  # ── DIMENSION 8: capacity_robustness (carried forward, weight unchanged 0.03)
+  - name: capacity_robustness
+    weight: 0.03
+    description: >
+      Does the edge survive small perturbations (pair set, lookback, threshold) and
+      is it not single-pair-fragile or single-regime-fragile? Weight unchanged at
+      0.03 (already minimal; not reduced further).
+    anchors_1_to_5:
+      "1": "Edge lives in one pair / one regime / one magic parameter. Fragile."
+      "2": "Survives on 2 pairs but parameter-sensitive."
+      "3": "Survives across several pairs; moderate parameter sensitivity."
+      "4": "Robust across the cross-section and a parameter neighborhood."
+      "5": "Mechanism predicts WHICH pairs it should and should not work on, and the data agrees — robustness is a prediction, not a hope."
+
+# ════════════════════════════════════════════════════════════════════════════
+# WEIGHT VECTOR + SUM CHECK
+# ════════════════════════════════════════════════════════════════════════════
+weight_vector:
+  mechanism_quality: 0.25         # prior 0.28  (-0.03)
+  novelty_vs_archive: 0.17        # prior 0.20  (-0.03)
+  falsifiability_sharpness: 0.14  # prior 0.16  (-0.02)
+  cost_survival_plausibility: 0.15 # prior 0.16  (-0.01)
+  statistical_tractability: 0.10  # prior 0.12  (-0.02)
+  confirmability: 0.12            # NEW         (+0.12)
+  data_readiness: 0.04            # prior 0.05  (-0.01)
+  capacity_robustness: 0.03       # prior 0.03  ( 0.00)
+  sum_check: "0.25 + 0.17 + 0.14 + 0.15 + 0.10 + 0.12 + 0.04 + 0.03 = 1.00"
+  reweight_justification: >
+    The new 0.12 for confirmability is funded by pulling weight from the six largest
+    dimensions roughly in proportion to their size, leaving the rank order of the
+    carried-forward dimensions UNCHANGED (mechanism still top at 0.25). The split:
+    -0.03 from mechanism and novelty (the two biggest, can absorb the most without
+    losing primacy), -0.02 from falsifiability and stat_tractability, -0.01 from cost
+    and data, 0.00 from capacity (already at the 0.03 floor). 0.12 is large enough to
+    MOVE rankings: at a 5-point spread it contributes up to 0.48 to the total score —
+    more than a full integer step on mechanism (0.25) — so a confirmability difference
+    of two anchor levels can reorder otherwise-comparable proposals. It is deliberately
+    NOT larger than mechanism: the firm still ranks on who-loses-money first; among
+    mechanistically-sound and confirmable ideas, confirmability then sharply
+    discriminates. And the HARD GATE means the weight is the tie-breaking finesse on
+    top of an absolute kill at >5 yr.
+
+# ════════════════════════════════════════════════════════════════════════════
+# AGGREGATION
+# ════════════════════════════════════════════════════════════════════════════
+aggregation:
+  rule: >
+    Apply the FOUR hard gates FIRST. If novelty_vs_archive==1, OR
+    cost_survival_plausibility==1, OR statistical_tractability==1, OR confirmability
+    GATE_FAIL (years_to_validate > 5 yr, equivalently confirmability anchor==1), the
+    proposal's TOTAL is set to 0 (killed) regardless of all other dimensions. If no
+    gate fires, TOTAL = weighted sum of the 8 dimension scores (weights sum to 1.00),
+    a value in [1.0, 5.0]. data_readiness is a SOFT gate: <=2 does not zero the total
+    but makes the proposal INELIGIBLE for the recommended-first-candidate slot.
+  tie_break:
+    - "1. Higher mechanism_quality (the scarcest, least-fakeable virtue)."
+    - "2. Higher confirmability (fewer years_to_validate — a faster-validatable trial is a better spend)."
+    - "3. Higher statistical_tractability (a more-powered in-sample test)."
+    - "4. Lower turnover / higher cost_survival_plausibility (durability under friction)."
+    - "5. Higher data_readiness (already-clean beats needs-verification)."
+    - "6. If still tied, HoQR judgment call recorded with rationale in the ranking artifact."
+
+# ════════════════════════════════════════════════════════════════════════════
+# HARD GATES (4, machine-checkable)
+# ════════════════════════════════════════════════════════════════════════════
+hard_gates:
+  - id: HG-1
+    name: novelty_archive_reskin
+    rule: "novelty_vs_archive == 1  ->  TOTAL = 0"
+    rationale: "Archived-family re-skin (carry/momentum/MA/BB/TAS/ORB/QRA-1..QRB-6, incl. queued QRB-3). NHT dedup-veto mirror. CARRIED FORWARD UNCHANGED."
+  - id: HG-2
+    name: cost_below_friction_floor
+    rule: "cost_survival_plausibility == 1  ->  TOTAL = 0"
+    rationale: "Edge below the ~1.5-pip round-trip floor or turnover-dominated by spread/swap. CARRIED FORWARD UNCHANGED."
+  - id: HG-3
+    name: untestable_insample
+    rule: "statistical_tractability == 1  ->  TOTAL = 0"
+    rationale: "Effective in-sample N cannot power a DSR-gated test. CARRIED FORWARD UNCHANGED."
+  - id: HG-4
+    name: unconfirmable_oos
+    rule: "confirmability == 1  (equivalently years_to_validate > 5 yr at 80% power via frozen formula)  ->  TOTAL = 0"
+    rationale: >
+      NEW 4th gate. Not confirmable out-of-sample on any tradeable horizon. Computed
+      from the frozen formula on NHT-verified (events_per_year, per_event_SR_estimate_IS).
+      This gate would have killed QRB-6 (255.8 yr) at generation time. The 3-5 yr
+      STRETCH band (confirmability anchor 2) is NOT a gate fail but MUST be disclosed
+      and justified in the ranking and flagged STRETCH by NHT.
+
+soft_gates:
+  - id: SG-1
+    name: data_acquisition_required
+    rule: "data_readiness <= 2  ->  NOT zeroed, but INELIGIBLE as recommended first candidate (acquisition is CEO-only this wave)"
+
+# ════════════════════════════════════════════════════════════════════════════
+# FIRST-CANDIDATE BAR (updated — prior bar PLUS confirmability >= 4)
+# ════════════════════════════════════════════════════════════════════════════
+first_candidate_bar:
+  statement: >
+    To be the ONE recommended first candidate for full pre-registration, a proposal
+    must clear ALL of the following — not 'score well on average.' This is the prior
+    kickoff's bar PLUS the new confirmability>=4 requirement: the firm will only put
+    its next trial on something it can validate FAST (<= ~2 yr forward).
+  requirements:
+    - "No dimension scores below 3 (no soft spots a trial would expose)."
+    - "mechanism_quality >= 4 (a named, constrained, price-insensitive counterparty — not a pattern)."
+    - "novelty_vs_archive >= 4 (distinct mechanism; NHT dedup-clean; not carry/momentum/MA/BB/TAS/ORB/QRA-1..QRB-6 in disguise)."
+    - "cost_survival_plausibility >= 4 (edge >= ~5x the ~1.5pip round-trip floor AND low turnover; survives swap accumulation)."
+    - "statistical_tractability >= 4 (effective in-sample N — via cross-section pooling or dense bars — can power an honest OOS DSR test; rare-event ideas excluded)."
+    - "confirmability >= 4 (years_to_validate <= ~2 yr by the frozen formula on NHT-verified inputs). NEW REQUIREMENT. A 3-5 yr STRETCH proposal may rank and survive but is NOT first-candidate-eligible."
+    - "falsifiability_sharpness >= 3 (a pre-committed, single-backtest kill criterion)."
+    - "data_readiness == 4 or 5 (available NOW in the verified inventory; acquisition_required proposals are INELIGIBLE this wave — CEO-only)."
+    - "NHT verdict == survive (archive-dedup clean, base-rate not unfavorable-fatal, testable, confirmability GATE_PASS)."
+  rationale: >
+    The bar is deliberately high because the cost of a wrong first spend is a burned
+    trial + weeks of calendar against a firm with zero validated OOS alpha and
+    honest-N ~ 11. QRB-6 proves the new confirmability>=4 clause is load-bearing: it
+    cleared every prior bar (real mechanism, novel, sharp, in-sample significant) and
+    STILL cost a void + remediation + wind-down because no one asked 'how many forward
+    years to confirm?' up front. If NO proposal clears this bar, the defensible
+    outcome is NO-SPEND (no_spend_valid below) — a bandwidth-preserving non-spend
+    beats forcing a weak trial.
+
+no_spend_valid: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# ANTI-GAMING ATTESTATIONS
+# ════════════════════════════════════════════════════════════════════════════
+anti_gaming_attestations:
+  - id: A1
+    statement: >
+      RUBRIC AUTHORED BEFORE PROPOSALS. This artifact's timestamp (2026-06-07T23:30:00Z)
+      precedes the timestamps on qr-a-proposals.yaml and qr-b-proposals.yaml, which do
+      not yet exist at freeze time. The rubric cannot be bent to favour ideas that do
+      not exist yet. This timestamp-before-proposals ordering IS the anti-gaming
+      guarantee (wave_sequencing: this is wave 2; QR generation is wave 3).
+  - id: A2
+    statement: >
+      SINGLE-USE FREEZE. This rubric governs ONLY the 2026-06-07 new-alpha-kickoff-2
+      wave. A future wave re-freezes its own rubric before seeing its own proposals.
+      No retroactive weight or anchor tuning to fit any specific proposal in THIS wave.
+  - id: A3
+    statement: >
+      FORMULA FROZEN VERBATIM. The years_to_validate formula
+      'years_to_validate = ((1.645 + 0.842) / per_event_SR_haircut)^2 / events_per_year'
+      with per_event_SR_haircut = (1/3)*per_event_SR_estimate_IS is frozen here verbatim,
+      identical to pm-acceptance-criteria.yaml and to the QRB-6 wind-down power algebra.
+      It cannot be re-derived or re-parameterized during ranking.
+  - id: A4
+    statement: >
+      PROPOSER-DECLARED, NHT-RECOMPUTED. The confirmability inputs (events_per_year,
+      per_event_SR_estimate_IS) are proposer-declared but NHT INDEPENDENTLY RECOMPUTES
+      years_to_validate and MAY OVERRIDE the self-assessment. A proposer cannot game
+      the gate by under-declaring events or over-declaring per-event Sharpe — NHT's
+      recomputation governs, and the gate uses NHT's verified inputs.
+  - id: A5
+    statement: >
+      NO-SPEND REMAINS VALID. If no proposal clears the first-candidate bar (including
+      confirmability>=4), NO-SPEND is the defensible terminal outcome. The wave must
+      not manufacture a recommendation to avoid a no-spend verdict.
+  - id: A6
+    statement: >
+      EXISTING HARD GATES NOT WEAKENED. The three prior hard gates (novelty==1,
+      cost_survival==1, stat_tractability==1) are carried forward UNCHANGED in rule
+      and threshold; confirmability is added as a 4th gate, not a substitute. Anchors
+      for the 7 carried dimensions are preserved (lightly refined wording only — e.g.
+      explicit non-double-counting notes — with no gate threshold weakened).
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - research-capacity-allocation
+
+# ════════════════════════════════════════════════════════════════════════════
+# EVIDENCE (tool-verified, file:line)
+# ════════════════════════════════════════════════════════════════════════════
+evidence:
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/pm-acceptance-criteria.yaml:61-98"
+    note: "confirmability_formula block — formula_compact, haircut, hard_gate_threshold (<=3 preferred, <=5 stretch, >5 fail). Frozen verbatim here as A3."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/pm-acceptance-criteria.yaml:210-237"
+    note: "RUBRIC-FREEZE criterion — owner head-of-quant-research; mandates 4th gate, prior 3 carried forward unchanged, weights sum 1.00, single-use freeze, timestamp must precede QR proposals."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml:38-215"
+    note: "Prior 7 dimensions, weights (mechanism .28/novelty .20/falsifiability .16/cost .16/stat .12/data .05/capacity .03) and anchors — carried forward, reweighted to fund confirmability .12."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml:235-247"
+    note: "Prior 3 hard gates + soft data gate + tie-break — carried forward; confirmability added as HG-4."
+  - path: "docs/decisions/CONSENSUS_2026-06-07_qrb6_winddown.md:69-82"
+    note: "Power Table: per-event Sharpe 0.02839 haircut, n* for 80% power = 7,670 (~256 yr) at 30 ev/yr. Verified my formula reproduces 255.8 yr -> GATE_FAIL."
+  - path: "docs/decisions/CONSENSUS_2026-06-07_qrb6_winddown.md:180-184"
+    note: "Adopted screening-rubric directive: 'Future hypothesis generation must score CONFIRMABILITY up front.' Source of this dimension's existence."
+  - path: "data/processed/"
+    note: "Listed: 15 OHLCV parquet (12 daily + 3 four-hour) — grounds data_readiness anchors 4-5. ls confirmed 15 files."
+  - path: "data/spreads/"
+    note: "Listed: per-pair daily + 4h spread parquet present (AUDJPY..GBPUSD_4h confirmed) — grounds data_readiness and cost anchors."
+
+assumptions:
+  - "The archived-family set (carry, momentum/Bet#1, ma_crossover, bollinger_rsi, tas_ceiling_4h, ORB, QRA-1..QRB-6 incl. queued QRB-3) is complete as of this wave; NHT holds the authoritative dedup veto and the novelty gate mirrors it."
+  - "honest-N ~ 11 validated forex hypotheses and trial counter at 42 spawned with zero validated OOS alpha; the high first-candidate bar (now incl. confirmability>=4) is calibrated to this low base rate."
+  - "The ~1.5-pip round-trip + ~0.8-1.5 pip/day swap cost model from config/default.yaml is representative of the realistic per-pair cost floor for the cost-survival anchors (carried from prior kickoff)."
+  - "The PM-specified gate thresholds (<=3 yr preferred / 3-5 yr stretch / >5 yr fail) are binding; HoQR sets the per-anchor-level years boundaries (5:<=1yr, 4:<=2yr, 3:<=3yr, 2:3-5yr, 1:>5yr) within that frame, keeping the gate fail at >5 yr and the stretch band at 3-5 yr exactly as PM-specified."
+  - "events_per_year and per_event_SR_estimate_IS are proposer-declared and NHT-recomputed; this rubric scores confirmability off NHT's verified years_to_validate, not the self-assessment, where they differ."
+
+confidence: high
+
+body: |
+  ## Why confirmability earns first-class status (and a 4th gate)
+
+  The firm's prior screening machinery was already good at killing patterns
+  (novelty gate), cost-blind ideas (cost gate), and underpowered in-sample tests
+  (stat-tractability gate). QRB-6 slipped through ALL of them: it had a real
+  mechanism, was novel, was sharply falsifiable, was statistically tractable
+  IN-SAMPLE (a clean pooled t-stat existed, p=0.0027), and the edge was real. It
+  died only when someone finally asked the question this rubric now forces up front:
+  "how many forward years to CONFIRM it?" The answer was 256. By then the firm had
+  already paid a void, a remediation, and a full wind-down consensus.
+
+  Confirmability is therefore NOT a refinement of statistical_tractability — it is
+  an orthogonal axis. Stat-tractability is about the IN-SAMPLE statistic (can we
+  form a clean, well-powered test at all on the data we have). Confirmability is
+  about the OUT-OF-SAMPLE horizon (given the event run-rate and the haircut effect
+  size, how long until a forward test reaches 80% power). A high-frequency daily
+  signal with a thin per-event edge can be both highly tractable in-sample AND
+  highly confirmable; QRB-6 was tractable in-sample but unconfirmable forward. The
+  two dimensions' descriptions both carry explicit non-double-counting language so
+  scorers keep them separate.
+
+  ## The anchor scale is the formula
+
+  Because years_to_validate is a single monotonic number, the confirmability anchors
+  map DIRECTLY onto it (5: <=1yr, 4: <=2yr, 3: <=3yr, 2: 3-5yr STRETCH, 1: >5yr
+  GATE_FAIL) rather than onto prose judgment. This makes the dimension
+  machine-checkable and ungameable in the same way the cost floor is: the proposer
+  declares events_per_year and per_event_SR_estimate_IS, NHT recomputes, and the
+  anchor falls out of arithmetic. The >5yr -> TOTAL=0 gate is the hard floor; the
+  0.12 weight then discriminates among confirmable proposals (a 1-yr idea outscores
+  a 3-yr idea by 0.24 on the total, enough to reorder near-ties).
+
+  ## What this rubric does NOT do
+
+  It does not weaken any existing gate, does not change the mechanism-first rank
+  order (mechanism stays the single top weight at 0.25), does not see any proposal,
+  and does not authorize any spend, backtest, code, or capital action. It is a paper
+  scoring instrument frozen ahead of generation. NO-SPEND remains a valid terminal
+  outcome of the wave it governs.
+
+knowledge_gaps: []
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+no-capital-instruction: true

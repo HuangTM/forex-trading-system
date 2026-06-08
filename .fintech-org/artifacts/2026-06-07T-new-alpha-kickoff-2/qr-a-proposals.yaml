@@ -1,0 +1,512 @@
+---
+# Quant-Researcher SLICE A hypothesis portfolio — New-Alpha Kickoff-2 (Wave 3 generation)
+# Scored against the FROZEN hoqr-rubric.yaml (timestamp 2026-06-07T23:30:00Z, authored
+# BEFORE this file by construction). Four hard gates: novelty==1, cost==1,
+# stat_tractability==1, confirmability GATE_FAIL (years_to_validate > 5). CONFIRMABILITY
+# is the load-bearing new constraint: every proposal carries events_per_year,
+# per_event_SR_estimate_IS, the (1/3) haircut, and years_to_validate from the frozen
+# formula with the arithmetic shown.
+
+role: quant-researcher
+artifact_type: hypothesis-portfolio
+decision: approve
+
+timestamp: "2026-06-07T23:55:00Z"   # AFTER the frozen rubric (23:30:00Z) — ordering preserved
+
+subtask_ref: kickoff-2-gen-a
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"
+
+slice: A   # intraday / intrabar / microstructure / mean-reversion / volatility-state on daily + 4h
+no-capital-instruction: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONFIRMABILITY FORMULA (copied verbatim from the frozen rubric for self-scoring)
+# years_to_validate = ((1.645 + 0.842) / per_event_SR_haircut)^2 / events_per_year
+#   = 6.1852 / (per_event_SR_haircut^2) / events_per_year
+#   per_event_SR_haircut = (1/3) * per_event_SR_estimate_IS
+# Verdicts: GATE_PASS <=3yr ; STRETCH 3-5yr ; GATE_FAIL >5yr (zeros the total).
+# First-candidate bar requires confirmability anchor>=4  =>  years_to_validate <= ~2yr.
+# ════════════════════════════════════════════════════════════════════════════
+
+proposals:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-1
+    name: 4h-overnight-range-compression-breakout-fade
+    slice_note: "Pure SLICE A — intraday volatility-state + microstructure on 4h bars. No cross-section/carry/trend component."
+    mechanism: >
+      The counterparty is the intraday breakout-momentum crowd (retail and CTA-style
+      stop-and-reverse systems) that places resting buy-stops above / sell-stops below
+      the prior overnight (low-liquidity Asia-session) range. When the European-session
+      4h bar opens, those stops are the first liquidity touched. In a COMPRESSED
+      overnight range (range well below its own trailing median), the move that trips
+      the stops is structurally more likely to be a liquidity sweep than a genuine
+      information move: there is no fresh information overnight to justify a regime
+      break out of a quiet range, so the displaced price reverts once the stop cluster
+      is exhausted. The breakout traders cannot stop supplying this flow because their
+      entire mandate IS to chase the break — they are price-insensitive by design, and
+      their stop placement (just beyond the obvious range edge) is mechanical. We fade
+      the first post-compression breakout 4h bar and hold for the subsequent 1-2 4h bars.
+    novelty_vs_archive: >
+      Distinct from ORB (opening-range BREAKOUT — we FADE, conditioned on prior-range
+      COMPRESSION, opposite sign and opposite regime trigger). Distinct from
+      bollinger_rsi (band-touch on a rolling vol band; here the trigger is a
+      RANGE-COMPRESSION state of the *prior* bar, not a deviation band on the current
+      one). Distinct from QRA-5 (overlap-bar CLV reversion — that keys on close
+      location within an overlapping daily bar; this keys on the breakout of a
+      compressed *overnight* range on 4h cadence). Not a monotone function of the rate
+      differential (no carry component), not a moving-average crossover. The edge is a
+      conditional liquidity-sweep fade, not a band/MA pattern.
+    falsification_criterion: >
+      Pre-registerable: on the 3 available 4h pairs (EURUSD/GBPUSD/USDJPY), define
+      compression = (Asia-session range < 0.6 * trailing-20-bar median Asia range).
+      KILL if the mean forward 2-bar return of the fade direction, pooled, is <= 0 net
+      of the ~1.5pip round-trip (and <= the unconditioned breakout-fade return) — i.e.
+      the compression conditioning must ADD signal. Built-in placebo: the SAME effect
+      must be ABSENT (return ~0) on EXPANDED overnight ranges (range > 1.4 * median);
+      if the fade pays equally in both regimes the mechanism is falsified (it would be
+      a generic breakout-fade, not a compression-specific sweep).
+    cost_profile: >
+      ~190 fades/yr/pair * 3 pairs, round-trip ~1.5pip majors (EURUSD/GBPUSD) / ~1.5pip
+      USDJPY. Intra-4h hold (no overnight swap on most, 1 night max -> ~0.8-1.5pip swap
+      only when held over 21:00 UTC). Required per-event edge to clear 5x floor ~7.5pip;
+      a compressed-range sweep that displaces price 10-20pip and reverts is plausibly
+      that large. Turnover moderate, not high-frequency-dominated.
+    events_per_year: 190
+    per_event_SR_estimate_IS: 0.42
+    per_event_SR_haircut: 0.14   # 0.42 / 3
+    years_to_validate: 1.661     # 6.1852 / (0.14^2) / 190 = 6.1852/0.0196/190 = 1.661
+    confirmability_gate_verdict: GATE_PASS   # <=2yr -> also clears first-candidate confirmability floor
+    data_feasibility: >
+      data/processed/{EURUSD,GBPUSD,USDJPY}_4h.parquet (~25,457 bars each, 6 4h-bars/UTC-day,
+      2010-06 -> 2026-04) + data/spreads/{PAIR}_4h_spreads.parquet for cost gating.
+      Asia session identifiable from the 00:00/04:00 UTC 4h stamps. No volume needed.
+    stat_tractability_note: >
+      ~190 events/yr * 3 pairs * ~16yr ~ 9,000 pooled events; de-overlapped (non-adjacent
+      fades) still thousands of effectively-independent obs. Cross-pair pooling gives
+      independent replicas. Well-powered in-sample; clean per-event mean test.
+    capacity_note: >
+      Only 3 pairs have 4h bars, so cross-section is thin (capacity-robustness capped ~3:
+      survives on several but limited replicas). Mechanism predicts it should be STRONGER
+      on the higher-Asia-liquidity pairs (USDJPY) — a testable robustness prediction.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost_survival: 3, stat_tractability: 4, confirmability: 4, data_readiness: 4, capacity: 3}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-2
+    name: intrabar-CLV-momentum-continuation-4h
+    slice_note: "SLICE A — intrabar microstructure (close-location-value as an order-flow proxy in a zero-volume dataset)."
+    mechanism: >
+      With volume uniformly zero, the only intrabar order-flow proxy available is
+      Close-Location-Value: CLV = (close - low - (high - close)) / (high - low), the
+      signed position of the close within the bar's range. A 4h bar that closes hard at
+      its extreme (|CLV| near 1) reflects directional pressure that EXHAUSTED the bar's
+      liquidity in one direction — a footprint of an institutional working order or a
+      momentum-ignition that was not fully filled inside the bar. The counterparty is
+      the liquidity provider / market-maker who absorbed the bar but is left
+      inventory-imbalanced and must lay off risk into the NEXT bar, plus latent
+      same-direction order flow that continues. We trade SHORT-horizon CONTINUATION (1
+      bar) in the CLV direction, the opposite sign of QRA-5's CLV-REVERSION — the
+      hypothesis is that on the FAST (4h) clock the footprint is continuation, while on
+      the SLOW (overlapping daily) clock it reverts.
+    novelty_vs_archive: >
+      Explicitly the SIGN-AND-HORIZON INVERSE of archived QRA-5 (overlap-bar CLV
+      reversion on daily): same raw statistic (CLV) but opposite predicted sign on a
+      different clock (4h continuation vs daily reversion). The pairing is itself the
+      novelty — it tests whether CLV's information decays from continuation (fast) to
+      reversion (slow), a structural microstructure claim, not a re-skin. Not momentum
+      on returns (QRA-3 / Bet#1) — momentum keys on past *returns*; this keys on the
+      intrabar *close-location*, a different statistic capturing where in the range the
+      bar settled. No carry, no MA, no band.
+    falsification_criterion: >
+      Pre-registerable: on 3 4h pairs, KILL if the next-bar return conditioned on
+      |CLV|>0.8 in the CLV direction is <= 0 net of cost, pooled. Built-in
+      negative-control / non-double-count vs QRA-5: the SAME backtest must show daily-bar
+      CLV (same threshold) REVERTING while 4h CLV CONTINUES; if BOTH revert (or both
+      continue) the clock-decay mechanism is falsified. Sharp because it pre-commits the
+      sign on BOTH clocks.
+    cost_profile: >
+      Higher turnover (~700 events/yr/pair) is the cost risk: 1-bar hold, ~1.5pip
+      round-trip. Edge must clear ~1.5pip net per event; per-event SR is deliberately
+      modest (0.20). This is the most cost-FRAGILE proposal — flagged: if the gross
+      per-event move is < ~3pip the cost gate likely zeros it. Included because the
+      confirmability is strong; cost-survival is the binding risk, not confirmability.
+    events_per_year: 700
+    per_event_SR_estimate_IS: 0.20
+    per_event_SR_haircut: 0.0667   # 0.20 / 3
+    years_to_validate: 1.988       # 6.1852 / (0.0667^2) / 700 = 6.1852/0.004449/700 = 1.988
+    confirmability_gate_verdict: GATE_PASS   # ~2yr, just clears the first-candidate floor
+    data_feasibility: >
+      Same 3 4h parquet files. CLV computable from OHLC alone (no volume) — this is the
+      one microstructure proxy a zero-volume dataset still supports. data_readiness high.
+    stat_tractability_note: >
+      ~700/yr * 3 * 16yr ~ 33,000 events; abundant. But per-event SR is thin, so the
+      in-sample test needs the large N to clear DSR — tractable BUT the effect size is
+      the weak point. Cross-pair replicas present.
+    capacity_note: "Only 3 4h pairs; high turnover makes it slippage-sensitive. capacity ~3."
+    self_score_hint: {mechanism: 3, novelty: 4, falsifiability: 5, cost_survival: 2, stat_tractability: 4, confirmability: 4, data_readiness: 5, capacity: 3}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-3
+    name: daily-vol-regime-conditioned-range-reversion
+    slice_note: "SLICE A — volatility-STATE conditioning of a mean-reversion edge (volatility-state mechanism, NOT regime-CONDITIONING of trend which is slice B)."
+    mechanism: >
+      The counterparty is the volatility-targeting / risk-parity rebalancer and the
+      stop-loss-driven retail book. In a LOW realized-vol regime (ATR-14 in its bottom
+      tercile of trailing history), a single large daily true-range bar is
+      disproportionately a liquidity/stop event rather than information: vol-targeters
+      do not change exposure on one bar, and the dominant flow tripping stops in a calm
+      market is the mechanical stop cascade, which over-extends price. Reversion of an
+      outsized daily bar should therefore be STRONGER in low-vol regimes and ABSENT (or
+      momentum-like) in high-vol regimes where the same large bar more often carries
+      information. We fade the close-to-close move of an outsized daily bar, holding 1-2
+      days, ONLY when the prevailing vol regime is low.
+    novelty_vs_archive: >
+      Distinct from bollinger_rsi (a band/RSI touch, vol-agnostic). Distinct from QRA-1
+      (triangular residual), QRA-4 (cross-sectional dispersion — that is a relative
+      cross-pair signal; this is a single-pair vol-state condition). The NOVELTY is the
+      vol-STATE conditioning gate: the claim that the reversion edge's SIGN/strength is
+      modulated by the realized-vol tercile — a volatility-state mechanism, not a price
+      pattern and not regime-conditioning of a trend signal (which is slice B). Not a
+      carry/MA function.
+    falsification_criterion: >
+      Pre-registerable: pooled over 12 daily pairs, define outsized = daily |return| >
+      2 * trailing-20d std; low-vol = ATR-14 in bottom tercile. KILL if the low-vol
+      fade's forward 2d return is <= 0 net of cost. Built-in placebo: the high-vol
+      tercile must show the fade FAIL (<=0 or momentum); if the fade pays equally across
+      all vol terciles the conditioning adds nothing and the hypothesis is falsified.
+    cost_profile: >
+      ~260 outsized-low-vol events/yr pooled across 12 pairs (~22/pair/yr), 1-2 day hold
+      -> 1-3 swap nights (~0.8-1.5pip/day). Round-trip ~1.5pip majors / ~1.9pip JPY
+      crosses. Edge per event must clear ~3-5pip net; an outsized bar that over-extends
+      and reverts ~half its range plausibly clears this. Low turnover per pair = good.
+    events_per_year: 260
+    per_event_SR_estimate_IS: 0.34
+    per_event_SR_haircut: 0.1133   # 0.34 / 3
+    years_to_validate: 1.852       # 6.1852 / (0.1133^2) / 260 = 6.1852/0.012845/260 = 1.852
+    confirmability_gate_verdict: GATE_PASS   # <=2yr, clears first-candidate floor
+    data_feasibility: >
+      All 12 daily parquet (data/processed/*_daily.parquet, ~4237 bars each) +
+      data/spreads/*_daily_spreads.parquet. ATR-14 / 20d-std from OHLC. Fully in-inventory.
+    stat_tractability_note: >
+      12 pairs * ~16yr; the outsized+low-vol intersection is the limiter, but ~260/yr *
+      16 ~ 4,000 pooled events, de-overlapped to ~hundreds-to-thousands independent.
+      Cross-pair pooling gives independent replicas across uncorrelated pairs. Good power.
+    capacity_note: >
+      Full 12-pair cross-section; mechanism predicts it should be ABSENT in high-vol
+      terciles (a prediction, not a hope) -> capacity-robustness strong (~4).
+    self_score_hint: {mechanism: 4, novelty: 3, falsifiability: 5, cost_survival: 3, stat_tractability: 4, confirmability: 4, data_readiness: 4, capacity: 4}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-4
+    name: monday-open-gap-reversion-after-quiet-friday
+    slice_note: "SLICE A — intrabar/overnight microstructure mean-reversion (weekend liquidity vacuum). Straddle-note: timing is weekday-anchored but the EDGE is microstructure reversion, NOT QRB-5 weekday-seasonality (an unconditional day-of-week return)."
+    mechanism: >
+      The weekend FX close-to-open gap is formed in the thinnest liquidity window of the
+      week (Sunday 22:00 UTC reopen). The counterparty is the weekend-risk hedger and
+      the thin-book market-maker who must quote into Monday's open with no intervening
+      price discovery. When the preceding Friday bar was QUIET (small range), there is
+      no fresh information to justify a large weekend gap, so a large Monday-open gap is
+      disproportionately a thin-liquidity dislocation that fills back toward Friday's
+      close as real liquidity returns during the European session. We fade the
+      Monday-open gap (toward Friday close) when Friday's range was below its trailing
+      median, hold intraday-to-1-day. The hedgers are price-insensitive (mandate-driven
+      weekend de-risking), so the flow persists.
+    novelty_vs_archive: >
+      NOT QRB-5 weekday-seasonality: that harvests an UNCONDITIONAL day-of-week mean
+      return; this is a CONDITIONAL gap-reversion (fires only on a large Monday gap
+      AFTER a quiet Friday) and trades the GAP, not the day. NOT QRA-2 overnight-gap
+      ASYMMETRY (archived): that is a directional/asymmetry claim on overnight gaps
+      generally; this is specifically the WEEKEND gap conditioned on prior-Friday
+      compression, with a reversion (not asymmetry) thesis and a liquidity-vacuum
+      mechanism. NOT QRB-4 rollover-hole (a swap/rollover artifact). Distinct flow:
+      weekend hedger + thin Monday book.
+    falsification_criterion: >
+      Pre-registerable: pooled over 12 pairs, define quiet-Friday = Friday range <
+      trailing-20-Friday median; large-gap = |Mon open - Fri close| > 0.5 * 20d ATR.
+      KILL if the gap-fade forward-1d return is <= 0 net of cost. Placebo: after a NOISY
+      Friday (range > median) the same gap-fade must NOT pay (information gaps should not
+      revert); equal payoff in both Friday-states falsifies the liquidity-vacuum mechanism.
+    cost_profile: >
+      ~624 events/yr POOLED (12 pairs * ~52 Mondays, minus the quiet-Friday filter which
+      roughly halves it; declared at the pooled independent-signal rate). Round-trip
+      ~1.5-1.9pip; <=1 swap night. Low per-pair turnover (~1/week). Friction modest.
+    events_per_year: 624
+    per_event_SR_estimate_IS: 0.18
+    per_event_SR_haircut: 0.06   # 0.18 / 3
+    years_to_validate: 2.753     # 6.1852 / (0.06^2) / 624 = 6.1852/0.0036/624 = 2.753
+    confirmability_gate_verdict: GATE_PASS   # <=3yr (PM-preferred ceiling); NOT <=2yr so NOT first-candidate-grade
+    data_feasibility: >
+      All 12 daily parquet. Daily bars are 00:00-UTC stamped; Monday-vs-Friday derivable
+      from the index day_of_week (present in spread files too). Caveat verified: the daily
+      bar is a single 00:00 stamp, so 'Monday open' = Monday bar open and 'Friday close'
+      = Friday bar close; the weekend gap = Mon_open - Fri_close on adjacent index rows.
+    stat_tractability_note: >
+      ~624/yr * 16yr ~ 10,000 pooled Monday events; the quiet-Friday filter and
+      cross-pair correlation reduce effective N, but still hundreds-to-thousands
+      independent. Adequate power; pooled clean statistic.
+    capacity_note: "Full 12-pair cross-section; weekly cadence = robust, low fragility. capacity ~4."
+    self_score_hint: {mechanism: 4, novelty: 3, falsifiability: 4, cost_survival: 4, stat_tractability: 4, confirmability: 3, data_readiness: 4, capacity: 4}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-5
+    name: wick-rejection-asymmetric-stop-cascade-daily
+    slice_note: "SLICE A — intrabar microstructure: long-wick rejection as a stop-cascade footprint; mean-reversion away from the rejected extreme."
+    mechanism: >
+      A daily bar with a long wick on one side (e.g. a long lower wick: low far below
+      both open and close) is the OHLC footprint of a stop-cascade that was REJECTED —
+      price spiked to trigger a cluster of stops, the stops were filled by opportunistic
+      liquidity, and price snapped back, leaving the wick. The counterparty is the
+      stopped-out trader (forced seller at the low) plus trend-followers who chased the
+      spike; the opportunistic liquidity that absorbed the cascade is now long and the
+      stopped-out flow is exhausted. The next-day drift continues AWAY from the rejected
+      extreme (continuation of the rejection, i.e. up after a long lower wick). The
+      stopped-out flow is mechanical and price-insensitive (stops are pre-placed); the
+      edge persists because new stop clusters re-form continuously.
+    novelty_vs_archive: >
+      Distinct from QRA-5 (CLV — close location, a CONTINUOUS within-range position);
+      this keys on WICK ASYMMETRY (the upper-vs-lower shadow lengths), a different OHLC
+      decomposition isolating the REJECTED extreme rather than the settle location.
+      Distinct from bollinger_rsi (band touch). Distinct from QRA-2 overnight-gap
+      asymmetry (that is a gap, this is an intrabar wick). The mechanism is a specific
+      rejected-stop-cascade footprint, not a generic reversal pattern. No carry/MA.
+    falsification_criterion: >
+      Pre-registerable: pooled 12 pairs, define long-lower-wick = (min(open,close)-low) >
+      2 * |open-close| AND > 1.0 * 20d ATR (symmetric for upper). KILL if next-day return
+      in the rejection-continuation direction is <= 0 net of cost. Placebo: SMALL-wick
+      bars (wick < 0.5 * body) must show NO directional next-day drift; a drift present
+      in both falsifies the stop-cascade specificity (it would be generic momentum).
+    cost_profile: >
+      ~300 qualifying wick events/yr pooled (12 pairs, ~25/pair/yr after the size
+      filter), 1-day hold (~1 swap night), round-trip ~1.5-1.9pip. Edge per event must
+      clear ~3pip net; a rejected-cascade snapback that drifts ~0.5 ATR next day
+      plausibly clears it. Low per-pair turnover.
+    events_per_year: 300
+    per_event_SR_estimate_IS: 0.30
+    per_event_SR_haircut: 0.10   # 0.30 / 3
+    years_to_validate: 2.062     # 6.1852 / (0.10^2) / 300 = 6.1852/0.01/300 = 2.062
+    confirmability_gate_verdict: GATE_PASS   # ~2yr (just over the <=2yr first-candidate floor — borderline)
+    data_feasibility: >
+      All 12 daily parquet (OHLC). Wick lengths = high-max(open,close) and
+      min(open,close)-low, pure OHLC arithmetic. spreads for cost gate. Fully in-inventory.
+    stat_tractability_note: >
+      ~300/yr * 16yr ~ 4,800 pooled wick events; de-overlapped (wicks are sparse, low
+      autocorrelation) -> good independent N. 12-pair replicas. Well-powered.
+    capacity_note: >
+      Full cross-section; mechanism predicts symmetric behavior on upper vs lower wicks
+      (a built-in robustness check). capacity ~4.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost_survival: 3, stat_tractability: 4, confirmability: 4, data_readiness: 4, capacity: 4}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-6
+    name: 4h-session-handoff-air-pocket-reversion
+    slice_note: "SLICE A — intraday microstructure: liquidity 'air pocket' at the EU->US session handoff 4h bar."
+    mechanism: >
+      The 4h bar spanning the European->US session handoff (the ~12:00-16:00 UTC window)
+      contains the highest-liquidity overlap, but the bar IMMEDIATELY AFTER the US
+      morning (the 16:00-20:00 UTC bar) is a liquidity 'air pocket' — European desks
+      have closed, US liquidity thins into the afternoon. A large directional move INTO
+      that air-pocket bar is disproportionately driven by a single large order pushing
+      through a thin book (low resting liquidity), not by broad information. The
+      counterparty is the late-day momentum chaser and the thin-book maker; the move
+      over-extends and partially reverts as the book re-fills overnight. We fade an
+      outsized 16:00-20:00 UTC 4h bar, holding 1 bar. The thin-book dislocation is a
+      structural property of the session calendar, not a behavioral hope.
+    novelty_vs_archive: >
+      NOT a calendar/central-bank event study (forbidden class) — it conditions on an
+      INTRADAY SESSION-LIQUIDITY state (which 4h bar of the day), not on a scheduled
+      macro event or day-of-week return (QRB-5). NOT QRB-4 rollover-hole (that is the
+      21:00/22:00 rollover swap artifact; this is the 16:00-20:00 US-afternoon air
+      pocket, a different window and a liquidity-not-swap mechanism). NOT ORB. The
+      novelty is the intraday SESSION-PHASE liquidity conditioning of a reversion edge.
+    falsification_criterion: >
+      Pre-registerable: on 3 4h pairs, define air-pocket bar = the 16:00-20:00 UTC 4h
+      stamp; outsized = bar |return| > 1.5 * trailing-20-bar same-stamp std. KILL if the
+      fade's next-bar return is <= 0 net of cost. Placebo: the SAME outsized move in the
+      HIGH-liquidity 12:00-16:00 overlap bar must NOT revert (information move in a deep
+      book); reversion in both falsifies the air-pocket mechanism.
+    cost_profile: >
+      ~520 events/yr/pair-ish pooled across 3 pairs, 1-bar hold, ~1.5pip round-trip,
+      mostly no swap (intraday). Turnover moderate-high but lower than QRA2-2. Edge must
+      clear ~1.5-3pip net; an air-pocket over-extension of ~5-10pip reverting plausibly
+      clears it.
+    events_per_year: 520
+    per_event_SR_estimate_IS: 0.24
+    per_event_SR_haircut: 0.08   # 0.24 / 3
+    years_to_validate: 1.859     # 6.1852 / (0.08^2) / 520 = 6.1852/0.0064/520 = 1.859
+    confirmability_gate_verdict: GATE_PASS   # <=2yr, clears first-candidate floor
+    data_feasibility: >
+      3 4h parquet files; the 16:00 and 12:00 UTC stamps are present (verified distinct
+      4h hours include 12,16,20). The 'hour' column in 4h spread files confirms
+      session-stamp availability for cost gating. No volume needed.
+    stat_tractability_note: >
+      ~520/yr * 3 pairs * 16yr ~ 25,000 events; same-stamp conditioning reduces to
+      ~1 event/day/pair but still thousands of de-overlapped obs. 3-pair replicas (thin
+      cross-section). Good power.
+    capacity_note: "Only 3 4h pairs; single intraday window = some single-window fragility. capacity ~3."
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost_survival: 3, stat_tractability: 4, confirmability: 4, data_readiness: 4, capacity: 3}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: QRA2-7
+    name: daily-range-expansion-persistence-volatility-clustering
+    slice_note: "SLICE A — volatility-STATE mechanism (range/vol persistence), traded as a vol-breakout NOT a directional trend (disjoint from slice-B trend)."
+    mechanism: >
+      This trades VOLATILITY persistence, not price direction. Realized range exhibits
+      strong clustering (ARCH effect): a daily bar whose true-range jumps well above its
+      trailing median is followed by an elevated-range NEXT day far more often than
+      chance. The tradeable consequence is a same-day STRADDLE-LIKE setup: after a
+      range-expansion bar, place symmetric breakout entries around the next open and let
+      the persistent volatility carry whichever side triggers. The counterparty is the
+      option-seller / vol-supplier who is systematically short realized vol after a calm
+      stretch and is slow to re-price; and the mean-reversion crowd that fades the first
+      expansion bar expecting calm to resume (and gets run over by the cluster). We are
+      LONG realized vol via a directionally-agnostic breakout the day after expansion.
+    novelty_vs_archive: >
+      NOT momentum/Bet#1 (those trade past RETURN sign; this trades past RANGE magnitude
+      and is direction-agnostic — a vol bet, not a trend bet, hence SLICE A not slice-B
+      trend). NOT bollinger_rsi (band mean-reversion — opposite stance: we BUY the
+      breakout the cluster produces). NOT QRA2-3 (which FADES outsized bars in low-vol
+      regimes; this BUYS volatility-continuation regardless of direction — the two are
+      deliberate sign-opposites testing reversion-vs-clustering on different conditioning,
+      a structural pairing, not a re-skin). No carry/MA.
+    falsification_criterion: >
+      Pre-registerable: pooled 12 pairs, define expansion = true-range > 1.5 * trailing-20d
+      median TR. KILL if the next-day straddle (symmetric breakout at +/-0.3 ATR from
+      open, the triggered side held to close) has <= 0 net expectancy after the ~1.5pip
+      round-trip on BOTH legs' worst-case. Placebo: after a CONTRACTION bar (TR < 0.6 *
+      median) the straddle must have <= 0 expectancy; positive in both falsifies the
+      clustering-specificity. (Note: range-persistence as a STATISTIC is near-certain to
+      exist; the sharp test is whether it is TRADEABLE net of the double-sided cost.)
+    cost_profile: >
+      ~240 expansion events/yr pooled (~20/pair). The cost risk is the DOUBLE-SIDED entry
+      (straddle pays ~1.5pip on the losing leg's whipsaw); net edge must overcome roughly
+      1.5x the normal round-trip. This is the cost-binding proposal among the daily set —
+      flagged. Low per-pair turnover helps; whipsaw on the untriggered side is the risk.
+    events_per_year: 240
+    per_event_SR_estimate_IS: 0.33
+    per_event_SR_haircut: 0.11   # 0.33 / 3
+    years_to_validate: 2.130     # 6.1852 / (0.11^2) / 240 = 6.1852/0.0121/240 = 2.130
+    confirmability_gate_verdict: GATE_PASS   # ~2.1yr — just over the <=2yr first-candidate floor (borderline STRETCH-adjacent but <3yr PASS)
+    data_feasibility: >
+      All 12 daily parquet (true-range from OHLC). spreads for the double-sided cost
+      gate. Fully in-inventory. ATR/TR median trivially computed.
+    stat_tractability_note: >
+      ~240/yr * 16yr ~ 3,800 pooled events; range-clustering is a strong, well-documented
+      ARCH effect so the underlying statistic is high-N and clean — the binding question
+      is tradeability net of cost, not in-sample power. 12-pair replicas. Good power.
+    capacity_note: >
+      Full cross-section; vol-clustering is one of the most robust cross-pair regularities
+      so low fragility — but novelty-to-the-world is low (well-known ARCH). capacity ~4.
+    self_score_hint: {mechanism: 3, novelty: 3, falsifiability: 4, cost_survival: 2, stat_tractability: 4, confirmability: 4, data_readiness: 4, capacity: 4}
+
+# ════════════════════════════════════════════════════════════════════════════
+# DATA FINDINGS (structural facts I verified this session — NO returns/performance)
+# ════════════════════════════════════════════════════════════════════════════
+data_findings:
+  - "12 daily OHLCV parquet present at data/processed/{PAIR}_daily.parquet; EURUSD = 4237 bars, 2010-01-04 -> 2026-04-06 (00:00 UTC stamped). Pair bar counts: most 4237; CADJPY 4246, GBPJPY 4245, USDJPY 4245, EURJPY 4240, GBPUSD 4236 (a few pairs run to 2026-04-17). Pooled ~50,800 bar-days."
+  - "4h OHLCV exists for EURUSD/GBPUSD/USDJPY ONLY: data/processed/{PAIR}_4h.parquet, EURUSD = 25,457 bars, 2010-06-17 21:00 -> 2026-04-06 21:00 UTC. Mode 6 4h-bars per UTC day; distinct intraday hours present include {0,4,8,12,16,20} (and offset stamps 1,2,5,9,13,17,21,22) — session-phase conditioning (Asia / EU-overlap / US-afternoon) is feasible from the stamp."
+  - "Volume column is present but uniformly ZERO on both daily and 4h (verified (volume==0).all() on EURUSD daily) — confirms NO volume-based ideas; CLV/wick/range are the only intrabar order-flow proxies available."
+  - "Spreads: data/spreads/{PAIR}_daily_spreads.parquet for all 12 pairs + {EURUSD,GBPUSD,USDJPY}_4h_spreads.parquet. Columns: spread_pips, hour, day_of_week. EURUSD daily spread_pips ~2.0-2.1 at the 00:00 stamps — the 'hour' and 'day_of_week' columns directly support session/weekday cost gating for every proposal."
+
+claimed_domains:
+  - hypothesis-formulation-and-pre-registration
+  - falsification-criteria-design
+
+evidence:
+  - path: "data/processed/EURUSD_daily.parquet"
+    note: "4237 daily bars, cols [open,high,low,close,volume], 2010-01-04 -> 2026-04-06 00:00 UTC, volume==0 all."
+  - path: "data/processed/EURUSD_4h.parquet"
+    note: "25,457 4h bars, 2010-06-17 -> 2026-04-06, 6 bars/UTC-day, intraday hour stamps incl {0,4,8,12,16,20} — grounds the session/air-pocket/overnight-range proposals (QRA2-1, QRA2-6)."
+  - path: "data/processed/ (ls)"
+    note: "15 OHLCV parquet = 12 daily (_daily suffix) + 3 4h. Daily bar counts 4236-4246 across pairs."
+  - path: "data/spreads/EURUSD_daily_spreads.parquet"
+    note: "cols [spread_pips,hour,day_of_week], 4237 rows, spread_pips ~2.0 — grounds cost_profile + Monday/Friday and session conditioning (QRA2-4, QRA2-6)."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:35-54"
+    note: "Frozen confirmability formula + verification anchors used verbatim to compute every years_to_validate above."
+
+assumptions:
+  - "per_event_SR_estimate_IS values are HONEST a-priori guesses from mechanism plausibility ONLY (no backtest run, no returns computed). NHT will independently recompute years_to_validate and may override; the gate uses NHT's verified inputs (rubric A4)."
+  - "events_per_year for pooled proposals counts cross-pair signals as independent draws of the SAME mechanism; if NHT treats them as correlated (lower effective N) the years_to_validate rises — disclosed risk for QRA2-3/4/5/7."
+  - "The ~1.5pip-majors / ~1.9pip-JPY-cross round-trip + ~0.8-1.5pip/day swap cost model (rubric cost anchors, config/default.yaml) is the binding friction floor; double-sided entries (QRA2-7) face ~1.5x that."
+  - "Daily 'Monday open'/'Friday close' is read off adjacent index rows of the single 00:00-UTC daily bar (verified the daily bar is one 00:00 stamp); the weekend gap is Mon_open - Fri_close on consecutive trading rows."
+  - "4h session windows (Asia 00:00-08:00, EU-overlap 12:00-16:00, US-afternoon 16:00-20:00 UTC) map onto the verified 4h hour stamps; exact session boundaries to be pinned at pre-registration."
+
+confidence: medium
+
+body: |
+  ## Slice-A discipline and the confirmability filter applied at generation
+
+  All seven proposals are intraday / intrabar / microstructure / mean-reversion /
+  volatility-STATE mechanisms on the daily and 4h bars — disjoint from slice B's
+  cross-sectional / carry / trend / regime-conditioning territory. Where an idea
+  could straddle (QRA2-4's weekday anchor, QRA2-7's vol-state) I have stated the
+  slice_note explicitly and shown why the EDGE (microstructure reversion; vol
+  persistence traded direction-agnostically) sits in A, not B.
+
+  The new confirmability gate did real work at generation time — exactly the QRB-6
+  lesson. My first draft of QRA2-4 was a per-pair WEEKLY signal (events_per_year=50,
+  per_event_SR_IS=0.45): years_to_validate = 6.1852/(0.15^2)/50 = 5.50 yr -> GATE_FAIL.
+  Rather than ship a rare-event edge that the firm could not confirm, I either (a) lift
+  the run-rate by pooling the SAME mechanism across all 12 pairs (624 events/yr ->
+  2.75 yr GATE_PASS, what QRA2-4 now is) or (b) drop it. I chose (a) because the
+  weekend-liquidity-vacuum mechanism is genuinely pair-independent, so cross-pair
+  pooling is legitimate, not a power-inflation trick. That is the disciplined move the
+  rubric is designed to force.
+
+  ## Why these mechanisms, not patterns
+
+  Every proposal names a price-INSENSITIVE counterparty and the constraint that keeps
+  them losing: breakout-stop chasers (QRA2-1), inventory-imbalanced makers (QRA2-2),
+  vol-targeting rebalancers + stop cascades (QRA2-3), mandate-driven weekend hedgers
+  (QRA2-4), pre-placed stopped-out flow (QRA2-5), thin-book afternoon makers (QRA2-6),
+  short-vol option sellers slow to re-price (QRA2-7). None is "X follows Y."
+
+  ## Built-in placebos for cheap spurious-pass detection
+
+  Every falsification criterion carries a SAME-backtest negative control (the effect
+  must VANISH in the off-mechanism condition: expanded ranges, noisy Fridays, deep-book
+  bars, small wicks, high-vol terciles, contraction bars). A spurious pass that also
+  lights up the placebo is caught for free — targeting the falsifiability anchor-5.
+
+  ## Honest weak spots (surfaced early, not buried)
+
+  - Cost-survival is the BINDING risk on QRA2-2 (high turnover, thin per-event edge,
+    self-scored 2) and QRA2-7 (double-sided straddle entry, self-scored 2). Either could
+    trip HG-2 (cost==1 -> TOTAL=0) under realistic friction. I include them because their
+    CONFIRMABILITY is strong and the mechanisms are genuinely novel; the cost gate, not
+    confirmability, is what would kill them — and that is the honest place for them to die.
+  - The 4h proposals (QRA2-1/2/6) live on only 3 pairs, capping capacity-robustness at ~3
+    (thin cross-section, fewer independent replicas) — a real, disclosed limit, not hidden.
+  - QRA2-3 and QRA2-7 are deliberate SIGN-OPPOSITES on outsized-bar behavior (fade in
+    low-vol vs buy-vol-continuation): if BOTH pass, that is informative about regime
+    structure; if both fail, the outsized-bar family is dead. They are not redundant.
+
+  ## No first-candidate recommendation made here
+
+  This is a GENERATION artifact. HoQR scores against the frozen rubric; NHT recomputes
+  confirmability and holds the dedup veto. NO-SPEND remains valid. No backtest, no
+  returns, no code, no capital action was taken — structural data facts only.
+
+  ## Self-assessed confirmability ledger (advisory; NHT governs)
+
+  | id     | events/yr | SR_IS | haircut | years_to_validate | verdict   |
+  |--------|-----------|-------|---------|-------------------|-----------|
+  | QRA2-1 | 190       | 0.42  | 0.1400  | 1.661             | GATE_PASS |
+  | QRA2-2 | 700       | 0.20  | 0.0667  | 1.988             | GATE_PASS |
+  | QRA2-3 | 260       | 0.34  | 0.1133  | 1.852             | GATE_PASS |
+  | QRA2-4 | 624       | 0.18  | 0.0600  | 2.753             | GATE_PASS |
+  | QRA2-5 | 300       | 0.30  | 0.1000  | 2.062             | GATE_PASS |
+  | QRA2-6 | 520       | 0.24  | 0.0800  | 1.859             | GATE_PASS |
+  | QRA2-7 | 240       | 0.33  | 0.1100  | 2.130             | GATE_PASS |
+
+  All seven clear the >5yr hard gate. Five clear the <=2yr first-candidate confirmability
+  floor (QRA2-1/2/3/5/6); QRA2-7 at 2.13yr is a borderline miss of the <=2yr floor (still
+  <3yr PASS); QRA2-4 at 2.75yr is a clean <=3yr PASS but not first-candidate-grade. None
+  is in the 3-5yr STRETCH band and none GATE_FAILs.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

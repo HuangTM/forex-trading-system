@@ -1,0 +1,333 @@
+---
+# Principal Reviewer (Independent) — kickoff-2 hypothesis-portfolio ranking + NO-SPEND review
+# Dispatched cold. Findings only; never fixes. Review object = hoqr-ranking.yaml (NO-SPEND) plus the
+# NHT screens and the frozen rubric application. python3 used for arithmetic verification ONLY; no
+# return-data computation, no backtest, no capital action.
+
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+
+timestamp: "2026-06-08T03:30:00Z"   # AFTER hoqr-ranking (02:30:00Z)
+
+subtask_ref: kickoff-2-pr-review
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"
+
+no-capital-instruction: true
+
+claimed_domains:
+  - independent-design-review
+  - spec-vs-implementation-drift-detection
+
+# ════════════════════════════════════════════════════════════════════════════
+# HEADLINE
+# ════════════════════════════════════════════════════════════════════════════
+# decision: APPROVE-WITH-CONDITIONS. The NO-SPEND recommendation is HONEST: a genuine
+# first-candidate (QRB2-2) is held back solely on confirmability, exactly as the gate
+# intends — not over-conservatism, not weak-idea protection. Rubric was applied AS FROZEN
+# (all 9 weighted totals reproduce to 2dp; all 9 NHT years_to_validate reproduce to the
+# rounding). Kills are gate-anchored and sound. ONE MAJOR finding: the meta-finding's
+# narrative claim that "in kickoff-1 the firm scored QRB-6 at 4.38, PURSUED IT, burned a
+# trial" misstates the kickoff-1 record — QRB-6 was NOT the kickoff-1 first candidate
+# (QRB-3 was; QRB-6 was data_readiness-INELIGIBLE/acquisition-required and ranked
+# roadmap-only); the QRB-6 trial burned LATER via a separate CEO authorization. The core
+# counterfactual (QRB2-2 would have cleared the OLD bar) is nonetheless SOUND. Conditions
+# are documentation-accuracy fixes, not a rethink.
+
+# ════════════════════════════════════════════════════════════════════════════
+# FINDINGS
+# ════════════════════════════════════════════════════════════════════════════
+findings:
+
+  - id: PR-1
+    severity: major
+    location: "hoqr-ranking.yaml:363-383 (meta_finding_vs_kickoff1) and body:452-457"
+    observation: >
+      The meta-finding's narrative overstates the kickoff-1 record. It asserts: "In kickoff-1
+      the firm scored QRB-6 (CB-decision event study) at 4.38, pursued it, burned a trial + a
+      void + remediation, and only THEN discovered it needed ~256 forward years." Two factual
+      drifts: (1) QRB-6 was NOT the kickoff-1 recommended first candidate — QRB-3 (turn-of-month)
+      was the sole proposal clearing the kickoff-1 first-candidate bar; QRB-6 scored highest
+      (4.38) but was explicitly INELIGIBLE for the first-candidate slot because it was
+      acquisition_required (data_readiness fail), and it ranked ROADMAP-only. (2) QRB-6 was not
+      "pursued" as an output of kickoff-1; its exploratory trial fa0f982a burned LATER, via a
+      SEPARATE CEO acquisition authorization (the kickoff-1 CONSENSUS lists this as an optional
+      CEO action positioning QRB-6 "as the first candidate in the NEXT wave"). The compressed
+      narrative reads as if the kickoff-1 rubric itself selected and burned QRB-6, which it did
+      not. This matters because the meta-finding is the artifact's self-justification for the
+      new gate's value, and a self-congratulatory overstatement of "the old rubric would have
+      picked the trap" weakens the very claim it is making.
+    evidence: >
+      docs/decisions/CONSENSUS_2026-06-06_new_alpha_kickoff.md:12 ("The sole proposal clearing
+      the frozen first-candidate bar is QRB-3"), :28 (QRB-6 row = ROADMAP acquisition required,
+      4.38*, "ineligible until CEO authorizes acquisition"), :54, :96 (CEO may independently
+      authorize QRB-6 acquisition to position it for the NEXT wave). kickoff-1 first_candidate_bar
+      required data_readiness==4|5 (hoqr-rubric 2026-06-06:318) which QRB-6 failed. Wind-down
+      CONSENSUS_2026-06-07_qrb6_winddown.md:144 (counter 42, fa0f982a the exploratory).
+    recommended-action-class: documentation-accuracy-correction
+    owning-role: head-of-quant-research
+
+  - id: PR-2
+    severity: minor
+    location: "hoqr-ranking.yaml:370-375 (counterfactual) — the SOUND part, flagged for precision"
+    observation: >
+      The counterfactual that IS sound should be stated as the headline, separate from PR-1's
+      drift. QRB2-2, UNLIKE QRB-6, is data_readiness 5 (pure OHLC, no acquisition) and on my
+      verification clears EVERY kickoff-1 first-candidate requirement: mechanism>=4 (4),
+      novelty>=4 (4), cost>=4 (5), stat>=4 (4), falsif>=3 (5), data in {4,5} (5), no-dim<3, and
+      NHT-survive. The OLD bar had NO confirmability clause, so QRB2-2 WOULD have been
+      first-candidate-eligible on the old rubric and (as the top scorer) selected — and it is a
+      3.44yr forward-unconfirmable idea. THAT is the legitimate, load-bearing demonstration that
+      the new gate is not decorative. The artifact buries this valid point under the PR-1 misframe
+      about QRB-6 itself. Recommend leading with the QRB2-2 counterfactual and correcting the
+      QRB-6 history.
+    evidence: >
+      hoqr-ranking.yaml:50-63 (QRB2-2 dims) verified to clear all 8 kickoff-1 bar clauses;
+      2026-06-06 hoqr-rubric.yaml:311-319 (old bar, no confirmability clause).
+    recommended-action-class: emphasis-reordering
+    owning-role: head-of-quant-research
+
+  - id: PR-3
+    severity: observation
+    location: "hoqr-ranking.yaml:56,72,87,102 etc. (confirmability dimension scores) vs NHT screens"
+    observation: >
+      Confirmability governance is CORRECT (attestation A4 honored): every survivor's
+      confirmability score is taken from the NHT-RECOMPUTED years_to_validate, NOT the QR
+      self-assessment. I independently reproduced the formula
+      years=6.1852/(haircut^2)/epy on NHT's challenged inputs for all 9 survivors and all 5 kills
+      to the stated rounding (QRB2-2 180/0.10->3.44; QRB2-1 250/0.09->3.05; QRB2-4 230/0.09->3.32;
+      QRB2-5 160/0.10->3.87; QRA2-5 230/0.0833->3.87; QRA2-4 300/0.06->5.73 FAIL; QRB2-3
+      150/0.09->5.09 FAIL; QRB2-7 90/0.10->6.87 FAIL; QRB2-6 52/0.10->11.89 FAIL). All survivors
+      map to anchor 2 (3,5] STRETCH; none reaches anchor 4 (<=2yr). The decisive fact of the wave
+      is verified. NOTE (not a defect): the NHT recompute magnitudes are JUDGMENT haircuts (duty-
+      cycle + a-priori SR), self-acknowledged MEDIUM confidence; a less aggressive reviewer could
+      land QRB2-3 at ~4.5yr STRETCH rather than 5.09 FAIL. This does not change NO-SPEND (the
+      load-bearing claim — none clears <=2yr — is robust across the band), but the kill/survive
+      LINE for QRB2-3 and QRB2-7 sits ON a judgment boundary, correctly disclosed by NHT.
+    evidence: "python3 reproduction of all 14 years_to_validate values; nht-screen-a.yaml:376-386, nht-screen-b.yaml:355-361 (confidence_calibration)."
+    recommended-action-class: none-acknowledge-disclosed-uncertainty
+    owning-role: null-hypothesis-tester
+
+  - id: PR-4
+    severity: observation
+    location: "nht-screen-a.yaml:299-323 (portfolio_observations)"
+    observation: >
+      NHT-A surfaces a real second-order risk the ranking under-weights: six of seven slice-A
+      proposals are the SAME mechanism class ("OHLC extreme reverts net of ~1.5pip on
+      zero-volume data"), giving effective diversification ~2-3 distinct bets, not 7. And the
+      gate the QR optimized (confirmability, favoring high-epy ideas) points OPPOSITE to the gate
+      that actually binds (cost — the high-frequency ideas QRA2-2/QRA2-7 are the cost-fragile
+      ones). This strengthens NO-SPEND (the survivor set is less independent than its count
+      suggests) but is NOT carried into the ranking's queue rationale. Not blocking; the
+      conclusion (NO-SPEND) is unaffected and arguably reinforced.
+    evidence: "nht-screen-a.yaml:300-323; ranking queue 313-342 does not mention mechanism-class concentration."
+    recommended-action-class: optional-queue-note
+    owning-role: head-of-quant-research
+
+  - id: PR-5
+    severity: observation
+    location: "hoqr-ranking.yaml:189-236 (kills) — QRA2-2/QRA2-7 cost-binding but not killed"
+    observation: >
+      QRA2-2 (cost self-scored 2, 4.95yr knife-edge) and QRA2-7 (cost 2, 4.83yr) SURVIVE to a
+      weighted total because HG-2 fires only at cost==1, then are correctly labeled "dead as a
+      candidate" in the queue/dead split. This is internally consistent with the frozen gate
+      (HG-2 threshold not weakened, A6 preserved). The ranking is honest that the BINDING kill for
+      these two would be cost under real friction, not confirmability — a candid disclosure, not a
+      defect. Flagged only to confirm the gate-threshold was applied as frozen (cost==1), not
+      tightened to cost<=2 to manufacture extra kills.
+    evidence: "hoqr-ranking.yaml:160-168, 176-183 (cost=2, no HG-2 trip), 355-358 (dead-as-candidate); rubric HG-2 :273-275 (cost==1)."
+    recommended-action-class: none-confirmed-consistent
+    owning-role: head-of-quant-research
+
+# ════════════════════════════════════════════════════════════════════════════
+# LOAD-BEARING CHECK RESULTS
+# ════════════════════════════════════════════════════════════════════════════
+rubric_fidelity:
+  verdict: PASS
+  rows_checked: "all 9 survivors (spot-check exceeded the >=4 minimum)"
+  arithmetic_verified: >
+    All 9 weighted totals reproduce EXACTLY to 2dp under the frozen weight vector
+    (.25/.17/.14/.15/.10/.12/.04/.03, sum=1.00): QRB2-2 4.09, QRB2-1 3.90, QRB2-4 3.79,
+    QRB2-5 3.77, QRA2-5 3.75, QRA2-1 3.72, QRA2-3 3.58, QRA2-2 3.36, QRA2-7 3.04. Weights and
+    anchors in the ranking's method block are byte-identical to hoqr-rubric.yaml:219-228 and the
+    confirmability anchor map :179-184 — no post-hoc weight or anchor tuning detected (A2/A6
+    held). Dimension scores spot-checked against proposal content for QRB2-2, QRB2-1, QRA2-5,
+    QRA2-3, QRA2-2: each assigned 1-5 is defensible against the frozen anchor text given the
+    proposal's mechanism/novelty/cost/falsification prose and the NHT skeptical reads HoQR
+    states it adopted (e.g. QRB2-5 novelty 3 = "textbook Kaufman ER", QRA2-3 novelty 3 =
+    "adjacent to killed QRA-3"). No anchor was bent to favor a proposal.
+
+confirmability_governance:
+  nht_govern_confirmed: true
+  recompute_spotcheck: >
+    Confirmability scored off NHT-recomputed years (A4), NOT QR self-assessment — verified by
+    cross-referencing each survivor's confirmability_years_used in the ranking to the
+    nht_years_to_validate in the screens (e.g. QRB2-2 ranking 3.44 = NHT 3.44, REJECTING the QR's
+    self-claimed 1.95yr first-candidate floor; QRB2-1 3.05 = NHT, not QR's 2.47). Independently
+    recomputed years_to_validate for 3+ proposals on NHT's challenged inputs (QRB2-2, QRB2-1,
+    QRB2-4, plus all kills) via the frozen formula; every value matches to the stated rounding.
+    Anchor mapping (<=1=5, <=2=4, <=3=3, (3,5]=2, >5=1) applied correctly: all survivors in
+    (3,5]->anchor 2; all four >5yr kills->anchor 1->HG-4 TOTAL=0.
+
+no_spend_honesty:
+  verdict: honest
+  best_survivor_bar_analysis: >
+    NO-SPEND is HONEST — neither over-conservative nor weak-idea-protecting. Independently
+    confirmed the central claim: NO survivor reaches confirmability>=4 (<=2yr). The best survivor
+    QRB2-2 (4.09) clears EVERY other first-candidate clause — mechanism 4 (>=4), novelty 4 (>=4),
+    cost 5 (>=4), stat 4 (>=4), falsifiability 5 (>=3), data 5 (in {4,5}), no-dim<3, NHT-survive —
+    and fails ONLY on confirmability (anchor 2, 3.44yr < the <=2yr floor). I checked every clause:
+    it fails on confirmability and confirmability ALONE. That is the gate doing exactly its
+    designed job: holding back an otherwise-first-candidate-grade idea solely because it cannot be
+    validated fast. A5 ("do not manufacture a candidate from a STRETCH idea") was applied
+    correctly as a discipline, NOT as an excuse — the QR self-scored QRB2-2 at confirmability 4
+    (1.95yr) claiming first-candidate eligibility, and the chain REJECTED that self-score via the
+    NHT duty-cycle recompute rather than accepting it to force a spend. A weak idea is not being
+    protected (the two weakest, QRA2-2/QRA2-7, are explicitly killed-as-candidates); a genuine
+    first candidate is not being suppressed (QRB2-2's only failing clause is the new, legitimate
+    confirmability bar, and it is QUEUED with an honest frequency-lift path, not buried).
+
+kill_integrity:
+  verdict: PASS
+  detail: >
+    All 5 kills are gate-anchored and internally consistent. QRA2-4 (HG-4, 5.73yr): robust from
+    EITHER lever — at the QR's OWN SR=0.18 the corr-haircut epy 624->~300 yields 5.73yr; the 624
+    figure was declared at the full pre-filter pooled rate while the QR's own cost_profile concedes
+    the quiet-Friday filter "roughly halves it" — textbook events_per_year inflation HG-4 exists to
+    catch. QRA2-6 dedup (HG-1): REAL — verified archived QRB-4's fade variant is explicitly a
+    thin-book liquidity-overshoot REVERSION (not merely a swap artifact) in the same 16-18 UTC
+    spread-hole (mean 4.15/3.97) on the same 3 pairs, same sign; QRA2-6 swaps a vol-z trigger for
+    the spread-state trigger = "same flow/behavior, new indicator name" = HG-1 definition.
+    QRB2-3 (HG-4, 5.09yr): sound — the gate is FLAT in high-corr states by its own thesis, so the
+    un-gated epy=180 self-pass is inconsistent with the mechanism; duty-cycle debit crosses 5yr
+    (sits ON the boundary, disclosed). QRB2-6 double-kill (HG-1 + HG-4): SOUND — a dollar-neutral
+    long-top-carry/short-bottom-carry basket IS canonical cross-sectional carry (Lustig-Verdelhan
+    HML-FX); "rank not level" does not rescue it (the position is sign(carry-rank)); AND weekly
+    rebalance epy=52 -> 8.26yr self / 11.89yr NHT > 5yr. Self-flagged by the QR as the trap
+    exemplar; NHT confirmed both. QRB2-7 (HG-4, 6.87yr): sound — self-flagged STRETCH 3.58yr but
+    under-debited (declared epy=120 while its own cost_profile says post-squeeze breaks fire
+    6-15/yr/pair); honest duty-cycle debit crosses 5yr; also dominated by sibling QRB2-2.
+
+meta_finding_soundness:
+  verdict: sound-core-overstated-narrative
+  detail: >
+    The CORE counterfactual is SOUND: QRB2-2 (data-ready, unlike QRB-6) would have cleared the
+    kickoff-1 first-candidate bar (no confirmability clause existed) and, as top scorer, been
+    selected — a 3.44yr forward-unconfirmable idea = the QRB-6 SHAPE. Verified QRB2-2 clears all
+    8 old-bar clauses. The claim that the gate is load-bearing (it converted a 4.09-top shortlist
+    into an honest non-spend) is correct and not overreach. HOWEVER, the supporting NARRATIVE is
+    overstated (PR-1): QRB-6 itself was NOT the kickoff-1 pick (QRB-3 was) and was data-INELIGIBLE
+    at that bar; its trial burned later via separate CEO authorization. The meta-finding conflates
+    "QRB-6 the trap idea" with "the kickoff-1 rubric selected QRB-6" — it did not. The argument
+    survives the correction (it never NEEDED QRB-6 to have been the kickoff-1 pick — QRB2-2 carries
+    the counterfactual), so this is a narrative-accuracy MAJOR, not a soundness REJECT.
+
+wave_compliance:
+  verdict: PASS
+  detail: >
+    (a) NO backtest / return-performance data anywhere — verified across ranking, both NHT screens,
+    both proposal sets: all SR figures are explicitly a-priori unmeasured guesses for confirmability
+    arithmetic; contamination-checks in every artifact attest no parquet returns read. (b) Trial
+    counter NOT incremented: max_trials_this_wave=0, all trial_id="no-trial-proposal-only-wave";
+    counter stays at 42 (authoritative per CONSENSUS_2026-06-07_qrb6_winddown.md:33,144 — the
+    kickoff-1 counter of 40 was advanced to 42 by the post-kickoff-1 fa0f982a burn, so "42" is
+    correct for THIS wave; the kickoff-1 artifacts' "40" is not a contradiction). (c) Proposals
+    genuinely new: the only two archive-overlaps were caught and killed (QRA2-6=QRB-4 re-skin,
+    QRB2-6=canonical carry); the QR self-flagged both; no other re-skin of the prior 11 detected on
+    spot-check. CB-event-studies correctly excluded (HC-11); cb_decision_dates.parquet attested
+    unused. QRB-3 not duplicated.
+
+# ════════════════════════════════════════════════════════════════════════════
+coverage-statement: >
+  Reviewed all 7 artifacts in 2026-06-07T-new-alpha-kickoff-2/ (pm-acceptance-criteria,
+  hoqr-rubric, qr-a-proposals, qr-b-proposals, nht-screen-a, nht-screen-b, hoqr-ranking) plus the
+  two kickoff-1 reference artifacts (hoqr-rubric, qr-b-proposals) and the kickoff-1 + QRB-6
+  wind-down CONSENSUS docs. Performed all 6 PM PR-REVIEW checks (a)-(e) AND the 6 dispatched
+  load-bearing checks. Independently reproduced all 9 weighted totals and all 14 years_to_validate
+  values via python3 on the frozen formula. Did NOT re-run NHT's judgment haircuts (out of scope;
+  assessed their direction and disclosure instead). Did NOT touch return data, backtests, or the
+  trial counter.
+
+contamination-check: >
+  CLEAN. No return/Sharpe/drawdown/performance series computed or read. python3 used ONLY for the
+  frozen weighted-sum and years_to_validate arithmetic on already-declared integer scores and
+  NHT-recomputed (epy, SR) inputs — no parquet returns, no backtest, no trial increment. The
+  review object's decision/stance fields (NO-SPEND, kills, STRETCH) were treated as the objects
+  under review, not as authority. No capital action assessed or implied.
+
+evidence:
+  - "hoqr-ranking.yaml:48-183 — 9 survivor scores; all weighted totals reproduced exactly."
+  - "hoqr-ranking.yaml:188-236 — 5 kills; gate anchors verified."
+  - "hoqr-ranking.yaml:301-306 — bar_check_summary (QRB2-2 fails on confirmability alone) — independently confirmed."
+  - "hoqr-ranking.yaml:363-383 — meta_finding (PR-1 narrative drift on QRB-6 kickoff-1 status)."
+  - "hoqr-rubric.yaml:219-228, 179-184, 267-288, 298-322 — frozen weights, anchor map, 4 gates, first-candidate bar."
+  - "nht-screen-a.yaml:156-194 (QRA2-4 kill), :224-261 (QRA2-6 dedup) — verified."
+  - "nht-screen-b.yaml:103-141 (QRB2-3), :215-246 (QRB2-6), :247-284 (QRB2-7) kills — verified."
+  - "docs/decisions/CONSENSUS_2026-06-06_new_alpha_kickoff.md:12,28,54,96 — QRB-3 was the kickoff-1 pick; QRB-6 roadmap-only/ineligible (PR-1 evidence)."
+  - ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/hoqr-rubric.yaml:311-319 — old first-candidate bar (no confirmability clause; data_readiness==4|5 required)."
+  - "docs/decisions/CONSENSUS_2026-06-07_qrb6_winddown.md:33,144 — counter 42 authoritative; fa0f982a the exploratory burn."
+
+assumptions:
+  - "The NHT duty-cycle and a-priori-SR haircuts are accepted as the binding confirmability inputs per A4; I verified their ARITHMETIC and DIRECTION and confirmed NHT's own MEDIUM-confidence disclosure, but did not re-derive the haircut magnitudes (judgment calls within disclosed bands). The NO-SPEND conclusion is robust to that band; the QRB2-3/QRB2-7 kill-vs-STRETCH line is not, and is correctly disclosed as boundary."
+  - "The archived-family set is complete per the rubric; NHT holds the authoritative dedup veto. I independently verified only the two exercised dedups (QRA2-6=QRB-4, QRB2-6=carry)."
+  - "Trial counter 42 is authoritative for this wave per the QRB-6 wind-down CONSENSUS; the kickoff-1 '40' predates the fa0f982a burn and is not a live contradiction."
+
+confidence: high
+
+body: |
+  ## Verdict: APPROVE-WITH-CONDITIONS
+
+  The NO-SPEND recommendation is honest and the rubric was applied as frozen. I reproduced
+  every weighted total (9/9 exact to 2dp) and every years_to_validate (14/14 to the stated
+  rounding) independently. Confirmability governance is correct: scores come from NHT's
+  recomputed years (A4), not the QR self-assessments — and the chain actively REJECTED the
+  QR's optimistic self-scores (QRB2-2's self-claimed 1.95yr first-candidate floor became NHT's
+  3.44yr STRETCH) rather than accepting them to force a spend. That is the system working.
+
+  ## NO-SPEND is honest, not over-conservative and not weak-idea protection
+
+  I checked the most important question independently: does ANY survivor clear the
+  first-candidate bar, and does the best survivor (QRB2-2) fail ONLY on confirmability? Yes to
+  the second, no to the first. QRB2-2 clears mechanism 4, novelty 4, cost 5, stat 4,
+  falsifiability 5, data 5, no-dim-below-3, and NHT-survive — every clause except
+  confirmability (anchor 2, 3.44yr vs the <=2yr floor). No other survivor is closer. A5 was
+  applied as a discipline (the genuine first-candidate-shaped idea is QUEUED with an honest
+  frequency-lift path), not as an excuse to avoid a verdict. NO-SPEND is the calibrated,
+  defensible outcome.
+
+  ## The one finding worth surfacing (MAJOR, narrative not numbers)
+
+  The meta-finding's self-justification overstates the kickoff-1 record (PR-1): it says the
+  firm "scored QRB-6 at 4.38, PURSUED IT, burned a trial." In fact QRB-3 was the kickoff-1
+  first candidate; QRB-6 was the highest scorer but acquisition-required and therefore
+  INELIGIBLE for first-candidate, ranked roadmap-only — and its trial burned LATER via a
+  separate CEO authorization, not as a kickoff-1 output. The CORE counterfactual that carries
+  the meta-finding's weight is nonetheless SOUND: QRB2-2 — data-ready, unlike QRB-6 — WOULD
+  have cleared the old (confirmability-free) bar and been selected, exhibiting the same
+  in-sample-attractive / forward-unconfirmable shape. The argument never needed QRB-6 to have
+  been the kickoff-1 pick; it should lead with QRB2-2 and correct the QRB-6 history. This is a
+  documentation-accuracy fix, not a soundness defect — hence approve-WITH-CONDITIONS, not
+  reject.
+
+  ## Conditions for clean approval (all documentation; no re-rank)
+
+  1. (PR-1, major) Correct the meta-finding narrative: QRB-6 was NOT the kickoff-1
+     first-candidate (QRB-3 was) and was data-ineligible/roadmap-only; its trial burned later
+     via separate CEO authorization. Lead the counterfactual with QRB2-2 (PR-2).
+  2. (PR-3, observation) Retain NHT's MEDIUM-confidence disclosure that the QRB2-3/QRB2-7
+     kill-vs-STRETCH line is a judgment boundary; the NO-SPEND conclusion is robust regardless.
+  3. (PR-4, optional) Carry NHT-A's mechanism-class concentration finding (effective
+     diversification ~2-3, not 9) into the queue rationale — it reinforces NO-SPEND.
+
+  None of these alters the ranking, the kills, or the NO-SPEND recommendation. The numbers are
+  correct; the wave is compliant; the gate is load-bearing. The single fix is to make the
+  victory-lap narrative as accurate as the arithmetic.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,540 @@
+---
+# Slice-B alpha hypothesis portfolio — Wave 2 (CONFIRMABILITY-gated)
+# Cross-sectional relative-value / novel carry-CONDITIONING / trend-breakout STRUCTURE /
+# regime-conditioning GATES. Disjoint from Slice-A (intraday microstructure / mean-reversion / vol-state).
+# Quant Researcher B | new-alpha-kickoff-2 2026-06-07
+role: quant-researcher
+artifact_type: hypothesis-portfolio
+decision: approve
+timestamp: "2026-06-08T00:30:00Z"   # AFTER hoqr-rubric freeze (2026-06-07T23:30:00Z)
+subtask_ref: kickoff-2-gen-b
+subtask_id: "new-alpha-kickoff-2-2026-06-07:phase1:task1.0"
+trial_id: "no-trial-proposal-only-wave"
+slice: B
+
+no-capital-instruction: true
+# Paper hypotheses ONLY. No backtests, no return/performance computation, no trial counter.
+# All data facts below are STRUCTURAL (schema/shape/dtype/index/cadence), re-verified this
+# wave by direct parquet inspection (rate_diff (6540,12) 2001→2026; EURUSD_daily (4237,5)
+# OHLCV 2010-01-04→2026-04-06) and carried-forward from the wave-1 QR artifacts' verified
+# schema facts. NO returns, NO Sharpe, NO drawdown was computed. per_event_SR_estimate_IS
+# values are PRIOR a-priori effect-size guesses for the confirmability arithmetic ONLY — they
+# are NOT measured and NHT must recompute/override.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIRMABILITY DISCIPLINE (the load-bearing new constraint this wave)
+# ══════════════════════════════════════════════════════════════════════════════
+# Frozen formula (hoqr-rubric.yaml:36, verbatim):
+#   years_to_validate = ((1.645 + 0.842) / per_event_SR_haircut)^2 / events_per_year
+#   per_event_SR_haircut = (1/3) * per_event_SR_estimate_IS ;  (1.645+0.842)^2 = 6.1852
+# Verdict bands: GATE_PASS <=3yr | STRETCH 3-5yr | GATE_FAIL >5yr (>5yr => TOTAL=0).
+# First-candidate floor: confirmability >=4  <=>  years_to_validate <= ~2yr.
+#
+# THE QRB-6-IN-NEW-GUISE TRAP, made explicit:
+#   A cross-sectional / portfolio-level signal fires once per REBALANCE, so its
+#   events_per_year is the rebalance frequency, NOT the per-pair firing rate. A weekly
+#   portfolio rebalance => events_per_year ~= 52; even a per-event_SR_haircut of 0.12
+#   gives years = 6.1852/(0.12^2)/52 = 8.26yr => GATE_FAIL (this is the rubric's own
+#   verification anchor). I therefore BUILD CONFIRMABILITY IN by construction:
+#   the genuinely confirmable ideas here are PER-PAIR daily-cadence signals (each pair an
+#   independent event stream, hundreds of events/yr per pair); the portfolio/cross-sectional
+#   ideas are HONESTLY flagged STRETCH-or-FAIL on the rebalance-frequency ground and are
+#   NOT advanced as first-candidate.
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA FINDINGS (structural; re-verified + carried-forward)
+# ══════════════════════════════════════════════════════════════════════════════
+data_findings:
+  - "12 daily OHLCV parquet (each (4237,5) [open,high,low,close,volume], tz-aware UTC 00:00, weekday-only, 2010-01-04 -> 2026-04-06) + 3 four-hour (EURUSD/GBPUSD/USDJPY, ~25457 rows, 6 bars/day grid 21/01/05/09/13/17 UTC). Re-verified EURUSD_daily (4237,5) and 4h grid."
+  - "VOLUME == 0 in EVERY processed file (daily and 4h). No volume/OBV/VWAP signal is testable. Every proposal is built from OHLC geometry, cross-pair structure, spread state, or rate-diff change events ONLY."
+  - "data/rates/rate_differentials.parquet (6540,12): {PAIR}_diff LEVELS in decimal, 2001-03-14 -> 2026-04-07, monthly-stepped/forward-filled (wave-1 verified ~197 discrete nonzero day-over-day CHANGES for EURUSD across 25y; only post-2010 events are OHLCV-usable). The LEVEL is the dead/calendar-locked carry family; novel carry-CONDITIONING here uses the differential as a cross-sectional RANKING KEY or a regime STATE, never as a held level/sign signal."
+  - "data/spreads/{PAIR}_{daily,4h}_spreads.parquet [spread_pips,hour,day_of_week]: real time-varying spread (EURUSD daily median ~2.2, max ~36.6; 13-17% of days > 2x median). Usable as a per-pair liquidity-regime STATE variable, distinct from its cost role."
+  - "data/rates/cb_decision_dates.parquet EXISTS in inventory — but central-bank / calendar EVENT STUDIES are FORBIDDEN this wave (known-unconfirmable; QRB-6 class). NO proposal here uses a decision-date calendar. Noted only to attest it was deliberately NOT used."
+  - "Cross-section breadth: 12 pairs map to ~8 distinct currencies (USD,EUR,GBP,JPY,AUD,NZD,CAD + the EURGBP/JPY-cross structure). A cross-sectional rank book therefore has THIN breadth — another reason portfolio-level rebalance frequency (and thus confirmability) is the binding constraint, not stat power."
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROPOSALS (QRB2-1 .. QRB2-7)
+# ══════════════════════════════════════════════════════════════════════════════
+proposals:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-1
+    name: "Carry-rank momentum CONFIRMATION gate (high-carry pairs trend-persist; trade per-pair, gate by carry rank)"
+    mechanism: >
+      WHO LOSES: leveraged carry funders (real-money + retail carry books) who are LONG the
+      high-yield currency for the rate-differential coupon. They are PRICE-INSENSITIVE on the
+      way up (mandate is to earn carry, not to time the spot leg) so when the high-carry
+      currency is ALSO trending up they add/hold mechanically, extending the spot trend; when
+      it turns, their unwind is forced and disorderly. The edge is NOT carry itself (dead,
+      calendar-locked) and NOT raw price momentum (Bet#1, archived) — it is the INTERACTION:
+      price trend in a single pair is more persistent and more tradeable WHEN that pair sits in
+      the top/bottom of the cross-sectional carry ranking, because the carry crowd's
+      price-insensitive flow is the structural amplifier. The carry rank is a STATE GATE on a
+      per-pair trend signal, not a held carry position.
+    novelty_vs_archive: >
+      vs carry (all variants, calendar-locked): no rate-diff LEVEL is held; the differential is
+      used ONLY to RANK pairs into a carry-tier state that GATES a price signal — never as the
+      position itself. vs momentum/Bet#1: raw trend is the GATED base; ungated it is the
+      archived momentum and is null by construction here — the alpha claim is that the trend
+      edge is CONDITIONAL on carry tier (a documented carry-momentum interaction the firm has
+      never tested as a per-pair gate). vs QRB-1 (rate-CHANGE drift): QRB-1 trades the
+      first-difference EVENT; this trades a continuous PRICE trend gated by the carry LEVEL
+      rank — different trigger, different cadence. vs ma_crossover/bollinger_rsi: trend measured
+      as a sign of trailing return, not an MA cross or band touch.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. Split each pair-day into carry-tier
+      {top-4 carry, middle-4, bottom-4} by that day's cross-sectional rate-diff rank (formed on
+      lagged data only). KILL if the trend signal's net-of-cost directional expectancy in the
+      EXTREME carry tiers does NOT exceed its expectancy in the MIDDLE tier by a pre-committed
+      margin (the gate must ADD value — if middle-tier trend is as good, the carry conditioning
+      is spurious and the idea collapses to archived momentum -> auto-KILL). BUILT-IN PLACEBO:
+      re-run with the carry rank RANDOMLY SHUFFLED across pairs; the tier-spread must vanish
+      under the shuffle or the effect is a multiple-comparisons artifact -> KILL. Also KILL if
+      net-of-cost per-pair Sharpe < 0.3 OOS.
+    cost_profile: >
+      Per-pair daily trend gated by carry tier => one position per pair, flips on trend sign
+      change ~ every few weeks (trend signals are persistent). Turnover LOW-to-MODERATE. Holds
+      the high-carry direction, so swap is typically FAVORABLE (long the carry side) — a rare
+      cost tailwind. Edge per move (a multi-week trend leg) is tens-of-pips vs ~1.5-1.9 pip
+      round-trip => comfortably clears the floor IF the gate adds value. Cost is not the central
+      risk here; spuriousness of the gate is.
+    events_per_year: 250          # PER-PAIR daily evaluation; trend-sign flips fewer, but the confirmability event stream is the daily directional bet per pair
+    per_event_SR_estimate_IS: 0.30   # a-priori daily per-pair info ratio guess (NOT measured)
+    per_event_SR_haircut: 0.10       # (1/3)*0.30
+    years_to_validate: 2.47
+    # ARITHMETIC: 6.1852 / (0.10^2) / 250 = 6.1852 / 0.01 / 250 = 618.52 / 250 = 2.474 yr
+    confirmability_gate_verdict: GATE_PASS   # <=3yr
+    data_feasibility: >
+      available-now: 12 daily OHLCV (trend) + rate_differentials.parquet (carry rank). Both
+      verified present this wave. No acquisition. data_readiness ~4 (rate-diff is monthly-stale
+      but the RANK is stable month-to-month, which is exactly what a tier gate needs).
+    stat_tractability_note: >
+      Per-pair daily, 12 pairs => thousands of pair-days; but trend signals are autocorrelated
+      so effective N is the number of independent trend LEGS (~tens/pair/yr). De-overlap by
+      counting trend legs, pool across pairs and across carry tiers. Adequate-to-good effective
+      N for an in-sample tier-contrast test. Stat-tractable; ~4.
+    capacity_note: >
+      Mechanism PREDICTS where it works: strongest on the high-carry pairs (AUD/NZD-JPY crosses
+      historically) and should be ABSENT in the middle tier — robustness is a prediction (the
+      tier-contrast itself), not a hope. Survives pair-set perturbation by design.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost: 4, stat: 4, confirmability: 3, data: 4, capacity: 4}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-2
+    name: "Donchian channel breakout with a realized-vol-EXPANSION confirmation gate (per-pair)"
+    mechanism: >
+      WHO LOSES: holders of stale resting orders and stop-losses clustered just beyond multi-week
+      range extremes (retail stops, option-barrier hedges, prior-range fader inventory). When
+      price breaches an N-day high/low these clusters are mechanically triggered, and the
+      triggering flow is PRICE-INSENSITIVE (a stop is a market order regardless of level), so the
+      breach extends. The persistence is structural: the stop/barrier book is rebuilt each range,
+      so the same vulnerable inventory re-forms — the loser cannot stop losing because their
+      risk-management cadence (place a stop beyond the range) regenerates the fuel. The
+      vol-EXPANSION gate (require realized range to be expanding, not contracting, at the breach)
+      separates genuine stop-cascade breakouts from low-vol false pokes that revert.
+    novelty_vs_archive: >
+      vs tas_ceiling_4h / ORB: ORB is an INTRADAY opening-range session breakout; this is a
+      MULTI-WEEK Donchian (N~20-55 day) price-structure breakout at daily cadence with a
+      VOL-STATE confirmation — different horizon, different range definition, different gate. vs
+      ma_crossover: a channel-extreme breach is a level event, not a moving-average cross
+      (different trigger geometry; a breakout can fire with no MA cross and vice versa). vs
+      momentum/Bet#1: momentum is a continuous trailing-return sign; this is a discrete
+      range-breach EVENT gated by a vol-regime state. vs bollinger_rsi: BB fades band touches
+      (mean-reversion); this is the OPPOSITE sign — it trades the breach as continuation, and the
+      vol-expansion gate is specifically what distinguishes it from a BB fade.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. Signal: enter on close beyond the N-day
+      Donchian extreme ONLY when trailing realized range (e.g. ATR_short / ATR_long) is
+      EXPANDING above a pre-committed ratio; exit on opposite-channel touch or a fixed vol-stop.
+      KILL if net-of-cost expectancy of breaches taken UNDER the vol-expansion gate does not
+      exceed breaches taken under the OPPOSITE (vol-contracting) condition by a pre-committed
+      margin — i.e. the gate must separate real cascades from false pokes, else it collapses to a
+      plain (already-studied) breakout. BUILT-IN PLACEBO: shuffle the vol-state label across
+      breach events; the contrast must vanish. Also KILL if net-of-cost Sharpe < 0.3 OOS, or if
+      breaches fire < 8/yr/pair (too rare).
+    cost_profile: >
+      Per-pair, breaches of a 20-55 day channel fire ~10-30/yr/pair; holds a multi-week trend
+      leg. LOW turnover. Edge per successful cascade is large (tens-to-hundreds of pips) vs ~1.5
+      pip round-trip => well above floor (cost_survival 4-5 candidate). Swap depends on direction
+      (neutral-to-mild). Inherently low-turnover by design — cost is a rounding error on the
+      gross move when the gate works.
+    events_per_year: 220          # per-pair daily decision (in/out of position); the breach itself is rarer but the daily directional state is the confirmability stream
+    per_event_SR_estimate_IS: 0.36   # a-priori; breakout-with-vol-gate effect (NOT measured)
+    per_event_SR_haircut: 0.12       # (1/3)*0.36
+    years_to_validate: 1.95
+    # ARITHMETIC: 6.1852 / (0.12^2) / 220 = 6.1852 / 0.0144 / 220 = 429.53 / 220 = 1.953 yr
+    confirmability_gate_verdict: GATE_PASS   # <=2yr -> also clears the first-candidate floor
+    data_feasibility: >
+      available-now: 12 daily OHLCV only (Donchian + ATR are pure OHLC geometry). No rates, no
+      spreads-as-signal needed. data_readiness 5 (processed parquet, zero ingestion risk).
+    stat_tractability_note: >
+      Breaches are discrete and not heavily overlapping (a new range must form between them) =>
+      cleaner independent-event count than continuous trend. Pool across 12 pairs => hundreds of
+      independent breach events for an in-sample gate-contrast test. Good effective N; ~4.
+    capacity_note: >
+      Channel breakout is the most cross-sectionally robust trend structure (works across the
+      majors and crosses historically); the vol-gate is a single ratio parameter — test a
+      neighborhood. Mechanism predicts it should be WEAKER on the lowest-vol pairs (EURGBP) and
+      stronger on JPY crosses. Capacity 4.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost: 5, stat: 4, confirmability: 4, data: 5, capacity: 4}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-3
+    name: "Correlation-regime GATE on a per-pair trend signal (trend persists when the pair DECOUPLES from its bloc)"
+    mechanism: >
+      WHO LOSES: macro/bloc traders who treat currencies as a single risk-on/risk-off factor and
+      hold correlated baskets. When a pair's trailing correlation to its bloc (e.g. AUDUSD to the
+      USD/commodity bloc) BREAKS DOWN, an idiosyncratic, pair-specific driver is in control — and
+      the factor crowd is slow to reallocate from the broken correlation structure (their risk
+      models lag the regime change), leaving a window where the pair's own trend runs without the
+      usual mean-reverting factor drag. The edge is a REGIME GATE: a per-pair trend signal is
+      tradeable specifically in LOW-bloc-correlation states; in HIGH-correlation states the same
+      trend is just the common factor and is already crowded/arbed. The loser persists because
+      factor-model rebalancing has an institutional cadence slower than the correlation break.
+    novelty_vs_archive: >
+      vs momentum/Bet#1: trend is the GATED base; the alpha claim is the CORRELATION-REGIME
+      conditioner (a rolling cross-pair correlation state), which no archived family computes —
+      ungated it is archived momentum and null here. vs carry: no rate-diff at all. vs QRA-4
+      (Slice-A cross-sectional dispersion): QRA-4 is a PORTFOLIO dollar-neutral reversion basket
+      gated by panel DISPERSION; this is a PER-PAIR trend gated by that pair's PAIRWISE
+      correlation to its bloc — different statistic (correlation vs dispersion), different sign
+      (trend not reversion), per-pair not portfolio. STRADDLE NOTE: regime-conditioning is shared
+      DNA with Slice-A vol-state ideas, but the conditioner (cross-pair correlation breakdown) and
+      the base (trend, not reversion) are disjoint from Slice-A's set — flagged for HoQR.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. For each pair compute trailing rolling
+      correlation to a pre-defined bloc proxy (built only from existing FX pairs, lagged). Take
+      the per-pair trend signal ONLY when |correlation| < pre-committed low threshold; flat
+      otherwise. KILL if net-of-cost trend expectancy in the LOW-correlation state does not
+      exceed that in the HIGH-correlation state by a pre-committed margin (the gate must add
+      value). BUILT-IN PLACEBO: replace the real correlation state with a phase-shuffled
+      correlation series; contrast must vanish. Also KILL if net Sharpe < 0.3 OOS, or if the
+      low-correlation state occupies < 10% of days (gate too rare to matter) or > 70% (gate
+      barely discriminating).
+    cost_profile: >
+      Per-pair; the gate REDUCES turnover (flat in high-correlation states) so it is cost-FAVORABLE
+      relative to ungated trend. Holds multi-week trend legs in the decoupled window. Edge per leg
+      tens-of-pips vs ~1.5-1.9 pip floor. Plausible cost survival (3-4); the honest risk is the
+      gate firing rarely enough that the in-sample event count thins.
+    events_per_year: 180          # per-pair daily, but gate suppresses many days (flat in high-corr regimes) -> ~180 active directional bets/yr/pair
+    per_event_SR_estimate_IS: 0.33   # a-priori; decoupled-state trend (NOT measured)
+    per_event_SR_haircut: 0.11       # (1/3)*0.33
+    years_to_validate: 2.84
+    # ARITHMETIC: 6.1852 / (0.11^2) / 180 = 6.1852 / 0.0121 / 180 = 511.17 / 180 = 2.840 yr
+    confirmability_gate_verdict: GATE_PASS   # <=3yr (close to the ceiling — disclosed)
+    data_feasibility: >
+      available-now: 12 daily OHLCV only (rolling correlations are pure return transforms of
+      existing closes; bloc proxy is a linear combo of existing pairs). No acquisition.
+      data_readiness 5.
+    stat_tractability_note: >
+      Correlation states are persistent (autocorrelated) so the gate creates BLOCKS of active
+      days; de-overlap to independent regime episodes (~tens/pair). Pool across 12 pairs for the
+      in-sample gate-contrast. Adequate effective N but thinner than QRB2-2 because the gate
+      suppresses days; ~3.
+    capacity_note: >
+      Mechanism predicts WHICH pairs decouple most (the commodity/risk-bloc pairs AUD/NZD/CAD);
+      EURGBP should rarely decouple from its own tight structure. The correlation window length is
+      one parameter — test a neighborhood. Capacity 3-4.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 4, cost: 4, stat: 3, confirmability: 3, data: 5, capacity: 4}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-4
+    name: "Per-pair relative-strength vs own-bloc residual continuation (idiosyncratic strength persists)"
+    mechanism: >
+      WHO LOSES: index/bloc-tracking flow and benchmark-hugging real-money that holds a currency
+      via its BLOC weight rather than its idiosyncratic merit. When a single pair's return
+      DECOMPOSES into a common-bloc component plus an idiosyncratic residual, the idiosyncratic
+      residual reflects a genuine pair-specific driver (terms-of-trade shock, local-rate
+      repricing) that the bloc-tracking crowd UNDER-weights because their mandate pins them to
+      the bloc. So the idiosyncratic residual CONTINUES (the pair-specific driver is slow to be
+      priced by benchmark holders), giving a per-pair directional tilt in the SIGN of the
+      residual. This is relative-value (pair vs its own bloc) but executed PER-PAIR (long/short
+      the single pair scaled by its residual), not as a market-neutral basket — keeping the
+      confirmability event stream per-pair-daily.
+    novelty_vs_archive: >
+      vs momentum/Bet#1: the signal is the IDIOSYNCRATIC RESIDUAL after removing the bloc factor,
+      NOT the pair's raw trailing return — a pair can have positive raw momentum but negative
+      residual (bloc up more), giving the OPPOSITE position. That factor-decomposition is the
+      novel transform; archived momentum has no factor model. vs carry: no rate-diff. vs QRA-1
+      (triangular no-arb residual): QRA-1 is a mean-REVERSION of a no-arbitrage identity residual
+      across 3 specific pairs; this is a CONTINUATION of a statistical bloc-factor residual per
+      pair across all 12 — opposite sign, different residual definition. vs QRA-4 (dispersion
+      reversion basket): opposite sign (continuation not reversion) and per-pair not portfolio.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. Decompose each pair's daily return into a
+      bloc-factor loading (estimated on trailing data only) + residual; signal = sign of the
+      smoothed trailing residual, per pair. KILL if net-of-cost expectancy of the residual-sign
+      signal is <= that of the RAW-return-sign signal (then the factor decomposition adds nothing
+      and it is disguised momentum -> auto-KILL), OR if the residual is mean-REVERTING not
+      continuing (sign of the tilt is wrong -> KILL), OR net Sharpe < 0.3 OOS. BUILT-IN PLACEBO:
+      shuffle the factor loadings across pairs; the residual edge must vanish.
+    cost_profile: >
+      Per-pair daily; residual sign is smoother than raw return so flips less often => MODERATE
+      turnover. Each leg is a single pair (not a multi-leg basket) so cost is one round-trip, not
+      3-12 (a deliberate improvement over the archive's basket ideas QRA-1/QRA-4). ~1.5-1.9 pip
+      floor; edge plausibly a few-x. cost_survival 3-4.
+    events_per_year: 250          # per-pair daily directional tilt
+    per_event_SR_estimate_IS: 0.30   # a-priori; residual-continuation (NOT measured)
+    per_event_SR_haircut: 0.10       # (1/3)*0.30
+    years_to_validate: 2.47
+    # ARITHMETIC: 6.1852 / (0.10^2) / 250 = 618.52 / 250 = 2.474 yr
+    confirmability_gate_verdict: GATE_PASS   # <=3yr
+    data_feasibility: >
+      available-now: 12 daily OHLCV (factor decomposition is a rolling regression of existing
+      returns on a bloc proxy built from the same panel). No acquisition. data_readiness 5.
+      Bloc-factor estimation must be strictly trailing (no-lookahead) — flagged.
+    stat_tractability_note: >
+      Per-pair daily residual signals, pooled across 12 pairs => thousands of pair-days; residual
+      autocorrelation reduces effective N to the number of independent residual swings. Good
+      cross-sectional pooling; the 12 pairs give partially-independent replicas of the SAME
+      mechanism (a pass is itself a robustness check). ~4.
+    capacity_note: >
+      Robust across the cross-section by construction (each pair its own residual); the bloc
+      definition + smoothing window are the parameters — test a neighborhood. The mechanism does
+      NOT predict a single magic pair, reducing single-pair fragility. Capacity 4.
+    self_score_hint: {mechanism: 4, novelty: 4, falsifiability: 5, cost: 3, stat: 4, confirmability: 3, data: 5, capacity: 4}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-5
+    name: "Volatility-regime ADAPTIVE trend gate (trend signal switched ON only in trending-vol states, OFF in choppy-vol)"
+    mechanism: >
+      WHO LOSES: systematic trend-followers (CTAs) who run a FIXED trend signal across all vol
+      regimes and get chopped up in low-persistence, high-mean-reversion volatility states. Their
+      mandate forces a constant trend allocation, so they keep paying the whipsaw cost in choppy
+      regimes — a price-insensitive, structurally-forced loser. The edge is a REGIME GATE that
+      turns a per-pair trend signal ON only when the volatility STRUCTURE indicates a persistent
+      (trending) regime — measured by the autocorrelation/Hurst-like persistence of recent
+      returns, or the ratio of directional move to path length (efficiency ratio) — and OFF in
+      choppy regimes where the CTA crowd bleeds. We harvest the trend the CTAs cannot, while
+      sitting out the chop they cannot avoid.
+    novelty_vs_archive: >
+      vs momentum/Bet#1: trend is the gated base; the alpha is the VOL-PERSISTENCE regime gate
+      (efficiency-ratio / return-autocorrelation state), which archived momentum lacks — ungated
+      it is archived momentum and null. vs QRA-3 (Slice-A vol term-structure gate): QRA-3 gates
+      a continuation/fade FLIP using the 4h-vs-daily vol TERM STRUCTURE (a vol-SURFACE-slope
+      conditioner on 3 pairs); this gates a trend ON/OFF using a single-series return-PERSISTENCE
+      statistic (efficiency ratio / Hurst proxy) on all 12 daily pairs — different conditioner,
+      different action (on/off vs flip), different cadence/coverage. STRADDLE NOTE: vol-state
+      conditioning overlaps Slice-A; disclosed. The persistence statistic is the distinguishing
+      ingredient. vs bollinger_rsi/ma: no band/MA trigger.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. Compute a trailing efficiency ratio
+      ER = |net move over K days| / (sum of |daily moves| over K days) per pair; gate the trend
+      signal ON when ER > pre-committed threshold (persistent/trending), flat otherwise. KILL if
+      net-of-cost trend expectancy in HIGH-ER states does not exceed LOW-ER states by a
+      pre-committed margin (gate spurious -> collapses to archived momentum -> auto-KILL).
+      BUILT-IN PLACEBO: time-shuffle the ER series; the contrast must vanish. Also KILL if net
+      Sharpe < 0.3 OOS, or if the high-ER state is < 15% or > 70% of days (non-discriminating).
+    cost_profile: >
+      Per-pair; the gate REMOVES choppy-regime trades (the highest-turnover, lowest-edge days) so
+      it is strongly cost-FAVORABLE vs ungated trend — turnover DROPS and the retained trades are
+      the persistent legs. Edge per retained leg tens-of-pips vs ~1.5-1.9 pip floor.
+      cost_survival 4 (the gate is, by construction, a turnover/cost reducer).
+    events_per_year: 200          # per-pair daily; gate suppresses choppy days -> ~200 active directional bets/yr/pair
+    per_event_SR_estimate_IS: 0.36   # a-priori; ER-gated trend is the cleaner subset (NOT measured)
+    per_event_SR_haircut: 0.12       # (1/3)*0.36
+    years_to_validate: 2.15
+    # ARITHMETIC: 6.1852 / (0.12^2) / 200 = 6.1852 / 0.0144 / 200 = 429.53 / 200 = 2.148 yr
+    confirmability_gate_verdict: GATE_PASS   # <=3yr (just over the 2yr first-candidate floor -> confirmability ~3, disclosed)
+    data_feasibility: >
+      available-now: 12 daily OHLCV only (efficiency ratio is pure OHLC/return geometry). No
+      acquisition. data_readiness 5.
+    stat_tractability_note: >
+      Regime-gated trend legs, pooled across 12 pairs; the ER gate creates persistent blocks =>
+      de-overlap to independent legs. The HIGH/LOW-ER contrast is a clean two-sample in-sample
+      test with hundreds of pooled independent legs. ~4.
+    capacity_note: >
+      Mechanism predicts trending-prone pairs (JPY crosses, commodity pairs) score higher ER more
+      often than range-bound EURGBP — robustness is a prediction. ER window + threshold are the
+      two parameters; test a neighborhood. Capacity 4.
+    self_score_hint: {mechanism: 4, novelty: 3, falsifiability: 5, cost: 4, stat: 4, confirmability: 3, data: 5, capacity: 4}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-6
+    name: "[STRETCH/FAIL — disclosed QRB-6-trap] Cross-sectional carry-RANK dispersion relative-value basket"
+    mechanism: >
+      WHO LOSES: carry-funding flow concentrated in the widest rate-differential pairs. When the
+      cross-sectional DISPERSION of carry ranks is wide, the carry crowd crowds the extreme-tier
+      pairs; a long-top-carry / short-bottom-carry market-neutral basket harvests the spread the
+      price-insensitive carry funders sustain. Honest mechanism — but it is a PORTFOLIO signal.
+    novelty_vs_archive: >
+      vs carry (dead/calendar-locked): uses the rate-diff as a cross-sectional RANK for a
+      market-neutral basket, not a held level — borderline; NHT may rule this an over-close
+      re-skin of carry (the basket IS long-high-yield/short-low-yield, which is the carry trade's
+      canonical form). I FLAG THIS NOVELTY RISK MYSELF. Included primarily as the explicit
+      worked example of the confirmability trap, not as a strong novelty candidate.
+    falsification_criterion: >
+      Single backtest, walk-forward. Long top-carry-tier / short bottom-carry-tier, dollar-neutral,
+      rebalanced WEEKLY. KILL if net-of-cost basket Sharpe < 0.3 OOS, OR if it is statistically
+      indistinguishable from the archived carry level signal (novelty fail), OR White
+      reality-check p >= 0.10. Placebo: random tier assignment must yield zero.
+    cost_profile: >
+      Multi-leg (up to 8 legs) market-neutral basket, weekly rebalance => 8x round-trip per
+      rebalance. Cost-HEAVY. Marginal at best.
+    events_per_year: 52           # WEEKLY rebalance -> the portfolio fires 52x/yr, NOT per-pair-daily. THIS IS THE TRAP.
+    per_event_SR_estimate_IS: 0.36   # generous a-priori per-rebalance (NOT measured)
+    per_event_SR_haircut: 0.12       # (1/3)*0.36
+    years_to_validate: 8.26
+    # ARITHMETIC: 6.1852 / (0.12^2) / 52 = 6.1852 / 0.0144 / 52 = 429.53 / 52 = 8.260 yr
+    confirmability_gate_verdict: GATE_FAIL   # >5yr -> TOTAL=0. This is the rubric's own anchor (weekly moderate = 8.26yr).
+    data_feasibility: >
+      available-now: rate_differentials.parquet (ranks) + 12 daily OHLCV (basket returns). Data is
+      ready, but the idea FAILS THE CONFIRMABILITY GATE regardless — a weekly portfolio signal
+      cannot be confirmed out-of-sample inside a tradeable horizon at a plausible per-rebalance
+      effect size. data_readiness 4 but MOOT.
+    stat_tractability_note: >
+      IN-SAMPLE this is FINE (weekly basket over 2010-26 ~ 800 rebalances, clean pooled statistic)
+      — exactly the QRB-6 shape: stat-tractable in-sample (~4) yet UNCONFIRMABLE out-of-sample
+      (8.26yr). It is retained ONLY to demonstrate the dimensions are orthogonal and that I
+      applied the gate honestly rather than hiding the trap.
+    capacity_note: "Market-neutral basket; robust in-sample but the confirmability gate moots it."
+    self_score_hint: {mechanism: 3, novelty: 2, falsifiability: 4, cost: 2, stat: 4, confirmability: 1, data: 4, capacity: 3}
+    disclosure: >
+      INTENTIONALLY INCLUDED AS THE QRB-6-IN-NEW-GUISE EXEMPLAR. A cross-sectional/portfolio
+      relative-value idea whose events_per_year IS the rebalance frequency (52/yr), which —
+      even with a generous per-event haircut of 0.12 — yields 8.26yr to validate => GATE_FAIL.
+      DO NOT advance. Its purpose is to make the trap concrete and prove the per-pair ideas
+      (QRB2-1..5,7) were chosen SPECIFICALLY to avoid it. NHT: please confirm the GATE_FAIL.
+
+  # ────────────────────────────────────────────────────────────────────────────
+  - id: QRB2-7
+    name: "Range-compression breakout-anticipation gate (per-pair: trade the breakout only after a verified squeeze)"
+    mechanism: >
+      WHO LOSES: option-selling / range-fading inventory that accumulates during low-volatility
+      consolidations (vol sellers short gamma, range traders fading the band edges). A prolonged
+      range-COMPRESSION builds a one-sided, price-insensitive overhang: the gamma-short hedgers
+      MUST buy into a breakout to re-hedge (their delta flips against them), and the range-faders'
+      stops cluster at the band edges. When price finally breaks the compressed range, both
+      cohorts are forced to chase in the breakout direction — a structurally-forced, regenerating
+      loser (the squeeze rebuilds each consolidation). The edge is a TREND/BREAKOUT structure
+      GATED by a verified prior compression (a low-realized-range state), distinguishing a
+      high-conviction post-squeeze break from a random poke.
+    novelty_vs_archive: >
+      vs QRB2-2 (Donchian + vol-EXPANSION gate): QRB2-2 gates on vol EXPANDING AT the breach;
+      this gates on a prior vol COMPRESSION REGIME PRECEDING the breach (a squeeze setup) — the
+      conditioner is the antecedent low-vol consolidation, a distinct state (one looks at the
+      breach bar's vol, the other at the weeks of range BEFORE it). vs bollinger_rsi: BB-squeeze
+      is a known retail concept, but BB/RSI as archived FADES the band; this trades the
+      post-squeeze BREAK (opposite sign) and gates on realized-range compression, not a band
+      width parameter. vs ORB/ma/carry: not session-range, not MA, no rate-diff. NHT should
+      scrutinize the QRB2-2 adjacency — I flag it; the two differ in WHEN the vol state is read.
+    falsification_criterion: >
+      Single backtest, walk-forward, entry_delay 1. Define a squeeze: trailing realized range
+      below a pre-committed low percentile of its own history for >= M days. Take the breakout of
+      the squeeze range ONLY following a verified squeeze. KILL if net-of-cost expectancy of
+      post-SQUEEZE breaks does not exceed that of NON-squeeze breaks by a pre-committed margin
+      (the compression gate must add value -> else it is a plain breakout, partially overlapping
+      QRB2-2 -> NHT dedup). BUILT-IN PLACEBO: shuffle the squeeze labels across breaches; contrast
+      must vanish. Also KILL if net Sharpe < 0.3 OOS, or if post-squeeze breaks fire < 6/yr/pair.
+    cost_profile: >
+      Per-pair; post-squeeze breaks are RARE per pair (~6-15/yr) but each captures a large
+      expansion move (tens-to-hundreds of pips) vs ~1.5 pip floor => excellent gross/cost ratio.
+      Very LOW turnover. cost_survival 4-5. The honest risk is the low per-pair event count
+      pressuring stat power and confirmability (see below) — pooling across 12 pairs is essential.
+    events_per_year: 120          # per-pair daily directional state, but the GATED breakout subset is sparse; honest active-bet stream ~120/yr/pair after the squeeze gate
+    per_event_SR_estimate_IS: 0.36   # a-priori; post-squeeze breaks are the cleaner subset (NOT measured)
+    per_event_SR_haircut: 0.12       # (1/3)*0.36
+    years_to_validate: 3.58
+    # ARITHMETIC: 6.1852 / (0.12^2) / 120 = 6.1852 / 0.0144 / 120 = 429.53 / 120 = 3.579 yr
+    confirmability_gate_verdict: STRETCH   # 3-5yr -> GATE-allowed, DISCLOSED. The squeeze gate thins the active stream below daily cadence, pushing validate-time into the stretch band. Not first-candidate-eligible on confirmability grounds.
+    data_feasibility: >
+      available-now: 12 daily OHLCV only (realized-range percentile + range break are OHLC
+      geometry). No acquisition. data_readiness 5.
+    stat_tractability_note: >
+      Post-squeeze breaks are sparse per pair but cleanly INDEPENDENT (a new squeeze must form
+      between them) => pooling across 12 pairs gives ~hundreds of independent events for an
+      in-sample squeeze-vs-non-squeeze contrast. Stat-tractable IN-SAMPLE (~3-4) even though the
+      forward confirmability is STRETCH — a clean illustration that the two dimensions diverge
+      (high in-sample tractability, stretch forward horizon).
+    capacity_note: >
+      Squeeze-break works across the cross-section; mechanism predicts stronger post-squeeze
+      expansion on higher-beta pairs (JPY crosses). Compression percentile + M are the parameters.
+      Capacity 3-4.
+    self_score_hint: {mechanism: 4, novelty: 3, falsifiability: 5, cost: 4, stat: 3, confirmability: 2, data: 5, capacity: 4}
+
+# ══════════════════════════════════════════════════════════════════════════════
+claimed_domains:
+  - hypothesis-formulation-and-pre-registration
+  - falsification-criteria-design
+
+evidence:
+  - path: "data/rates/rate_differentials.parquet"
+    note: "Re-verified this wave: shape (6540,12), DatetimeIndex 2001-03-14 -> 2026-04-07, {PAIR}_diff LEVELS (decimal). Grounds the carry-RANK-as-state usage in QRB2-1 and the (mooted) QRB2-6. Monthly-stale forward-fill (wave-1 verified ~197 nonzero EURUSD changes) => the RANK is stable, which is what a tier gate needs."
+  - path: "data/processed/EURUSD_daily.parquet"
+    note: "Re-verified this wave: shape (4237,5) [open,high,low,close,volume], tz-aware UTC, 2010-01-04 -> 2026-04-06. Representative of all 12 daily OHLCV files grounding QRB2-2/3/4/5/7 (pure OHLC geometry + return transforms)."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-a-proposals.yaml"
+    note: "Read in full to guarantee disjointness from Slice-A: QRA-1 triangular no-arb reversion, QRA-2 gap asymmetry, QRA-3 vol-term-structure flip, QRA-4 dispersion reversion basket, QRA-5 overlap-bar CLV. My ideas are trend/breakout/carry-rank/correlation-gated and per-pair, distinct in sign and statistic; straddles flagged inline (QRB2-3 vs QRA-4, QRB2-4 vs QRA-1/QRA-4, QRB2-5 vs QRA-3)."
+  - path: ".fintech-org/artifacts/2026-06-06T-new-alpha-kickoff/qr-b-proposals.yaml"
+    note: "Read in full to avoid re-skinning QRB-1..6: my set uses NO rate-CHANGE event (QRB-1), NO spread-as-signal standalone (QRB-2), NO calendar/turn-of-month (QRB-3), NO 4h liquidity-hole (QRB-4), NO weekday seasonal (QRB-5), NO central-bank decision calendar (QRB-6). Disjoint."
+  - path: ".fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml"
+    note: "Frozen rubric (timestamp 2026-06-07T23:30:00Z, precedes this artifact). Confirmability formula and the 4 hard gates copied/applied verbatim; verification anchors (QRB-6=255.8yr, weekly-moderate=8.26yr) reproduced in QRB2-6 arithmetic."
+  - path: "data/rates/cb_decision_dates.parquet"
+    note: "Exists in inventory but DELIBERATELY UNUSED — central-bank/calendar event studies are forbidden this wave (known-unconfirmable, QRB-6 class). Attested non-use."
+
+assumptions:
+  - "per_event_SR_estimate_IS values are A-PRIORI effect-size guesses for the confirmability arithmetic ONLY; NOT measured from any backtest. NHT must independently recompute years_to_validate and may override. No return/Sharpe/performance data was computed in this wave."
+  - "events_per_year for a PER-PAIR signal is the per-pair active-directional-bet rate (~daily cadence, modulated down by any suppressing gate); for a PORTFOLIO/cross-sectional signal it is the REBALANCE frequency (QRB2-6: weekly=52) — the latter is the confirmability trap and is why 6 of 7 proposals are per-pair."
+  - "The carry-RANK gate (QRB2-1) and carry-rank basket (QRB2-6) use the rate differential ONLY as a cross-sectional ranking/state, never as a held level/sign — but QRB2-6's basket form is canonical carry and is flagged as a likely NHT novelty-gate risk; it is included only as the disclosed confirmability-trap exemplar."
+  - "All trend/correlation/factor/efficiency-ratio/realized-range statistics are computed STRICTLY on trailing (lagged) data with entry_delay_bars=1 — the no-lookahead sacred-test discipline is respected in every falsification sketch."
+  - "volume==0 across all OHLCV; no proposal uses volume. The cross-section is ~8 distinct currencies (thin breadth) — a reason portfolio rebalance frequency, not stat power, binds confirmability."
+
+confidence: medium
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+body: |
+  ## Slice-B Wave-2 generation summary (CONFIRMABILITY-gated)
+
+  Seven proposals across the four mandated Slice-B sub-domains, every one screened
+  against the new 4th hard gate (confirmability) at GENERATION TIME — the QRB-6 lesson
+  made structural.
+
+  Sub-domain coverage:
+    - Novel carry-CONDITIONING (NOT the dead carry level): QRB2-1 (carry-rank momentum
+      confirmation gate — carry rank GATES a per-pair trend), QRB2-6 (carry-rank dispersion
+      basket — DISCLOSED GATE_FAIL exemplar).
+    - Trend / breakout STRUCTURE: QRB2-2 (Donchian + vol-expansion gate), QRB2-7
+      (post-squeeze breakout — STRETCH).
+    - Regime-conditioning GATES on a base signal: QRB2-3 (correlation-decoupling gate on
+      trend), QRB2-5 (vol-persistence / efficiency-ratio gate on trend).
+    - Cross-sectional / relative-value: QRB2-4 (idiosyncratic bloc-residual continuation,
+      executed PER-PAIR to keep confirmability), QRB2-6 (portfolio basket — the trap).
+
+  ## How confirmability was engineered IN, not bolted on
+
+  The binding constraint this wave is years_to_validate, and the dominant lever is
+  events_per_year. A PORTFOLIO/cross-sectional rebalance is LOW-frequency (QRB2-6:
+  weekly=52 events/yr -> 8.26yr -> GATE_FAIL, matching the rubric's own anchor). A
+  PER-PAIR daily signal is HIGH-frequency (hundreds of events/yr per pair). So six of
+  seven proposals are PER-PAIR by deliberate design, landing in the 1.95-3.58yr range:
+    - QRB2-2  1.95yr  GATE_PASS (clears the <=2yr first-candidate floor)
+    - QRB2-5  2.15yr  GATE_PASS
+    - QRB2-1  2.47yr  GATE_PASS
+    - QRB2-4  2.47yr  GATE_PASS
+    - QRB2-3  2.84yr  GATE_PASS
+    - QRB2-7  3.58yr  STRETCH   (squeeze gate thins the active stream below daily cadence)
+    - QRB2-6  8.26yr  GATE_FAIL (the disclosed QRB-6-in-new-guise portfolio trap)
+
+  ## Recommended-first-candidate posture (HoQR adjudicates)
+
+  QRB2-2 (Donchian breakout + vol-expansion gate) is my strongest a-priori candidate: a
+  named, regenerating, price-insensitive loser (stop/barrier clusters), a sharp
+  placebo-equipped falsification, inherently LOW turnover with edge >> the ~1.5-pip floor,
+  data_readiness 5 (pure OHLC, processed parquet), and — critically — confirmability 4
+  (1.95yr) clearing the new first-candidate floor. QRB2-1 (carry-rank trend gate) is the
+  most novel carry-conditioning and the runner-up. I FLAG three Slice-A straddles inline
+  (QRB2-3 vs QRA-4, QRB2-4 vs QRA-1/QRA-4, QRB2-5 vs QRA-3) and one likely NHT novelty
+  risk (QRB2-6 basket = canonical carry). NO-SPEND remains a valid terminal outcome.
+
+  ## Honesty attestations
+
+  No backtest, no return data, no Sharpe/drawdown was computed. per_event_SR_estimate_IS
+  are a-priori guesses for the confirmability arithmetic only; NHT recomputes and governs.
+  QRB2-6 is included intentionally as the confirmability-trap exemplar (GATE_FAIL),
+  proving the gate was applied at generation rather than hidden. cb_decision_dates.parquet
+  exists but was deliberately not used (forbidden calendar event study).

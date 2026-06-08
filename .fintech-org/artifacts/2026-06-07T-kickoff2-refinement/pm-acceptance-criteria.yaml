@@ -1,0 +1,471 @@
+---
+# PM Acceptance Criteria — kickoff-2 Refinement Wave
+# Governs the honest-refinement-only evaluation of the four queued STRETCH survivors.
+# Purpose: determine whether any queued proposal can be honestly refined to
+#   confirmability>=4 (years_to_validate <= ~2yr on NHT-verified inputs) and thus
+#   become a legitimate first candidate — OR conclude NO-NEW-CANDIDATE, which is
+#   equally valid.
+# Counter: 42 (unchanged — no trial burned this wave).
+
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-07T23:00:00Z"
+
+subtask_ref: kickoff2-refinement
+subtask_id: kickoff2-refinement-2026-06-07:phase1:task1.0
+trial_id: no-trial-proposal-only-wave
+no-capital-instruction: true
+
+task_statement: >
+  Determine honestly whether any queued STRETCH survivor can reach confirmability>=4
+  via a real design change; NO-NEW-CANDIDATE is a valid terminal outcome.
+
+deliverable_type: refinement-decision
+deadline: "2026-06-08T23:59:00Z"
+
+# ════════════════════════════════════════════════════════════════════════════
+# REFINEMENT TARGETS (HoQR queue, best-first by NHT years_to_validate)
+# ════════════════════════════════════════════════════════════════════════════
+refinement_targets:
+  - id: QRB2-1
+    name: Carry-rank momentum CONFIRMATION gate (carry-tier gates per-pair trend)
+    nht_years: 3.05
+    honest_lift_path_per_hoqr: >
+      Closest to the ceiling (3.05yr, no duty-cycle debit — per-pair label, not a gate).
+      Honest lever: tighten to extreme carry tiers only, where the mechanism is strongest,
+      IF that demonstrably raises per-event SR enough to offset any consequent epy reduction.
+      The duty-cycle tradeoff must be honoured: a tighter tier filter fires on fewer
+      pair-days, so epy falls; that fall must be modelled explicitly.
+  - id: QRB2-4
+    name: Per-pair idiosyncratic bloc-residual continuation
+    nht_years: 3.32
+    honest_lift_path_per_hoqr: >
+      Residual is defined every pair-day (no suppressing gate), so epy is already
+      near-maximal. Only honest lever: sharpen the bloc-factor model to concentrate the
+      edge and raise per-event SR (~0.27 -> ~0.33). Speculative; queue below QRB2-1/2.
+  - id: QRB2-2
+    name: Donchian breakout + realized-vol-EXPANSION gate (per-pair)
+    nht_years: 3.44
+    honest_lift_path_per_hoqr: >
+      Only honest frequency lever: lower channel-N (e.g. 20d not 55d) and/or relax the
+      vol-expansion threshold so genuine breaches fire ~40-60/yr/pair instead of 10-30.
+      This is a REAL mechanism change (more actual breach events), NOT counting
+      position-held days as events. Must re-screen: more breaches = more friction; the
+      gate-contrast (gated vs anti-gated) and placebo must still survive at the new
+      parameter.
+  - id: QRA2-5
+    name: Wick-rejection asymmetric stop-cascade (daily)
+    nht_years: 3.87
+    honest_lift_path_per_hoqr: >
+      Largest gap (3.87yr). Honest lift needs higher qualifying-wick frequency (looser
+      size filter) but a looser filter dilutes stop-cascade specificity and depresses
+      per-event SR. The two levers are antagonistic; QR must show the joint
+      (epy_new * SR_new^2) exceeds current. Marginal; lowest priority.
+
+# ════════════════════════════════════════════════════════════════════════════
+# HARD CONSTRAINTS — THE ANTI-GAMING GUARDRAILS (machine-checkable)
+# ════════════════════════════════════════════════════════════════════════════
+# These are binding. A refinement that violates any one of these is rejected
+# regardless of the years_to_validate it achieves. Each is stated as a
+# machine-checkable condition — no qualitative wiggle room.
+hard_constraints:
+  - id: HC-1
+    name: no_frequency_reinflation
+    statement: >
+      A refinement MAY raise events_per_year ONLY via a genuine, disclosed mechanism
+      change — the SAME edge firing at a higher honest rate (e.g. shorter channel-N
+      that produces more real breach events; a second genuinely uncorrelated leg that
+      adds independent events). It MAY NOT re-declare a higher epy for an identical
+      signal without a mechanism explanation, and it MAY NOT count correlated pairs as
+      independent (the QRA2-4 kill: 624 "events" from 52 Mondays x 12 highly correlated
+      pairs). The refinement must state (a) what changed in the design and (b) why the
+      new epy survives NHT's correlated-effective-N and duty-cycle debits.
+    machine_check: >
+      If new_epy > old_nht_epy: the submission must include a non-empty mechanism_change
+      field AND a non-empty survives_nht_debits field. If either is absent, HC-1 FAILS.
+      NHT independently recomputes effective-N accounting for cross-pair correlation;
+      the recomputed epy governs, not the proposer-declared figure.
+
+  - id: HC-2
+    name: no_sharpe_reinflation_without_frequency_tradeoff
+    statement: >
+      A refinement MAY raise per_event_SR ONLY via a genuinely sharper signal — a
+      stricter entry filter that demonstrably concentrates the edge — AND must ACCEPT
+      the consequent epy reduction that a stricter filter produces. The duty-cycle
+      tradeoff is not optional: a tighter filter fires less often. The refinement must
+      explicitly state the new (epy, SR) pair and confirm that the epy reduction was
+      modelled (not held at the pre-filter rate). A refinement that raises SR while
+      holding or raising epy for the SAME signal is a violation.
+    machine_check: >
+      If new_per_event_SR > old_nht_per_event_SR AND new_epy >= old_nht_epy AND
+      the mechanism is unchanged (same signal, tighter threshold only): HC-2 FAILS.
+      The submitted (new_epy, new_SR) pair must have new_epy <= old_nht_epy when
+      the change is a filter tightening (not a design change adding independent events).
+
+  - id: HC-3
+    name: mechanism_change_required_real_design_delta
+    statement: >
+      Every refinement must include a "what physically changed and why the edge survives
+      the change" statement. A re-parameterisation of the same signal to achieve a
+      years_to_validate that clears the gate — without a genuine design change — is a
+      violation. The test: would the QR have recognised this as a distinct proposal had
+      it been submitted in kickoff-2? If yes, it is a real refinement. If not
+      (same mechanism, same signal, new threshold chosen to make the arithmetic work),
+      it is gaming and HC-3 FAILS.
+    machine_check: >
+      Submission must contain a non-empty physical_change field (describes what
+      structurally changed) and a non-empty edge_survives_rationale field (explains
+      why the edge is preserved under the change). An empty or generic field
+      (e.g. "parameters tuned") constitutes a violation.
+
+  - id: HC-4
+    name: nht_rescreens_with_same_skepticism
+    statement: >
+      NHT re-screens each refinement with the SAME methodology used in kickoff-2:
+      (a) challenges events_per_year for correlated-pair effective-N and duty-cycle
+      debit, (b) applies the same a-priori SR haircut logic, (c) recomputes
+      years_to_validate from the FROZEN formula. NHT does NOT give the benefit of the
+      doubt to a refined proposal. The formula, haircut definition, and skeptical
+      levers are unchanged from the kickoff-2 NHT screens
+      (.fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/nht-screen-*.yaml).
+    machine_check: >
+      NHT must produce a new confirmability_recompute block for each refined proposal,
+      showing nht_events_per_year, nht_per_event_SR, and nht_years_to_validate computed
+      from the frozen formula verbatim. If any input is accepted at the proposer-declared
+      value without a documented challenge rationale, HC-4 FAILS.
+
+  - id: HC-5
+    name: no_new_candidate_from_inflated_input
+    statement: >
+      If no refinement honestly clears confirmability>=4 on NHT-verified inputs, the
+      wave concludes NO-NEW-CANDIDATE. This is a fully valid terminal outcome — exactly
+      as NO-SPEND was valid for kickoff-2. HoQR MAY NOT recommend a first candidate
+      whose NHT-verified years_to_validate exceeds ~2yr by accepting an inflated input
+      at face value. Principal-Reviewer (PR) verifies this; a candidate
+      recommendation accompanied by inflated inputs is rejected at the PR stage.
+    machine_check: >
+      A candidate recommendation is valid only if NHT's own nht_years_to_validate
+      for that proposal is <= 2.0yr in the re-screen artifact. If the recommendation
+      cites proposer-declared inputs that NHT challenged, and the final years figure
+      used by HoQR differs from NHT's recomputed figure, HC-5 FAILS.
+
+# ════════════════════════════════════════════════════════════════════════════
+# ACCEPTANCE CRITERIA
+# ════════════════════════════════════════════════════════════════════════════
+criteria:
+  - id: QR-REFINE
+    description: >
+      Quant-Researcher authors honest refinements of each queued target.
+      Each refined proposal must include:
+        (a) physical_change — what structural or parameterisation change was made and why
+        (b) new_epy — the proposed events_per_year under the refined design, with
+            justification for why it survives correlated-effective-N and duty-cycle debits
+        (c) new_per_event_SR — the proposed per-event Sharpe under the refined design,
+            with justification for why it is not re-inflated (or why the epy tradeoff
+            is explicitly accounted for)
+        (d) mechanism_change — a statement confirming this is a real design delta, not
+            a re-parameterisation to hit a number
+        (e) edge_survives_rationale — why the mechanism (named counterparty + constraint)
+            is preserved under the refinement
+        (f) expected_nht_years — the QR's own best-estimate of years_to_validate under
+            the refined inputs, computed from the frozen formula verbatim
+      Forbidden: re-declaring a higher epy for the same signal; raising SR without
+      accepting the consequent epy reduction; citing a mechanism change without a
+      concrete description of what changed.
+    owner: quant-researcher
+    done_when: >
+      One refined-proposal block per queued target (QRB2-1, QRB2-4, QRB2-2, QRA2-5)
+      is present in the output artifact, each containing all six required fields and
+      passing HC-1, HC-2, HC-3 on face reading. NO-NEW-CANDIDATE is a valid outcome
+      if no honest refinement can be constructed.
+
+  - id: NHT-RESCREEN
+    description: >
+      Null-Hypothesis Tester re-screens each refined proposal using the SAME skeptical
+      methodology from kickoff-2 NHT screens (nht-screen-a.yaml, nht-screen-b.yaml).
+      For each refined proposal NHT must:
+        (a) challenge new_epy for correlated-pair effective-N and duty-cycle debit,
+            accepting the QR's mechanism-change argument only if it is specific and
+            survives the correlated-N accounting
+        (b) apply the same a-priori SR haircut logic (not a tighter haircut than kickoff-2,
+            but also not a softer one)
+        (c) recompute years_to_validate from the frozen formula:
+            years = ((1.645+0.842) / ((1/3)*SR))^2 / epy
+        (d) issue a GATE_PASS (<=2yr), STRETCH (2-5yr), or GATE_FAIL (>5yr) verdict
+        (e) state whether each HC (HC-1, HC-2, HC-3) is satisfied based on the
+            submission content
+      NHT governs: if NHT's recomputed years_to_validate differs from the QR's
+      expected_nht_years, NHT's figure is the binding input to HoQR scoring.
+    owner: null-hypothesis-tester
+    done_when: >
+      One NHT confirmability_recompute block per refined proposal is present, containing
+      nht_events_per_year, nht_per_event_SR, nht_years_to_validate, nht_gate_verdict,
+      and HC-1/2/3 pass-or-fail assessments. The NHT verdict is issued as
+      REFINE-GATE_PASS, REFINE-STRETCH, or REFINE-GATE_FAIL.
+
+  - id: HOQR-DECIDE
+    description: >
+      Head-of-Quant-Research re-scores each refined proposal against the FROZEN
+      kickoff-2 rubric (.fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/
+      hoqr-rubric.yaml) with confirmability scored off NHT's recomputed
+      years_to_validate (not the QR's self-assessment).
+      HoQR checks the FULL first-candidate bar:
+        - No dimension scores below 3
+        - mechanism_quality >= 4
+        - novelty_vs_archive >= 4
+        - cost_survival_plausibility >= 4
+        - statistical_tractability >= 4
+        - confirmability >= 4 (NHT-verified years_to_validate <= ~2yr)
+        - falsifiability_sharpness >= 3
+        - data_readiness == 4 or 5
+        - NHT verdict == survive (HC-1/2/3 all pass)
+      HoQR issues one of two dispositions per proposal:
+        - FIRST-CANDIDATE: clears all clauses above
+        - STILL-QUEUED: fails any clause (including confirmability<4 on NHT inputs)
+      If no proposal is FIRST-CANDIDATE, HoQR issues NO-NEW-CANDIDATE as the
+      terminal wave decision. HoQR MUST NOT manufacture a first-candidate recommendation
+      to avoid a no-spend outcome (attestation A5 of the frozen rubric governs).
+    owner: head-of-quant-research
+    done_when: >
+      One re-scored rubric block per refined proposal, plus one of: a
+      FIRST-CANDIDATE recommendation (with the full bar check showing every clause
+      cleared on NHT-verified inputs) OR NO-NEW-CANDIDATE (with the failure reason
+      per proposal). The frozen rubric weight vector is applied verbatim — no
+      re-weighting for this wave.
+
+  - id: PR-REVIEW
+    description: >
+      Principal-Reviewer reviews any FIRST-CANDIDATE recommendation to verify that
+      the lift was honest and not gamed. Specifically PR checks:
+        (a) that the mechanism_change is real and not a re-parameterisation to clear
+            the gate (HC-3 independent check)
+        (b) that the new (epy, SR) pair is internally consistent — if SR rose, epy
+            fell; if epy rose, a genuine additional-event mechanism is described (HC-1
+            and HC-2 independent check)
+        (c) that NHT applied the SAME skepticism (not a softer haircut than kickoff-2
+            — compare the SR and epy challenges to the original nht-screen-b/a files)
+        (d) that HoQR's confirmation score was taken from NHT's recomputed
+            years_to_validate, not the QR's self-assessment
+        (e) that no dimension score was raised from the kickoff-2 baseline without a
+            documented rationale tied to the refined design (not arbitrary re-scoring)
+      If NO-NEW-CANDIDATE: PR skips the honesty-of-lift check but may note any
+      systemic gaming attempts detected across the refined proposals.
+    owner: principal-reviewer
+    done_when: >
+      PR issues one of: PR-APPROVE (honest lift, all HC checks pass, first-candidate
+      is legitimate) or PR-REJECT (gaming detected, identifies which HC was violated
+      and what the correct years_to_validate should be under honest inputs). If
+      NO-NEW-CANDIDATE, PR issues PR-ACKNOWLEDGE-NO-CANDIDATE with any systemic
+      observations. A PR-REJECT sends the proposal back to QR-REFINE as STILL-QUEUED.
+
+  - id: CONSENSUS
+    description: >
+      Wave closes with a signed consensus artifact recording:
+        - The disposition of each refinement target (FIRST-CANDIDATE or STILL-QUEUED)
+        - The terminal wave decision (a single first-candidate recommendation, or
+          NO-NEW-CANDIDATE)
+        - The honest years_to_validate for each refined proposal on NHT-verified inputs
+        - Whether any hard constraint (HC-1 through HC-5) was tripped and by which
+          proposal
+        - Counter status (remains 42; no trial burned this wave)
+      If a FIRST-CANDIDATE is approved: the consensus records the pre-registration
+      entitlement (this wave produces a PROPOSAL only — pre-registration and any
+      backtest are a FUTURE track, see out_of_scope). If NO-NEW-CANDIDATE: the
+      consensus records the queue state for the next generation wave.
+    owner: all (pm signs off)
+    done_when: >
+      Consensus artifact is present under
+      .fintech-org/artifacts/2026-06-07T-kickoff2-refinement/ with all roles' signatures
+      and the terminal decision recorded. PR-APPROVE (or PR-ACKNOWLEDGE) must precede
+      the consensus signature.
+
+# ════════════════════════════════════════════════════════════════════════════
+# OUT OF SCOPE
+# ════════════════════════════════════════════════════════════════════════════
+out_of_scope:
+  - Any backtest or return computation — this wave is proposal-only
+  - Any pre-registration document for a recommended candidate — a FUTURE track
+  - Any trial increment — counter stays at 42
+  - Re-authoring the frozen kickoff-2 rubric
+  - Evaluating proposals not in the queued_for_refinement list (dead proposals are dead)
+  - CRO or CTO involvement — proposal-only wave, no capital, no infrastructure
+  - Re-evaluating the killed proposals (QRA2-4, QRA2-6, QRB2-3, QRB2-6, QRB2-7,
+    QRA2-2, QRA2-7 are dead — the dead list from hoqr-ranking.yaml governs)
+
+# ════════════════════════════════════════════════════════════════════════════
+# GOVERNING RUBRIC REFERENCE
+# ════════════════════════════════════════════════════════════════════════════
+governing_rubric_ref: >
+  .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml
+  FROZEN — unchanged, governs this wave verbatim. Do NOT re-author it; the
+  confirmability anchor map (5:<=1yr, 4:<=2yr, 3:<=3yr, 2:(3,5]yr STRETCH,
+  1:>5yr GATE_FAIL) and the first-candidate bar (confirmability>=4 / <=2yr as
+  first-candidate floor) are binding. The frozen formula:
+    years_to_validate = ((1.645+0.842) / per_event_SR_haircut)^2 / events_per_year
+    per_event_SR_haircut = (1/3) * per_event_SR_estimate_IS
+  is the only valid computation.
+
+no_new_candidate_is_valid: true
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROLES STAFFED
+# ════════════════════════════════════════════════════════════════════════════
+roles_staffed:
+  - role: pm
+    model: sonnet
+    responsibilities: writes acceptance criteria (this file); signs consensus
+  - role: quant-researcher
+    model: opus
+    responsibilities: authors honest refined proposals per QR-REFINE criterion
+  - role: null-hypothesis-tester
+    model: opus
+    responsibilities: re-screens per NHT-RESCREEN criterion; HC-1/2/3 checks
+  - role: head-of-quant-research
+    model: opus
+    responsibilities: re-scores vs frozen rubric per HOQR-DECIDE criterion
+  - role: principal-reviewer
+    model: opus
+    responsibilities: honesty-of-lift audit per PR-REVIEW criterion
+  - role: cro
+    present: false
+    reason: proposal-only wave; no capital, no risk-sizing decisions
+  - role: cto
+    present: false
+    reason: proposal-only wave; no infrastructure or execution decisions
+
+wraps_invocation_of: []
+
+# ════════════════════════════════════════════════════════════════════════════
+# EVIDENCE
+# ════════════════════════════════════════════════════════════════════════════
+evidence:
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-ranking.yaml:273-304
+    note: >
+      queued_for_refinement list (QRB2-2, QRB2-1, QRB2-4, QRA2-5) with NHT years and
+      honest lift paths — the source of refinement_targets above.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-ranking.yaml:158-326
+    note: >
+      Killed and dead lists — the proposals explicitly excluded from this wave's
+      refinement scope.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-ranking.yaml:256-263
+    note: >
+      first_candidate_recommendation: NO-SPEND with basis — the reason this refinement
+      wave was convened and why NO-NEW-CANDIDATE remains a valid terminal outcome.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:157-184
+    note: >
+      Confirmability dimension (weight 0.12, HG-4 hard gate, anchor scale) — the
+      primary scoring dimension this refinement wave must clear.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:298-324
+    note: >
+      first_candidate_bar and no_spend_valid: true — the bar all criteria here enforce.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-rubric.yaml:329-367
+    note: >
+      Anti-gaming attestations A1-A6 — especially A4 (NHT recompute governs) and A5
+      (no manufactured candidate) which are directly encoded in HC-4 and HC-5.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/nht-screen-b.yaml:40-101
+    note: >
+      QRB2-1 and QRB2-2 confirmability recomputes — the baseline NHT years (3.05, 3.44)
+      and the specific challenges (SR haircut logic, duty-cycle debit) that HC-4
+      mandates are reproduced at the same skepticism level in re-screening.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/nht-screen-b.yaml:163-177
+    note: >
+      QRB2-4 confirmability recompute (3.32yr) — the mild duty-cycle debit and SR
+      haircut, establishing the baseline NHT skepticism for re-screening.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/nht-screen-a.yaml:211-222
+    note: >
+      QRA2-5 confirmability recompute (3.87yr) — the effective-N debit on pooled
+      correlated pairs, establishing the baseline skepticism for re-screening.
+  - path: .fintech-org/artifacts/2026-06-07T-new-alpha-kickoff-2/hoqr-ranking.yaml:159-167
+    note: >
+      QRA2-4 kill reason — the "events_per_year inflation" template (HC-1 exemplar):
+      624 pooled signals from 52 Mondays x 12 correlated pairs declared as independent,
+      honest effective-N ~300, kills from EITHER the epy OR SR lever independently.
+
+# ════════════════════════════════════════════════════════════════════════════
+# ASSUMPTIONS
+# ════════════════════════════════════════════════════════════════════════════
+assumptions:
+  - >
+    The NHT kickoff-2 SR haircut logic (a modest a-priori 0.30->0.27 for the no-duty-cycle
+    ideas; deeper haircuts where the proposer's a-priori SR is optimistic for the asset class)
+    is the calibrated baseline. Re-screening uses the same logic, not a softer or harder
+    variant.
+  - >
+    Correlated-pair effective-N accounting from the kickoff-2 screens is the baseline:
+    pooled cross-pair epy is challenged by an effective-replica count (~6-7 independent
+    currencies of 12; ~1-2 independent 4h replicas of 3). A refinement that adds a genuinely
+    uncorrelated second leg may legitimately claim higher epy — but the dedup and
+    effective-N challenge still applies.
+  - >
+    Trial counter is 42 entering this wave and remains 42 on exit. No trial is burned
+    regardless of whether a FIRST-CANDIDATE is identified (the pre-registration and
+    any backtest are a FUTURE track).
+  - >
+    The four queued proposals' non-confirmability dimension scores from hoqr-ranking.yaml
+    (mechanism, novelty, falsifiability, cost, stat, data, capacity) are taken as the
+    baseline. A refinement MAY change these scores only where the design change
+    materially affects the dimension, and HoQR must document the rationale.
+
+confidence: high
+
+# ════════════════════════════════════════════════════════════════════════════
+# BODY
+# ════════════════════════════════════════════════════════════════════════════
+body: |
+  ## What this wave must guard against
+
+  Kickoff-2 ended NO-SPEND for an honest reason: every queued survivor sits at
+  confirmability anchor 2 (3.05-3.87yr on NHT-verified inputs) and the first-candidate
+  bar requires anchor 4 (<=2yr). The obvious gaming move is to re-declare larger epy
+  or higher per-event SR to close that gap arithmetically — without a design change
+  that genuinely produces those numbers. This is precisely the QRA2-4 kill: 624 pooled
+  signals from 52 Mondays x 12 correlated pairs, the filter "roughly halving it" already
+  conceded in the proposal, yet epy stayed at the pre-filter rate. HC-1 and HC-2 exist
+  to make that move impossible.
+
+  The second gaming move is subtler: a stricter entry filter that raises SR while the
+  proposer forgets (or declines) to reduce epy proportionally. A tighter filter fires
+  less often — that is the tradeoff, not an optional note. HC-2 makes the tradeoff
+  mandatory: if SR rose because the signal is sharper, epy must fall, and both changes
+  must appear in the submission.
+
+  HC-3 is the "is this real?" check: a mechanism change that produces a genuinely
+  different proposal is a legitimate refinement; a threshold adjustment chosen
+  specifically to clear the gate is not. The physical_change and edge_survives_rationale
+  fields operationalise this.
+
+  HC-4 and HC-5 close the loop: NHT re-screens with identical skepticism (the baseline
+  is the original nht-screen files), and HoQR may not recommend a first candidate whose
+  NHT-verified years exceed 2yr by accepting inflated inputs at face value. No-new-candidate
+  remains a fully valid outcome — the wave is a success whether it produces a candidate or
+  honestly confirms none can be refinement-reached.
+
+  ## The priority ordering reflects honest lift probability
+
+  QRB2-1 (3.05yr, no duty-cycle debit) is listed first because the gap to 2yr is smallest
+  and the only honest lever (tighten to extreme tiers, raise SR if the mechanism concentrates)
+  is concrete. QRB2-4 (3.32yr) is second because its lever (sharper factor model) is
+  speculative but clearly scoped. QRB2-2 (3.44yr) has the highest total score and the most
+  attractive mechanism, but its frequency lever (lower channel-N to generate more real breach
+  events) must not become a door to declaring position-held days as events — that was the
+  original NHT challenge, and HC-1 keeps it closed. QRA2-5 (3.87yr) is lowest priority;
+  the antagonistic lever problem (looser size filter dilutes specificity) makes honest
+  refinement to <=2yr unlikely without a different design altogether.
+
+  ## What honest success looks like
+
+  A FIRST-CANDIDATE emerges from this wave ONLY if: NHT's recomputed years_to_validate
+  is <= 2.0yr; the mechanism_change field describes a real structural shift; the (epy, SR)
+  pair is internally consistent with the tradeoff honoured; and PR confirms no gaming. If
+  that bar is met, the wave delivers a proposal-stage first candidate — pre-registration
+  and any backtest are the NEXT track. If it is not met, the wave delivers an honest
+  NO-NEW-CANDIDATE verdict, the queue is preserved, and the next generation wave begins
+  with a clean slate.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

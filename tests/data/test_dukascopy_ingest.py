@@ -321,6 +321,79 @@ class TestValidate1hSchema:
         issues = validate_1h_schema(df, "EURUSD")
         assert any("monoton" in i.lower() for i in issues)
 
+    # --- Data-quality gates added 2026-06-15 (post quick-critic review) ---
+
+    def test_zero_volume_flagged(self):
+        df = self._good_df()
+        df.iloc[2, df.columns.get_loc("volume")] = 0.0
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("volume <= 0" in i for i in issues)
+
+    def test_negative_volume_flagged(self):
+        df = self._good_df()
+        df.iloc[1, df.columns.get_loc("volume")] = -5.0
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("volume <= 0" in i for i in issues)
+
+    def test_nan_price_flagged(self):
+        df = self._good_df()
+        df.iloc[3, df.columns.get_loc("close")] = float("nan")
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("NaN" in i for i in issues)
+
+    def test_non_positive_price_flagged(self):
+        df = self._good_df()
+        df.iloc[2, df.columns.get_loc("low")] = 0.0
+        df.iloc[2, df.columns.get_loc("open")] = 0.0  # keep high>=max(o,c), low<=min(o,c)
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("non-positive" in i for i in issues)
+
+    def test_stale_repeated_body_flagged(self):
+        """>= STALE_OHLC_RUN_THRESHOLD identical-OHLC bars = cached-fetch corruption."""
+        n = 8
+        base = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        ts = [base + timedelta(hours=i) for i in range(n)]
+        # all eight bars share an identical body (one repeated cached response)
+        df = _make_ohlcv_df(
+            ts, [1.10] * n, [1.10] * n, [1.10] * n, [1.10] * n, [100.0] * n
+        )
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("stale" in i.lower() for i in issues)
+
+    def test_short_flat_run_not_flagged(self):
+        """A few isolated flat bars are normal thin-hour microstructure — no flag."""
+        n = 6
+        base = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        ts = [base + timedelta(hours=i) for i in range(n)]
+        # only 3 consecutive identical bars (< threshold of 6), rest move
+        o = [1.10, 1.10, 1.10, 1.11, 1.12, 1.13]
+        df = _make_ohlcv_df(
+            ts, o, [v + 0.005 for v in o], [v - 0.005 for v in o], o, [100.0] * n
+        )
+        issues = validate_1h_schema(df, "EURUSD")
+        assert not any("stale" in i.lower() for i in issues)
+
+    def test_price_spike_flagged(self):
+        df = self._good_df(n=5)
+        # 10x jump on the 4th bar → ~800% 1h move, far over the 10% threshold
+        for col in ("open", "high", "low", "close"):
+            df.iloc[3, df.columns.get_loc(col)] = df.iloc[2, df.columns.get_loc(col)] * 10
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("spike" in i.lower() for i in issues)
+
+    def test_normal_news_move_not_flagged(self):
+        """A realistic ~1.5% 1h move (NFP-grade) must NOT trip the spike gate."""
+        n = 5
+        base = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        ts = [base + timedelta(hours=i) for i in range(n)]
+        close = [1.100, 1.101, 1.102, 1.118, 1.119]  # ~1.45% jump on bar 4
+        df = _make_ohlcv_df(
+            ts, close, [c + 0.002 for c in close], [c - 0.002 for c in close],
+            close, [100.0] * n,
+        )
+        issues = validate_1h_schema(df, "EURUSD")
+        assert not any("spike" in i.lower() for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # Tests: spot_check_weekend_gap (THE UTC CORRECTNESS TEST)

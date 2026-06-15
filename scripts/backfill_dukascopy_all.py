@@ -137,10 +137,10 @@ def pull_pair(pair: str, start_year: int, end_dt: datetime,
             log.info("%s %s: %d bars", pair, ym, len(df))
         month_chunks.append((ym, cf))
 
-    # Read each chunk once: build the concat frames, per-month counts, and suspects.
+    # Read each chunk once: build the concat frames and per-month counts.
     counts: dict[str, int] = {}
-    suspects: list[tuple[str, int, str]] = []
     frames: list[pd.DataFrame] = []
+    full_months: list[str] = []   # non-partial months, for the adaptive floor
     for ym, cf in month_chunks:
         y, m = int(ym[:4]), int(ym[5:])
         cdf = pd.read_parquet(cf)
@@ -148,10 +148,25 @@ def pull_pair(pair: str, start_year: int, end_dt: datetime,
         if not cdf.empty:
             frames.append(cdf)
         if not _is_partial_month(y, m, end_dt):
-            if 0 < len(cdf) < SUSPECT_FLOOR:
-                suspects.append((ym, len(cdf), "LOW"))    # partial pull — almost certainly a gap
-            elif len(cdf) == 0:
-                suspects.append((ym, len(cdf), "ZERO"))   # pre-listing OR total outage — eyeball
+            full_months.append(ym)
+
+    # Adaptive relative floor: a static SUSPECT_FLOOR=100 lets a ~150-bar month
+    # (a third of a real ~480-bar month) slip through as "fine". Flag any
+    # full month below HALF the median full-month count too — that catches
+    # silently-incomplete months the static floor misses.
+    full_counts = [counts[ym] for ym in full_months if counts[ym] > 0]
+    median_full = sorted(full_counts)[len(full_counts) // 2] if full_counts else 0
+    relative_floor = max(SUSPECT_FLOOR, int(0.5 * median_full))
+
+    suspects: list[tuple[str, int, str]] = []
+    for ym in full_months:
+        n = counts[ym]
+        if n == 0:
+            suspects.append((ym, n, "ZERO"))            # pre-listing OR total outage — eyeball
+        elif n < SUSPECT_FLOOR:
+            suspects.append((ym, n, "LOW"))             # partial pull — almost certainly a gap
+        elif n < relative_floor:
+            suspects.append((ym, n, "THIN"))            # below 50% of median full month — incomplete
 
     full = pd.concat(frames) if frames else _empty_1h_frame()
     if not full.empty:

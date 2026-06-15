@@ -321,8 +321,47 @@ def fetch_1h_bars(
 # Schema validation
 # ---------------------------------------------------------------------------
 
+# Data-quality thresholds, calibrated against clean Dukascopy majors so that
+# normal market microstructure never trips them (EURUSD 2021-2025: 0 zero-vol
+# bars, 0 fully-flat-OHLC bars, max 1h |move| 1.74%). They fire only on the
+# corruption signatures a happy-path schema check misses (a throttled/cached
+# fetch silently repeating a body, a resample emitting a no-liquidity bar, an
+# integer-overflow price spike). See data-capability hardening 2026-06-15.
+STALE_OHLC_RUN_THRESHOLD = 6   # ≥6 consecutive bars with identical O=H=L=C = cached/repeated body
+SPIKE_PCT_THRESHOLD = 0.10     # |1h close-to-close move| > 10% on a major = corrupt tick, not news
+
+
+def _max_identical_ohlc_run(df: pd.DataFrame) -> int:
+    """Longest run of consecutive bars whose (O,H,L,C) all equal the prior bar's.
+
+    A handful of isolated flat bars are normal in thin hours; a LONG run of an
+    identical body is the fingerprint of a fetch that silently repeated a cached
+    response across many hours (the QRB-6 data-corruption class).
+    """
+    if len(df) < 2:
+        return 0
+    same = (
+        (df["open"].diff() == 0)
+        & (df["high"].diff() == 0)
+        & (df["low"].diff() == 0)
+        & (df["close"].diff() == 0)
+    ).to_numpy()
+    max_run = run = 0
+    for v in same:
+        run = run + 1 if v else 0
+        max_run = max(max_run, run)
+    # +1 because a run of N "equal-to-prior" flags spans N+1 identical bars
+    return max_run + 1 if max_run else 0
+
+
 def validate_1h_schema(df: pd.DataFrame, pair: str) -> list[str]:
-    """Validate output schema matches firm conventions. Returns list of issues."""
+    """Validate output schema AND data quality matches firm conventions.
+
+    Returns a list of issue strings (empty == clean). Covers structural schema
+    (columns, UTC index, monotonic/unique, OHLC internal consistency) plus the
+    data-quality gates that catch silent corruption: zero/negative volume,
+    repeated-body stale runs, and outlier price spikes.
+    """
     issues: list[str] = []
 
     # Columns
@@ -353,6 +392,38 @@ def validate_1h_schema(df: pd.DataFrame, pair: str) -> list[str]:
             issues.append(f"{bad_high} bars where high < max(open,close)")
         if bad_low:
             issues.append(f"{bad_low} bars where low < min(open,close)")
+
+        # NaN / non-positive prices — a bar exists but a field is missing/garbage
+        n_nan = int(df[["open", "high", "low", "close"]].isna().to_numpy().sum())
+        if n_nan:
+            issues.append(f"{n_nan} NaN price values")
+        n_nonpos = int((df[["open", "high", "low", "close"]] <= 0).to_numpy().sum())
+        if n_nonpos:
+            issues.append(f"{n_nonpos} non-positive price values")
+
+        # Zero/negative volume — a real OHLC bar means ticks existed, so vol > 0;
+        # vol <= 0 is a resample/fetch artifact (real price, no liquidity signal).
+        n_zerovol = int((df["volume"] <= 0).sum())
+        if n_zerovol:
+            issues.append(f"{n_zerovol} bars with volume <= 0")
+
+        # Stale repeated-body run (cached-fetch corruption)
+        stale_run = _max_identical_ohlc_run(df)
+        if stale_run >= STALE_OHLC_RUN_THRESHOLD:
+            issues.append(
+                f"stale data: {stale_run} consecutive identical-OHLC bars "
+                f"(>= {STALE_OHLC_RUN_THRESHOLD})"
+            )
+
+        # Outlier price spike (corrupt tick / integer overflow)
+        if len(df) > 1:
+            n_spike = int((df["close"].pct_change().abs() > SPIKE_PCT_THRESHOLD).sum())
+            if n_spike:
+                worst = float(df["close"].pct_change().abs().max()) * 100
+                issues.append(
+                    f"{n_spike} price spikes > {SPIKE_PCT_THRESHOLD:.0%} 1h move "
+                    f"(worst {worst:.1f}%)"
+                )
 
     return issues
 

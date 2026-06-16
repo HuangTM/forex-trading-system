@@ -218,6 +218,29 @@ def _apply_holdout_filter(data: pd.DataFrame, holdout_after: str | None) -> pd.D
     return data.loc[data.index < cutoff]
 
 
+def _slice_to_oos(
+    equity_curve: pd.DataFrame, trade_log: list, holdout_after: str
+) -> tuple[pd.DataFrame, list]:
+    """Slice an equity curve + trade log to the OOS (on/after holdout) period.
+
+    For a final OOS test the backtest runs over the FULL series (so indicators,
+    signals and strategy state get proper pre-holdout warm-up), but metrics must
+    reflect the held-out period ONLY — otherwise the in-sample portion contaminates
+    the OOS equity curve and metrics. Trades are included when ENTERED in the OOS
+    period. The cutoff (``index >= holdout``) is the exact complement of
+    _apply_holdout_filter's in-sample cut (``index < holdout``).
+    """
+    cutoff = pd.Timestamp(holdout_after)
+    if equity_curve.index.tz is not None and cutoff.tz is None:
+        cutoff = cutoff.tz_localize(equity_curve.index.tz)
+    eq = equity_curve.loc[equity_curve.index >= cutoff]
+    trades = [
+        t for t in trade_log
+        if getattr(t, "entry_time", None) is not None and t.entry_time >= cutoff
+    ]
+    return eq, trades
+
+
 def _build_sizer(config: SystemConfig) -> VolTargetSizer | None:
     """Build VolTargetSizer from config position_sizing section."""
     ps = config.backtest
@@ -403,16 +426,39 @@ def run_trial(
             rebalance_threshold=config.backtest.rebalance_threshold,
         )
 
+        # -- Select the evaluation window --
+        # A final OOS test backtests the full series for warm-up but reports metrics
+        # on the OOS (post-holdout) slice ONLY, so the in-sample portion does not
+        # contaminate the OOS equity curve / metrics.
+        if final_oos_test and holdout_after:
+            eval_equity, eval_trades = _slice_to_oos(
+                bt_result.equity_curve, bt_result.trade_log, holdout_after
+            )
+            if len(eval_equity.dropna()) < 2:
+                raise ConfigError(
+                    f"final_oos_test: no evaluable data on/after oos_holdout_start="
+                    f"{holdout_after!r} (OOS slice has < 2 rows)."
+                )
+            _log_event(
+                "trial.oos_eval.sliced", trial_id=trial_id,
+                oos_holdout_start=holdout_after, eval_rows=len(eval_equity.dropna()),
+            )
+        else:
+            eval_equity, eval_trades = bt_result.equity_curve, bt_result.trade_log
+            if final_oos_test and not holdout_after:
+                logger.warning(
+                    '{"event":"final_oos_test.no_holdout_configured","trial_id":"%s",'
+                    '"action":"metrics_over_full_series"}', trial_id,
+                )
+
         # -- Compute metrics (annualisation matched to bar frequency) --
-        ec = bt_result.equity_curve.dropna()
-        # Infer from the equity-curve index so Sharpe annualisation and the DSR
-        # sqrt(P) factor stay consistent. Today the harness loads daily bars
-        # (load_parquet(..., "daily")) so this resolves to 252 (no regression);
-        # it auto-corrects to ~6240 once 1h loading lands.
+        # Infer from the (evaluation) equity-curve index so Sharpe annualisation and
+        # the DSR sqrt(P) factor stay consistent with the bar frequency.
+        ec = eval_equity.dropna()
         periods_per_year = infer_periods_per_year(ec.index)
         metrics = calculate_metrics(
-            bt_result.equity_curve,
-            bt_result.trade_log,
+            eval_equity,
+            eval_trades,
             periods_per_year=periods_per_year,
         )
 

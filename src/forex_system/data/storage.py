@@ -225,10 +225,10 @@ def load_parquet(
             after this date is the OOS holdout. Access is allowed only when
             oos_mode=True (a one-shot final test mode). Raises LookaheadError
             if any caller tries to read holdout data without oos_mode=True.
-        oos_mode: If True, access to holdout data is permitted. The first access
-            is recorded in .fintech-org/oos-burns.jsonl. Once a holdout is burned
-            for a pair/timeframe, callers should not re-access it in the same
-            analysis session.
+        oos_mode: If True, access to holdout data is permitted — ONCE. The access
+            is recorded in .fintech-org/oos-burns.jsonl; a second access for the
+            same (pair, timeframe) raises LookaheadError (one-shot, enforced). To
+            run a deliberately new OOS test, archive/remove that pair's burn entry.
 
     Returns:
         DataFrame. In non-oos_mode, returns only pre-holdout rows.
@@ -287,9 +287,51 @@ def load_parquet(
             f"Holdout access is a one-shot burn recorded in {_OOS_BURNS_LOG}."
         )
 
-    # OOS mode: allowed, but record the burn
+    # OOS mode is ONE-SHOT: if this (pair, timeframe) holdout was already burned,
+    # re-accessing it defeats the guarantee (the data is no longer unseen) — block.
+    # Keyed on (pair, timeframe) regardless of holdout_after, so changing the
+    # holdout date cannot be used to peek at overlapping OOS data again.
+    if _oos_already_burned(pair, timeframe):
+        raise LookaheadError(
+            f"OOS holdout for {pair.upper()} {timeframe} was already burned (one-shot). "
+            f"Re-accessing consumed out-of-sample data defeats the test — it is no longer "
+            f"unseen. See {_OOS_BURNS_LOG}. To run a deliberately new OOS test, archive or "
+            f"remove that pair/timeframe's burn entry."
+        )
     _record_oos_burn(pair=pair, timeframe=timeframe, holdout_after=holdout_after)
     return df
+
+
+def _oos_already_burned(pair: str, timeframe: str) -> bool:
+    """True if an oos-burn for (pair, timeframe) is already recorded.
+
+    Missing log → False (legitimate first access). FAIL-CLOSED on corruption: an
+    unparseable line raises LookaheadError rather than being skipped, so a tampered
+    or garbled burns log cannot silently defeat the one-shot gate (consistent with
+    the kill-switch / charter-hash fail-closed posture elsewhere in the system).
+    """
+    if not _OOS_BURNS_LOG.exists():
+        return False
+    pair_u = pair.upper()
+    for line in _OOS_BURNS_LOG.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise LookaheadError(
+                f"OOS burns log {_OOS_BURNS_LOG} has an unparseable line — cannot verify "
+                f"one-shot integrity, refusing OOS access (fail-closed). Fix or archive it. "
+                f"({exc})"
+            ) from exc
+        if (
+            entry.get("event") == "oos.burn"
+            and entry.get("pair") == pair_u
+            and entry.get("timeframe") == timeframe
+        ):
+            return True
+    return False
 
 
 def _record_oos_burn(pair: str, timeframe: str, holdout_after: str) -> None:

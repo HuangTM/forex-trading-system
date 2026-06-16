@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -95,7 +94,7 @@ class TestHoldoutEnforcement:
             oos_mode=True,
         )
         assert tmp_burns_log.exists(), "Burns log should be created on OOS access"
-        entries = [json.loads(l) for l in tmp_burns_log.read_text().strip().split("\n")]
+        entries = [json.loads(ln) for ln in tmp_burns_log.read_text().strip().split("\n")]
         assert len(entries) >= 1
         burn = entries[-1]
         assert burn["event"] == "oos.burn"
@@ -124,16 +123,54 @@ class TestHoldoutEnforcement:
                 holdout_after="2024-01-01",
             )
 
-    def test_multiple_oos_accesses_accumulate_burns(self, sample_parquet, tmp_burns_log):
-        """Each oos_mode access appends a new burn entry."""
-        for _ in range(3):
+    def test_oos_access_is_one_shot(self, sample_parquet, tmp_burns_log):
+        """First oos_mode access burns the holdout; a SECOND access for the same
+        (pair, timeframe) is blocked, and the blocked access records no extra burn."""
+        load_parquet(
+            "TESTUSD", "daily", sample_parquet,
+            holdout_after="2024-01-01", oos_mode=True,
+        )
+        with pytest.raises(LookaheadError, match="already burned"):
             load_parquet(
                 "TESTUSD", "daily", sample_parquet,
-                holdout_after="2024-01-01",
-                oos_mode=True,
+                holdout_after="2024-01-01", oos_mode=True,
             )
-        entries = [json.loads(l) for l in tmp_burns_log.read_text().strip().split("\n")]
-        assert len(entries) == 3
+        entries = [json.loads(ln) for ln in tmp_burns_log.read_text().strip().split("\n")]
+        assert len(entries) == 1  # blocked re-access must NOT append a burn
+
+    def test_oos_one_shot_is_per_pair_timeframe(self, sample_parquet, tmp_burns_log):
+        """Burning one (pair, timeframe) does not block a different timeframe."""
+        dates = pd.date_range("2020-01-01", "2025-12-31", freq="B")
+        df = pd.DataFrame(
+            {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1_000_000},
+            index=dates,
+        )
+        save_parquet(df, "TESTUSD", "4h", sample_parquet)
+        load_parquet("TESTUSD", "daily", sample_parquet, holdout_after="2024-01-01", oos_mode=True)
+        # different timeframe is independently burnable — must NOT raise
+        load_parquet("TESTUSD", "4h", sample_parquet, holdout_after="2024-01-01", oos_mode=True)
+        entries = [json.loads(ln) for ln in tmp_burns_log.read_text().strip().split("\n")]
+        assert len(entries) == 2
+
+    def test_changing_holdout_date_does_not_reopen_burn(self, sample_parquet, tmp_burns_log):
+        """One-shot is keyed on (pair, timeframe); tweaking the holdout date cannot
+        be used to peek again."""
+        load_parquet("TESTUSD", "daily", sample_parquet, holdout_after="2024-01-01", oos_mode=True)
+        with pytest.raises(LookaheadError, match="already burned"):
+            load_parquet("TESTUSD", "daily", sample_parquet, holdout_after="2023-06-01", oos_mode=True)
+
+    def test_corrupt_burns_log_fails_closed(self, sample_parquet, tmp_burns_log):
+        """A garbled burns log must REFUSE OOS access, not silently skip the bad
+        line (fail-closed — a corrupt log can't be allowed to defeat the gate)."""
+        tmp_burns_log.parent.mkdir(parents=True, exist_ok=True)
+        tmp_burns_log.write_text(
+            '{"event":"oos.burn","pair":"OTHER","timeframe":"daily"}\nNOT-JSON\n'
+        )
+        with pytest.raises(LookaheadError, match="unparseable"):
+            load_parquet(
+                "TESTUSD", "daily", sample_parquet,
+                holdout_after="2024-01-01", oos_mode=True,
+            )
 
 
 class TestBackwardCompatibility:

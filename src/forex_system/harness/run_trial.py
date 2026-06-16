@@ -203,6 +203,21 @@ def _build_cost_model(
     return RealisticCostModel(pair_configs=pair_configs)
 
 
+def _apply_holdout_filter(data: pd.DataFrame, holdout_after: str | None) -> pd.DataFrame:
+    """Return only PRE-holdout (in-sample) rows; ``holdout_after`` None → unchanged.
+
+    The cutoff is exclusive (rows strictly before ``holdout_after`` are kept), and
+    tz-localised to the data's index timezone so a naive ISO date compares cleanly
+    against a tz-aware UTC index (same convention as storage.load_parquet).
+    """
+    if not holdout_after:
+        return data
+    cutoff = pd.Timestamp(holdout_after)
+    if data.index.tz is not None and cutoff.tz is None:
+        cutoff = cutoff.tz_localize(data.index.tz)
+    return data.loc[data.index < cutoff]
+
+
 def _build_sizer(config: SystemConfig) -> VolTargetSizer | None:
     """Build VolTargetSizer from config position_sizing section."""
     ps = config.backtest
@@ -320,14 +335,39 @@ def run_trial(
         # -- Build sizer --
         sizer = _build_sizer(config)
 
-        # -- Load data --
-        data = load_parquet(pair, timeframe, config.data_dir)
+        # -- Load data (with OOS-holdout enforcement) --
+        # OOS discipline: a normal trial trains/tests on PRE-holdout (in-sample)
+        # data only; the reserved holdout is read exactly once, via final_oos_test
+        # (which burns it). load_parquet's non-oos path RAISES on holdout-crossing
+        # data (a tripwire for direct callers, tests/data/test_holdout_enforcement),
+        # so run_trial filters to in-sample itself — keeping normal trials runnable
+        # while never exposing the model to OOS rows. No holdout configured → no-op.
+        holdout_after = config.raw.get("data", {}).get("oos_holdout_start")
+        if final_oos_test:
+            data = load_parquet(
+                pair, timeframe, config.data_dir,
+                holdout_after=holdout_after, oos_mode=True,
+            )
+        else:
+            data = load_parquet(pair, timeframe, config.data_dir)
+            rows_before = len(data)
+            data = _apply_holdout_filter(data, holdout_after)
+            if holdout_after:
+                _log_event(
+                    "trial.holdout.applied",
+                    trial_id=trial_id,
+                    oos_holdout_start=holdout_after,
+                    rows_dropped=rows_before - len(data),
+                    rows_kept=len(data),
+                )
 
         _log_event(
             "trial.data.loaded",
             trial_id=trial_id,
             pair=pair,
             timeframe=timeframe,
+            final_oos_test=final_oos_test,
+            oos_holdout_start=holdout_after,
             cost_model=type(cost_model).__name__,
             rows=len(data),
             date_start=str(data.index[0].date()),

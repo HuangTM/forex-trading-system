@@ -430,6 +430,17 @@ def run_trial(
         # A final OOS test backtests the full series for warm-up but reports metrics
         # on the OOS (post-holdout) slice ONLY, so the in-sample portion does not
         # contaminate the OOS equity curve / metrics.
+        #
+        # Two reporting conventions to read OOS metrics correctly:
+        #   * Trade-level stats (num_trades / win_rate / profit_factor) count trades
+        #     ENTERED in the OOS window — those are fully OOS-attributable. A position
+        #     that straddles the boundary contributes its OOS-period price action to
+        #     the equity-derived metrics (Sharpe / return / drawdown) but is NOT in
+        #     the trade counts; the two families describe different populations by
+        #     design (including straddlers' full pnl_pips would mix in in-sample P&L).
+        #   * max_drawdown is the OOS-PERIOD drawdown (measured from the OOS-window
+        #     running peak), isolating OOS behaviour — NOT a drawdown from an all-time
+        #     (incl. in-sample) peak.
         if final_oos_test and holdout_after:
             eval_equity, eval_trades = _slice_to_oos(
                 bt_result.equity_curve, bt_result.trade_log, holdout_after

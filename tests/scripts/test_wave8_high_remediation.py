@@ -140,13 +140,16 @@ class TestCostModelParity:
         import scripts.run_paper_trading_vt as vt_mod  # noqa: F401
         # _COST_MODEL is the singleton used in the equity-write path
         assert hasattr(vt_mod, "_COST_MODEL")
-        assert isinstance(vt_mod._COST_MODEL, RealisticCostModel)
+        # exact type, not isinstance: the parity math below assumes the fixed-spread
+        # model. A time-varying subclass (e.g. HourlySpreadCostModel) would pass
+        # isinstance but silently break parity — guard against a future swap.
+        assert type(vt_mod._COST_MODEL) is RealisticCostModel
 
     def test_cost_model_imported_in_carry_fred_script(self):
         """RealisticCostModel must be importable from carry_fred paper loop module."""
         import scripts.run_paper_trading_carry_fred as cf_mod  # noqa: F401
         assert hasattr(cf_mod, "_COST_MODEL")
-        assert isinstance(cf_mod._COST_MODEL, RealisticCostModel)
+        assert type(cf_mod._COST_MODEL) is RealisticCostModel  # exact type — see vt test above
 
     def test_equity_log_entry_contains_cost_fields(self, tmp_path):
         """Equity log entry written by vt paper loop must include cost fields.

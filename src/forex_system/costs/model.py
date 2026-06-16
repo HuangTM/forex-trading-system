@@ -3,6 +3,8 @@
 Realistic costs determine whether apparent alpha survives to become real edge.
 """
 
+import pandas as pd
+
 from forex_system.core.constants import DEFAULT_PAIRS
 from forex_system.core.interfaces import CostModel
 from forex_system.core.types import Direction, PairInfo
@@ -23,13 +25,17 @@ class RealisticCostModel(CostModel):
             raise ValueError(f"No cost config for pair: {pair}")
         return p
 
-    def entry_cost(self, pair: str, size: float) -> float:
-        """Cost in pips to enter a position (half spread + slippage)."""
+    def entry_cost(self, pair: str, size: float, timestamp: pd.Timestamp | None = None) -> float:
+        """Cost in pips to enter a position (half spread + slippage).
+
+        ``timestamp`` is accepted for interface compatibility but ignored — this
+        model uses a fixed per-pair spread.
+        """
         p = self._get_pair(pair)
         return p.spread_pips / 2.0 + p.slippage_pips
 
-    def exit_cost(self, pair: str, size: float) -> float:
-        """Cost in pips to exit (half spread + slippage + commission)."""
+    def exit_cost(self, pair: str, size: float, timestamp: pd.Timestamp | None = None) -> float:
+        """Cost in pips to exit (half spread + slippage + commission). ``timestamp`` ignored."""
         p = self._get_pair(pair)
         return p.spread_pips / 2.0 + p.slippage_pips + p.commission_pips
 

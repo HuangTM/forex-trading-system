@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 from scipy import stats as scipy_stats
 
-from forex_system.core.constants import TRADING_DAYS_PER_YEAR
+from forex_system.backtest.metrics import infer_periods_per_year
 from forex_system.harness.dsr import compute_dsr
 from forex_system.harness.honest_n import RETAIN_STATUSES, compute_honest_n
 
@@ -57,6 +57,13 @@ def _load_equity_series(trial_id: str) -> tuple[pd.Series | None, str]:
 
     if "equity" not in df.columns or len(df) < 2:
         return None, "empty-or-missing-equity-column"
+
+    # Restore the DatetimeIndex from the timestamp column (run_trial writes the
+    # equity parquet with index=False) so the caller can infer the bar frequency
+    # for annualisation. Legacy parquets without a timestamp column keep their
+    # RangeIndex and fall back to daily (252) via infer_periods_per_year's guard.
+    if "timestamp" in df.columns:
+        df = df.set_index(pd.DatetimeIndex(pd.to_datetime(df["timestamp"])))
 
     returns = df["equity"].pct_change().dropna()
     if len(returns) < 2:
@@ -181,7 +188,7 @@ def recompute_all(
                 skewness=skew,
                 excess_kurtosis=excess_kurt,
                 n_trials=n_honest,
-                periods_per_year=float(TRADING_DAYS_PER_YEAR),
+                periods_per_year=infer_periods_per_year(returns.index),
             )
             recompute_status = "ok"
         except Exception as exc:

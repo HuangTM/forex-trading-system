@@ -36,5 +36,18 @@ DEFAULT_PAIRS: dict[str, PairInfo] = {
 # Trading days per year (approximate)
 TRADING_DAYS_PER_YEAR = 252
 
+# Trading hours per year for intraday annualisation.
+# Forex trades ~24h x 5 days; ~260 weekday trading days -> 24 * 260 = 6240.
+TRADING_HOURS_PER_YEAR = 6240
+
+# Canonical annualisation factor (periods per year) by bar timeframe. Used so the
+# sqrt(P) Sharpe factor in metrics matches the bar frequency (a daily-hardcoded
+# factor understates an hourly Sharpe by sqrt(6240/252) ~ 5x).
+PERIODS_PER_YEAR_BY_TIMEFRAME: dict[str, float] = {
+    "daily": float(TRADING_DAYS_PER_YEAR),
+    "4h": TRADING_HOURS_PER_YEAR / 4.0,  # 1560
+    "1h": float(TRADING_HOURS_PER_YEAR),  # 6240
+}
+
 # Default initial capital
 DEFAULT_INITIAL_CAPITAL = 100_000.0

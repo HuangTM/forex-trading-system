@@ -91,13 +91,18 @@ class CostModel(ABC):
     """Contract for transaction cost estimation."""
 
     @abstractmethod
-    def entry_cost(self, pair: str, size: float) -> float:
-        """Cost in pips to enter a position."""
+    def entry_cost(self, pair: str, size: float, timestamp: pd.Timestamp | None = None) -> float:
+        """Cost in pips to enter a position.
+
+        timestamp: the bar's timestamp, for time-varying cost models (e.g. an
+        hour-of-day spread curve). Implementations that use a fixed spread
+        ignore it; the engine passes the current bar's timestamp.
+        """
         ...
 
     @abstractmethod
-    def exit_cost(self, pair: str, size: float) -> float:
-        """Cost in pips to exit a position."""
+    def exit_cost(self, pair: str, size: float, timestamp: pd.Timestamp | None = None) -> float:
+        """Cost in pips to exit a position. See ``entry_cost`` re: timestamp."""
         ...
 
     @abstractmethod

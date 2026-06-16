@@ -33,10 +33,9 @@ import numpy as np
 import pandas as pd
 
 from forex_system.backtest.engine import run_backtest
-from forex_system.backtest.metrics import calculate_metrics
+from forex_system.backtest.metrics import calculate_metrics, infer_periods_per_year
 from forex_system.backtest.walkforward import run_walkforward
 from forex_system.core.config import SystemConfig, load_config
-from forex_system.core.constants import TRADING_DAYS_PER_YEAR
 from forex_system.core.errors import ConfigError, DataError
 from forex_system.core.types import PairInfo
 from forex_system.costs.model import RealisticCostModel
@@ -176,10 +175,31 @@ def record_trial_rejection(
     return entry
 
 
-def _build_cost_model(config: SystemConfig, pair_symbol: str) -> RealisticCostModel:
-    """Build RealisticCostModel from config. Raises ConfigError if pair not found."""
+def _build_cost_model(
+    config: SystemConfig, pair_symbol: str, timeframe: str = "daily"
+) -> RealisticCostModel:
+    """Build the cost model for a trial. Raises ConfigError if pair not found.
+
+    Daily timeframe → fixed-spread RealisticCostModel (unchanged). Intraday
+    timeframes → a conservative (q=0.9) hour-of-day spread curve derived from the
+    pair's 4h spread series when that file exists; otherwise it falls back to the
+    fixed-spread model and logs the gap (HourlySpreadCostModel is a RealisticCostModel
+    subclass, so the return type still holds).
+    """
     pair_info = config.get_pair_info(pair_symbol)
     pair_configs = {pair_symbol.upper(): pair_info}
+    if timeframe != "daily":
+        spreads_path = (
+            Path(config.data_dir) / "spreads" / f"{pair_symbol.upper()}_4h_spreads.parquet"
+        )
+        if spreads_path.exists():
+            from forex_system.costs.hourly_spread import make_hourly_spread_cost_model
+            return make_hourly_spread_cost_model(pair_configs, str(spreads_path), quantile=0.9)
+        logger.warning(
+            '{"event":"cost_model.intraday_no_4h_spreads","pair":"%s","timeframe":"%s",'
+            '"action":"fallback_fixed_spread"}',
+            pair_symbol.upper(), timeframe,
+        )
     return RealisticCostModel(pair_configs=pair_configs)
 
 
@@ -278,19 +298,24 @@ def run_trial(
             raise ConfigError(f"Config not found: {config_path_obj}")
         config = load_config(config_path_obj)
 
+        # -- Resolve data timeframe (config.data.timeframe; default daily) --
+        timeframe = config.raw.get("data", {}).get("timeframe", "daily")
+
         # -- Build cost model (reject if pair not in config) --
-        cost_model = _build_cost_model(config, pair)
+        cost_model = _build_cost_model(config, pair, timeframe)
 
         # -- Build sizer --
         sizer = _build_sizer(config)
 
         # -- Load data --
-        data = load_parquet(pair, "daily", config.data_dir)
+        data = load_parquet(pair, timeframe, config.data_dir)
 
         _log_event(
             "trial.data.loaded",
             trial_id=trial_id,
             pair=pair,
+            timeframe=timeframe,
+            cost_model=type(cost_model).__name__,
             rows=len(data),
             date_start=str(data.index[0].date()),
             date_end=str(data.index[-1].date()),
@@ -325,11 +350,20 @@ def run_trial(
             rebalance_threshold=config.backtest.rebalance_threshold,
         )
 
-        # -- Compute metrics --
-        metrics = calculate_metrics(bt_result.equity_curve, bt_result.trade_log)
+        # -- Compute metrics (annualisation matched to bar frequency) --
+        ec = bt_result.equity_curve.dropna()
+        # Infer from the equity-curve index so Sharpe annualisation and the DSR
+        # sqrt(P) factor stay consistent. Today the harness loads daily bars
+        # (load_parquet(..., "daily")) so this resolves to 252 (no regression);
+        # it auto-corrects to ~6240 once 1h loading lands.
+        periods_per_year = infer_periods_per_year(ec.index)
+        metrics = calculate_metrics(
+            bt_result.equity_curve,
+            bt_result.trade_log,
+            periods_per_year=periods_per_year,
+        )
 
         # -- Compute return stats for DSR --
-        ec = bt_result.equity_curve.dropna()
         rets = ec.pct_change().dropna()
         n_obs = len(rets)
         skewness = float(rets.skew()) if n_obs > 3 else 0.0
@@ -341,7 +375,7 @@ def run_trial(
             skewness=skewness,
             excess_kurtosis=excess_kurtosis,
             n_trials=n_trials_total,
-            periods_per_year=float(TRADING_DAYS_PER_YEAR),
+            periods_per_year=periods_per_year,
         )
 
         # -- Walk-forward (if enabled in config) --
@@ -389,7 +423,7 @@ def run_trial(
             passes_gate=passes_gate,
             wf_windows_beat=wf_windows_beat,
             wf_windows_total=wf_windows_total,
-            cost_model="RealisticCostModel",
+            cost_model=type(cost_model).__name__,
             config_hash=config_hash,
             git_hash=git_hash,
         )
@@ -414,6 +448,7 @@ def run_trial(
                 "sortino": metrics.sortino_ratio,
                 "win_rate": metrics.win_rate,
                 "profit_factor": metrics.profit_factor,
+                "periods_per_year": periods_per_year,
             },
             "dsr": {
                 "value": dsr,
@@ -431,7 +466,7 @@ def run_trial(
                 "windows_beat_zero": wf_windows_beat,
             },
             "oos": final_oos_test,
-            "cost_model": "RealisticCostModel",
+            "cost_model": type(cost_model).__name__,
             "sizer": type(sizer).__name__ if sizer else "default",
         }
         report_path = _RESULTS_DIR / f"{trial_id}.json"

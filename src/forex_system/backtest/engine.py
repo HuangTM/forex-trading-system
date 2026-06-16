@@ -187,7 +187,7 @@ def _run_discrete(
                     equity, risk_per_trade, current_atr, stop_loss_atr_multiple, price,
                 )
 
-            entry_cost_pips = cost_model.entry_cost(pair, current_size)
+            entry_cost_pips = cost_model.entry_cost(pair, current_size, timestamp=ts)
             equity -= entry_cost_pips * pip_value * current_size
 
             current_position = pos
@@ -328,7 +328,7 @@ def _run_continuous(
 
             if delta > 0:
                 # Increase position (or initial entry)
-                cost_pips = cost_model.entry_cost(pair, abs(delta))
+                cost_pips = cost_model.entry_cost(pair, abs(delta), timestamp=ts)
                 equity -= cost_pips * pip_value * abs(delta)
 
                 if cur_units == 0.0:
@@ -388,7 +388,7 @@ def _run_continuous(
                     )
                 else:
                     # Partial reduction — charge cost on delta only
-                    cost_pips = cost_model.exit_cost(pair, reduce_units)
+                    cost_pips = cost_model.exit_cost(pair, reduce_units, timestamp=ts)
                     # Realized PnL on the reduced chunk
                     price_diff_pips = (price - entry_price) / pip_value
                     realized_pnl_dollars = (
@@ -479,7 +479,7 @@ def _close_position(
     direction = Direction.LONG if position > 0 else Direction.SHORT
     hold_days = (exit_time - entry_time).days if entry_time is not None else 0
 
-    exit_cost_pips = cost_model.exit_cost(pair, size)
+    exit_cost_pips = cost_model.exit_cost(pair, size, timestamp=exit_time)
     swap_cost_pips = (
         cost_model.holding_cost(pair, direction, hold_days) if include_swap else 0.0
     )

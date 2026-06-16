@@ -3,13 +3,42 @@
 All metrics are calculated from realized data, no lookahead.
 """
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from forex_system.core.constants import TRADING_DAYS_PER_YEAR
+from forex_system.core.constants import TRADING_DAYS_PER_YEAR, TRADING_HOURS_PER_YEAR
 from forex_system.core.types import Trade
+
+logger = logging.getLogger(__name__)
+
+
+def infer_periods_per_year(index: pd.DatetimeIndex) -> float:
+    """Infer the annualisation factor from an equity-curve index's bar spacing.
+
+    Uses the MEDIAN spacing (robust to weekend/holiday gaps) and snaps to a
+    canonical timeframe factor. Falls back to daily (252) on an unrecognised or
+    empty spacing, logging a structured warning so the fallback is visible.
+    """
+    if not isinstance(index, pd.DatetimeIndex) or len(index) < 2:
+        return float(TRADING_DAYS_PER_YEAR)
+    median = index.to_series().diff().dropna().median()
+    if median is pd.NaT or pd.isna(median) or median <= pd.Timedelta(0):
+        return float(TRADING_DAYS_PER_YEAR)
+    if median <= pd.Timedelta(hours=1, minutes=30):
+        return float(TRADING_HOURS_PER_YEAR)  # 1h
+    if median <= pd.Timedelta(hours=6):
+        return TRADING_HOURS_PER_YEAR / 4.0  # 4h
+    if median <= pd.Timedelta(days=2):
+        return float(TRADING_DAYS_PER_YEAR)  # daily
+    logger.warning(
+        '{"event":"metrics.periods_per_year.unrecognised_spacing",'
+        '"median_spacing":"%s","action":"fallback_daily_252"}',
+        median,
+    )
+    return float(TRADING_DAYS_PER_YEAR)
 
 
 @dataclass
@@ -34,12 +63,24 @@ def calculate_metrics(
     equity_curve: pd.Series,
     trade_log: list[Trade],
     risk_free_rate: float = 0.0,
+    periods_per_year: float | None = None,
 ) -> PerformanceMetrics:
-    """Calculate all performance metrics from backtest results."""
+    """Calculate all performance metrics from backtest results.
+
+    Args:
+        periods_per_year: annualisation factor for the Sharpe/Sortino sqrt(P)
+            term, matched to the equity curve's bar frequency. Default ``None``
+            INFERS the factor from the equity curve's index spacing (snapping to
+            daily 252 / 4h 1560 / 1h 6240; non-datetime or unrecognised index
+            falls back to 252). Daily curves infer 252 exactly, so existing
+            daily callers are unchanged; an hourly Sharpe annualised with 252
+            would be understated ~5x, which the inference prevents.
+    """
     if len(equity_curve.dropna()) < 2:
         return _empty_metrics()
 
     ec = equity_curve.dropna()
+    ppy = float(periods_per_year) if periods_per_year is not None else infer_periods_per_year(ec.index)
 
     # Returns
     total_return = (ec.iloc[-1] / ec.iloc[0]) - 1.0
@@ -52,21 +93,21 @@ def calculate_metrics(
     else:
         annualized_return = (1 + total_return) ** (1.0 / n_years) - 1.0
 
-    # Daily returns
-    daily_returns = ec.pct_change().dropna()
+    # Per-bar returns (frequency = equity curve's bar frequency; annualised via ppy)
+    period_returns = ec.pct_change().dropna()
 
     # Sharpe ratio (annualized)
-    if len(daily_returns) > 1 and daily_returns.std() > 0:
-        excess = daily_returns.mean() - risk_free_rate / TRADING_DAYS_PER_YEAR
-        sharpe_ratio = excess / daily_returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+    if len(period_returns) > 1 and period_returns.std() > 0:
+        excess = period_returns.mean() - risk_free_rate / ppy
+        sharpe_ratio = excess / period_returns.std() * np.sqrt(ppy)
     else:
         sharpe_ratio = 0.0
 
     # Sortino ratio (downside deviation only)
-    downside = daily_returns[daily_returns < 0]
+    downside = period_returns[period_returns < 0]
     if len(downside) > 1 and downside.std() > 0:
-        excess = daily_returns.mean() - risk_free_rate / TRADING_DAYS_PER_YEAR
-        sortino_ratio = excess / downside.std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+        excess = period_returns.mean() - risk_free_rate / ppy
+        sortino_ratio = excess / downside.std() * np.sqrt(ppy)
     else:
         sortino_ratio = sharpe_ratio  # No downside = use Sharpe
 

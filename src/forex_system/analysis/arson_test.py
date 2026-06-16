@@ -147,11 +147,11 @@ class _ScaledCostModel(CostModel):
 
     def entry_cost(self, pair: str, size: float,
                    timestamp: pd.Timestamp | None = None) -> float:
-        return self._inner.entry_cost(pair, size) * self._multiplier
+        return self._inner.entry_cost(pair, size, timestamp) * self._multiplier
 
     def exit_cost(self, pair: str, size: float,
                   timestamp: pd.Timestamp | None = None) -> float:
-        return self._inner.exit_cost(pair, size) * self._multiplier
+        return self._inner.exit_cost(pair, size, timestamp) * self._multiplier
 
     def holding_cost(self, pair: str, direction: Direction, days: float) -> float:
         return self._inner.holding_cost(pair, direction, days) * self._multiplier

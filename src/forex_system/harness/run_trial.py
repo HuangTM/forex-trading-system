@@ -301,6 +301,19 @@ def run_trial(
         # -- Resolve data timeframe (config.data.timeframe; default daily) --
         timeframe = config.raw.get("data", {}).get("timeframe", "daily")
 
+        # Walk-forward windows in walkforward.py are bar-counts used directly as
+        # iloc offsets (train_days/test_days), which only equal calendar days for
+        # daily bars. On intraday data 504 "days" = 504 bars (~3 weeks), silently
+        # producing garbage windows. Fail loud until walkforward gains a
+        # bars-per-day conversion.
+        if timeframe != "daily" and config.backtest.walkforward_enabled:
+            raise ConfigError(
+                f"walkforward is enabled with timeframe={timeframe!r}, but walk-forward "
+                "windows (train_days/test_days) are bar-counts that assume daily bars "
+                "(walkforward.py:91). Intraday walkforward is not yet supported — disable "
+                "walkforward or use daily data."
+            )
+
         # -- Build cost model (reject if pair not in config) --
         cost_model = _build_cost_model(config, pair, timeframe)
 

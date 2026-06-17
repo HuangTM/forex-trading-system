@@ -84,7 +84,11 @@ def run_backtest(
 
     logger.debug(
         "run_backtest: pair=%s strategy=%s mode=%s threshold=%.2f bars=%d constant_cap=%s",
-        pair, strategy_name, rebalance_mode, rebalance_threshold, len(data),
+        pair,
+        strategy_name,
+        rebalance_mode,
+        rebalance_threshold,
+        len(data),
         constant_capital_sizing,
     )
 
@@ -165,8 +169,16 @@ def _run_discrete(
         # Close existing position if direction changed
         if change != 0 and current_position != 0:
             trade = _close_position(
-                pair, strategy_name, cost_model, pip_value,
-                current_position, current_size, entry_price, entry_time, ts, price,
+                pair,
+                strategy_name,
+                cost_model,
+                pip_value,
+                current_position,
+                current_size,
+                entry_price,
+                entry_time,
+                ts,
+                price,
             )
             trade_log.append(trade)
             equity += trade.pnl_dollars
@@ -180,11 +192,19 @@ def _run_discrete(
             if sizer is not None:
                 raw_signal = delayed_signals.iloc[i]
                 current_size = sizer.calculate_size(
-                    raw_signal, equity, price, current_atr, pair,
+                    raw_signal,
+                    equity,
+                    price,
+                    current_atr,
+                    pair,
                 )
             else:
                 current_size = _calculate_size(
-                    equity, risk_per_trade, current_atr, stop_loss_atr_multiple, price,
+                    equity,
+                    risk_per_trade,
+                    current_atr,
+                    stop_loss_atr_multiple,
+                    price,
                 )
 
             entry_cost_pips = cost_model.entry_cost(pair, current_size, timestamp=ts)
@@ -206,8 +226,16 @@ def _run_discrete(
         last_ts = data.index[-1]
         last_price = data["close"].iloc[-1]
         trade = _close_position(
-            pair, strategy_name, cost_model, pip_value,
-            current_position, current_size, entry_price, entry_time, last_ts, last_price,
+            pair,
+            strategy_name,
+            cost_model,
+            pip_value,
+            current_position,
+            current_size,
+            entry_price,
+            entry_time,
+            last_ts,
+            last_price,
         )
         trade_log.append(trade)
         equity += trade.pnl_dollars
@@ -265,6 +293,16 @@ def _run_continuous(
     atr_series = _get_atr(data)
     pip_value = _get_pip_value(pair)
 
+    # FIX-1: Compute bar duration in fractional days from the actual index spacing.
+    # Use the median timedelta so a few weekend gaps (daily) or session gaps (1h)
+    # don't distort the result. Fallback to 1.0 (daily) for single-bar data.
+    bar_duration_days = _infer_bar_duration_days(data.index)
+
+    logger.debug(
+        "continuous.bar_duration_days=%.6f (freq-agnostic swap scaling)",
+        bar_duration_days,
+    )
+
     equity = initial_capital
     equity_curve = pd.Series(np.nan, index=data.index)
     trade_log: list[Trade] = []
@@ -294,7 +332,11 @@ def _run_continuous(
         # (constant-leverage-on-equity, correct for live Saxo trading).
         sizing_equity = initial_capital if constant_capital_sizing else equity
         usd_nominal = sizer.calculate_size(
-            clamped_signal, sizing_equity, price, current_atr, pair,
+            clamped_signal,
+            sizing_equity,
+            price,
+            current_atr,
+            pair,
         )
         target_units = _to_engine_units(usd_nominal, pair, price)
 
@@ -302,19 +344,30 @@ def _run_continuous(
         logger.debug(
             "continuous.bar: ts=%s signal=%.4f clamped=%.4f usd_nominal=%.0f "
             "target_units=%.2f cur_units=%.2f price=%.4f equity=%.2f",
-            ts, raw_signal, clamped_signal, usd_nominal, target_units, cur_units, price, equity,
+            ts,
+            raw_signal,
+            clamped_signal,
+            usd_nominal,
+            target_units,
+            cur_units,
+            price,
+            equity,
         )
 
-        # RC5: Daily swap accrual — credit carry income every bar while in position.
+        # RC5: Per-bar swap accrual — credit carry income every bar while in position.
         # The script (vol_targeting.py:72) adds daily_swap_per_unit * cur_units each bar.
         # The engine must do the same so the equity curve reflects carry in real time,
         # not as a lump-sum at position close. Using include_swap=False in _close_position
         # prevents double-counting the holding swap at exit.
+        #
+        # FIX-1: Scale the per-bar accrual by the bar's duration in days (bar_duration_days),
+        # derived from the data index once before the loop. For daily bars this is ≈1.0 (no
+        # change). For 1h bars this is 1/24, preventing the 24× over-charge.
         if cur_units > 0:
             # holding_cost returns -swap_long_pips * days (negative = credit).
-            # Negate to get daily credit: positive value added to equity.
-            daily_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, 1)
-            equity += daily_swap_pips * pip_value * cur_units
+            # Negate to get credit: positive value added to equity.
+            per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+            equity += per_bar_swap_pips * pip_value * cur_units
 
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)
@@ -339,30 +392,33 @@ def _run_continuous(
                     # Rebalance up — adjust entry_price to weighted average
                     total_new = cur_units + delta
                     if total_new > 0:
-                        entry_price = (
-                            (entry_price * cur_units + price * delta) / total_new
-                        )
+                        entry_price = (entry_price * cur_units + price * delta) / total_new
 
                 # Emit a Trade for the delta (direction=LONG, size=delta)
-                trade_log.append(Trade(
-                    pair=pair,
-                    direction=Direction.LONG,
-                    entry_time=entry_time or ts,
-                    exit_time=ts,
-                    entry_price=entry_price,
-                    exit_price=price,
-                    size=abs(delta),
-                    pnl_pips=0.0,   # delta trade; running PnL tracked via equity_curve
-                    pnl_dollars=0.0,
-                    cost_pips=cost_pips,
-                    cost_dollars=cost_pips * pip_value * abs(delta),
-                    strategy=strategy_name,
-                ))
+                trade_log.append(
+                    Trade(
+                        pair=pair,
+                        direction=Direction.LONG,
+                        entry_time=entry_time or ts,
+                        exit_time=ts,
+                        entry_price=entry_price,
+                        exit_price=price,
+                        size=abs(delta),
+                        pnl_pips=0.0,  # delta trade; running PnL tracked via equity_curve
+                        pnl_dollars=0.0,
+                        cost_pips=cost_pips,
+                        cost_dollars=cost_pips * pip_value * abs(delta),
+                        strategy=strategy_name,
+                    )
+                )
                 cur_units = target_units
 
                 logger.debug(
                     "continuous.rebalance_up: ts=%s delta=%.0f new_units=%.0f cost_pips=%.4f",
-                    ts, delta, cur_units, cost_pips,
+                    ts,
+                    delta,
+                    cur_units,
+                    cost_pips,
                 )
 
             else:
@@ -372,9 +428,16 @@ def _run_continuous(
                 if target_units <= 0.0:
                     # Full exit — swap was already credited daily, so skip in close
                     trade = _close_position(
-                        pair, strategy_name, cost_model, pip_value,
+                        pair,
+                        strategy_name,
+                        cost_model,
+                        pip_value,
                         1.0,  # long position
-                        cur_units, entry_price, entry_time, ts, price,
+                        cur_units,
+                        entry_price,
+                        entry_time,
+                        ts,
+                        price,
                         include_swap=False,
                     )
                     trade_log.append(trade)
@@ -384,7 +447,9 @@ def _run_continuous(
                     entry_time = None
 
                     logger.debug(
-                        "continuous.exit: ts=%s pnl=%.2f", ts, trade.pnl_dollars,
+                        "continuous.exit: ts=%s pnl=%.2f",
+                        ts,
+                        trade.pnl_dollars,
                     )
                 else:
                     # Partial reduction — charge cost on delta only
@@ -397,26 +462,31 @@ def _run_continuous(
                     )
                     equity += realized_pnl_dollars
 
-                    trade_log.append(Trade(
-                        pair=pair,
-                        direction=Direction.LONG,
-                        entry_time=entry_time or ts,
-                        exit_time=ts,
-                        entry_price=entry_price,
-                        exit_price=price,
-                        size=reduce_units,
-                        pnl_pips=price_diff_pips - cost_pips,
-                        pnl_dollars=realized_pnl_dollars,
-                        cost_pips=cost_pips,
-                        cost_dollars=cost_pips * pip_value * reduce_units,
-                        strategy=strategy_name,
-                    ))
+                    trade_log.append(
+                        Trade(
+                            pair=pair,
+                            direction=Direction.LONG,
+                            entry_time=entry_time or ts,
+                            exit_time=ts,
+                            entry_price=entry_price,
+                            exit_price=price,
+                            size=reduce_units,
+                            pnl_pips=price_diff_pips - cost_pips,
+                            pnl_dollars=realized_pnl_dollars,
+                            cost_pips=cost_pips,
+                            cost_dollars=cost_pips * pip_value * reduce_units,
+                            strategy=strategy_name,
+                        )
+                    )
                     cur_units = target_units
 
                     logger.debug(
                         "continuous.rebalance_down: ts=%s delta=%.0f new_units=%.0f "
                         "realized_pnl=%.2f",
-                        ts, delta, cur_units, realized_pnl_dollars,
+                        ts,
+                        delta,
+                        cur_units,
+                        realized_pnl_dollars,
                     )
 
         # Mark-to-market
@@ -432,9 +502,16 @@ def _run_continuous(
         last_ts = data.index[-1]
         last_price = data["close"].iloc[-1]
         trade = _close_position(
-            pair, strategy_name, cost_model, pip_value,
+            pair,
+            strategy_name,
+            cost_model,
+            pip_value,
             1.0,  # long position
-            cur_units, entry_price, entry_time, last_ts, last_price,
+            cur_units,
+            entry_price,
+            entry_time,
+            last_ts,
+            last_price,
             include_swap=False,
         )
         trade_log.append(trade)
@@ -480,9 +557,7 @@ def _close_position(
     hold_days = (exit_time - entry_time).days if entry_time is not None else 0
 
     exit_cost_pips = cost_model.exit_cost(pair, size, timestamp=exit_time)
-    swap_cost_pips = (
-        cost_model.holding_cost(pair, direction, hold_days) if include_swap else 0.0
-    )
+    swap_cost_pips = cost_model.holding_cost(pair, direction, hold_days) if include_swap else 0.0
     total_cost_pips = exit_cost_pips + swap_cost_pips
 
     price_diff_pips = (exit_price - entry_price) / pip_value * position
@@ -526,11 +601,14 @@ def _get_atr(data: pd.DataFrame) -> pd.Series:
     """Get ATR series from data, computing if absent."""
     if "atr_14" in data.columns:
         return data["atr_14"]
-    tr = pd.concat([
-        data["high"] - data["low"],
-        (data["high"] - data["close"].shift(1)).abs(),
-        (data["low"] - data["close"].shift(1)).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            data["high"] - data["low"],
+            (data["high"] - data["close"].shift(1)).abs(),
+            (data["low"] - data["close"].shift(1)).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     return tr.rolling(14).mean()
 
 
@@ -573,9 +651,32 @@ def _to_engine_units(usd_nominal: float, pair: str, price: float) -> float:
     return usd_nominal
 
 
-def _empty_result(
-    pair: str, strategy_name: str, signals: pd.Series
-) -> BacktestResult:
+def _infer_bar_duration_days(index: pd.DatetimeIndex) -> float:
+    """Infer the bar duration in fractional days from the index spacing.
+
+    Uses the median timedelta between consecutive bars so that weekend/session
+    gaps (which inflate individual deltas) don't distort the result.
+
+    Returns:
+        Fractional days per bar. Examples:
+          - Business-day daily bars:  ~1.0
+          - 4-hour bars:              ~0.1667  (1/6)
+          - 1-hour bars:              ~0.0417  (1/24)
+          - 15-minute bars:           ~0.0104  (1/96)
+
+    Fallback: 1.0 if the index has fewer than 2 elements (single-bar data).
+    """
+    if len(index) < 2:
+        return 1.0
+    deltas = pd.Series(index).diff().dropna()
+    median_seconds = float(deltas.median().total_seconds())
+    seconds_per_day = 86_400.0
+    if median_seconds <= 0:
+        return 1.0
+    return median_seconds / seconds_per_day
+
+
+def _empty_result(pair: str, strategy_name: str, signals: pd.Series) -> BacktestResult:
     return BacktestResult(
         equity_curve=pd.Series(dtype=float),
         trade_log=[],

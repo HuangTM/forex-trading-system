@@ -1,0 +1,203 @@
+role: quant-developer
+artifact_type: backtest-report
+decision: implemented-and-verified
+timestamp: "2026-06-17T05:18:47Z"
+subtask_ref: minimal-trend-basket-IS-eval
+subtask_id: qd-minimal-basket-is-eval
+pre-registration-ref: ".fintech-org/artifacts/2026-06-17T04-30-05Z_signals_and_rl/qr-minimal-trend-basket-v2.yaml"
+family_result: FAMILY_KILL
+oos_touched: false
+
+members:
+  - id: M1_MACD_cross
+    trial_id: "82497d05"
+    trades_IS: 1672
+    avg_net_trade_pips: -2.1071
+    cpcv_net_sharpe: -2.7527
+    DSR_at_N50: 0.0000
+    power_ok: true
+    regime_block_sharpes: {2021: -4.3788, 2022: -3.2418, "2023+2024H1": -2.7025}
+    n_positive_blocks: 0
+    verdict: KILL-1
+
+  - id: M2_EMA_50_200
+    trial_id: "b309935c"
+    trades_IS: 128
+    avg_net_trade_pips: -3.9129
+    cpcv_net_sharpe: -0.6557
+    DSR_at_N50: 0.0000
+    power_ok: true
+    regime_block_sharpes: {2021: -0.7602, 2022: -0.3836, "2023+2024H1": -0.1912}
+    n_positive_blocks: 0
+    verdict: KILL-1
+
+files_changed:
+  - src/forex_system/strategies/macd_cross.py
+  - src/forex_system/strategies/ema_cross.py
+  - scripts/trial_basket_is_eval.py
+  - tests/strategies/test_basket_no_lookahead.py
+
+no_lookahead_preserved: >
+  entry_delay_bars=1 passed to run_backtest() (continuous mode). Engine shifts
+  signals by 1 bar before any execution decision — verified in engine.py line 291:
+  `delayed_signals = signals.shift(entry_delay_bars).fillna(0.0)`. Both strategies
+  use causal EMA (adjust=False, min_periods enforced by pandas ewm). MACD signal
+  line uses min_periods=9 on the MACD line itself. EMA strategy has 199 all-zero
+  warmup bars confirmed by test. No shift(-1) or future indexing anywhere in the
+  two strategy files (inspected directly).
+
+tests_added:
+  - name: test_no_lookahead_macd_cross
+    invariant: >
+      MACD signals at bar t must not systematically predict 2-bar-ahead returns
+      better than 85% accuracy, and resulting Sharpe < 20 on synthetic data.
+  - name: test_no_lookahead_ema_cross
+    invariant: >
+      EMA signals at bar t must not systematically predict 2-bar-ahead returns;
+      first 199 bars must be zero (EMA-200 warmup enforced by min_periods=200).
+  - name: test_macd_cross_always_in
+    invariant: At most 5 zero-signals after 35-bar MACD warmup (always-in).
+  - name: test_ema_cross_always_in
+    invariant: At most 5 zero-signals after 200-bar EMA warmup (always-in).
+  - name: test_macd_uses_ema_not_sma
+    invariant: MACD line differs from SMA(12)-SMA(26) by > 1e-6 (EMA, not SMA).
+
+tests_passing:
+  tests_run: 5
+  passed: 5
+  failed: 0
+
+swap_scaling_confirmed: >
+  Used rebalance_mode="continuous" in run_backtest(). Engine's _run_continuous
+  function computes bar_duration_days via _infer_bar_duration_days() before the
+  loop (engine.py line 299). For EURUSD 1h data, this returns 1/24 = 0.04167 days
+  per bar (verified by test_infer_bar_duration_days_1h which asserts abs(dur - 1/24) < 1e-6).
+  Swap is credited as: -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+  per bar (engine.py line 369-370). StaticRoundTripCostModel.holding_cost() returns 0.0
+  (no carry on this frozen cost model per the F-004 fix), so swap scaling is moot for
+  this specific model — but the engine-level scaling is correct for 1h, NOT 24x.
+
+firewall-self-review: >
+  approve — all params from frozen spec:
+  MACD(12,26,9)=Appel_2005_canonical; EMA(50,200)=canonical_golden_death_cross;
+  N=50=HC-5; purge=240bars=10_trading_days×24h; embargo=120bars=5_trading_days×24h;
+  cost=7.5pip_RT=StaticRoundTripCostModel(reused); size_multiplier=0.25=spec;
+  DSR_threshold=0.95=spec; IS_window=2021-01-03_to_2024-05-31=spec.
+  No silent transforms, no regime branching, no data cleaning, no unlisted lookbacks.
+  No ML annex needed (rule-based strategies, no model weights).
+
+bash_blocked: false
+commands_for_orchestrator: []
+
+evidence:
+  - "run_output: M1 trades_IS=1672, avg_net_pips=-2.1071, cpcv_sharpe=-2.7527, DSR=0.0000 (stdout 2026-06-17T05:18:47Z)"
+  - "run_output: M2 trades_IS=128, avg_net_pips=-3.9129, cpcv_sharpe=-0.6557, DSR=0.0000 (stdout 2026-06-17T05:18:47Z)"
+  - "run_output: FAMILY RESULT: FAMILY_KILL (stdout 2026-06-17T05:18:47Z)"
+  - "pytest: 5/5 tests_passed tests/strategies/test_basket_no_lookahead.py"
+  - "ruff: all checks passed on 4 touched files"
+  - "src/forex_system/features/indicators.py:73-95 macd() function (pre-existing)"
+  - "src/forex_system/features/indicators.py:15-17 ema() function (reused)"
+  - "src/forex_system/costs/static_roundtrip.py:31-32 ROUND_TRIP_PIPS=7.5 (frozen constant)"
+  - "src/forex_system/backtest/engine.py:291 signals shifted by entry_delay_bars (no-lookahead)"
+  - "src/forex_system/backtest/engine.py:299 bar_duration_days inferred from index (swap fix)"
+  - "data/processed/EURUSD_1h.parquet: IS bars=21209, range 2021-01-03 22:00 to 2024-05-31 20:00 UTC"
+  - "harness/dsr.py:compute_dsr() called with N_trials=50 for both members (HC-5, never reduced)"
+
+assumptions:
+  - "CPCV purge=240 bars = 10 trading days × 24h. The pre-reg specifies 10 trading days; conversion at 24 bars/day is the natural mapping for 24h FX 1h data."
+  - "embargo=120 bars = 5 trading days × 24h. Same conversion."
+  - "rebalance_threshold=0.10 (10%) used for continuous mode — not specified in pre-reg (which gives sizing but not the rebalance threshold). This is the engine's default for continuous mode. Chosen conservatively to allow the always-in nature of the signals to produce trades on every significant cross."
+  - "Trade count in continuous mode uses the engine's trade_log (each delta position change = one trade record). For always-in reversed strategies this aligns with round-trip count per spec intent."
+  - "DSR N=50 denominator fixed for BOTH members even though both killed — per HC-5 'denominator never shrinks.'"
+
+confidence: high
+
+body: |
+  ## What was built
+
+  Implemented two Strategy subclasses:
+  - MACDCrossStrategy (macd_cross.py): MACD(12,26,9) signal-line cross, always-in.
+    Reuses macd() from features/indicators.py (already implemented). Signal: +1 when
+    MACD line > signal line, -1 when <. No other params — Appel canonical.
+  - EMACrossStrategy (ema_cross.py): EMA(50)/EMA(200) golden/death cross, always-in.
+    Reuses ema() from features/indicators.py (line 15). Signal: +1 when EMA50 > EMA200,
+    -1 when EMA50 < EMA200. NOT SMA — the existing MACrossoverStrategy defaults to SMA
+    and was NOT reused because the spec mandates EMA. ema() is reused directly.
+
+  Both use the swap-corrected continuous engine (rebalance_mode="continuous") with
+  StaticRoundTripCostModel (7.5-pip RT, reused) and VolTargetSizer(leverage_cap=0.25).
+
+  The IS eval harness (trial_basket_is_eval.py) implements:
+  - POWER gate (>=30 IS trades)
+  - CPCV N_groups=8, k=2, purge=240 bars, embargo=120 bars (FIXED, not data-derived)
+  - DSR gate at N=50 (fixed denominator HC-5)
+  - KILL-2 gate (avg_net_trade <= 0)
+  - Regime consistency (positive Sharpe in >= 2 of 3 IS year-blocks)
+
+  ## Run results (executed 2026-06-17T05:18:47Z)
+
+  M1 (MACD cross, 82497d05):
+  - IS bars: 21,209 | warmup bars: 33 | non-zero signals: 21,176
+  - trades_IS: 1,672 | power_ok: TRUE (1672 >> 30)
+  - avg_net_trade_pips: -2.11 pips (negative — cost dominates)
+  - CPCV net Sharpe: -2.75
+  - DSR at N=50: 0.0000 (negative CPCV SR → DSR=0, fails hard)
+  - Regime blocks: 2021=-4.38, 2022=-3.24, 2023+H1=-2.70 (0 positive → all negative)
+  - VERDICT: KILL-1 (DSR <= 0.95). Also would fire KILL-2 and regime gate.
+
+  M2 (EMA 50/200 cross, b309935c):
+  - IS bars: 21,209 | warmup bars: 199 | non-zero signals: 21,010
+  - trades_IS: 128 | power_ok: TRUE (128 >= 30 — the pre-reg flagged STRETCH but
+    128 clears the 30-trade floor on 1h data over 3.5 years)
+  - avg_net_trade_pips: -3.91 pips (negative — worse than M1 per-trade, fewer trades)
+  - CPCV net Sharpe: -0.66
+  - DSR at N=50: 0.0000 (negative CPCV SR → DSR=0)
+  - Regime blocks: 2021=-0.76, 2022=-0.38, 2023+H1=-0.19 (0 positive)
+  - VERDICT: KILL-1 (DSR <= 0.95). Also would fire KILL-2 and regime gate.
+
+  ## Gate arithmetic (M1)
+  M1 avg gross pips per trade: avg_net + 7.5 = -2.11 + 7.5 = ~5.4 pips gross.
+  The ~5.4 pips gross is below the 7.5-pip cost floor. This confirms the pre-reg's
+  prediction: MACD whipsaws on 1h EURUSD produce enough false crosses that per-trade
+  gross edge barely reaches 5 pips — insufficient after cost. The DSR of 0.0000
+  confirms this is not a borderline failure; the CPCV Sharpe of -2.75 is deeply
+  negative.
+
+  ## Gate arithmetic (M2)
+  M2 avg gross pips per trade: -3.91 + 7.5 = ~3.6 pips gross. Even fewer pips per
+  trade than M1, despite fewer trades. The 128 IS trades are heavily loss-dominated
+  — the EMA50/200 cross on 1h EURUSD catches reversals not trends at this timeframe.
+  Consistent with the "death by whipsaw" thesis in the pre-reg.
+
+  ## Family verdict
+  FAMILY_KILL — both members dead on KILL-1 (DSR=0, negative CPCV Sharpe). This
+  constitutes clean negative evidence that canonical TREND signals (MACD 12/26/9,
+  EMA 50/200) on EURUSD 1h are ALSO cost-bound at the 7.5-pip wall, just as
+  trial 48 (overnight mean-reversion, MR family) was cost-bound. The hypothesis
+  "is the trend family structurally different enough from MR to survive cost?" is
+  answered: NO. Both families fail on cost at 1h. OOS holdout NOT burned.
+
+  ## Swap scaling confirmation
+  Continuous mode uses engine's bar_duration_days=1/24 for 1h data (verified by
+  existing test_infer_bar_duration_days_1h). StaticRoundTripCostModel.holding_cost()
+  returns 0.0 (no overnight swap modeled in this cost model), so the swap accrual
+  is zero-valued but correctly scaled. The 24x overcharge bug fix is in place.
+
+  ## No-lookahead
+  5 tests added and passing. Both strategies use causal EMA (adjust=False). Engine
+  shifts by entry_delay_bars=1. MACD warmup=33 bars, EMA warmup=199 bars.
+
+knowledge_gaps:
+  - "M2 trades_IS=128 cleared the 30-trade power floor on 1h data (contrary to the
+    pre-reg's STRETCH prediction of <30). However, 128 trades is still thin and the
+    negative result is decisive — the count gate was moot here."
+  - "The trade count in continuous mode represents delta-rebalance events; for an
+    always-in strategy with no partial sizing adjustments, this approximates round-trips.
+    A future refinement could count direction-change events explicitly."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

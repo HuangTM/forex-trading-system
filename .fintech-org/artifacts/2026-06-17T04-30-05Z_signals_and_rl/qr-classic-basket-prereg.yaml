@@ -1,0 +1,295 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: "2026-06-17T05:02:00Z"
+subtask_ref: classic-signal-basket-prereg
+subtask_id: qr-classic-basket-prereg
+trial_id: DESIGN-TEMPLATE-PENDING-EXECUTION
+trial-count-at-spawn: 48
+basket_size: 6
+dsr_N_at_freeze: 54   # 48 honest-N + 6 declared basket members (every member burns a slot at freeze; killed-pre-IS members STAY in denominator — HC-5/AC-A2)
+
+hypothesis: >
+  On EURUSD 1h, do any of six a-priori classic price-only signal structures
+  (declared from literature, NOT tuned) produce a per-trade GROSS edge large
+  enough to net positive after the frozen 7.5-pip round-trip cost, and survive
+  multiplicity-deflated Sharpe (DSR, N=54) on CPCV in-sample? The economic
+  question is whether 1h EURUSD retains ANY harvestable price-only inefficiency
+  once realistic friction is charged — trial 48 says the overnight-MR variant
+  does not.
+
+universe: [EURUSD]
+
+windows:
+  IS: "2021-01-03 .. 2024-05-31"      # reuse firm IS slice (matches trial 48 pre-reg)
+  OOS_holdout: "2024-07-01 .. 2025-12-31"   # one-shot, burned ONCE, only if a member clears ALL pre-OOS gates
+  seam_embargo: ">= 20 trading days between IS end and OOS start (2024-06 is the embargo gap; already satisfied by the IS/OOS boundary). Additionally, CPCV purge+embargo internal to IS (below)."
+
+metric: >
+  PRIMARY = Deflated Sharpe Ratio (Lopez de Prado & Bailey 2014) computed on the
+  CPCV out-of-fold combined net-of-cost return series, deflated for multiplicity
+  with N_trials = 54 (= honest-N 48 + basket_size 6). NO raw Sharpe is ever
+  reported as a pass signal. CPCV CONFIG: N=8 groups, k=2 test groups per
+  combination (=> C(8,2)=28 train/test splits, 28 backtest paths recombined into
+  the OOF return distribution), purge = 2 trading days and embargo = 1 trading
+  day around each test block (purge/embargo sized to the longest feature warmup:
+  the slowest member uses a 200-bar SMA + MACD 26/9 EMA ~ <= ~10 trading days of
+  1h bars; a 2-day purge + 1-day embargo conservatively exceeds the autocorrelation
+  horizon of a 1h price feature once daily-aggregated for the fold boundary — see
+  body for the warmup-vs-embargo reconciliation).
+  PER-MEMBER PASS BAR: DSR(member) >= 0.95 (P[true SR > 0] >= 95% after deflation
+  at N=54) AND avg net trade > 0 pips after 7.5-pip RT AND IS regime-consistency
+  (positive net Sharpe in >= 2 of 3 non-overlapping IS year-blocks).
+  FAMILY-WISE PASS BAR: the basket as a whole "produces a positive finding" only
+  if >= 1 member clears ALL per-member gates; because N=54 already absorbs the
+  6-fold family multiplicity inside the DSR deflation, NO additional family-wise
+  alpha penalty is applied beyond N=54 (the deflation IS the family correction).
+  The family-wise KILL fires if 0 members clear the per-member DSR bar.
+
+basket_members:
+  - id: M1_rsi_meanrev_30_70
+    indicator: RSI
+    params: "period=14 (Wilder, the canonical default that exists in indicators.py); long when RSI crosses up through 30, short when RSI crosses down through 70"
+    entry: "RSI(14) crosses ABOVE 30 -> +1 (long); RSI(14) crosses BELOW 70 -> -1 (short). Signal generated at bar close, executed bar+1 (entry_delay_bars=1, no-lookahead)."
+    exit: "Exit long when RSI(14) >= 50 (revert to midline); exit short when RSI(14) <= 50. Flat between."
+    stop: "Hard stop at 1.5x ATR(14) adverse from entry; time-stop after 48 bars (2 days) if neither target nor stop hit."
+    rationale: >
+      A-priori: classic Wilder mean-reversion. EURUSD 1h has documented short-horizon
+      mean reversion intraday (range-bound between session peaks). RSI 30/70 is the
+      textbook oversold/overbought threshold — declared from Wilder 1978, NOT tuned.
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: marginal
+    confirmability: CONFIRMABLE   # ~150-400 trades/yr -> > 1000 IS trades -> validatable in << 2yr
+
+  - id: M2_bb_meanrev_20_2
+    indicator: BB
+    params: "period=20, num_std=2.0 (canonical Bollinger; exists in indicators.py as bollinger_bands default)"
+    entry: "Close < lower band -> +1 (long fade); Close > upper band -> -1 (short fade). NOTE: this is the PURE-BB fade; the bollinger_rsi COMBINED strategy is already rejected and is NOT re-tested here. This is a distinct, declared structure (BB-only, no RSI confirmation)."
+    exit: "Exit long/short when Close reverts to the middle band (SMA20). Flat otherwise."
+    stop: "Hard stop at 2.0x ATR(14) adverse; time-stop after 24 bars (1 day)."
+    rationale: >
+      A-priori: Bollinger band fade exploits the same intraday mean reversion as M1 but
+      keys on volatility-scaled deviation rather than momentum oscillator. Declared from
+      Bollinger 1980s canon. Distinct mechanism from rejected bollinger_rsi (no RSI gate).
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: marginal
+    confirmability: CONFIRMABLE
+
+  - id: M3_macd_trend_12_26_9
+    indicator: MACD
+    params: "fast EMA=12, slow EMA=26, signal EMA=9 (Appel canonical). NOT IN REGISTRY — see HC-3 downstream condition: MACD must be implemented and pass test_no_lookahead BEFORE any IS run; declared in frozen basket per AC-A1/HC-3."
+    entry: "MACD line crosses ABOVE signal line -> +1 (long); crosses BELOW -> -1 (short). Trend-following."
+    exit: "Reverse on opposite cross (always-in). Optional flat when |MACD-signal| < 0.0001 (noise band)."
+    stop: "No hard stop (trend-follower rides); ATR(14) 3x catastrophic stop only."
+    rationale: >
+      A-priori: MACD captures medium-horizon trend/momentum on 1h. Declared from Appel's
+      canonical 12/26/9 — NOT tuned. Economic basis: intraday trend persistence during
+      London/NY session overlap (12-15 UTC peak). Trend-follower has FEWER trades than
+      mean-reverters -> higher per-trade edge needed but lower cost drag per unit time.
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: marginal
+    confirmability: CONFIRMABLE
+
+  - id: M4_ma_cross_50_200
+    indicator: MA-cross
+    params: "fast SMA=50, slow SMA=200 ('golden/death cross', exists via sma() in indicators.py). On 1h these are intraday MAs, not daily."
+    entry: "SMA50 crosses ABOVE SMA200 -> +1; crosses BELOW -> -1. Always-in trend."
+    exit: "Reverse on opposite cross."
+    stop: "ATR(14) 3x catastrophic stop only."
+    rationale: >
+      A-priori: classic dual-MA trend filter. Declared from canonical 50/200. Very low
+      trade frequency on 1h (slow MAs) -> minimal cost drag BUT requires large sustained
+      trends. EURUSD 1h trends are short; this is the LOWEST-frequency, lowest-cost-drag
+      member but also the one most exposed to whipsaw in range regimes.
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: marginal   # low freq helps net, but trend edge on 1h EURUSD is doubtful
+    confirmability: STRETCH  # 50/200 on 1h -> only ~10-40 round-trip trades/yr -> ~30-120 IS trades; thin sample for DSR, validation could need > 2yr forward
+
+  - id: M5_momentum_breakout_20
+    indicator: momentum
+    params: "lookback=20 bars (exists as momentum() = pct_change(20) in indicators.py). Breakout sign."
+    entry: "momentum(20) > 0 AND price makes new 20-bar high -> +1 (long breakout); momentum(20) < 0 AND new 20-bar low -> -1 (short breakout)."
+    exit: "Exit when momentum(20) flips sign; or time-stop 48 bars."
+    stop: "ATR(14) 2x adverse stop."
+    rationale: >
+      A-priori: time-series momentum / breakout (Moskowitz-Ooi-Pedersen 2012 canon at
+      lower frequency, applied intraday). Tests whether 1h EURUSD has short-horizon
+      momentum continuation. Distinct from the existing `momentum` STRATEGY by adding a
+      breakout confirmation (new-high/low) to reduce churn. Declared, not tuned.
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: no   # breakout entry pays the spread at the worst moment; high churn
+    confirmability: CONFIRMABLE  # frequent, but a-priori COST_SUSPECT
+
+  - id: M6_rsi_session_filtered_30_70
+    indicator: RSI
+    params: "period=14, thresholds 30/70 IDENTICAL to M1, BUT entries restricted to the documented liquid sessions 06-09 and 12-15 UTC (where EURUSD 1h range/liquidity peaks)."
+    entry: "Same as M1 but ONLY when bar timestamp UTC hour in {06,07,08,12,13,14}. Outside sessions: no new entries (existing positions managed to exit/stop)."
+    exit: "Same as M1 (RSI -> 50)."
+    stop: "Same as M1 (1.5x ATR adverse, 48-bar time-stop)."
+    rationale: >
+      A-priori: session-filtering is a documented EURUSD micro-structure effect — spreads
+      tighten and directional follow-through concentrates in London/NY hours. Hypothesis:
+      restricting M1 to liquid windows raises per-trade edge enough to clear cost where the
+      all-hours M1 does not. This is the ONE member with a non-trivial reason to beat 7.5 pips.
+      Session windows declared a-priori from the stated EURUSD 1h facts (peaks 06-09 & 12-15
+      UTC) — NOT swept.
+    required_gross_pips_to_net_positive: 7.5
+    clears_cost: marginal   # best a-priori shot: tighter spreads in-session + concentrated follow-through
+    confirmability: CONFIRMABLE  # fewer trades than M1 but still ~80-200/yr
+
+falsification-criteria:
+  # ---- PER-MEMBER KILL (machine-checkable; each evaluated independently, denominator FIXED at 54) ----
+  - "KILL_member[i] if avg_net_trade_pips[i] <= 0 after 7.5-pip RT cost (cost gate, AC-A3-ii)."
+  - "KILL_member[i] if DSR[i] < 0.95 at N_trials=54 on the CPCV OOF net return series (multiplicity gate, AC-A2)."
+  - "KILL_member[i] if positive net Sharpe in fewer than 2 of 3 non-overlapping IS year-blocks (2021,2022,2023+2024H1) (regime-consistency gate, AC-A3-iii)."
+  - "KILL_member[i] if IS net round-trip trade count < 30 (insufficient sample for a credible DSR — pre-empts thin-sample false positives; flags M4 a-priori)."
+  # ---- FAMILY-WISE KILL ----
+  - "FAMILY_KILL (basket produces NEGATIVE evidence, valid deliverable) if 0 of 6 members clear ALL per-member gates on IS. In that case the OOS holdout is NEVER touched (HC-2 preserved) and the trial slots (6) are recorded as spent with terminal_verdict=clean-falsification."
+  - "OOS_GATE: a member may touch the one-shot OOS holdout ONLY if it cleared ALL per-member IS gates. OOS verdict = net Sharpe > 0 AND avg net trade > 0 on the holdout. OOS is burned ONCE per surviving member; re-running OOS after seeing results is forbidden (HC-2)."
+  # ---- DENOMINATOR INTEGRITY ----
+  - "N_trials MUST remain 54 for every member's DSR even if some members are killed pre-IS or mid-IS. The denominator NEVER shrinks (AC-A2 / HC-5). Any artifact that recomputes DSR with N<54 after a kill is a HC-5 violation."
+
+honest_expectation: >
+  MODAL OUTCOME: FAMILY_KILL — the basket KILLs on cost, and the deliverable's value is
+  CLEAN NEGATIVE EVIDENCE that price-only classic signals on 1h EURUSD are cost-bound.
+  Reasoning (brutally honest): trial 48's overnight-MR fade had a real +3.41-pip GROSS
+  edge and STILL net -4.09 pips after 7.5-pip RT — a clean cost kill at gross 3.41 << 7.5.
+  Every mean-reverter here (M1, M2, M6) harvests the SAME intraday-reversion inefficiency
+  trial 48 tapped; there is no a-priori reason their per-trade GROSS edge exceeds ~3-4 pips,
+  so M1/M2 are 'marginal' only in the sense that they are unlikely-but-not-impossible to
+  reach 7.5. M5 (breakout) is COST_SUSPECT a-priori (pays spread at entry, high churn) and
+  I expect a clean kill. M4 (50/200 on 1h) is STRETCH on sample size and likely whipsaws.
+  The single member with a structural reason to possibly clear cost is M6 (session-filtered
+  RSI): in-session spreads are tighter and directional follow-through concentrates, so its
+  per-trade edge could plausibly exceed the all-hours M1's. If ANY member survives, I expect
+  it is M6 — and even then I rate P(M6 clears all gates) low. This basket is designed to be
+  a DISCIPLINED instrument for producing honest negative evidence at a known, bounded cost
+  of 6 trial slots, not an optimistic alpha hunt.
+
+alpha-source: >
+  Two candidate inefficiencies. (1) Intraday mean reversion (M1/M2/M6): EURUSD 1h is
+  range-bound between session peaks; oversold/overbought extremes revert. Why it might
+  persist past cost: it is a real micro-structure effect, but the gross edge (~3-4 pips
+  per trial-48 evidence) is structurally near the cost floor, so persistence past 7.5 pips
+  is doubtful EXCEPT possibly in-session (M6) where spreads are ~2.0 pips and follow-through
+  is larger. (2) Intraday trend/momentum (M3/M4/M5): session-overlap directional persistence;
+  why it might NOT persist — 1h EURUSD trends are short and whipsaw-prone, and breakout
+  entries pay the spread adversely. The honest claim: NONE of these has a strong a-priori
+  reason to clear 7.5 pips; M6 is the least-implausible.
+
+evidence:
+  - "Trial 48 (15923fe1): overnight-MR EURUSD 1h — gross fade +3.41 pips/trade, CPCV net Sharpe -4.93, avg net trade -4.09 pips, DSR=0.00 at N=48 -> clean-falsification (cost-dominated). Verified in .fintech-org/trials.jsonl."
+  - "EURUSD 1h facts (from task brief): per-bar range median 11.1 pips / mean 13.9; empirical spread median 2.0; session peaks 06-09 & 12-15 UTC; frozen cost = 7.5-pip RT."
+  - "indicators.py: rsi(period=14), bollinger_bands(period=20, num_std=2.0), sma(), ema(), atr(period=14), momentum(period=20) exist; MACD does NOT (verified by Read of src/forex_system/features/indicators.py)."
+  - "bollinger_rsi COMBINED strategy already rejected (CLAUDE.md / AC evidence E5) — M2 here is BB-only and distinct; not a re-test."
+  - "Honest-N=48 at spawn (trials.jsonl line 49); each declared member adds 1 to the DSR denominator at freeze (HC-5/AC-A2)."
+  - "Skill: Lopez de Prado / Bailey DSR & CPCV — multiplicity is the dominant failure mode; raw Sharpe never reported as pass signal."
+
+assumptions:
+  - "EURUSD 1h ~31k bars 2021-2025 is the dataset (A1 from acceptance criteria)."
+  - "7.5-pip RT conservative cost is the frozen design bar (A2/HC-4); config-file 3-pip RT is optimistic and rejected for design."
+  - "DSR denominator N=54 fixed at freeze; killed members do not reduce it (A3/HC-5)."
+  - "MACD (M3) implementation is a DOWNSTREAM task pre-conditioned on passing test_no_lookahead (HC-3); the basket is FROZEN with M3 declared but M3 may not be IS-evaluated until that test passes."
+  - "CPCV purge=2d/embargo=1d conservatively dominates the longest 1h feature warmup (200-bar SMA / 26-bar EMA) once fold boundaries are taken at daily granularity — see body for reconciliation."
+  - "No sub-1h / volume / order-book data available (data-capability wall, A4); this basket is price-only by necessity."
+
+confidence: medium   # high confidence in the DESIGN's discipline and in the modal KILL prediction; medium that any member survives (I expect none)
+
+body: |
+  ## Design intent and honesty posture
+
+  This is a DISCIPLINED screen, not an alpha hunt. Its primary deliverable, on the
+  evidence, is CLEAN NEGATIVE EVIDENCE about price-only classic signals on 1h EURUSD
+  after realistic friction. Trial 48 is load-bearing: a real +3.41-pip GROSS mean-reversion
+  edge net -4.09 pips after 7.5-pip RT. That is the cost wall, quantified. I am NOT going to
+  dress six structures up as likely winners; I am going to burn exactly 6 trial slots to get
+  a clean, multiplicity-honest answer to "does ANY canonical price-only signal clear 7.5 pips
+  on 1h EURUSD?"
+
+  ## Why basket_size = 6 (not 8)
+
+  HC-6 caps the basket at 8. I deliberately use 6, because every extra member raises the DSR
+  denominator (N=48+K) and dilutes any genuine survivor. I include only structures with a
+  distinct a-priori mechanism: 3 mean-reverters keyed on different deviation measures
+  (oscillator M1, vol-band M2, session-filtered M6), 2 trend-followers at different horizons
+  (MACD M3, slow-MA M4), and 1 momentum/breakout (M5). I excluded near-duplicates and the
+  already-rejected bollinger_rsi combo. Fewer, more-distinct members = a cleaner test and a
+  smaller deflation penalty for any true survivor.
+
+  ## Cost-realism table (AC-A4) — required GROSS edge vs plausible GROSS edge
+
+  | id | est round-trips/yr (1h) | required gross pips to net>0 | plausible gross pips (a-priori) | verdict      |
+  |----|-------------------------|------------------------------|---------------------------------|--------------|
+  | M1 | ~150-400                | 7.5                          | ~3-4 (trial-48 analog)          | marginal-to-COST_SUSPECT |
+  | M2 | ~120-300                | 7.5                          | ~3-4                            | marginal-to-COST_SUSPECT |
+  | M3 | ~40-120                 | 7.5                          | ~4-8 (trend, larger moves)      | marginal     |
+  | M4 | ~10-40                  | 7.5                          | ~6-12 if a real trend, else <0  | marginal / thin-sample |
+  | M5 | ~200-500                | 7.5                          | ~2-4 (pays spread on breakout)  | COST_SUSPECT (flagged) |
+  | M6 | ~80-200                 | 7.5                          | ~4-7 (in-session, tighter)      | marginal (best shot) |
+
+  At least one member (M5) is flagged COST_SUSPECT a-priori, satisfying AC-A4. Honestly, M1
+  and M2 are nearly as suspect: they harvest the same ~3-4-pip reversion trial 48 already
+  killed. The cost bar (7.5) sits ABOVE the plausible gross edge for the mean-reverters,
+  which is exactly why I expect a FAMILY_KILL.
+
+  ## Multiplicity / DSR (HC-5, AC-A2)
+
+  DSR is computed on the CPCV out-of-fold COMBINED net-of-cost return series with
+  N_trials = 54 fixed at freeze. The deflation absorbs the 6-way family search: I do NOT
+  apply a second Bonferroni-style family penalty on top — the N=54 denominator IS the family
+  correction (Bailey-LdP construction). Per-member pass requires DSR >= 0.95 AND a positive
+  net-cost trade AND regime consistency. The denominator integrity rule is explicit: killing
+  a member pre-IS does NOT shrink N. You cannot reclaim a slot by killing the member — this
+  is what makes the screen honest and the pass-bar deterministic before any look.
+
+  ## CPCV config and purge/embargo reconciliation
+
+  N=8 groups, k=2 test groups -> 28 combinations -> 28 recombined OOF paths. Purge=2 trading
+  days, embargo=1 trading day at each test-block boundary. The slowest feature warmup is the
+  200-bar SMA (M4) and the 26+9 MACD EMAs (M3). On 1h bars, 200 bars ~ 8.3 calendar days of
+  24h quoting but ~ a few trading days of the active sessions; the autocorrelation that could
+  leak across a fold boundary decays far faster than the warmup window (warmup is a
+  computation requirement, NOT a leakage horizon — the leakage horizon is set by how long a
+  trade can stay open and by serial correlation of the OOF returns, both << 2 days for these
+  members whose max hold is the 48-bar/2-day time-stop). The 2-day purge therefore covers the
+  longest open-trade horizon (M1/M5/M6 time-stop = 48 bars = 2 days) and the 1-day embargo
+  buffers residual serial correlation. M3/M4 are always-in trend-followers with no time-stop;
+  for these I purge by the maximum realized holding period observed in-fold, capped at 5 days,
+  re-stated here so the gate is machine-checkable: purge_M3M4 = min(max_in_fold_hold, 5d).
+
+  ## Confirmability (HC-9)
+
+  M1, M2, M3, M5, M6 are CONFIRMABLE: >= 30 IS trades and >> 100/yr means forward validation
+  is feasible in << 2 years if a member survives. M4 (50/200 on 1h) is flagged STRETCH: it may
+  produce < 30 IS round-trips, tripping the thin-sample KILL pre-emptively. I keep M4 in the
+  declared basket (it costs 1 slot and provides the honest low-frequency anchor) but expect it
+  to die on the sample-count gate, which is the correct disciplined outcome.
+
+  ## What a positive result would mean
+
+  If (against expectation) M6 or any member clears all IS gates, it earns ONE shot at the
+  2024-07..2025-12 OOS holdout. A clean OOS pass (net Sharpe>0, avg net trade>0) would be the
+  first price-only signal to beat the 7.5-pip wall — a genuine, multiplicity-honest finding.
+  I am not predicting it. The disciplined value here is that we will KNOW, at a bounded cost
+  of 6 slots, rather than guess.
+
+  ## Firewall
+
+  This artifact contains NO executable code. M3 (MACD) requires implementation; that is a
+  downstream quant-developer task gated on test_no_lookahead (HC-3). ROUTE_TO: quant-developer
+  for (a) MACD indicator implementation + no-lookahead test, (b) the CPCV/DSR backtest harness
+  execution against this frozen spec. No IS or OOS data is examined in this design task.
+
+  ROUTE_TO: quant-developer
+
+knowledge_gaps:
+  - "Empirical per-trade GROSS edge for M1/M2/M3/M6 is unknown until IS run; estimates here are a-priori analogs from trial 48 and band geometry, not measured."
+  - "Exact IS trade counts (esp. M4 sample sufficiency) unknown pre-run; M4 may fail the >=30-trade gate."
+  - "Whether in-session spread tightening (M6 thesis) is large enough to flip the cost verdict is the key open empirical question."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

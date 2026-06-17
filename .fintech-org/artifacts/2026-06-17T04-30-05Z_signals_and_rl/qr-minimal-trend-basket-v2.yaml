@@ -1,0 +1,268 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: "2026-06-17T04:58:00Z"
+subtask_ref: minimal-trend-basket-prereg-v2
+subtask_id: qr-minimal-trend-basket-v2
+trial_id: DESIGN-TEMPLATE-PENDING-EXECUTION
+trial-count-at-spawn: 48
+version: 2
+closes_findings: [F-001, F-002, F-004, F-005]
+basket_size: 2
+dsr_N_at_freeze: 50
+
+honest_N_justification: >
+  N=50 = honest org-wide trial count 48 (trials.jsonl at spawn) + 2 basket members.
+  The DSR denominator MUST equal the cardinality of the search the winner came from
+  (firm rule, src/forex_system/analysis/null_hypothesis.py: `total_trials` feeds the
+  expected-max-SR deflation via Φ⁻¹(1 - 1/N), lines 168-197). Each member is therefore
+  required to be search-cardinality EXACTLY 1 — a single canonical configuration with
+  ZERO within-member tuning — otherwise its hidden grid would inflate the true search
+  and N=50 would be a lie. I certify each member's parameters are LITERATURE-FIXED, not
+  selected from a tested grid:
+    - M1 MACD(12,26,9): the 12/26/9 triple is Appel's published canonical setting
+      (Gerald Appel, "Technical Analysis: Power Tools for Active Investors", 2005).
+      I did not test 8/17/9, 5/35/5, or any alternative fast/slow/signal triple.
+      Search cardinality = 1. (One declared judgment: NO hard stop / always-in reverse
+      — this is the canonical signal-line-cross construction, not a tuned exit; the
+      ATR catastrophic stop multiple is declared a-priori, NOT swept — see assumptions.)
+    - M2 EMA(50)/EMA(200): the 50/200 pair is THE canonical golden/death-cross long-trend
+      filter (industry-standard MA-cross periods). I did not test 20/100, 50/100, or any
+      other pair. Search cardinality = 1.
+  Because there is no within-member grid, the only multiplicity is the 2-member family,
+  which is fully absorbed by N=50 (48+2). If I could NOT honestly call a parameter
+  un-searched, I would have to add it to N; here both members are genuinely single
+  canonical configs, so N=50 is honest. (Note: the EMA lengths 50/200 are themselves the
+  ONLY judgment — they are canonical, but I flag for the record that "canonical" rests on
+  industry convention, not a derivation; the firm has not separately tested EMA-cross, so
+  no prior search to fold in.)
+
+hypothesis: >
+  On EURUSD 1h, do two canonical price-only TREND-FOLLOWING signals (MACD 12/26/9
+  signal-line cross; EMA 50/200 golden/death cross) — declared from literature, NOT
+  tuned — produce a per-trade GROSS edge large enough to net positive after the frozen
+  7.5-pip round-trip cost, and survive multiplicity-deflated Sharpe (DSR, N=50) on CPCV
+  in-sample? Trial 48 showed mean-reversion is cost-bound at 1h; this asks whether the
+  structurally DIFFERENT trend family also fails on cost.
+
+universe: [EURUSD]
+
+windows:
+  IS: "2021-01-03 .. 2024-05-31"
+  OOS_holdout: "2024-07-01 .. 2025-12-31"   # one-shot, burned ONCE, only if a member clears ALL pre-OOS gates
+  seam_embargo: ">= 20 trading days between IS end and OOS start (the full 2024-06 calendar month is the embargo gap; already satisfied by the IS/OOS boundary)"
+
+frozen_purge_embargo: >
+  FIXED purge = 10 trading days; FIXED embargo = 5 trading days; both applied at every
+  CPCV test-block boundary and PRE-DECLARED here (NOT derived from any in-fold data).
+  Rationale for the number (set BEFORE seeing data, F-004): both members are ALWAYS-IN
+  trend-followers with no time-stop, so their max holding horizon = the time between
+  consecutive opposite crosses. For a 50/200 EMA cross on 1h, the slow leg has a ~200-bar
+  (~8.3 calendar-day, ~6 trading-day) effective memory; a single trend leg can persist
+  multiple weeks. I conservatively bound the MAX trend-member hold at 10 trading days for
+  purge sizing and add a 5-trading-day embargo for residual serial correlation. This 10d
+  purge is a FIXED constant — it does NOT read max-in-fold-hold (that adaptive rule was the
+  F-004 defect in v1 and is REMOVED). If realized holds exceed 10 trading days for a
+  meaningful fraction of trades, that is recorded as a known conservatism limit, not a
+  reason to re-derive the purge.
+
+metric: >
+  PRIMARY = Deflated Sharpe Ratio (Bailey & López de Prado, 2014) on the CPCV out-of-fold
+  COMBINED net-of-cost return series, deflated with N_trials = 50 (= honest-N 48 +
+  basket_size 2). NO raw Sharpe is ever reported as a pass signal. CPCV CONFIG: N=8 groups,
+  k=2 test groups per combination (C(8,2)=28 train/test splits → 28 recombined OOF paths),
+  FIXED purge=10 trading days + FIXED embargo=5 trading days at each test block (the
+  frozen_purge_embargo above; identical for both members; NOT data-derived).
+  PER-MEMBER PASS BAR: DSR(member) >= 0.95 (P[true SR > 0] >= 95% after N=50 deflation)
+  AND avg net trade > 0 pips after 7.5-pip RT AND IS net round-trip trade count >= 30
+  (power floor) AND positive net Sharpe in >= 2 of 3 non-overlapping IS year-blocks
+  (2021 / 2022 / 2023+2024H1).
+  FAMILY-WISE PASS BAR: the basket produces a POSITIVE finding only if >= 1 member clears
+  ALL per-member gates. N=50 already absorbs the 2-fold family multiplicity inside the DSR
+  deflation, so NO additional family penalty is applied beyond N=50. FAMILY KILL fires if
+  0 of 2 members clear the per-member bar.
+
+basket_members:
+  - id: M1_MACD_cross
+    indicator: "macd_12_26_9"
+    params_canonical_source: "Appel canonical 12/26/9 (Gerald Appel, 2005). fast EMA=12, slow EMA=26, signal EMA=9. NOT searched/tuned. MACD does NOT yet exist in features/indicators.py (verified by Read) — declared here; IS-gated on the quant-developer MACD implementation passing test_no_lookahead downstream (HC-3)."
+    entry: "MACD line crosses ABOVE signal line → +1 (long); MACD line crosses BELOW signal line → −1 (short). Signal at bar close, executed bar+1 (entry_delay_bars=1, no-lookahead)."
+    exit: "Always-in: reverse on the opposite cross. No time-stop, no profit target (canonical signal-line-cross construction)."
+    stop: "No hard trading stop (trend-follower rides). ATR(14) 3x catastrophic stop only, declared a-priori (NOT swept)."
+    clears_7.5pip_cost: marginal
+    confirmability: CONFIRMABLE
+
+  - id: M2_EMA_50_200_cross
+    indicator: "ema_50 / ema_200"
+    params_canonical_source: "Canonical golden/death cross. EMA(50) vs EMA(200). ema() already exists in src/forex_system/features/indicators.py (verified, line 15). NOT searched/tuned."
+    entry: "Golden cross: EMA(50) crosses ABOVE EMA(200) → +1 (long). Death cross: EMA(50) crosses BELOW EMA(200) → −1 (short). Signal at bar close, executed bar+1 (no-lookahead)."
+    exit: "Always-in: reverse on the opposite cross. No time-stop, no profit target."
+    stop: "No hard trading stop. ATR(14) 3x catastrophic stop only, declared a-priori (NOT swept)."
+    clears_7.5pip_cost: marginal
+    confirmability: STRETCH
+
+falsification-criteria:
+  # ---- PER-MEMBER KILL (machine-checkable; each evaluated independently; denominator FIXED at 50) ----
+  - "KILL_member[i] if avg_net_trade_pips[i] <= 0 after 7.5-pip RT cost (cost gate; F-005: the flat 7.5-pip RT applies cleanly to BOTH members — trend signals do NOT rely on any in-session spread tightening)."
+  - "KILL_member[i] if DSR[i] < 0.95 at N_trials=50 on the CPCV OOF net return series (multiplicity gate; F-001)."
+  - "KILL_member[i] if IS net round-trip trade count < 30 (power floor — pre-empts thin-sample false positives; flags M2 a-priori as likely to trip this)."
+  - "KILL_member[i] if positive net Sharpe in fewer than 2 of 3 non-overlapping IS year-blocks (2021 / 2022 / 2023+2024H1) (regime-consistency gate)."
+  # ---- FAMILY-WISE KILL ----
+  - "FAMILY_KILL (basket produces NEGATIVE evidence, valid deliverable) if 0 of 2 members clear ALL per-member gates on IS. In that case the OOS holdout is NEVER touched (HC-2 preserved) and the 2 trial slots are recorded spent with terminal_verdict=clean-falsification."
+  - "OOS_GATE: a member may touch the one-shot OOS holdout ONLY if it cleared ALL per-member IS gates. OOS verdict = net Sharpe > 0 AND avg net trade > 0 on the holdout, burned ONCE; re-running OOS after seeing results is forbidden (HC-2)."
+  # ---- DENOMINATOR INTEGRITY ----
+  - "N_trials MUST remain 50 for every member's DSR even if a member is killed pre-IS or mid-IS. The denominator NEVER shrinks (HC-5). Any artifact recomputing DSR with N<50 after a kill is a HC-5 violation."
+  # ---- PURGE INTEGRITY (F-004) ----
+  - "The purge=10d / embargo=5d are FIXED constants frozen in this artifact. Any harness that derives purge from in-fold realized holding period is a F-004 regression and must be rejected."
+
+honest_expectation: >
+  MODAL OUTCOME: FAMILY_KILL. I expect BOTH members to die on the net-cost gate, and the
+  deliverable's value is CLEAN NEGATIVE EVIDENCE that canonical TREND signals — a family
+  structurally DISTINCT from the already-killed mean-reversion (trial 48) — ALSO fail on
+  cost at 1h. This is the honest point of the rider: trial 48 proved MR is cost-bound; this
+  proves (or refutes) the same for trend, at a bounded cost of 2 trial slots. I am NOT
+  predicting a survivor. M1 (MACD) is a medium-frequency trend signal whose per-trade gross
+  edge on choppy 1h EURUSD is unlikely to consistently exceed 7.5 pips after whipsaws.
+  M2 (EMA 50/200) is VERY slow → very few trades/yr → high risk of < 30 IS round-trips
+  → likely trips the power floor and is flagged STRETCH for exactly that reason; even if it
+  clears the count, 1h EURUSD trends are short and whipsaw-prone. If anything survives I have
+  no strong prior on which — but I rate P(any member clears all gates) LOW.
+
+alpha-source: >
+  Why trend MIGHT clear cost where mean-reversion did not: trend-followers take FEWER, LARGER
+  trades. Trial 48's MR fade had a real +3.41-pip gross edge but churned and net −4.09 after
+  7.5-pip RT — the kill was driven by small per-trade gross edge relative to the cost floor.
+  A trend signal that catches a multi-day session-overlap move can in principle bank
+  10-30+ pips gross on a single leg, comfortably clearing 7.5 pips per round trip IF the trend
+  persists. That is the structural reason trend is worth one disciplined test.
+  Why it likely does NOT: 1h EURUSD trends are short and mean-reverting at this horizon;
+  MACD and MA crosses whipsaw badly in range regimes (the dominant EURUSD 1h regime), and
+  each whipsaw pays the full 7.5-pip RT. The honest claim: trend has a PLAUSIBLE but WEAK
+  a-priori reason to beat 7.5 pips; I expect the whipsaw cost to dominate and produce a
+  FAMILY_KILL, mirroring trial 48 for a different signal family.
+
+evidence:
+  - "src/forex_system/analysis/null_hypothesis.py (Read): `total_trials` (N) feeds the DSR via the expected-max-SR deflation E[max(SR)] ≈ mean + std·[(1-γ)Φ⁻¹(1-1/N) + γΦ⁻¹(1-1/(N·e))] (lines 188-197). N MUST be the search cardinality → here 48+2=50."
+  - "src/forex_system/features/indicators.py (Read): ema(series, period) exists (line 15); sma, rsi, bollinger_bands, atr, momentum exist; MACD does NOT exist → M1 declared, IS-gated on downstream MACD impl + test_no_lookahead."
+  - "Trial 48: overnight-MR EURUSD 1h — gross fade +3.41 pips/trade, net avg trade −4.09 pips after 7.5-pip RT, clean-falsification (cost-dominated). The MR cost wall this rider tests trend against."
+  - "Frozen cost = 7.5-pip round-trip (HC-4); applies cleanly and identically to BOTH trend members (F-005 — neither relies on in-session spread tightening)."
+  - "v1 (qr-classic-basket-prereg.yaml) REJECTED by Principal Reviewer for F-001 (N inflated by disguised within-member search across 6 members incl. mean-reversion) and F-004 (adaptive purge `min(max_in_fold_hold, 5d)` derived from in-fold data). v2 removes the 4 MR/session/breakout members and the adaptive purge."
+  - "Skill: Bailey & López de Prado DSR & CPCV — multiplicity is the dominant failure mode; raw Sharpe is never reported as a pass signal."
+
+assumptions:
+  - "EURUSD 1h ~31k bars 2021-2025 is the dataset."
+  - "7.5-pip RT conservative cost is the frozen design bar (HC-4); the optimistic config-file 3-pip RT is rejected for design."
+  - "DSR denominator N=50 fixed at freeze; killed members do NOT reduce it (HC-5)."
+  - "MACD (M1) implementation is a DOWNSTREAM quant-developer task pre-conditioned on passing test_no_lookahead (HC-3); the basket is FROZEN with M1 declared but M1 may not be IS-evaluated until that test passes."
+  - "ATR(14) 3x catastrophic stop multiple is declared a-priori for both members and is NOT a swept parameter (it is a risk backstop, not a tuned exit); it does not add to N."
+  - "purge=10 trading days / embargo=5 trading days are FIXED constants, not data-derived (F-004)."
+  - "No sub-1h / volume / order-book data available (data-capability wall); this basket is price-only by necessity."
+
+confidence: medium   # high confidence in the design's discipline and the modal FAMILY_KILL; low confidence that either member survives
+
+body: |
+  ## Design intent and honesty posture
+
+  This v2 is a MINIMAL, honest-N rider whose primary deliverable, on the evidence, is CLEAN
+  NEGATIVE EVIDENCE about canonical price-only TREND signals on 1h EURUSD after realistic
+  friction. Trial 48 already established the cost wall for MEAN-REVERSION (+3.41 gross,
+  −4.09 net at 7.5-pip RT). The open question this rider closes is whether the structurally
+  DIFFERENT trend family also fails on cost — at a bounded cost of exactly 2 trial slots.
+  I am not dressing trend up as a likely winner; I am buying a clean answer.
+
+  ## How v2 closes the four findings
+
+  - **F-001 (dishonest DSR N).** v1 carried 6 members spanning MR, session-filtered MR, and
+    breakout, several of which embedded implicit grids (thresholds, session windows, breakout
+    confirmation) — a disguised search that made N=54 a lie. v2 is EXACTLY 2 members, each a
+    SINGLE canonical literature-fixed configuration with ZERO within-member search (see
+    honest_N_justification). MACD 12/26/9 is Appel-canonical; EMA 50/200 is the canonical
+    golden/death cross. Search cardinality per member = 1, so honest N = 48 + 2 = 50, and the
+    only multiplicity (the 2-member family) is fully absorbed by N=50. This is faithful to
+    null_hypothesis.py's N-rule.
+
+  - **F-002 (disguised refinement sweep).** Both members are TREND-FOLLOWERS, structurally
+    distinct from trial-48's already-killed mean-reversion. The v1 mean-reverters (M1 RSI,
+    M2 BB, M6 session-RSI) and the breakout (M5) are REMOVED. There is NO mean-reversion
+    member and NO session-filter "hoped survivor." This is not a refinement of a killed idea;
+    it tests a different idea.
+
+  - **F-004 (adaptive purge).** v1 used `purge_M3M4 = min(max_in_fold_hold, 5d)`, deriving the
+    purge from in-fold realized holds — a leakage/over-fit vector. v2 REMOVES that rule and
+    freezes a FIXED purge = 10 trading days + embargo = 5 trading days, chosen BEFORE any data
+    look, sized to conservatively bound the max holding horizon of always-in trend members.
+    The number is a constant in this artifact; any harness that re-derives it is rejected.
+
+  - **F-005 (cost contradiction).** NONE here. The two trend members do NOT rely on in-session
+    spread tightening (that was the v1 M6 session-filter thesis, now removed). The flat
+    7.5-pip round-trip (HC-4) applies cleanly and identically to both members in every fold.
+
+  ## Cost-realism (required GROSS edge vs plausible GROSS edge)
+
+  | id | est round-trips/yr (1h) | required gross pips to net>0 | plausible gross pips (a-priori) | verdict                 |
+  |----|-------------------------|------------------------------|---------------------------------|-------------------------|
+  | M1 | ~40-120                 | 7.5                          | ~4-12 if trend persists, <0 in chop | marginal             |
+  | M2 | ~6-30                   | 7.5                          | ~8-25 if a real trend, else whipsaw | marginal / thin-sample |
+
+  M1 (MACD) is medium-frequency: it can bank larger moves than the MR fade but whipsaws in the
+  dominant range regime, paying 7.5 pips per false cross. M2 (EMA 50/200) is the lowest-
+  frequency, lowest-cost-drag member but is the one most likely to (a) produce < 30 IS round-
+  trips (tripping the power floor — hence its STRETCH flag) and (b) suffer catastrophic whipsaw
+  when 1h EURUSD ranges. Neither has a STRONG a-priori reason to clear 7.5 pips; both are
+  "marginal" in the sense of unlikely-but-not-impossible.
+
+  ## Multiplicity / DSR (HC-5, F-001)
+
+  DSR on the CPCV OOF combined net-of-cost series, N_trials=50 fixed at freeze. The N=50
+  deflation IS the 2-member family correction (no second Bonferroni penalty). Killing a member
+  pre-IS does NOT shrink N — you cannot reclaim a slot. Per-member pass requires DSR>=0.95 AND
+  positive net-cost trade AND >=30 IS round-trips AND regime consistency.
+
+  ## CPCV config and the FIXED purge/embargo (F-004)
+
+  N=8 groups, k=2 test groups → 28 combinations → 28 recombined OOF paths. Purge=10 trading
+  days, embargo=5 trading days at each test-block boundary, IDENTICAL for both members and
+  FIXED in this artifact. These are NOT computed from in-fold data. The 10-day purge
+  conservatively dominates the longest plausible always-in trend hold; the 5-day embargo
+  buffers residual serial correlation in the OOF return series. (Note the conservatism cost:
+  a 10d purge + 5d embargo per block thins the usable IS sample, which compounds M2's
+  thin-sample risk — an honest, accepted tradeoff for leakage safety.)
+
+  ## Confirmability (HC-9)
+
+  M1 (MACD) is CONFIRMABLE: medium frequency should yield >> 30 IS trades, so a survivor could
+  be forward-validated in well under 2 years. M2 (EMA 50/200) is flagged STRETCH: on 1h it may
+  produce < 30 IS round-trips, tripping the power floor pre-emptively, and even a survivor would
+  need a long forward window to confirm. I keep M2 because it is the canonical slow trend anchor
+  and costs exactly 1 slot; I expect it to die on the count gate, which is the correct
+  disciplined outcome.
+
+  ## What a positive result would mean
+
+  If (against expectation) either member clears all IS gates, it earns ONE shot at the
+  2024-07..2025-12 OOS holdout. A clean OOS pass (net Sharpe>0, avg net trade>0) would be the
+  first price-only signal to beat the 7.5-pip wall and would show TREND succeeds where MR fails.
+  I am not predicting it. The disciplined value is that we will KNOW, at a bounded cost of 2
+  slots, whether trend is also cost-bound at 1h.
+
+  ## Firewall
+
+  This artifact contains NO executable code. M1 (MACD) requires implementation; that is a
+  downstream quant-developer task gated on test_no_lookahead (HC-3). No IS or OOS data is
+  examined in this design task.
+
+  ROUTE_TO: quant-developer
+    - (a) implement MACD(12,26,9) indicator in features/ + add no-lookahead coverage (must pass test_no_lookahead).
+    - (b) execute the CPCV/DSR backtest harness against this FROZEN spec (N=50, fixed purge=10d/embargo=5d, 7.5-pip RT).
+
+knowledge_gaps:
+  - "Empirical per-trade GROSS edge for M1/M2 is unknown until the IS run; the pip estimates here are a-priori trend-geometry analogs, not measured."
+  - "M2 (EMA 50/200) IS round-trip count is unknown pre-run; it may fail the >=30-trade power floor."
+  - "Whether trend per-leg moves on 1h EURUSD are large enough, net of whipsaw frequency, to clear 7.5 pips is the key open empirical question this rider answers."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

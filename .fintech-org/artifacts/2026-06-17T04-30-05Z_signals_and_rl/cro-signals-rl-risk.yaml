@@ -1,0 +1,201 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: 2026-06-17T04:30:05Z
+subtask_ref: signals-rl-risk
+subtask_id: cro-signals-rl-risk
+size_multiplier: 0.25
+min_gross_edge_pips: 11.25
+binding_constraints:
+  - cost_floor_7.5pip_round_trip_dominates_per_trade_economics
+  - min_gross_edge_11.25_pips_at_p90_of_per_bar_range_after_50pct_slippage_buffer
+  - size_multiplier_ceiling_0.25_at_design_stage_no_member_may_request_more
+  - fixed_basket_K_le_8_DSR_multiple_comparison_N_eq_48_plus_K_max_56_trials
+  - one_shot_OOS_pre_registration_before_backtest
+  - model_engineering_firewall_declarative_TradeIntent_only
+  - paper_only_no_live_capital
+  - confirmability_horizon_le_2_3yr
+regime_flags:
+  - vol_nonstationary_annualized_5.6pct_to_10.6pct_across_2021_2025_yearly_range
+  - 2021_2025_regime_flip_in_window_in_sample_fit_will_not_generalize
+  - spread_tail_max_40.7_pips_vs_median_2.0_modeled_config_understates_at_0.5x3
+  - session_dependent_range_02_05UTC_7_10pips_below_cost_floor_dead_zone
+  - p99_per_bar_range_55.4_vs_median_11.1_fat_tail_kurtosis_high
+basket_correlation_risk: >
+  All K members trade the SAME instrument (EURUSD) in the SAME 1h sessions, so member
+  P&L streams are NOT independent — effective N is far below K. Concentration is maximal:
+  one pair, one timeframe, overlapping signal windows (e.g. a 1h mean-reversion and a 1h
+  trend member will be directly anti-correlated, not diversifying — they net to churn and
+  pay 7.5 pips per round trip on both legs). Treat aggregate basket exposure as a SINGLE
+  EURUSD position for risk budgeting, not K independent bets. Per the prob-stats covariance
+  identity Var(sum) = sum Var + 2 sum Cov(i,j): positive cross-member correlation INFLATES
+  aggregate variance above naive sqrt(K) diversification, and VaR subadditivity cannot be
+  assumed to help. Aggregate DD contract must be set on the COMBINED net position, with a
+  per-member kill that does not assume member independence. Gross-notional cap across the
+  basket must equal the single-name cap, not K times it.
+rl_model_risk:
+  - black_box_unexplainable_trades: >
+      An RL policy emits actions whose rationale cannot be reconstructed from the policy
+      alone. This violates the Model-Engineering Firewall (researcher must emit a declarative
+      pre-declarable spec; an RL policy is not pre-declarable) and violates log-as-decision-trace
+      property: you cannot answer "why did this decision happen" from the log without
+      re-running the network. A trade you cannot explain is a trade you cannot pre-register,
+      so it fails one_shot_OOS discipline structurally.
+  - non_stationarity: >
+      The 2021-2025 window contains a regime flip (yearly annualized vol 5.6pct to 10.6pct).
+      An RL policy fits the realized transition dynamics of its training window; when the
+      regime shifts, the learned policy is mis-specified and there is no pre-declared bound
+      on how badly it degrades. Rules basket parameters are at least frozen and inspectable;
+      an RL policy silently extrapolates.
+  - reward_hacking: >
+      Any reward shaped to a proxy (Sharpe, hit-rate, drawdown-penalized return) is gameable.
+      Given a 7.5-pip cost floor the policy will learn degenerate behaviors (over-trading to
+      farm a mis-specified reward, or freezing to avoid cost) that look optimal on the proxy
+      and lose on net P&L. The prior empirical result (gross +3.41, net -4.09) shows the proxy
+      (gross) and the objective (net) already diverge by 2x at the firm's cost level.
+  - reconstructability: >
+      For incident response and kill-switch attribution (kill-switch property 5: observable
+      and attributable), every decision must be reconstructable. An RL action is not. This
+      makes both the kill-switch audit trail and the incident-command scribe log incomplete
+      by construction — you cannot record "policy fired because rule Z" when there is no Z.
+  - outer_envelope_requirement: >
+      An RL policy MUST run inside an OUTER deterministic risk envelope the model cannot
+      observe, influence, or override (hard notional cap, max-order-rate, position limit,
+      drawdown halt). The envelope is the only enforceable control because the inner policy
+      is uninspectable. If the envelope can be reached or learned-around by the policy, it is
+      not an envelope — it is a suggestion.
+kill_switch:
+  rules_basket: >
+    Per-strategy kill (one member) + basket-level master kill, both meeting the five
+    kill-switch-design properties: out-of-band (does not route through the strategy's own
+    health), operable by junior in one action, stated SLA (pre-trade stop new orders <1s;
+    cancel outstanding <5s), tested in prod on schedule, and structured-log attributable
+    (who/why/what/time-to-effect). Pre-trade notional + order-rate caps are automated
+    hard rules, not human-triggered. Dead-man switch halts the basket if the risk heartbeat
+    is silent >60s.
+  rl_policy: >
+    Same five properties PLUS a mandatory OUTER deterministic risk envelope that is a
+    SEPARATE process from the policy, with its own heartbeat, that the policy has zero
+    write access to. The envelope enforces: hard max notional, max order rate, position
+    limit, per-period loss cap, and an unconditional drawdown halt. The kill switch lives in
+    the envelope, never in the policy. Knight Capital lesson: the switch must not depend on
+    the thing it is killing being healthy — for an RL policy the policy is BY DEFINITION an
+    untrusted component, so the envelope/kill must be fully out-of-band. If the policy can
+    saturate the path the kill rides on, the design is Knight-class inadequate. RL is not
+    approved to trade (paper or otherwise) until the outer envelope is built, prod-tested,
+    and its time-to-stop SLA is measured — not asserted.
+drawdown_contract: >
+  Machine-checkable, evaluated per-bar on COMBINED net P&L (not per member):
+  (1) per-trade hard stop: abort/flatten if open-trade loss exceeds a pre-declared pip cap;
+  (2) basket daily loss cap: halt all members for the session if cumulative net loss breaches
+      a pre-declared threshold (set in pips and as fraction of risk budget);
+  (3) rolling drawdown halt: if peak-to-trough net equity drawdown exceeds the pre-declared
+      contract value, master-kill the basket and require human re-arm;
+  (4) ES-based sizing gate: position size scales DOWN as realized 97.5pct ES rises, never up;
+  (5) all thresholds frozen in the pre-registration before any backtest (no in-flight tuning).
+  Each clause is a numeric comparison a monitor can evaluate without judgment — no
+  "IC discretion" inside the contract.
+tail_risk: >
+  Use Expected Shortfall at 97.5pct (FRTB calibration), NOT VaR-only. Justification from the
+  measured data: per-bar range p99 55.4 pips vs median 11.1 pips is a ~5x tail ratio and
+  p90 25.9 is ~2.3x median — this is a fat-tailed, high-kurtosis process where Gaussian VaR
+  understates and where two structures with equal VaR can have very different beyond-threshold
+  losses. ES averages the tail and is subadditive (critical because the basket trades one
+  name, so component risks do NOT diversify and naive VaR-sum would mislead). Tail estimation:
+  use empirical/historical-simulation over the full 2021-2025 window (covers the regime flip)
+  rather than a Gaussian fit; report a stressed-window ES alongside. The spread tail (max 40.7
+  vs median 2.0) is a second, execution-side tail — a fill during a spread blowout can convert
+  a positive-gross trade to a large net loss, so cost must be stressed at the spread tail, not
+  the median, in the tail scenario.
+blowup-analog: >
+  Knight Capital Americas (Aug 1, 2012) — a model/automation-driven runaway where a kill
+  switch existed in principle but did not stop the loss in time under real conditions. The
+  directly relevant lesson for direction B: an uninspectable, fast-acting automated trader
+  with an inadequate out-of-band kill is the canonical black-box blowup. (Secondary analog:
+  any over-fit, regime-blind quant strategy that worked in-sample and reversed on a regime
+  shift — the 2021-2025 vol flip is exactly that risk for both A and B.)
+contamination-check: clean
+evidence:
+  - measured_data:eurusd_1h_2021_2025.vol_annualized_5.6_to_10.6pct
+  - measured_data:per_bar_range_pips.median_11.1_mean_13.9_p90_25.9_p99_55.4
+  - measured_data:spread_empirical.median_2.0_mean_2.44_max_40.7
+  - measured_data:session_range_by_utc_hour.02_05_7_10__12_15_21_25
+  - measured_data:frozen_design_cost.round_trip_7.5_pips
+  - measured_data:prior_backtest.gross_+3.41_cost_7.5_net_-4.09_DSR_0.0_killed
+  - measured_data:org_trial_count.48
+  - measured_data:portfolio_state.single_eurusd_paper_only_no_positions_full_budget
+  - hard_constraints:fixed_basket_le_8_DSR_N_eq_48_plus_K
+  - skill:kill-switch-design.five_properties_and_knight_test
+  - skill:incident-command-trading.outer_envelope_and_halt_tree
+  - skill:quantitative-risk-management.ES_97.5_over_VaR_subadditivity
+assumptions:
+  - "7.5-pip round-trip is the frozen design cost; the empirical realistic ~6 pips is optimistic vs config, so 7.5 is the planning floor"
+  - "50pct slippage/variance buffer on top of cost yields the 11.25-pip min gross edge gate"
+  - "K members on one pair/timeframe are materially cross-correlated; effective N << K"
+  - "size_multiplier 0.25 is a design-stage ceiling, not an approval to deploy; OOS still gates any move"
+confidence: high
+body: |
+  POSTURE. This is a design-stage risk assessment, no execution. Both directions inherit the
+  same dominant constraint, so I lead with it.
+
+  COST FLOOR IS THE BINDING RISK FOR BOTH A AND B. The firm's most recent measured result is
+  decisive: a 1h structure captured gross +3.41 pips and netted -4.09 after the 7.5-pip cost,
+  DSR 0.0, killed. The cost is not a friction term here — it is ~2.2x the gross edge the firm
+  actually captured. Any 1h structure (basket member or RL action) must capture min 7.5 gross
+  pips just to break even, and I impose 11.25 (cost x1.5) as the design-stage gate to cover
+  slippage and the spread tail (max 40.7 vs median 2.0). 11.25 pips sits at the p90 of per-bar
+  range (25.9) — i.e. a member must reliably extract more than a typical bar's worth of move,
+  net, every trade. The 02-05 UTC session (range 7-10 pips) is a structural dead zone below the
+  cost floor; no member should trade it. This is why size_multiplier is 0.25, not 1.0: at design
+  stage, with a cost-dominated, regime-flipping, single-name book and 48 prior trials of
+  multiple-comparison burden, full risk budget on an unproven basket is unjustifiable.
+
+  DIRECTION A (rules basket, <=8). Acceptable to PRE-REGISTER and design, NOT to size up.
+  Concentration is the headline: all members are EURUSD/1h, so the basket is one position, not
+  K bets. Var(sum)=sum Var + 2 sum Cov — positive cross-member correlation inflates aggregate
+  variance, and an anti-correlated pair (trend vs mean-reversion on the same bars) just churns
+  cost. Risk-budget the basket as a single name, cap gross notional at the single-name cap, and
+  set the drawdown contract on combined net P&L. DSR must use N=48+K (max 56 trials) — the
+  basket does not buy down the multiple-comparison penalty, it adds to it. Decision: design-OK
+  at size_multiplier 0.25, hard min-gross-edge gate 11.25, machine-checkable drawdown contract,
+  one-shot OOS after pre-registration. This is "size-reduced," not "approve."
+
+  DIRECTION B (RL policy). My biggest concern and the reason this is not a clean approve. An RL
+  policy is, by construction: (1) un-pre-declarable — it cannot emit a declarative TradeIntent,
+  so it violates the Model-Engineering Firewall and cannot honor one-shot OOS, which requires
+  the behavior be fixed before the test; (2) regime-fragile — it fits the 2021-2025 transition
+  dynamics that contain a vol flip, with no pre-declared degradation bound; (3) reward-hackable —
+  the firm's own gross-vs-net 2x gap shows the proxy and the objective already diverge, and a
+  policy will learn to farm the proxy; (4) unreconstructable — kill-switch property 5
+  (attributable) and the incident scribe log both require "why did this fire," which an RL action
+  cannot answer. The mitigation is not "better RL" — it is an OUTER deterministic risk envelope,
+  a separate process the policy cannot observe or override, holding the hard caps and the kill.
+  Per Knight Capital: the kill must not depend on the killed thing being healthy, and an RL
+  policy is an untrusted-by-default component, so the envelope must be fully out-of-band, prod-
+  tested, with a measured time-to-stop SLA. None of that exists yet. The task also constrains B
+  to "no RL agent built/trained." Decision for B: do NOT build/train; design feasibility verdict
+  is CONDITIONAL-NO for now — RL is not viable until (a) the outer envelope is specified and
+  prod-tested, and (b) someone shows a pre-declarable, reconstructable action representation that
+  survives the firewall. Absent those, B carries black-box blowup risk (Knight-class) with no
+  offsetting pre-registration discipline.
+
+  TAIL. ES at 97.5pct over VaR, empirical over the full window (captures the flip), stressed
+  window reported alongside, and cost stressed at the spread tail (40.7) in the tail scenario.
+  The p99/median ~5x ratio is the whole reason VaR is inadequate here.
+
+  NET DECISION: size-reduced. Direction A may be pre-registered as a basket at size_multiplier
+  0.25 behind the 11.25-pip gross-edge gate, single-name risk budgeting, ES tail metric, and a
+  machine-checkable drawdown contract. Direction B is not approved to be built/trained; its
+  feasibility is gated on an outer deterministic risk envelope and a reconstructable, pre-
+  declarable action representation — neither of which exists. The cost floor, not the modeling
+  cleverness, is what will decide whether anything here is viable.
+knowledge_gaps:
+  - "No measured per-member or cross-member correlation matrix provided; basket concentration assessed structurally (same pair/timeframe), not from a computed covariance"
+  - "No measured fill-quality / actual slippage distribution beyond spread; 50pct buffer is a design-stage estimate"
+  - "Confirmability horizon for a basket vs single structure not quantified here (events/yr x per-event edge); flagged for HoQR"
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

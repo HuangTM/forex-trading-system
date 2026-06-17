@@ -1,0 +1,162 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve
+timestamp: "2026-06-17T06:25:00Z"
+subtask_ref: minimal-basket-cycle2-closure
+subtask_id: pr-minimal-basket-cycle2
+rework-cycle: 2
+
+findings-from-cycle1-status:
+  - finding_id: F-001
+    status: closed
+    evidence: >
+      CRUX scrutiny. N=50 = 48 honest-org-N (trials.jsonl at spawn) + 2 members. The
+      cycle-1 defect was that "canonical" provenance does not remove a knob from the
+      search space — N must equal the cardinality of distinct return series the screen
+      can produce. I re-applied that exact test to BOTH v2 members' entry / exit / STOP
+      rules looking for un-pre-searched DoF:
+        • ENTRY — both are bare CROSSES (MACD line × signal line; EMA50 × EMA200). A cross
+          has ZERO tunable: no threshold, no confirmation band, no min-separation. This is
+          the material change from v1, whose M1/M3 carried RSI 30/70 thresholds and a MACD
+          noise band 0.0001 — those WERE grid cells. v2 explicitly removed the noise band
+          (verified vs cycle-1 F-001 evidence). Search-cardinality of each entry rule = 1.
+        • EXIT — "always-in, reverse on opposite cross, no time-stop, no profit target."
+          This is the cross construction's OWN dual, not an independent tunable. No min-hold,
+          no time-stop knob (v1's 24/48-bar time-stops are GONE). Cardinality = 1.
+        • STOP — "ATR(14) 3× catastrophic stop." This DOES introduce two author-chosen
+          constants (period=14, multiple=3×). I considered whether this re-opens F-001. It
+          does NOT, for a load-bearing reason: a CATASTROPHIC backstop that the design
+          predicts will almost never bind on an always-in trend leg is not a return-series-
+          selecting knob in the Bailey-LdP sense — it is a risk rail, not an alpha lever, and
+          the modal pass/kill (cost gate, DSR, count, regime) is invariant to whether the 3×
+          rail is 2.5× or 3.5×. The artifact pre-declares it a-priori and NOT swept, and ATR(14)
+          is the same Wilder-canonical period already used firm-wide. UNLIKE v1's stops, it is
+          not paired with a tuned exit it could trade off against (exit is fully determined by
+          the cross). So the per-member search cardinality is genuinely 1, and the only
+          multiplicity is the 2-member family, fully absorbed by 48+2=50.
+      The N-rule is faithful to null_hypothesis.py:188-197 (E[max SR] grows in total_trials via
+      Φ⁻¹(1−1/N); verified by Read). N=50 is honest and defensible.
+  - finding_id: F-002
+    status: closed
+    evidence: >
+      Both v2 members are TREND-FOLLOWERS (MACD cross, EMA50/200 cross) — structurally
+      distinct from trial-48's killed mean-reversion. The v1 MR members (RSI, BB, session-RSI)
+      and the breakout member are REMOVED; there is NO mean-reversion member, NO session
+      filter, and NO conditioned "hoped survivor" variant (v1's M6=M1+session is gone). This
+      is a different idea family, not a refinement-sweep of the killed MR idea. honest_expectation
+      now predicts a FAMILY_KILL with no nominated survivor — the directional-selection vector
+      that drove cycle-1 F-002 is absent.
+  - finding_id: F-003
+    status: closed
+    evidence: >
+      MACD now EXISTS and is causal. Verified by Read: src/forex_system/features/indicators.py:73-95
+      defines macd(series, fast=12, slow=26, signal=9) returning (macd_line, signal_line,
+      histogram). It composes ONLY backward-looking ema() (ewm(span=…, adjust=False,
+      min_periods=…)) and pointwise subtraction; signal_line is ewm() of macd_line — also
+      strictly backward-looking. There is NO .shift(-k), no centered window, no future
+      reference: value at bar t depends solely on series[0..t]. registry.py:50-57 parses
+      "macd_12_26_9" → parts=[macd,12,26,9] → fast=12/slow=26/signal=9 correctly and emits
+      macd_line/signal/hist columns. Causal/no-lookahead is structurally sound by construction
+      (orchestrator-reported 11 tests pass / truncation-invariant; I independently confirmed the
+      code carries no forward-looking operator).
+  - finding_id: F-004
+    status: closed
+    evidence: >
+      Purge is now a FIXED pre-declared constant. frozen_purge_embargo declares purge=10 trading
+      days + embargo=5 trading days, applied identically to both members at every CPCV test-block
+      boundary, with an explicit rationale set BEFORE any data look (conservative bound on the
+      always-in trend hold). The v1 adaptive rule purge=min(max_in_fold_hold, 5d) — the in-fold
+      data-derived width that was the F-004 defect — is REMOVED, and a falsification criterion now
+      makes any harness that re-derives purge from in-fold realized holds a rejectable F-004
+      regression. No data-dependence remains in the purge/embargo.
+  - finding_id: F-005
+    status: closed
+    evidence: >
+      No cost contradiction remains. The v1 defect was that a flat 7.5-pip RT neutralized M6's
+      session-conditional-spread thesis (un-evaluable without a spread column). M6 and the entire
+      session-filter mechanism are REMOVED in v2. Both surviving trend members explicitly do NOT
+      rely on in-session spread tightening, so the flat 7.5-pip RT (HC-4) applies cleanly and
+      identically to both, in every fold. The cost gate is now consistent with the available data
+      (no spread series needed).
+
+new-blocking-gaps: []
+
+honest_N_ruling: >
+  N=50 is DEFENSIBLE and is the true N. Each member is a genuine single canonical configuration:
+  the entry/exit rules are bare crosses with literal search-cardinality 1 (no threshold,
+  confirmation, time-stop, or min-hold knobs — all of which v1 carried and v2 removed). The only
+  residual author constants are the ATR(14)/3× CATASTROPHIC stop, which is a non-alpha-selecting
+  risk rail (declared a-priori, not swept, pass/kill outcome invariant to its exact multiple) and
+  therefore does not inflate the deflation denominator in the Bailey-LdP sense. The sole remaining
+  multiplicity is the 2-member family, absorbed by 48+2=50. This is the cleanest possible answer to
+  cycle-1 F-001: the knobs that made v1's N a lie are gone, not merely relabeled "canonical."
+
+contamination-check: >
+  clean. I judged closure from spec + source only. The v2 artifact's own decision: approve /
+  closes_findings / confidence fields are author self-dispositions (artifact content), which I
+  treated as redacted per instruction and did not rely on. No external approval/grade was injected
+  into this prompt.
+
+time-spent-reasoning: "~22 minutes"
+
+evidence:
+  - "qr-minimal-trend-basket-v2.yaml (full Read) — 2 members, N=50, fixed purge=10d/embargo=5d, crosses with no threshold/time-stop knobs."
+  - "src/forex_system/analysis/null_hypothesis.py:168-197 (Read) — Bailey-LdP E[max SR] grows in total_trials via Φ⁻¹(1−1/N); N = search cardinality."
+  - "src/forex_system/features/indicators.py:73-95 (Read) — macd() exists; built from backward-looking ema()/ewm(adjust=False) only; no forward operator → causal/no-lookahead."
+  - "src/forex_system/features/registry.py:50-57 (Read) — 'macd_12_26_9' parses to fast=12/slow=26/signal=9; emits line/signal/hist."
+  - "Cycle-1 review pr-signals-rl-review.yaml (Read) — F-001..F-005 originating findings and their v1 mechanisms (noise band, time-stops, adaptive purge, session-spread thesis) confirmed REMOVED in v2."
+
+assumptions:
+  - "Org honest-N=48 at spawn is taken as given (matches the v2 trial-count-at-spawn and is consistent with cycle-1's trials.jsonl reading of 48); I did not re-recompute honest_n.py over the file this cycle."
+  - "The orchestrator-reported MACD test result (11 pass, truncation-invariant) is accepted as the execution check; I independently verified the code is structurally causal but did not re-run the suite."
+  - "The ATR(14)/3× catastrophic stop is treated as a non-binding risk rail per the design's always-in-trend semantics; if a harness lets it bind frequently and act as a de-facto tuned exit, that would be a NEW finding for a future eval cycle, not a re-opening of F-001 at freeze."
+
+confidence: high
+
+body: |
+  FOCUSED CLOSURE (cycle 2). All five cycle-1 findings are CLOSED; no new blocking gaps. APPROVE.
+
+  The crux was F-001. v1 failed because each member embedded 4-6 author-chosen knobs
+  (RSI thresholds, BB bands, MACD noise band 0.0001, time-stops, session window) that the
+  Bailey-LdP deflation counts as search cardinality regardless of "canonical" labeling — making
+  N=54 a lie against a true grid plausibly 30-200+. v2 does the only thing that actually closes
+  that finding: it ELIMINATES the knobs rather than re-declaring them canonical. Both members are
+  now bare crosses — a cross has no threshold, no confirmation band, no min-separation; the exit
+  is the cross's own dual (always-in reverse), so no time-stop or min-hold knob exists. I checked
+  each rule for hidden DoF and found the per-member search cardinality is genuinely 1.
+
+  The one residual author choice is the ATR(14)/3× CATASTROPHIC stop. I did not wave this through
+  on "canonical" grounds (that was precisely the rejected cycle-1 move). I ruled it non-inflating
+  on a substantive basis: it is a risk backstop predicted not to bind on an always-in trend leg,
+  it is not coupled to a tunable exit (the exit is fully determined by the cross), and the modal
+  outcome (cost gate / DSR / count / regime) is invariant to its exact multiple. It selects no
+  return series in the deflation sense. Hence N=50 (48+2) is honest and the only multiplicity —
+  the 2-member family — is fully absorbed.
+
+  F-002: closed — both members are trend-followers, structurally distinct from trial-48's killed
+  mean-reversion; the MR/session/breakout members and the nominated "hoped survivor" are gone; the
+  directional-selection vector is absent and honest_expectation predicts a FAMILY_KILL.
+
+  F-003: closed — macd() exists (indicators.py:73-95), built only from backward-looking
+  ema()/ewm(adjust=False); no forward operator; registry parses macd_12_26_9 correctly. Causal by
+  construction; orchestrator tests pass.
+
+  F-004: closed — purge=10d/embargo=5d are FIXED pre-declared constants with a pre-data rationale;
+  the v1 in-fold-derived min(max_in_fold_hold,5d) is removed and explicitly re-prohibited by a
+  falsification criterion.
+
+  F-005: closed — the session-spread thesis (M6) and the entire session mechanism are removed; the
+  flat 7.5-pip RT now applies cleanly to both spread-agnostic trend members, consistent with the
+  spread-less dataset.
+
+  This is a FOCUSED verification of closure, not a full re-review. I did not re-adjudicate the RL
+  feasibility artifact (out of scope for cycle 2) and did not re-derive the org honest-N. On the
+  scope I was asked to verify, the v2 artifact is freezable.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

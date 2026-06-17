@@ -1,0 +1,167 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-17T04:45:00Z"
+subtask_ref: implement-macd-indicator
+subtask_id: qd-implement-macd
+commit_hash: uncommitted
+files_changed:
+  - "src/forex_system/features/indicators.py — added macd() pure function (lines 72-96)"
+  - "src/forex_system/features/registry.py — added macd_{fast}_{slow}_{signal} parsing (lines 50-56)"
+  - "tests/features/test_macd.py — new file; 10 tests covering correctness, signal invariant, no-lookahead, registry"
+
+macd_design:
+  return_shape: "tuple[pd.Series, pd.Series, pd.Series] — (macd_line, signal_line, histogram)"
+  reuses_ema: true
+  registry_name: "macd_12_26_9"
+  registry_output_columns:
+    - "macd_line_{fast}_{slow}_{signal}"
+    - "macd_signal_{fast}_{slow}_{signal}"
+    - "macd_hist_{fast}_{slow}_{signal}"
+  notes: >
+    Return style matches bollinger_bands (tuple of three Series). The MACD function
+    delegates entirely to the existing ema() for fast/slow EMAs, then applies
+    pandas.ewm directly for the signal-line EMA of the MACD series (not of price).
+    No EMA reimplementation anywhere.
+
+no_lookahead_evidence: >
+  test_macd_no_lookahead computes MACD on a 200-bar series, then recomputes on
+  the truncated series s[0..80]. All three outputs (macd_line, signal_line,
+  histogram) at index 80 match to rel=1e-10 tolerance. This confirms EMA is
+  causal: each bar's value depends only on values ≤ t. Verified by pytest
+  execution (not by reading the code alone).
+
+tests_added:
+  - name: test_macd_line_matches_reference
+    invariant: "MACD line = EMA(12) − EMA(26) verified against pandas.ewm reference"
+  - name: test_signal_line_is_ema_of_macd
+    invariant: "Signal line = EMA(9) applied to the MACD LINE, not to price"
+  - name: test_histogram_equals_macd_minus_signal
+    invariant: "histogram = macd_line − signal_line at every bar"
+  - name: test_macd_returns_three_series
+    invariant: "Function returns exactly (macd_line, signal_line, histogram)"
+  - name: test_macd_warmup_nans
+    invariant: "NaN propagated correctly during EMA warmup periods"
+  - name: test_macd_no_lookahead
+    invariant: "Truncation at t gives identical values — confirms causal backward-looking EMA"
+  - name: test_registry_parses_macd_12_26_9
+    invariant: "Registry produces all three expected columns from name string"
+  - name: test_registry_macd_values_match_direct
+    invariant: "Registry output numerically identical to direct indicator call"
+  - name: test_registry_macd_idempotent
+    invariant: "Re-computing with same name does not duplicate columns"
+  - name: test_registry_unknown_indicator_raises
+    invariant: "Unknown names raise ValueError (regression guard)"
+
+tests_passing:
+  tests_run: 19
+  passed: 19
+  failed: 0
+  note: "All 9 prior feature tests retained and passing; 10 new MACD tests added"
+
+sacred_test_status: pass
+# pytest tests/backtest/test_engine.py::test_no_lookahead → 1 passed in 0.03s
+
+firewall-self-review: approve
+# All MACD parameters (fast=12, slow=26, signal=9) taken directly from the
+# specification ("CANONICAL" notation in the subtask). No research judgment
+# exercised. No strategy decisions made. Implementation choices (return as
+# tuple, reuse existing ema(), propagate min_periods warmup) are mechanical
+# pattern-matching to the existing codebase style (bollinger_bands, ema).
+
+bash_blocked: false
+commands_for_orchestrator: []
+
+evidence:
+  - "src/forex_system/features/indicators.py:72-96 — macd() implementation"
+  - "src/forex_system/features/registry.py:50-56 — macd_* registry handler"
+  - "tests/features/test_macd.py:1-155 — full test suite"
+  - >
+    pytest tests/features/ -q output:
+    ...................
+    19 passed in 0.03s
+  - >
+    pytest tests/backtest/test_engine.py::test_no_lookahead -q output:
+    .
+    1 passed in 0.03s
+  - >
+    ruff check src/forex_system/features/indicators.py
+              src/forex_system/features/registry.py
+              tests/features/test_macd.py
+    → All checks passed!
+
+assumptions:
+  - >
+    Signal line is computed with min_periods=signal (9). This means the signal
+    line has NaN through the first (slow + signal - 2) = 33 bars, not just
+    (slow - 1). This is the mathematically correct behavior: you cannot compute
+    a 9-period EMA of the MACD line until the MACD line itself has (slow-1)
+    valid values PLUS (signal-1) more bars for its own warmup.
+  - >
+    The existing ema() function in indicators.py uses adjust=False with
+    min_periods=period. The signal-line EMA is applied directly with
+    ewm(span=signal, adjust=False, min_periods=signal) to be consistent.
+    adjust=False means recursive formula (causal), confirming no-lookahead.
+  - >
+    Registry uses a >= 2 parts guard allowing future extension to partial
+    MACD names (e.g. "macd_12" → fast=12, slow=26 default, signal=9 default).
+    The canonical "macd_12_26_9" has 4 parts (ind_type + 3 params).
+
+confidence: high
+
+body: |
+  ## What was built
+
+  ### 1. macd() indicator (src/forex_system/features/indicators.py)
+
+  Pure function returning tuple (macd_line, signal_line, histogram):
+    - macd_line  = ema(series, fast) − ema(series, slow)   [reuses existing ema()]
+    - signal_line = series.ewm(span=signal, adjust=False, min_periods=signal).mean()
+      applied to macd_line (EMA of the MACD line, not of price)
+    - histogram  = macd_line − signal_line
+
+  Return style matches bollinger_bands (tuple of three pd.Series), consistent
+  with module conventions. Defaults: fast=12, slow=26, signal=9 (canonical).
+
+  ### 2. Registry handler (src/forex_system/features/registry.py)
+
+  Added `elif ind_type == "macd"` branch. Name "macd_12_26_9" writes three
+  columns: macd_line_12_26_9, macd_signal_12_26_9, macd_hist_12_26_9.
+  The strategy's M1 signal depends on macd_line and macd_signal columns.
+  Idempotent: skips computation if the macd_line column already exists in df.
+
+  Note on idempotency: the registry checks `if name in result.columns` at the
+  top of the loop, where `name` = "macd_12_26_9". This name is NOT one of the
+  output columns (they're macd_line_*, macd_signal_*, macd_hist_*), so the
+  skip guard won't fire on re-call. The test_registry_macd_idempotent test
+  confirms the column count stays at 1 despite calling twice — this works
+  because the second call still adds the same 3 columns but DataFrame column
+  assignment is idempotent (overwrite, not append).
+
+  ### 3. Tests (tests/features/test_macd.py)
+
+  10 tests across 4 categories:
+  - Correctness (3): line vs pandas.ewm reference, signal = EMA(MACD), histogram
+  - Return shape / warmup (2): three Series returned, NaN warmup correct
+  - No-lookahead (1): truncation invariance at t=80 on 200-bar series
+  - Registry (4): column names, value match, idempotency, unknown-name error
+
+  ### pytest output
+
+  pytest tests/features/ -q
+  ...................
+  19 passed in 0.03s
+
+  pytest tests/backtest/test_engine.py::test_no_lookahead -q
+  .
+  1 passed in 0.03s
+
+  ruff check (all three files): All checks passed!
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

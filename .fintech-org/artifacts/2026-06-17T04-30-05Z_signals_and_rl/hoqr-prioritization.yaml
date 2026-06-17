@@ -1,0 +1,324 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: "2026-06-17T04:42:00Z"
+subtask_ref: signals-rl-prioritization
+subtask_id: hoqr-signals-rl-prioritization
+
+# ──────────────────────────────────────────────
+# DIRECTION RANKING  (best → worst by expected-alpha-per-unit-trial-cost
+# AFTER the realistic 7.5-pip round-trip cost)
+# ──────────────────────────────────────────────
+direction_ranking:
+  - direction: C-data-capability
+    rank: 1
+    justification: >
+      Highest expected-alpha-per-trial because it burns ZERO deflation
+      slots and attacks the actual binding constraint. Trial 48 proved the
+      problem is not "we lack a signal" — the overnight-MR edge was REAL
+      (+3.41 gross, 55% hit-rate) — the problem is the cost/frequency
+      ceiling on one pair at one timeframe with optimistic 0.5-pip config
+      spread vs 2.0-pip empirical. Breadth (12 pairs) + true bid/ask spread
+      data multiplies events/yr AND lets us model the cost we are losing to.
+      It raises the ceiling for EVERY future trial instead of consuming the
+      budget. This is the honest #1 and I am not flattering the signal request.
+  - direction: A-classic
+    rank: 2
+    justification: >
+      Worth a SMALL, capped burn for genuine NEGATIVE information, not for
+      expected positive alpha. A disciplined ≤4-member fixed basket converts
+      "classic indicators on cost-bound single-pair 1h" from an open
+      question into pre-registered, multiple-comparison-corrected evidence.
+      Expected outcome is mostly-kills; the value is closing the door
+      defensibly and cheaply so the firm stops re-litigating "did we try
+      MACD/RSI?". Ranked above RL only because the cost is bounded and known
+      and the information is decision-useful NOW.
+  - direction: B-RL
+    rank: 3
+    justification: >
+      Lowest expected-alpha-per-unit-cost at the current data scale. RL
+      cannot manufacture gross edge the data does not contain; it can only
+      discover a policy over the same cost-bound 1h EURUSD tape that just
+      cost-killed a real linear edge. 31k bars is far too few for a
+      high-capacity policy without severe overfitting, the per-trade cost
+      wall applies identically to any RL action, and a credible RL search
+      costs real engineering + compute. RL is premature BEHIND the data wall —
+      it is direction C's downstream beneficiary, not a parallel bet.
+
+# ──────────────────────────────────────────────
+# WORKSTREAM A — recommended fixed basket (≤8; I recommend 4)
+# Honest stance: single-indicator threshold signals on a cost-bound single
+# pair are MOSTLY TRAPS. I recommend the SMALLEST basket that yields genuine
+# information, deliberately biased toward LOWER-frequency / trend structures
+# (cost amortizes over a larger captured move) and AGAINST high-frequency
+# oscillator fades (trial-48 class — guaranteed cost-bound).
+# ──────────────────────────────────────────────
+recommended_basket:
+  - id: A1-macd-trend-cross
+    rule: >
+      MACD(12,26,9) on EURUSD 1h. Long when MACD line crosses above signal
+      line; short on cross below. Literature-standard params, NO optimization.
+      (MACD not yet in registry — declaration only; implementation is a
+      downstream task gated on HC-3 no-lookahead.)
+    rationale: >
+      Trend/momentum continuation. A priori: if EURUSD 1h has any persistent
+      directional drift, MACD captures it with a LOWER trade frequency than an
+      oscillator fade, so the 7.5-pip cost amortizes over a multi-bar move
+      rather than a single mean-reversion snap. This is the structure most
+      likely (still unlikely) to clear cost because winners run.
+    events_per_year: 60-120
+    clears_7.5pip_cost: marginal
+    confirmability: STRETCH
+  - id: A2-bb-mean-reversion-band-touch
+    rule: >
+      Bollinger(20,2) on EURUSD 1h. Fade: short on upper-band touch, long on
+      lower-band touch; exit at middle band (20-SMA). NO RSI gate (that is
+      bollinger_rsi, already REJECTED — do not re-test).
+    rationale: >
+      Pure volatility-band mean reversion. Included specifically as the
+      a-priori COST_SUSPECT control: it is the same edge-class as trial 48
+      (high-frequency fade) and its kill is the load-bearing NEGATIVE result
+      that confirms the cost wall generalizes beyond overnight-MR. Its
+      information value is in dying, cleanly and pre-registered.
+    events_per_year: 200-400
+    clears_7.5pip_cost: "no"
+    confirmability: TRAP
+  - id: A3-rsi-extreme-reversion
+    rule: >
+      RSI(14) on EURUSD 1h. Long when RSI crosses up through 30; short when
+      RSI crosses down through 70. Standard Wilder thresholds, NO optimization.
+    rationale: >
+      Momentum-oscillator mean reversion, distinct mechanism from BB (RSI is
+      normalized momentum, not price-distance). A priori weak on a low-vol
+      trending-prone major; included as the second cost-suspect data point so
+      the basket spans the oscillator-fade family with TWO independent
+      detectors rather than one anecdote. Expected kill on cost.
+    events_per_year: 150-300
+    clears_7.5pip_cost: "no"
+    confirmability: TRAP
+  - id: A4-ma-cross-slow-trend
+    rule: >
+      EMA(50)/EMA(200) "golden/death cross" on EURUSD 1h. Long when EMA50
+      crosses above EMA200; flat/short on cross below. (ma_crossover engine
+      exists; declared at these fixed literature params, NO sweep.)
+    rationale: >
+      Slowest structure in the basket — very few trades/yr, so per-trade cost
+      is nearly irrelevant; the question is purely whether 1h EURUSD trends
+      persistently enough to pay. This is the genuine asymmetric lottery
+      ticket of the basket: low frequency means cost is not the killer,
+      so a kill here is informative about TREND PERSISTENCE, not cost.
+    events_per_year: 4-12
+    clears_7.5pip_cost: marginal
+    confirmability: STRETCH
+
+# Deliberately EXCLUDED from the basket (and why):
+#   - bollinger_rsi : already tested + REJECTED. Re-test = wasted slot.
+#   - any oscillator stack (RSI+Stoch+Williams) : redundant momentum, fake
+#       confirmation; would burn slots on correlated detectors.
+#   - parameter variants of the above : forbidden (no sweep, HC-6).
+#   - multi-pair extensions : out of scope (EURUSD only).
+# Basket size N_basket = 4. This pushes the deflation denominator to
+# N_trials = 48 + 4 = 52 at freeze (fixed; does not shrink if a member is
+# pre-IS killed — AC-A2 disambiguation). Four is the smallest set that spans
+# {fast-trend, band-MR, oscillator-MR, slow-trend} so each KILL is
+# attributable to a distinct mechanism rather than to one anecdote.
+
+# ──────────────────────────────────────────────
+# WORKSTREAM B — RL priority stance
+# ──────────────────────────────────────────────
+rl_priority_stance: >
+  premature-behind-data-wall. RESEARCH-PRIORITY verdict (mine to own; the
+  feasibility verdict is ml-researcher's): RL is NOT a priority for the
+  deflation budget NOW. Three first-principles reasons. (1) RL cannot create
+  gross edge the tape does not contain — it optimizes a policy over the SAME
+  cost-bound 1h EURUSD data that just cost-killed a real +3.41-pip linear
+  edge; the 7.5-pip wall applies to every RL action identically. (2) ~31k
+  bars (≈5yr, single regime-poor pair) is a tiny sample for any
+  meaningful-capacity policy; the dominant outcome is overfitting that an
+  honest CPCV/DSR eval will (correctly) reject, i.e. we would spend
+  engineering + compute to manufacture a deflation-failing trial. (3) RL's
+  feasibility improves MATERIALLY only AFTER the data-capability unlock
+  (breadth, sub-1h, volume/order-flow → more states, more events, richer
+  reward signal). I therefore endorse a feasibility + eval-methodology design
+  doc NOW (it is cheap, burns no slots, and front-loads the eval rigor) but
+  reject any RL BUILD until the AFTER_DATA milestone fires. ml-researcher
+  owns whether the design is feasible; I own that it is not yet a priority.
+
+# ──────────────────────────────────────────────
+# Disposition (anti-stall: machine-checkable per AC-A6 / AC-B6)
+# ──────────────────────────────────────────────
+disposition:
+  workstream_A:
+    recommendation: PARTIAL
+    proceed_subset:
+      - A1-macd-trend-cross   # advances to pre-reg freeze (downstream: implement MACD, pass HC-3)
+      - A4-ma-cross-slow-trend # advances to pre-reg freeze (engine exists)
+    proceed_rationale: >
+      A1 and A4 are the only members with a non-zero a-priori path through the
+      7.5-pip wall (lower frequency / trend continuation). They advance to
+      pre-registration freeze under HC-1..HC-9 with the DSR pass-bar computed
+      at N_trials = 48 + N_basket.
+    defer_subset:
+      - A2-bb-mean-reversion-band-touch
+      - A3-rsi-extreme-reversion
+    defer_decision: >
+      INCLUDE-AS-COST-SUSPECT-CONTROLS, do not separately defer. A2 and A3 are
+      declared IN the frozen basket precisely so their pre-registered KILLs are
+      the load-bearing negative evidence that the cost wall generalizes. They
+      burn their slots at freeze (denominator = 48 + 4 = 52) and are NOT
+      reclaimable. If the CEO wants to minimize burn to 2, drop A2+A3 and
+      freeze N_basket = 2 (A1, A4) — but then the firm forfeits the
+      generalized cost-wall negative result and the "did you try RSI/BB?"
+      question stays open.
+    re_trigger_for_full_basket: not-applicable (basket frozen as declared)
+  workstream_B:
+    recommendation: AFTER_DATA
+    proceed_now: >
+      Feasibility + eval-methodology DESIGN DOC only (AC-B1..B5). Zero trial
+      slots, zero model build, zero compute spend. This front-loads eval rigor
+      so the future build cannot move the goalposts.
+    data_milestone: >
+      RL BUILD re-triggers when EITHER (a) intraday breadth lands — ≥6 of 12
+      pairs at ≤1h with true bid/ask spread data; OR (b) sub-1h + volume/
+      order-flow for EURUSD lands. Bars-per-state-dimension must clear the
+      ml-researcher minimum from AC-B1 before any build is authorized.
+    re_initiator: head-of-quant-research (on CEO sign-off), upon data milestone
+    blocking_condition_if_not_yet: >
+      Absent the data milestone, RL stays NOT-built. What must change: the
+      data wall, not the algorithm.
+
+# ──────────────────────────────────────────────
+ranked-alternatives: >
+  I do not reject the premise — the CEO's "test MACD/RSI/BB + explore RL"
+  maps cleanly onto a capped basket + an RL design doc. But my PREFERRED
+  ordering of where the firm's scarce attention goes is: (1) direction C
+  (data-capability: breadth + true bid/ask spread + sub-1h/volume) — the only
+  move that raises the ceiling rather than spending against it; (2) the capped
+  4-member classic basket (negative-information value, bounded cost);
+  (3) RL design doc now / RL build only after C. If forced to pick ONE thing
+  to fund this cycle, it is C, with the basket as a cheap parallel rider.
+
+# ──────────────────────────────────────────────
+# Retirement / kill criteria (machine-checkable) for whatever advances
+# ──────────────────────────────────────────────
+retirement-criteria: |
+  WORKSTREAM A (per basket member, evaluated at IS, OOS untouched until all
+  pre-OOS gates pass — HC-2):
+    KILL-1 (DSR/Sharpe):   IS CPCV net Sharpe < DSR pass-bar SR* computed at
+                           N_trials = 48 + N_basket (= 52). Member RETIRED.
+    KILL-2 (cost gate):    avg net pips/trade ≤ 0 after 7.5-pip RT cost.
+                           Member RETIRED (this is the trial-48 killer; expect
+                           it to fire on A2/A3).
+    KILL-3 (regime):       IS net Sharpe sign flips across the declared regime
+                           sub-slices (no consistency). Member RETIRED.
+    BASKET-LEVEL:          if ALL members fire KILL-1 or KILL-2 → workstream A
+                           CLOSED as "classic single-indicator signals on
+                           cost-bound single-pair EURUSD 1h are not tradeable"
+                           (documented negative result; do NOT re-open without
+                           new data — re-trigger = direction C milestone).
+    DENOMINATOR LOCK:      N_trials = 52 is fixed at freeze; it does NOT shrink
+                           when members are killed (AC-A2). No post-hoc pruning,
+                           no cherry-picking survivors (HC-5).
+    OOS (survivors only):  one-shot OOS burn; if surviving member's OOS net
+                           Sharpe < SR* or OOS avg net pips ≤ 0 → RETIRED, OOS
+                           never re-run (HC-2).
+
+  WORKSTREAM B (design doc):
+    The design doc is RETIRED/SUPERSEDED if the data milestone changes the
+    state space materially (re-author rather than build on stale assumptions).
+    RL BUILD is BLOCKED (not retired) until: data milestone fires AND
+    ml-researcher AC-B1 verdict ≥ MARGINAL on the NEW data AND AC-B5 NHT
+    verdict = EVAL_CREDIBLE. Any RL build that cannot state its DSR-applicable
+    OOS bar a priori is auto-retired by principal-reviewer.
+
+# ──────────────────────────────────────────────
+evidence:
+  - "Trial counter = 48 (honest-N), trials.jsonl last entry 2026-06-17T04:05:50Z 'Honest-N now 48' — verified by tail of .fintech-org/trials.jsonl"
+  - "Trial 48 (15923fe1, A2-prime-overnight-MR-EURUSD-1h) terminal_verdict=clean-falsification: KILL-1 CPCV net Sharpe -4.93 → DSR=0.00 at N=48; KILL-2 avg net trade -4.09 pips; gross fade capture +3.41 pips/trade POSITIVE but < 7.5-pip cost → cost-dominated. Reversion hit-rate 0.5517>0.50 (edge is REAL). — trials.jsonl"
+  - "RSI and BB exist in src/forex_system/features/registry.py (sma, ema, rsi, bb, atr, momentum branches); NO macd branch — verified by grep of registry.py"
+  - "PM acceptance criteria: HC-4 design cost = 7.5-pip RT; HC-6 basket ≤8 a-priori; HC-9 confirmability ≲2-3yr; AC-A2 denominator = 48+N_basket fixed at freeze — pm-acceptance-criteria.yaml"
+  - "EURUSD 1h measured facts: annualized vol ~7.7%; per-bar range median 11.1 / mean 13.9 / p99 55.4 pips; empirical spread median 2.0 (config 0.5); ~31k bars ≈5yr — firm context block"
+  - "Standing dataset wall: 12 pairs but only EURUSD at 1h; ceiling unlock is breadth + true bid/ask spread — MEMORY.md 2026-06-07 dataset-wall finding"
+  - "bollinger_rsi already tested+REJECTED; ma_crossover and momentum engines exist — CLAUDE.md + trials.jsonl"
+  - "TA skill: trend-following vs mean-reversion are negatively correlated; MA cross signals lag (much of move already occurred); MACD useless in ranging markets; ~70% of time markets range — technical-analysis SKILL.md §3, §6"
+
+assumptions:
+  - "EURUSD 1h ~31k bars (2021-2025) is the dataset for both workstreams (PM A1)"
+  - "7.5-pip conservative RT cost is the correct design bar; config 3-pip RT is optimistic (PM A2 / E4)"
+  - "Honest-N=48 at time of this artifact; freezing the 4-member basket sets the deflation denominator to 52 (PM A3 / AC-A2)"
+  - "No sub-1h / volume / multi-pair data is available yet (PM A4 / dataset wall); this is the binding constraint behind both the RL deferral and the direction-C #1 rank"
+  - "events_per_year figures are order-of-magnitude a-priori estimates from frequency reasoning, NOT backtested counts (no backtest run in this task — out-of-scope)"
+
+confidence: high
+
+body: |
+  ## The decision in one line
+  Rank: C (data-capability) > A (capped classic basket) > B (RL). Approve a
+  4-member fixed classic basket WITH a capacity limit, approve an RL DESIGN
+  doc only, and state plainly that the highest expected-alpha-per-trial move
+  is the one that burns NO trials: acquiring breadth + true spread data.
+
+  ## Why C first — and yes, I am putting it first honestly
+  Trial 48 is load-bearing and I refuse to look past it. The overnight-MR
+  edge was REAL: +3.41 gross pips/trade, 55.2% reversion hit-rate. It did not
+  die because the signal was empty. It died because 7.5-pip round-trip cost
+  is ~2.2x the gross edge, on a pair whose median bar range is 11.1 pips and
+  whose config spread (0.5) understates empirical spread (2.0) by 4x. That is
+  not a signal problem. It is a frequency × cost × breadth problem. Every
+  classic indicator I could put in a basket fires on the SAME tape with the
+  SAME 7.5-pip toll. RL fires on the same tape too. The only lever that
+  changes the arithmetic is the data: more pairs → more independent events
+  and diversification; true bid/ask → we stop guessing the toll; sub-1h /
+  volume → richer structure and the ability to time entries inside the spread.
+  Data-capability burns ZERO deflation slots and raises the bar's denominator
+  for every future strategy in the firm. By expected-alpha-per-unit-trial-cost
+  (cost = 0 slots), it is unbeatable. The honest answer puts C first.
+
+  ## Why A second, and why it's mostly TRAPs
+  Single-indicator threshold signals on a cost-bound single pair are mostly
+  traps, and I will say so on the record. The expected outcome of this basket
+  is mostly-kills. I still recommend running it — at capacity ≤4 — because the
+  KILLS are the deliverable. Right now "did you try MACD/RSI/Bollinger?" is an
+  open question the firm keeps re-litigating. A pre-registered,
+  multiple-comparison-corrected basket converts that into a defensible
+  negative result for ~4 slots. I biased the basket toward LOW-frequency /
+  trend structures (A1 MACD-cross, A4 EMA50/200) where cost amortizes over a
+  larger captured move — those are the only members with a non-zero a-priori
+  path through the wall (marginal, STRETCH). I deliberately INCLUDED two
+  high-frequency fades (A2 BB band-touch, A3 RSI extreme) as a-priori
+  COST_SUSPECT controls: they are the trial-48 edge-class and their kills are
+  the load-bearing evidence that the cost wall GENERALIZES beyond overnight
+  MR. I excluded bollinger_rsi (already rejected), oscillator stacks
+  (redundant momentum — fake confirmation), and every parameter variant
+  (no sweep). Four members is the floor that still spans
+  {fast-trend, band-MR, oscillator-MR, slow-trend} so each kill is
+  attributable to a mechanism, not an anecdote.
+
+  ## Why B last — premature behind the data wall
+  RL is not a parallel bet to C; it is C's downstream beneficiary. At 31k
+  bars on a single regime-poor pair, a meaningful-capacity policy will overfit,
+  and an honest CPCV/DSR eval should reject it — meaning we would spend
+  engineering and compute to manufacture a deflation-failing trial. And even a
+  perfectly-trained policy faces the identical 7.5-pip toll on every action;
+  RL does not repeal cost arithmetic. The right move now is the cheap one:
+  ml-researcher authors the feasibility + eval-methodology design doc (front-
+  loads the rigor, burns nothing), and we BLOCK the build behind a named data
+  milestone. RL feasibility changes materially AFTER intraday breadth +
+  volume — which is, again, direction C.
+
+  ## Capacity limit (the "approve-with-capacity-limit" decision)
+  Approve at MOST 4 classic slots (denominator → 52, fixed at freeze; A1+A4
+  advance to freeze, A2+A3 ride as cost-suspect controls). Approve the RL
+  design doc at 0 slots. Do NOT approve an RL build, multi-pair extension, or
+  parameter sweep in this cycle. If the CEO wants the absolute-minimum burn,
+  the fallback is a 2-member basket (A1, A4) at the cost of forfeiting the
+  generalized cost-wall negative result.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: METHODOLOGY-DESIGN

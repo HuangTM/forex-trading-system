@@ -1,0 +1,566 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-17T04:30:05Z"
+subtask_ref: signals-and-rl-exploration
+subtask_id: pm-accept-signals-rl
+deliverable-type: strategy-design
+deadline: "2026-06-18T00:00:00Z"
+instrument-universe:
+  - EURUSD
+no-capital-instruction: true
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+
+# ──────────────────────────────────────────────
+# TASK STATEMENT (≤30 words)
+# ──────────────────────────────────────────────
+task-statement: >
+  Design a disciplined classic-signal basket screen (WORKSTREAM A) and
+  produce an RL feasibility verdict with eval methodology (WORKSTREAM B).
+
+# ──────────────────────────────────────────────
+# EVIDENCE (facts verified this session)
+# ──────────────────────────────────────────────
+evidence:
+  - id: E1
+    claim: "Trial counter is 48 (honest-N)"
+    source: ".fintech-org/trials.jsonl line 49 — last entry timestamp 2026-06-17T04:05:50Z, detail: 'Honest-N now 48'"
+    verified: true
+
+  - id: E2
+    claim: "RSI and Bollinger Bands (bb) exist in features registry; MACD does NOT"
+    source: "src/forex_system/features/registry.py — grep confirms rsi, bb, sma, ema, atr, momentum; no macd branch"
+    verified: true
+
+  - id: E3
+    claim: "EURUSD config-file cost = 0.5+0.5+0.5=1.5 pips one-way (3 pips RT optimistic)"
+    source: "config/default.yaml — EURUSD block: spread_pips 0.5, slippage_pips 0.5, commission_pips 0.5"
+    verified: true
+
+  - id: E4
+    claim: "Trial 48 empirical: gross fade +3.41 pips/trade; conservative RT cost ~7.5 pips → clean kill (cost-dominated)"
+    source: ".fintech-org/trials.jsonl — trial_id 15923fe1, terminal_verdict: clean-falsification"
+    verified: true
+
+  - id: E5
+    claim: "bollinger_rsi strategy already tested and rejected; ma_crossover and momentum already exist"
+    source: "CLAUDE.md project overview + trials.jsonl history"
+    verified: true
+
+# ──────────────────────────────────────────────
+# ASSUMPTIONS
+# ──────────────────────────────────────────────
+assumptions:
+  - id: A1
+    text: "EURUSD 1h data (~31k bars, 2021–2025) is the available dataset for both workstreams"
+    basis: "Consistent with prior trials; 1h intraday backfill task context"
+    risk: medium
+
+  - id: A2
+    text: >
+      Realistic EURUSD round-trip cost for design purposes = 7.5 pips conservative
+      (empirical from trial 48; config-file 3-pip figure is optimistic and
+      understates real execution friction at this frequency)
+    basis: "E4 above"
+    risk: low
+
+  - id: A3
+    text: "DSR deflation denominator now counts N=48; every new trial adds to it"
+    basis: "E1 above; org-wide honest-N policy"
+    risk: low
+
+  - id: A4
+    text: "No additional intraday data (sub-1h, volume) is available yet (data-capability wall)"
+    basis: "MEMORY.md — dataset wall finding 2026-06-07; backfill blocked on user's local machine"
+    risk: medium
+
+confidence: high
+
+# ──────────────────────────────────────────────
+# HARD CONSTRAINTS (machine-checkable)
+# ──────────────────────────────────────────────
+hard-constraints:
+
+  # Integrity / governance
+  - id: HC-1
+    label: pre-registration-before-backtest
+    description: >
+      ALL classic-signal structures (basket composition, parameter sets,
+      entry/exit rules, cost assumptions, OOS slice) MUST be frozen in a
+      pre-registration artifact BEFORE any backtest is run or any OOS
+      data is examined. Pre-reg must cite DSR N (honest-N at time of
+      freeze, minimum 48).
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-2
+    label: one-shot-OOS-holdout
+    description: >
+      One OOS slice, burned once. No re-running on OOS after seeing
+      results. OOS dates must be declared in the pre-reg and never
+      touched until the IS screen has passed all pre-OOS gates.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-3
+    label: no-lookahead
+    description: >
+      All signal implementations must preserve the entry_delay_bars≥1
+      shift. test_no_lookahead (tests/backtest/test_engine.py) must pass.
+      SEQUENCING: a structure relying on indicator code that does not yet
+      exist (e.g. MACD) may be DECLARED in the frozen basket (AC-A1), but
+      that code must pass test_no_lookahead as a downstream pre-condition
+      BEFORE any IS backtest uses it. The basket may be frozen with an
+      as-yet-unimplemented indicator; it may NOT be IS-evaluated until the
+      no-lookahead test passes. This is the ONLY code execution permitted
+      under this task and only as a downstream gate, not in this design task.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-4
+    label: realistic-cost-assumption
+    description: >
+      Design must use 7.5-pip conservative round-trip for EURUSD (not
+      the config-file 1.5-pip one-way / 3-pip RT optimistic figure).
+      Gross edge must exceed this bar for a trial to be worth burning.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-5
+    label: multiple-comparison-correction-in-basket
+    description: >
+      The classic-signal screen is a FIXED PRE-DECLARED basket (e.g.
+      RSI, BB, MACD-if-added, MA-cross variants). DSR deflation N must
+      account for the full basket size. No post-hoc pruning or
+      cherry-picking of basket members after seeing IS results.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-6
+    label: no-blind-sweep
+    description: >
+      Signal basket must be declared in full before any IS evaluation.
+      "Test many and see what works" is forbidden. Basket size ≤8
+      structures; each must have a priori economic rationale.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-7
+    label: no-rl-agent-built-or-trained
+    description: >
+      WORKSTREAM B output is a FEASIBILITY VERDICT + methodology design
+      document. No RL model is trained, no RL environment is coded for
+      execution, no hyperparameter search is run in this task.
+    workstream: B
+    fatal_if_violated: true
+
+  - id: HC-8
+    label: model-engineering-firewall
+    description: >
+      ml-researcher designs the RL methodology and data/compute
+      requirements. quant-developer does NOT build or train any model
+      during this task. Firewall is enforced at the role boundary.
+    workstream: B
+    fatal_if_violated: true
+
+  - id: HC-9
+    label: confirmability-rubric
+    description: >
+      Any classic-signal structure advanced to pre-registration must
+      pass the confirmability gate: forward-validatable in ≲2–3 years
+      given events/yr × per-event-Sharpe. Structures requiring >3yr
+      validation window must be flagged STRETCH or killed.
+    workstream: A
+    fatal_if_violated: true
+
+  - id: HC-10
+    label: no-live-capital
+    description: >
+      No live trading, no live orders, no paper-trading simulation is
+      launched as a result of this task. Output is design artifacts only.
+    workstream: both
+    fatal_if_violated: true
+
+# ──────────────────────────────────────────────
+# ACCEPTANCE CRITERIA
+# ──────────────────────────────────────────────
+criteria:
+
+  # ── WORKSTREAM A: Classic-signal disciplined screen ──────────────────
+
+  - id: AC-A1
+    workstream: A
+    owner: quant-researcher
+    description: >
+      Fixed basket declaration: a YAML or markdown artifact listing
+      every signal structure to be screened, with: (a) signal type and
+      parameter set(s), (b) a priori economic rationale (≥1 sentence
+      each), (c) entry/exit rule, (d) timeframe (EURUSD 1h), (e) cost
+      assumption (7.5-pip RT), (f) total basket size N_basket.
+    acceptance_test: >
+      Artifact exists, is dated prior to any IS backtest, N_basket is
+      explicit AND N_basket ≤ 8 (enforces HC-6). No structure may be
+      added after the basket is frozen.
+
+  - id: AC-A2
+    workstream: A
+    owner: quant-researcher
+    description: >
+      Multiple-comparison-aware DSR threshold: compute the DSR
+      pass-bar accounting for N_trials = honest-N-at-freeze + N_basket,
+      where N_basket is the FULL declared basket size (AC-A1).
+      DISAMBIGUATION (resolves the killed-member question): every
+      declared basket member burns one trial slot at FREEZE time and
+      counts toward the deflation denominator — INCLUDING members later
+      flagged COST_SUSPECT (AC-A4) or killed pre-IS. This makes the DSR
+      pass-bar deterministic at freeze: the denominator is fixed before
+      any evaluation and does not shrink if members are dropped. Declaring
+      a member commits the trial slot; you cannot reclaim it by killing
+      the member after freeze. Pass-bar formula must be explicit in the
+      pre-reg.
+    acceptance_test: >
+      Pre-reg artifact contains DSR formula with N_trials explicitly
+      stated (= 48 + N_basket, fixed at freeze) and the numeric pass-bar
+      (SR* threshold). The denominator must NOT be recomputed downward
+      after any pre-IS kill.
+
+  - id: AC-A3
+    workstream: A
+    owner: quant-researcher
+    description: >
+      Pre-OOS kill gates declared: at minimum (i) IS CPCV net Sharpe
+      vs. DSR threshold; (ii) net cost gate (avg net trade > 0 after
+      7.5-pip RT); (iii) IS regime consistency check. OOS dates must be
+      declared and locked.
+    acceptance_test: >
+      Pre-reg lists ≥3 pre-OOS kill gates with explicit numeric
+      thresholds; OOS date range is declared and no IS result uses
+      that range.
+
+  - id: AC-A4
+    workstream: A
+    owner: quant-researcher
+    description: >
+      Cost-realism analysis: for each basket member, estimate gross
+      edge required to survive 7.5-pip RT cost at typical 1h signal
+      frequency. Flag any structure where frequency × cost exceeds
+      plausible gross edge before any backtest is run.
+    acceptance_test: >
+      Pre-reg contains a cost-realism table: signal | est_trades/yr |
+      required_gross_pip_edge | plausibility_verdict.
+      At least one structure must be flagged as COST_SUSPECT a priori
+      if the math warrants it.
+
+  - id: AC-A5
+    workstream: A
+    owner: null-hypothesis-tester
+    description: >
+      NHT pre-basket skeptic review: written dissent (or explicit
+      clearance) on (a) whether each structure has genuine a priori
+      economic rationale vs. data-mining rationalization, (b) whether
+      cost assumptions are sufficient, (c) whether DSR correction is
+      adequate for the basket size.
+    acceptance_test: >
+      NHT artifact exists alongside the basket declaration, is
+      append-only, and is NOT paraphrased or overridden by consensus.
+      NHT verdict: CLEARS | CONDITIONAL | BLOCKS per structure.
+
+  - id: AC-A6
+    workstream: A
+    owner: head-of-quant-research
+    description: >
+      Prioritization verdict: given the cost wall (trial 48 cost-kill),
+      the data-capability ceiling (A4), and the confirmability rubric,
+      HoQR must state whether the classic-signal basket is worth burning
+      N_basket trial slots NOW, or whether the data-capability track
+      (intraday / volume data acquisition) is a higher-priority use of
+      the deflation budget.
+    acceptance_test: >
+      HoQR artifact contains: recommendation (PROCEED | DEFER | PARTIAL),
+      rationale citing cost wall + DSR budget explicitly, and a DISPOSITION
+      block (mandatory — closes the documented HoQR-stall failure mode).
+      DISPOSITION must specify, per outcome:
+        PROCEED  → which AC-A criteria advance to pre-registration freeze.
+        DEFER    → the named re-trigger condition (e.g. "intraday/volume
+                   data acquired") AND the named re-initiator (CEO or
+                   head-of-quant-research) AND what artifact unblocks it.
+                   A DEFER with no re-trigger condition is a FAIL.
+        PARTIAL  → the EXACT subset of basket members that proceed (by
+                   AC-A1 member id), the subset deferred, and the DEFER
+                   re-trigger for the deferred subset.
+      A recommendation with no machine-checkable DISPOSITION is rejected
+      by principal-reviewer (AC-X1).
+
+  - id: AC-A7
+    workstream: A
+    owner: cro
+    description: >
+      CRO structured risk assessment for classic-signal basket.
+    acceptance_test: >
+      CRO artifact contains all required structured fields (see
+      roles-staffed below). No narrative rationale expected; fields only.
+
+  # ── WORKSTREAM B: RL feasibility ─────────────────────────────────────
+
+  - id: AC-B1
+    workstream: B
+    owner: ml-researcher
+    description: >
+      Data sufficiency verdict: given EURUSD 1h ~31k bars (≈5yr),
+      assess whether the dataset is adequate for RL training without
+      severe overfitting. Address: state-space dimensionality vs.
+      sample count; regime coverage; stationarity risks; minimum viable
+      episode length for meaningful policy learning.
+    acceptance_test: >
+      Artifact contains explicit SUFFICIENT | MARGINAL | INSUFFICIENT
+      verdict with numeric justification (bars, episode count, state dims).
+
+  - id: AC-B2
+    workstream: B
+    owner: ml-researcher
+    description: >
+      Overfitting / leakage failure-mode taxonomy: enumerate the
+      top-3 RL-specific failure modes for this data scale (e.g.
+      reward shaping leakage, feature lookahead, train-test contamination
+      in recurrent policies) with detection/prevention method for each.
+    acceptance_test: >
+      Artifact lists ≥3 named failure modes, each with: description,
+      why it's elevated at 31k-bar scale, and one concrete mitigation.
+
+  - id: AC-B3
+    workstream: B
+    owner: ml-researcher
+    description: >
+      Eval rigor methodology: propose the minimum-credible evaluation
+      protocol for an RL trading agent on this dataset. Must address:
+      CPCV or Walk-Forward as train/test split; DSR applicability to RL
+      rewards; regime-stratified OOS evaluation; how to distinguish
+      luck from policy signal.
+    acceptance_test: >
+      Artifact specifies: split method (named), OOS evaluation metric
+      (named), regime stratification approach (named or explicitly
+      waived with reason), and minimum-credible bar for a positive result.
+
+  - id: AC-B4
+    workstream: B
+    owner: ml-researcher
+    description: >
+      Data and compute requirements: what additional data (sub-1h,
+      volume, order-book, multi-pair) would materially improve RL
+      feasibility? What compute (GPU hours, wall-clock estimate) would
+      a disciplined RL search require at this data scale?
+    acceptance_test: >
+      Artifact contains: current-data feasibility score, marginal-data
+      wish-list with expected feasibility uplift per item, and compute
+      estimate (order of magnitude) for one credible RL experiment.
+
+  - id: AC-B5
+    workstream: B
+    owner: null-hypothesis-tester
+    description: >
+      NHT RL-overfitting skeptic review: written dissent (or explicit
+      clearance) on whether the proposed eval methodology is sufficient
+      to distinguish genuine RL policy signal from overfitting to the
+      31k-bar sample.
+    acceptance_test: >
+      NHT dissent artifact exists, is append-only, and addresses the
+      RL-specific H0 (policy is random walk that got lucky on training
+      data). Must state: EVAL_CREDIBLE | EVAL_INSUFFICIENT with reason.
+
+  - id: AC-B6
+    workstream: B
+    owner: head-of-quant-research
+    description: >
+      HoQR RL prioritization verdict: given the feasibility verdict
+      (AC-B1), the eval bar (AC-B3), the data/compute requirements
+      (AC-B4), and the current data-capability wall, recommend whether
+      to pursue RL NOW, AFTER data-capability acquisition, or NOT_YET
+      with conditions.
+    acceptance_test: >
+      HoQR artifact contains: recommendation (NOW | AFTER_DATA | NOT_YET),
+      and a DISPOSITION block (mandatory — same anti-stall rule as AC-A6):
+        NOW        → which AC-B design outputs gate the (separate, future)
+                     RL build task.
+        AFTER_DATA → the named data milestone that re-triggers RL, AND the
+                     named re-initiator. No milestone = FAIL.
+        NOT_YET    → the named blocking condition AND what must change to
+                     revisit, AND the re-initiator.
+      Must also state whether RL feasibility changes materially if
+      intraday+volume data becomes available.
+
+  - id: AC-B7
+    workstream: B
+    owner: cro
+    description: >
+      CRO structured risk assessment for RL track.
+    acceptance_test: >
+      CRO artifact contains all required structured fields (see
+      roles-staffed below).
+
+  # ── Cross-workstream ──────────────────────────────────────────────────
+
+  - id: AC-X1
+    workstream: both
+    owner: principal-reviewer
+    description: >
+      Independent review wave: after all specialist artifacts are
+      produced (A1–A7, B1–B7), principal-reviewer verifies that
+      HC-1 through HC-10 are satisfied, that the basket is genuinely
+      pre-registered (not post-hoc), and that the RL output is a
+      design document (not a model build).
+    acceptance_test: >
+      Principal-reviewer artifact exists with PASS | FAIL verdict per
+      hard constraint. Any HC-FAIL blocks sign-off.
+
+# ──────────────────────────────────────────────
+# OUT OF SCOPE (explicit)
+# ──────────────────────────────────────────────
+out-of-scope:
+  - label: no-blind-signal-sweep
+    description: >
+      Open-ended "try MACD, RSI, BB and see what sticks" testing.
+      Only a pre-declared, fixed basket with a priori rationale is
+      in scope.
+
+  - label: no-rl-build-or-training
+    description: >
+      Writing, running, or training any RL model, environment, or
+      policy in this task. WORKSTREAM B is feasibility + methodology
+      only.
+
+  - label: no-backtest-execution
+    description: >
+      Running any backtest code, examining any OOS slice, or producing
+      any IS performance metrics in this task. This task produces
+      design and pre-registration artifacts only.
+
+  - label: no-live-or-paper-trading
+    description: >
+      No paper-trading session is started, no live orders are placed,
+      no broker API is called as a result of this task.
+
+  - label: no-macd-implementation
+    description: >
+      Implementing MACD in src/forex_system/features/ is out of scope
+      for this task (pre-reg design phase). If MACD is included in the
+      basket, its implementation is a downstream task, pre-conditioned
+      on HC-3 (no-lookahead test passing).
+
+  - label: no-multi-pair-extension
+    description: >
+      This task is scoped to EURUSD only. Multi-pair extension of any
+      basket structure is out of scope.
+
+  - label: no-parameter-optimization
+    description: >
+      No grid search, walk-forward optimization, or parameter tuning
+      of any indicator. Parameters must be declared a priori with
+      economic/literature justification.
+
+# ──────────────────────────────────────────────
+# ROLES STAFFED
+# ──────────────────────────────────────────────
+roles-staffed:
+  - role: head-of-quant-research
+    rationale: >
+      Owns the prioritization decision: classic-signal basket vs. RL
+      vs. data-capability track, given cost wall and confirmability
+      ceiling. Final allocation of the DSR deflation budget.
+
+  - role: quant-researcher
+    rationale: >
+      Designs the disciplined classic-signal screen: basket declaration,
+      pre-registration, multiple-comparison-aware DSR, pre-OOS kill gates,
+      cost-realism analysis.
+
+  - role: ml-researcher
+    rationale: >
+      Owns the RL feasibility verdict: data sufficiency, overfitting
+      failure modes, eval methodology, data/compute requirements.
+      Does NOT build or train any model.
+
+  - role: null-hypothesis-tester
+    rationale: >
+      Structural skeptic on BOTH workstreams. Basket: a priori rationale
+      and cost adequacy. RL: eval credibility vs. overfitting H0.
+      Dissent is append-only and never overridden by consensus.
+
+  - role: cro
+    rationale: >
+      Risk assessment. Receives structured fields only — no narrative.
+    structured_fields_required:
+      # one risk entry per (attributed_to) target; fields below per entry
+      - attributed_to: "basket-member-id (AC-A1) | RL-track | basket-wide"
+      - workstream: [A, B]
+      - risk_category: [operational, model, data, execution, governance]
+      - severity: [low, medium, high, critical]
+      - mitigant_declared: [yes, no, partial]
+      - blocking_for_proceed: [yes, no]
+
+  - role: principal-reviewer
+    rationale: >
+      Independent verification that hard constraints HC-1..HC-10 are
+      satisfied and that outputs are genuine design artifacts (not
+      covert backtests or covert model builds).
+
+# ──────────────────────────────────────────────
+# BODY (PM framing notes for dispatch)
+# ──────────────────────────────────────────────
+body: |
+  ## Context
+
+  Trial 48 (overnight MR EURUSD 1h) just KILLed cleanly on cost:
+  gross edge +3.41 pips/trade is real but dominated by ~7.5-pip
+  conservative RT cost. This is load-bearing: single-pair 1h signals
+  are cost-bound. Any classic-signal basket must confront this wall
+  honestly before burning deflation budget.
+
+  Honest-N = 48. Each trial slot is finite and expensive. The basket
+  must earn its right to exist a priori — not through post-hoc
+  exploration.
+
+  ## Workstream A: Classic-signal disciplined screen
+
+  CEO asked to "test MACD, RSI, Bollinger Band, etc." This is
+  interpreted as: design a SINGLE pre-registered fixed basket with
+  explicit multiple-comparison correction. bollinger_rsi is already
+  tested/rejected (do not re-test). ma_crossover and momentum already
+  exist as strategies.
+
+  MACD does NOT exist in the registry (src/forex_system/features/);
+  if included in basket, implementation is a downstream pre-condition.
+  RSI and BB exist. Parameters must be literature-standard with a priori
+  rationale — no optimization.
+
+  The cost-realism gate is likely to be the dominant kill criterion
+  for high-frequency signals. HoQR must weigh whether the basket is
+  worth burning N_basket trial slots given the data-capability wall
+  and confirmability ceiling.
+
+  ## Workstream B: RL feasibility
+
+  CEO asked to "start exploring RL trading strategies." This is
+  interpreted as: produce a feasibility verdict and methodology design.
+  No RL agent is built or trained in this task.
+
+  5yr EURUSD 1h (~31k bars) is small for RL. The dominant failure
+  modes — overfitting, reward-shaping leakage, look-ahead contamination
+  — must be addressed explicitly. ml-researcher owns the verdict.
+  The Model-Engineering Firewall is in effect.
+
+  ## Governance
+
+  - Pre-registration: mandatory before any IS evaluation (HC-1)
+  - One-shot OOS: mandatory (HC-2)
+  - No-lookahead: mandatory (HC-3)
+  - Cost assumption: 7.5-pip RT conservative (HC-4)
+  - Multiple-comparison correction: mandatory (HC-5)
+  - Confirmability rubric: ≲2–3yr forward validation (HC-9)
+
+  All hard constraints are fatal if violated. Principal-reviewer
+  verifies compliance before sign-off.

@@ -1,0 +1,362 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: "2026-06-17T05:40:00Z"
+subtask_ref: signals-rl-design-review
+subtask_id: pr-signals-rl-review
+artifact-under-review: "classic-signal basket pre-reg + RL feasibility methodology"
+rubrics-applied:
+  - spec-to-criteria-trace
+  - leakage-and-edge-case-enumeration
+  - statistical-and-multiple-testing-correctness
+  - test-inversion
+  - financial-ml-methodology (CPCV/purge/embargo, DSR-under-org-N)
+  - probability-statistics (deflation denominator semantics)
+  - "review-plan: applied (executability + hidden-assumption surfacing)"
+
+effective_N_adjudication: >
+  RULING: QR's N = 48 + 6 = 54 is NOT honest, and NHT's "48 + variant-grid-size"
+  is the structurally correct family. But neither side has stated the denominator
+  precisely, and the gap is severe enough to be the blocking finding.
+
+  The deflation N in Bailey-LdP (and in the firm's own implementation,
+  null_hypothesis.py:188-193) is the number of configurations from which the
+  REPORTED MAXIMUM was selected — the expected-max-SR benchmark grows in N because
+  you searched N candidates and kept the best. The honest question is therefore:
+  "how many distinct return series did the search procedure that produced the
+  surviving member actually generate?"
+
+  Each of the six members is NOT a single configuration. Each carries a thicket of
+  un-deflated, author-chosen design knobs that ARE the search even though QR
+  declares them 'a-priori':
+    - M1: RSI period=14, thresholds 30/70, exit=50 midline, stop=1.5xATR(14),
+      time-stop=48 bars. Each is a defensible "canonical" pick, but each is one
+      cell of a grid a future researcher (or QR retrospectively) could have swept.
+    - M2: BB 20/2, exit=middle band, stop=2.0xATR, time-stop=24 bars.
+    - M3: MACD 12/26/9, noise band 0.0001, catastrophic stop 3xATR.
+    - M4: SMA 50/200, 3xATR cat-stop.
+    - M5: lookback=20, breakout=new-20-bar-high, stop=2xATR, time-stop=48.
+    - M6: M1 knobs PLUS the session window set {06,07,08,12,13,14}.
+  Calling a threshold "Wilder 1978 canonical" does not remove it from the
+  hypothesis space; it only documents WHICH point in the space was chosen. The
+  deflation does not care about provenance — it cares about how many alternatives
+  were available to cherry-pick from if the first failed. The whole basket exists
+  *because* trial 48's overnight-MR variant failed; M1/M2/M6 are the next picks
+  from the same intraday-reversion family. That is a search, and "I only declared
+  one point per family" is the disguised-sweep move the deflation is designed to
+  catch.
+
+  HOWEVER — and this cuts the other way — N is NOT simply "48 + literal
+  variant-grid-size" either, because (a) the firm's honest_n.py de-dups by
+  hypothesis_key = pre_reg_path OR stripped-strategy-family, which would collapse
+  this entire pre-reg toward a SINGLE key (one pre_reg_path), arguing for a SMALL
+  increment; and (b) double-counting trial 48 inside the +48 AND re-deriving M1/M2/M6
+  from it risks both over- and under-counting. The two existing firm mechanisms
+  (honest_n.py family-dedup vs Bailey-LdP search-cardinality) give materially
+  DIFFERENT N's and the pre-reg picks neither — it asserts 54 by a third,
+  unjustified rule ("1 per declared member"). That arithmetic is asserted, never
+  derived, and it is the smallest of the three plausible denominators applied to
+  the largest selection surface.
+
+  CORRECT FRAME: N must equal honest-org-N AT FREEZE plus the count of distinct
+  return-series the screen can produce. With 6 members each having ~4-6 fixed-but-
+  arbitrary knobs, the *defensible-variant* cardinality is plausibly 30-200+, not 6.
+  The pre-reg must EITHER (i) freeze every knob with a pre-declared, externally-
+  sourced justification AND argue why no alternative knob was a live option (making
+  the per-member grid genuinely 1), OR (ii) deflate at the true grid cardinality.
+  It does neither. As written, N=54 under-deflates and the pass-bar DSR>=0.95 is
+  evaluated against a benchmark that is too low. This is a HC-5 / AC-A2 violation
+  in substance even though it loudly claims HC-5 compliance.
+
+findings:
+  - id: F-001
+    severity: blocking
+    location: "qr-classic-basket-prereg.yaml:10,30-46 (dsr_N_at_freeze=54; 'deflation IS the family correction')"
+    category: correctness
+    observation: >
+      The pre-reg fixes N=54 = 48 honest-N + 6 declared members, and asserts the
+      N=54 deflation absorbs all family multiplicity with "NO additional family-wise
+      alpha penalty." Each member, however, embeds 4-6 author-chosen, un-deflated
+      design knobs (thresholds, exits, stop multiples, time-stops, MACD noise band,
+      M6 session set).
+    inference: >
+      INFERENCE: N=54 counts families, not configurations. The Bailey-LdP expected-
+      max-SR (null_hypothesis.py:188) is selected from the cardinality of the search
+      that produced the winner, which is the per-member grid, not the member count.
+      A member that clears DSR>=0.95 at N=54 may not clear it at the true N (plausibly
+      30-200+), so a "pass" could be a deflation artifact — exactly the under-deflated-
+      Sharpe failure the screen claims to prevent.
+    evidence: >
+      null_hypothesis.py:168-197 (E[max SR] grows in total_trials);
+      honest_n.py:6-16 (firm de-dups by pre_reg_path OR stripped family — a THIRD,
+      different N); pre-reg lines 10, 44-46 assert N=54 by a rule matching neither.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-researcher
+
+  - id: F-002
+    severity: major
+    location: "qr-classic-basket-prereg.yaml:49-138 (basket_members)"
+    category: spec-drift
+    observation: >
+      The basket is presented as a fixed pre-declared set, but its COMPOSITION is
+      derived from trial 48's failure: 3 of 6 members (M1, M2, M6) harvest the same
+      intraday mean-reversion that trial 48 already killed, and honest_expectation
+      explicitly nominates M6 as "the one member with a non-trivial reason to beat
+      cost." M6 is M1 + a session filter — i.e., M6 is a conditioned variant of M1,
+      not an independent structure.
+    inference: >
+      INFERENCE: A "fixed basket" whose members are sequential refinements of one
+      failed idea (all-hours MR -> oscillator MR -> band MR -> session-filtered MR)
+      is a disguised sweep along the mean-reversion axis. The +1 deflation slot per
+      member does not capture that M6 was chosen *because* M1 is expected to fail.
+      This compounds F-001: the search has a direction (toward the cost wall from
+      below), and conditional selection inflates effective N beyond the literal count.
+    evidence: >
+      pre-reg lines 152-167 (honest_expectation singles out M6); lines 123-138 (M6 =
+      M1 thresholds + session gate); trial 48 (15923fe1) overnight-MR clean-kill
+      verified in trials.jsonl line 49.
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+
+  - id: F-003
+    severity: major
+    location: "qr-classic-basket-prereg.yaml:80,192,258 (M3 MACD not implemented)"
+    category: invariant-violation
+    observation: >
+      M3 (MACD 12/26/9) is declared frozen in the basket but does not exist in
+      src/forex_system/features/ (verified: grep for 'macd' returns nothing;
+      indicators.py exposes only sma/ema/rsi/bollinger_bands/atr/momentum). The
+      pre-reg gates M3's IS evaluation on a downstream MACD implementation passing
+      test_no_lookahead.
+    inference: >
+      INFERENCE: Freezing a member whose generating code does not yet exist means the
+      exit/entry semantics ("MACD line crosses signal", "noise band 0.0001",
+      "always-in reverse-on-cross") are unverifiable against a real implementation at
+      freeze time. A future implementer has latitude to make the indicator match the
+      hoped-for behavior — a back-channel for post-freeze tuning. The pre-reg cannot
+      be truly frozen for a member that is not yet computable. Either M3 is dropped
+      to 5 members (changing N), or it is implemented + no-lookahead-tested BEFORE
+      freeze, not after.
+    evidence: >
+      Verified: 'grep -rni macd src/forex_system/features/' exit=1 (no match);
+      indicators.py defines sma,ema,rsi,bollinger_bands,atr,momentum only.
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+
+  - id: F-004
+    severity: major
+    location: "qr-classic-basket-prereg.yaml:83,98,247-258 (M3/M4 always-in purge/embargo)"
+    category: edge-case
+    observation: >
+      M3 and M4 are always-in trend-followers with NO time-stop (only a 3xATR
+      catastrophic stop). The pre-reg sets the CPCV purge for the time-stopped members
+      (M1/M5/M6) at 2 days = their 48-bar time-stop, then handles M3/M4 with a
+      separate rule: purge_M3M4 = min(max_in_fold_hold, 5d).
+    inference: >
+      INFERENCE: An always-in trend-follower's realized holding period can span weeks
+      to months (a 50/200 SMA position persists until the opposite cross). Capping the
+      purge at 5 days when the true open-trade horizon is much longer means OOF blocks
+      adjacent to a fold boundary can share an OPEN M3/M4 position whose entry decision
+      and exit P&L straddle the cut — a leakage path. Worse, purge_M3M4 is defined from
+      'max_in_fold_hold', a quantity OBSERVED IN-FOLD, i.e. computed from the data
+      being partitioned. A purge width that is a function of the realized data is not
+      a pre-frozen gate; it is adaptive and could itself leak / be tuned. The claim
+      that "leakage horizon << warmup" (lines 250-258) is asserted for the time-stopped
+      members and does not transfer to the un-time-stopped M3/M4.
+    evidence: >
+      pre-reg lines 83, 98 (M3/M4 no time-stop, cat-stop only); lines 247-258
+      (purge reconciliation); engine.py:42,139,291 (entry_delay shift confirmed, but
+      shift handles 1-bar lookahead, NOT multi-week position straddle across folds).
+    recommended-action-class: tighten-invariant
+    owning-role: quant-researcher
+
+  - id: F-005
+    severity: major
+    location: "qr-classic-basket-prereg.yaml:60,89,104,119,136 (clears_cost / 7.5-pip)"
+    category: correctness
+    observation: >
+      Every member lists required_gross_pips_to_net_positive = 7.5 as a flat constant
+      and 'clears_cost: marginal/no'. The 7.5-pip figure is a single round-trip cost
+      applied uniformly across members with VERY different turnover (M5 ~200-500
+      round-trips/yr vs M4 ~10-40).
+    inference: >
+      INFERENCE: 7.5 pips is the per-round-trip cost; net edge depends on cost x
+      turnover, not a single 7.5 threshold. More importantly, the cost is a MODELED
+      CONSTANT: the dataset has NO bid/ask spread column (verified: parquet cols =
+      open,high,low,close,volume,datetime). M6's entire thesis — "in-session spreads
+      are ~2.0 pips, tighter than all-hours" — cannot be tested against the data
+      because there is no spread series; a uniform 7.5-pip RT actually NEUTRALIZES the
+      one mechanism (session-conditional spread) M6 relies on to beat the wall. So M6's
+      a-priori edge is un-evaluable with the available data and the chosen flat cost,
+      yet it is nominated as the most likely survivor.
+    evidence: >
+      Verified parquet schema: ['open','high','low','close','volume','datetime'], no
+      bid/ask. pre-reg line 133 (M6 thesis = tighter in-session spreads); line 182
+      (claims empirical spread median 2.0 'from task brief' — NOT in the data file).
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+
+  - id: F-006
+    severity: minor
+    location: "qr-classic-basket-prereg.yaml:144,145,150 (regime-consistency + thin-sample gates)"
+    category: edge-case
+    observation: >
+      Per-member pass requires positive net Sharpe in >=2 of 3 IS year-blocks
+      (2021 / 2022 / 2023+2024H1) AND IS net round-trip count >= 30. M4 is flagged
+      a-priori to fail the >=30 gate.
+    inference: >
+      INFERENCE: The 3 year-blocks are unequal in length (2021 and 2022 are full
+      years; 2023+2024H1 is 1.5 years) and span only ~3.4 IS years — a low-frequency
+      member (M4) split across 3 blocks may have <10 trades per block, making per-block
+      Sharpe statistically meaningless even if the 30-trade aggregate gate passes. A
+      2-of-3 rule on tiny blocks is noise. Acceptable as a gate, but it should not be
+      presented as a robustness guarantee.
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+
+  - id: F-007
+    severity: observation
+    location: "qr-classic-basket-prereg.yaml:3 (decision: approve) / mlr-rl-feasibility.yaml:6 (decision: veto)"
+    category: other
+    observation: >
+      Both artifacts carry self-authored decision fields ('approve' on the QR pre-reg,
+      'veto' on the RL methodology). These are the AUTHORS' own dispositions, not an
+      injected reviewer/approval stance from another role.
+    inference: >
+      Not contamination: a self-declared author decision is part of the artifact, not
+      an external approval/grade injected to bias the reviewer. No other role's
+      approve/reject verdict or debate transcript is present. Contamination-check
+      remains clean. Flagged only for transparency.
+    recommended-action-class: other
+    owning-role: principal-reviewer
+
+  - id: F-008
+    severity: minor
+    location: "mlr-rl-feasibility.yaml:113-124,174-179 (CPCV->walk-forward adaptation)"
+    category: correctness
+    observation: >
+      The RL methodology argues standard CPCV "partially breaks" for sequential RL
+      because of trajectory state + cross-fold gradient coupling, and substitutes
+      'combinatorial-purged walk-forward'. The reasoning (a policy carries state
+      across the trajectory, so removing a middle block does not sever information
+      flow the way it does for a point-in-time classifier) is essentially sound.
+    inference: >
+      INFERENCE: The adaptation is correct in spirit but underspecified on the one
+      quantity that matters: 'purge >= policy memory horizon' is circular — the policy's
+      effective memory horizon is itself a learned, architecture-dependent quantity not
+      known until after training, so it cannot be a pre-frozen purge width. This is the
+      RL analogue of F-004's adaptive-purge problem. The methodology should require an
+      UPPER-BOUNDED, architecture-imposed memory (e.g. a fixed observation window /
+      truncated BPTT length declared in the pre-reg) so the purge is frozen, not
+      data/architecture-derived post hoc.
+    recommended-action-class: clarify-spec
+    owning-role: ml-researcher
+
+rl_verdict_assessment: >
+  PREMATURE-BEHIND-DATA-WALL is JUSTIFIED, and the author did NOT miss a feasible
+  path. Steelmanning the opposite (the narrow feasible path one could argue for):
+  one could claim offline/batch RL (CQL, IQL, decision-transformer) sidesteps the
+  "cannot resample the env" objection because batch RL is explicitly designed to
+  learn from ONE fixed logged dataset without environment interaction — turning the
+  "single price path" from a fatal flaw into the native setting. The author's
+  framing ("RL needs 1e5-1e7 resamplable interactions") targets ONLINE deep RL and
+  does not literally refute offline RL.
+
+  BUT the author's binding argument survives the steelman intact: the constraint is
+  not interaction count, it is INDEPENDENT GENERALIZATION TARGETS. Offline RL still
+  needs the logged data to cover enough independent regime realizations for the
+  learned policy to generalize to an unseen one; ~6-10 weakly-independent macro
+  regimes is insufficient regardless of online vs offline, and offline RL is if
+  anything MORE prone to overfitting the single logged path (distributional shift,
+  Q-value extrapolation error). So the offline-RL path does not flip the verdict —
+  it changes the mechanism of failure, not the conclusion. The author's effective-N
+  reasoning (the binding N is regime-episodes ~10, not bars 31k) is the correct and
+  decisive frame, and is well-supported by the computed ACF/regime evidence I did
+  not re-derive but find internally consistent. The multiplicity reasoning (seeds x
+  arch x reward x features x HP -> effective N in the hundreds-thousands, deflation
+  bar rises ~sqrt(2 ln N)) is correct and is the same statistical principle the QR
+  pre-reg gets WRONG in F-001. The one gap is F-008 (circular purge horizon). Net:
+  the RL artifact's verdict and methodology are sound; it is the stronger of the two
+  artifacts. It is not approved here only because the review decision is rendered at
+  the package level and the QR pre-reg carries blocking defects.
+
+coverage-statement: "I reviewed 2 of 2 artifacts; remaining 0 skipped."
+contamination-check: "clean (self-authored decision fields are artifact content, not injected external approvals — see F-007)"
+time-spent-reasoning: "~40 minutes"
+evidence:
+  - "qr-classic-basket-prereg.yaml (full read)"
+  - "mlr-rl-feasibility.yaml (full read)"
+  - "src/forex_system/features/indicators.py — sma/ema/rsi/bollinger_bands/atr/momentum only; NO macd (grep exit=1)"
+  - "src/forex_system/backtest/engine.py:42,139,291 — entry_delay_bars shift confirmed"
+  - "src/forex_system/backtest/session_filter.py:1-45 — half-open [start,end) window convention; M6 {06,07,08,12,13,14}=[6,9)+[12,15) consistent"
+  - "src/forex_system/analysis/null_hypothesis.py:168-197 — Bailey-LdP E[max SR] grows in total_trials (deflation N = search cardinality)"
+  - "src/forex_system/harness/honest_n.py:6-16,40-58 — firm de-dups by pre_reg_path OR stripped strategy family (a THIRD, different N than 54)"
+  - "data/processed/EURUSD_1h.parquet — 31,019 rows; cols open,high,low,close,volume,datetime; NO bid/ask spread"
+  - ".fintech-org/trials.jsonl line 49 — trial 48 (15923fe1) gross +3.41, net -4.09, DSR=0.00 at N=48, clean-falsification; file has 49 lines, honest-N=48"
+assumptions:
+  - "The '7.5-pip RT' and 'empirical spread median 2.0' figures cited by both artifacts come from a task brief I was not given verbatim; I treat 7.5 as the frozen design cost (consistent with structured facts) and note the spread median is NOT in the data file."
+  - "I did not re-execute the ACF / regime-vol computations in the RL artifact; I assessed their internal consistency and logical role, not their numerical exactness."
+  - "Structured fact 'org trial count = 48' matches trials.jsonl (49 lines, last counter 48); I did not recompute honest_n.py over the file."
+confidence: high
+body: |
+  DECISION: REJECT (package-level). The RL feasibility artifact is sound and would
+  stand on its own; the classic-basket pre-reg carries multiple blocking/major
+  defects that make it unsafe to freeze. Since the deliverable is a single package
+  and the pre-reg's central statistical claim (the deflation denominator) is wrong,
+  the package is rejected.
+
+  ON THE N ADJUDICATION (the question I was asked to rule on directly): the firm has
+  TWO codified, mutually-inconsistent denominator rules — honest_n.py (de-dup by
+  pre_reg_path OR stripped family) and null_hypothesis.py (Bailey-LdP, N = cardinality
+  of the search the winner was selected from). The pre-reg invents a THIRD rule
+  ("48 + 1 per declared member = 54") that matches neither and happens to be the
+  most lenient applied to the broadest selection surface. The Bailey-LdP construction
+  is the statistically correct one for a "did the best of these survive?" question,
+  and under it N is the number of distinct return series the screen can produce — which
+  is the per-member knob grid, not the member count. With ~4-6 fixed-but-arbitrary
+  knobs per member, the true N is plausibly 30-200+, not 54. The pre-reg's repeated,
+  emphatic claim that "the N=54 deflation IS the family correction" is precisely the
+  error: it deflates for the 6 families but not for the within-family configuration
+  search, and the basket's composition (3 sequential refinements of trial 48's failed
+  MR idea, with M6 nominated as the hoped-for survivor) is a disguised directional
+  sweep. NHT's instinct ("48 + grid-size") is the right family even if NHT also did
+  not state the exact count.
+
+  This is not a pedantic over-deflation complaint. The honest_expectation is a
+  FAMILY_KILL, and as a clean-negative-evidence instrument the basket is genuinely
+  disciplined and valuable. The defect bites only on the upside branch: IF a member
+  (realistically M6) clears DSR>=0.95 at N=54, that "pass" is suspect because the bar
+  was set too low and M6 was conditionally selected. A pre-reg must be correct on the
+  branch where it produces a tradeable claim — and on that branch it under-deflates.
+
+  Secondary blocking/major issues compound: M3 is frozen but uncomputable (no MACD in
+  the codebase — verified), so its semantics cannot be locked at freeze (F-003); the
+  always-in M3/M4 purge is capped at 5 days and DERIVED FROM IN-FOLD DATA, which both
+  under-covers a multi-week trend position straddling a fold and makes the purge width
+  adaptive rather than frozen (F-004); and the flat 7.5-pip cost is a modeled constant
+  with no spread column in the data, which specifically neutralizes M6's only
+  cost-beating mechanism while M6 is nominated as the likely survivor (F-005).
+
+  PATH TO APPROVE-WITH-CONDITIONS (for the owning roles, not a fix I am prescribing):
+  the pre-reg becomes freezable if it (a) reconciles N to ONE codified firm rule and
+  either freezes every knob with an argument that the per-member grid is genuinely 1
+  or deflates at the true grid cardinality; (b) implements + no-lookahead-tests MACD
+  BEFORE freeze or drops M3 and restates N; (c) replaces the data-derived M3/M4 purge
+  with a pre-frozen upper bound on holding horizon; (d) states the cost as the modeled
+  assumption it is and either acquires a spread series or removes M6's session-spread
+  thesis from the pass logic.
+
+  The RL artifact: ACCEPT its verdict and methodology with one clarification (F-008,
+  the circular 'purge >= policy memory horizon' must be replaced by an architecture-
+  imposed, pre-declared memory bound). PREMATURE-BEHIND-DATA-WALL is justified; the
+  offline/batch-RL steelman does not open a feasible path because the binding
+  constraint is independent regime realizations (~10), not interaction count.
+knowledge_gaps:
+  - "Exact per-member knob grid cardinality (the true deflation N) is not derivable from the artifacts alone; it depends on which knobs the firm deems 'live alternatives' vs externally-fixed canon — an owning-role judgement."
+  - "The verbatim task brief defining 7.5-pip RT and the '2.0-pip in-session spread' was not provided to me; those figures are taken as given, not independently verified against a source."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

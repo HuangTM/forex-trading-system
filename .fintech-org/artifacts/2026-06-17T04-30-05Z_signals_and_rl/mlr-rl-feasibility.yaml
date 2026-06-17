@@ -1,0 +1,306 @@
+role: ml-researcher
+artifact_type: methodology-design
+decision: veto
+timestamp: "2026-06-17T04:42:00Z"
+subtask_ref: rl-feasibility-eurusd-1h
+subtask_id: mlr-rl-feasibility
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — methodology design before any specific strategy"
+
+rl_feasibility_verdict: PREMATURE-BEHIND-DATA-WALL
+most_binding_reason: >
+  ONE price path = ONE realization of history, not a sampleable environment. RL's
+  defining requirement — near-unlimited interaction with a stationary (or self-play-
+  stationarized) MDP — is structurally absent here. 31k 1h bars span ~60 non-i.i.d.
+  macro-months (one ZIRP→hiking→cutting flip), the agent's effective hypothesis space
+  (arch × reward × features × HP × seeds) is ENORMOUS against an org-wide DSR denominator
+  of N=48, and the SAME ~7.5-pip cost wall that clean-killed trial 48 sits inside any
+  RL reward. Decision is not "no" — it is "not on this data": data-capability must be
+  unlocked first.
+
+data_sufficiency:
+  bars: 31019
+  effective_independent_samples_est: >
+    Three distinct N's, and the RL-binding one is the smallest. (1) For raw 1-step
+    returns: ACF(lag1)=-0.022, integrated autocorr time tau≈1.0 → N_eff_returns≈31,018
+    (returns are near-unpredictable — this is the alpha problem, not the sample problem).
+    (2) For the volatility process the agent would actually condition on: |return| ACF
+    is strong and persistent (lag1=0.247, lag24=0.203), tau≈3.2 → N_eff_vol≈9,820
+    independent vol observations. (3) The RL-BINDING count: an RL policy is graded on
+    SEQUENCES under a regime, not on per-bar draws. Independent macro-regime episodes ≈
+    the number of distinct vol/rate regimes traversed = ~5 annual regimes (ann vol
+    5.6/10.6/7.5/6.2/7.9% for 2021–25) → call it ~6–10 weakly-independent regime
+    realizations. THAT is the denominator that bounds generalization. ~10 regime
+    realizations is INSUFFICIENT to learn a policy that generalizes to an unseen regime.
+  rl_sample_complexity_gap: >
+    Deep RL needs 1e5–1e7+ interaction steps for a stable policy on a STATIONARY env it
+    can re-sample at will (Sutton&Barto; Irpan; OpenAI Five = ~10^4 sim-years). Here
+    "interaction" cannot be generated — there is exactly one historical trajectory of
+    31k steps, replayable but not re-rollable. Replaying the same path N times does NOT
+    add information; it just lets the policy memorize it (the backtest-overfitting-via-
+    replay failure, AC-B2 mode 3). So the gap is not "we have 31k, we need 1e6" (a
+    quantitative shortfall); it is QUALITATIVE: we have ONE episode-family, and RL's
+    sample-complexity guarantees assume an i.i.d.-resamplable MDP we do not possess.
+    Verdict for AC-B1: INSUFFICIENT.
+
+overfitting_leakage_modes:
+  - mode: "Look-ahead in state construction"
+    why_elevated_at_31k: >
+      Tiny data tempts rich state features (long rolling windows, full-bar OHLC at the
+      decision instant). Using bar t's HIGH/LOW/CLOSE to decide the action AT t leaks the
+      bar's own future. At 31k bars a one-bar leak is ~the entire edge (cf. the sacred
+      test_no_lookahead, CLAUDE.md).
+    mitigation: >
+      State at decision time uses only information closed strictly before the action bar:
+      features from bars ≤ t-1, act at t with entry_delay_bars≥1 fill at t→t+1. Audit
+      every feature's as-of timestamp. ROUTE_TO: quant-developer for a leak-proof env.
+  - mode: "Reward leakage (reward computed from future the policy shouldn't see)"
+    why_elevated_at_31k: >
+      Shaping rewards that peek at the realized future (e.g. reward = sign(return_{t+k}))
+      hand the agent the label. With one path this becomes pure curve-memorization.
+    mitigation: >
+      Reward must be the realized, cost-inclusive PnL of the action ACTUALLY taken at the
+      fill price — differential Sharpe (RL skill §4.1), never raw PnL (it learns max
+      leverage in vol). Potential-based shaping only (Ng 1999: F=γΦ(s')−Φ(s)) — the sole
+      theoretically reward-invariant form.
+  - mode: "Cost bolted-on instead of inside the reward"
+    why_elevated_at_31k: >
+      Trial 48 proved the cost wall is the dominant term (gross +3.41 pip/trade real, net
+      KILLED at ~7.5-pip RT, CPCV net Sharpe −4.93). An RL agent rewarded on gross PnL
+      will learn to over-trade and look brilliant in backtest, then die on cost live.
+    mitigation: >
+      Subtract the FULL 7.5-pip conservative RT cost (HC-4) on every position change
+      INSIDE the per-step reward, so turnover is penalized at the source. No spread column
+      exists in the data → cost must be a conservative modeled constant, surfaced as an
+      assumption, not silently dropped.
+  - mode: "Env lets the agent see future bars / replay overfitting"
+    why_elevated_at_31k: >
+      Sequential RL trains by re-rolling the SAME 31k path thousands of times. The policy
+      can memorize the one realization (it has the capacity). Looks like learning; is
+      curve-fitting to history. This is the RL analogue of the under-deflated Sharpe.
+    mitigation: >
+      Hard train/validate/holdout time partition (below). NEVER train or early-stop on the
+      holdout. Stochastic env start-states/episode-slicing so the policy can't anchor to
+      absolute calendar position. Deflate the result at org-wide N (below).
+  - mode: "Survivorship-of-seeds (seed cherry-picking)"
+    why_elevated_at_31k: >
+      RL outcomes are seed-dominated (Henderson 2018; RL skill §5.3). Reporting the best of
+      many seeds is the same as best-of-N strategy mining — it MUST inflate the effective N.
+    mitigation: >
+      Pre-register seed count; report IQM ± bootstrap CI across ALL seeds (rliable), never
+      the max. Every seed, architecture, reward variant, and HP setting counts toward the
+      DSR denominator — effective N ≫ 1, far above the 48 logged trials.
+  - mode: "Non-stationarity / regime label leakage"
+    why_elevated_at_31k: >
+      Only ~5 annual regimes exist. A policy that 'wins' may simply have absorbed the 2022
+      hiking regime; with so few regimes, in-sample regime performance does not transfer.
+    mitigation: >
+      Regime-stratified eval with PRE-DECLARED buckets (never strata chosen after seeing
+      results — that is data-snooping in stratification clothing, fin-ml skill rubric 4).
+
+eval_methodology_if_pursued:
+  dsr_under_orgN: >
+    Treat the RL policy's realized net-return series exactly as a strategy return stream
+    and compute Deflated Sharpe (Bailey & López de Prado 2014) deflating against the
+    expected max of N noise draws, with N = org-wide honest-N AT FREEZE (≥48) PLUS the
+    honest RL multiplicity (every seed × arch × reward-shape × feature-set × HP config
+    that COULD have produced the reported winner). Effective N is in the hundreds–thousands,
+    not 48. The deflation grows like √(2 ln N): going from N=48 to N≈1000 raises the SR*
+    pass-bar materially. DSR>0.95 conventional. Given trial 48 already returned DSR=0.00
+    on net economics, an RL policy faces this SAME cost-loaded return stream against a
+    LARGER denominator — qualitatively a brutal bar.
+  cpcv_for_RL: >
+    Standard CPCV (López de Prado Ch.12) PARTIALLY BREAKS for sequential RL and must be
+    adapted: (a) CPCV assumes per-observation labels you can purge/embargo independently;
+    an RL policy carries state ACROSS the whole trajectory, so removing a middle block
+    doesn't sever information flow the way it does for a point-in-time classifier. (b) The
+    train step (gradient updates) couples folds: a policy trained on combinatorial unions
+    of blocks still sees the global statistics. ADAPTATION: use combinatorial-purged
+    WALK-FORWARD over contiguous time blocks — train on past block(s), PURGE a buffer
+    whose width ≥ the policy's effective memory/state horizon, EMBARGO on the vol-
+    autocorr scale (|return| tau≈3.2 bars is a floor; use a multi-day embargo because vol
+    clusters persist to lag24), evaluate on the held-forward block, retrain at each step
+    (a static model walked forward is NOT walk-forward, fin-ml anti-pattern 7). Report the
+    distribution of net Sharpe across the combinatorial forward paths, not a single number.
+  regime_stratified: >
+    ≥6 PRE-DECLARED buckets. Minimum spec: vol-regime by ATR/realized-vol percentile
+    (low/mid/high → 3) crossed with rate-regime (hiking 2022 / cutting 2024–25 / flat) or
+    trend-vs-range → ≥6 cells. Report per-bucket net Sharpe + per-bucket sample size +
+    per-bucket DSR. PASS bar: DSR>0 in ≥3 of the ≥6 buckets (a policy positive only in the
+    single regime that dominates the sample is a regime bet, not alpha). Strata frozen in
+    the pre-reg BEFORE any eval.
+  holdout: >
+    One contiguous NEVER-touched terminal slice (e.g. the most recent ~6–9 months), burned
+    EXACTLY ONCE, declared in the pre-reg, never used for training, validation, early
+    stopping, HP choice, or seed selection (HC-2 one-shot discipline). If the holdout is
+    consulted even once to 'check', it is contaminated and the result is void.
+  shadow_eval: >
+    Before any capital discussion (none authorized here — no-capital-instruction), run the
+    frozen policy in a forward shadow/paper observe-only mode on out-of-sample live-arriving
+    bars with the full 7.5-pip cost in the simulated PnL, comparing realized vs backtested
+    net Sharpe and calibration drift. Shadow is a confirmation gate, NOT a tuning loop —
+    no policy parameter may change based on shadow output.
+
+what_is_needed_to_flip_to_feasible:
+  - "MORE INDEPENDENT REALIZATIONS: the binding constraint. Multi-pair intraday (all 12
+     pairs at 1h or finer) so the policy trains across many correlated-but-distinct price
+     processes — raises the regime/episode count from ~10 toward something RL can generalize
+     over. This is the single highest-leverage unlock (matches the firm's standing
+     data-capability recommendation, MEMORY data-wall finding)."
+  - "FINER GRANULARITY + TICK/SPREAD DATA: sub-1h bars and a real bid/ask spread column
+     (the dataset has NO spread; volume is an ask-side Dukascopy PROXY, not exchange volume).
+     Without real spread, the cost term is a modeled constant — the very thing that decides
+     feasibility is an assumption."
+  - "A LEAK-PROOF, COST-INSIDE SIMULATOR (env) with as-of-time feature guarantees, fills at
+     t+1, and full transaction cost in the reward. Implementation is quant-developer's beat,
+     NOT this task (HC-7/HC-8 firewall)."
+  - "COMPUTE for honest multiplicity: a credible disciplined RL search = O(10) seeds ×
+     O(10) configs × walk-forward refits ≈ low-hundreds of training runs. On 31k bars each
+     run is cheap (CPU-feasible, hours not GPU-weeks), so compute is NOT the bottleneck —
+     which is exactly why over-search is the danger: it is cheap to mine thousands of
+     policies against one path. The constraint is statistical (effective N), not hardware."
+  - "A PRE-REGISTERED RL pre-reg (split, seeds, reward, deflated-N, regime strata, holdout
+     dates) frozen before any training — same discipline as the classic basket (HC-1)."
+
+dsr: >
+  Qualitatively brutal. The RL policy's net-return stream is deflated against N = org-wide
+  honest-N (≥48) + the full RL search multiplicity (seeds × archs × rewards × features × HP
+  → effective N in the hundreds–thousands). SR* pass-bar scales ~√(2 ln N), so the RL bar
+  sits well ABOVE the classic-basket bar at N=48+N_basket. Compounded by the cost wall that
+  drove trial 48 to DSR=0.00 on net economics, a single-pair-1h RL policy is expected to
+  fail this deflation. DSR>0.95 conventional; threshold is the ml-researcher's computation
+  at freeze, not a recalled constant.
+
+cpcv-config: >
+  Standard CPCV is INVALID as-is for sequential RL (cross-fold gradient coupling + trajectory
+  state break the per-label purge assumption). Use combinatorial-purged WALK-FORWARD: contiguous
+  time blocks, retrain each step, purge ≥ policy memory horizon, embargo on the vol-autocorr
+  scale (≥ several days; |return| ACF persists to lag24), report the net-Sharpe distribution
+  across combinatorial forward paths. Single train/test split is a finding.
+
+regime-stratified-dsr: >
+  ≥6 pre-declared buckets (vol-percentile × rate/trend regime); per-bucket net Sharpe + n +
+  DSR; PASS only if DSR>0 in ≥3 buckets. Aggregate-only Sharpe is a finding. Strata frozen
+  pre-eval.
+
+calibration: >
+  Required. If the policy (or its critic/meta-head) emits a confidence or position-size scaled
+  by predicted edge, that signal must be calibrated: reliability diagram / Brier on the
+  predicted-vs-realized profitable-action rate, computed PER REGIME bucket and on the holdout.
+  An uncalibrated edge-estimate that drives sizing is a hidden leverage-in-vol failure
+  (RL skill §4.1: raw-PnL agents learn max leverage). For a pure discrete buy/hold/sell policy
+  with no confidence output, calibration reduces to hit-rate-vs-claimed-rate per regime.
+
+leakage-check: >
+  RL-specific paths audited: (1) state features all as-of ≤ t-1, fill at t+1 (no current-bar
+  HLC in the decision); (2) reward = realized cost-inclusive PnL of the action taken, no
+  future peek, potential-based shaping only; (3) full 7.5-pip RT cost INSIDE the reward, not
+  bolted on; (4) no training/early-stopping/HP/seed choice ever touches the holdout; (5) seeds
+  not cherry-picked — IQM over all seeds; (6) regime strata pre-declared; (7) embargo ≥ vol-
+  autocorr horizon so vol-clustering doesn't leak across folds. ROUTE_TO: quant-developer to
+  IMPLEMENT these guards (firewall: I specify, I do not build).
+
+routed_implementation: "ROUTE_TO: quant-developer (none in this task — feasibility only)"
+
+evidence:
+  - "DATA (verified this session, data/processed/EURUSD_1h.parquet): 31,019 rows × 5 cols
+     [open,high,low,close,volume]; 2021-01-03 22:00Z → 2025-12-31 21:00Z; 1822 days. Volume
+     is a Dukascopy ask-side PROXY (zero-frac 0.0, median ~6211), NOT exchange volume. NO
+     bid/ask spread column."
+  - "AUTOCORR (computed this session): return ACF lag1=-0.0224, tau_int≈1.0 → N_eff_returns
+     ≈31,018; |return| (vol) ACF lag1=0.2466, lag24=0.2034, tau_int≈3.16 → N_eff_vol≈9,820."
+  - "REGIME (computed this session): annualized vol by year 2021=5.6%, 2022=10.6%, 2023=7.5%,
+     2024=6.2%, 2025=7.9% → ~5 annual regimes / ~60 months / ~258 weeks = ONE price path."
+  - "TRIAL 48 (15923fe1, trials.jsonl line 49): overnight MR EURUSD 1h gross fade +3.41
+     pip/trade REAL (reversion hit-rate 0.5517>0.50) but cost-dominated → CPCV net Sharpe
+     −4.93, DSR=0.00 at N=48, avg net trade −4.09 pip; terminal_verdict clean-falsification.
+     The cost wall is empirically the dominant term."
+  - "HONEST-N: org-wide DSR denominator = 48 (trials.jsonl, 49 lines / counter 48)."
+  - "SKILLS: reinforcement-learning §5.1 (when NOT to use RL: sample-efficiency critical,
+     non-stationary, reward-misspecifiable), §4.1 (trading MDP: differential Sharpe not raw
+     PnL; backtest 1.2 → live -0.2 common), §5.3/§5.4 (seed cherry-picking, potential-based
+     shaping); financial-ml-methodology rubrics 1 (CPCV/purge/embargo) & 2 (DSR under org N,
+     hard gates)."
+
+assumptions:
+  - "EURUSD 1h ~31k bars is the only intraday dataset available; other 11 pairs are daily-only
+     (PM A1/A4; consistent with MEMORY data-wall finding)."
+  - "7.5-pip conservative RT cost is the design figure (HC-4 / PM A2); the config 3-pip RT is
+     optimistic. No real spread column exists, so cost is a modeled constant."
+  - "Org-wide honest-N = 48 at freeze and is the DSR floor; RL multiplicity pushes effective
+     N far higher (PM A3)."
+  - "No RL is built/trained/searched in this task (HC-7); no quant-developer code runs (HC-8);
+     no capital (HC-10)."
+
+confidence: high
+
+body: |
+  VERDICT: PREMATURE-BEHIND-DATA-WALL (decision: veto for "build RL now"; this is a
+  not-yet-on-this-data, not a never).
+
+  1. DATA SUFFICIENCY — INSUFFICIENT (AC-B1).
+  The seductive number is 31,019 bars. The honest number is ONE: one realization of EURUSD
+  history. RL's entire sample-complexity machinery (1e5–1e7 interactions) assumes you can
+  RESAMPLE the environment. Here you cannot — you can only REPLAY the single 31k-step path,
+  and replaying it does not add information, it invites memorization. The independent-sample
+  count that actually bounds an RL policy's generalization is not the per-bar count
+  (N_eff_returns≈31k — and note returns are near-unpredictable, ACF lag1≈−0.02, so the
+  per-bar count is large precisely because there's little to learn) but the number of
+  independent regime realizations the policy could generalize across: ~5 annual vol regimes
+  / a single ZIRP→hike→cut macro arc ≈ ~6–10 weakly-independent episodes. You cannot learn a
+  policy that survives an UNSEEN regime from ~10 seen ones. The vol process is the one rich,
+  learnable structure (|return| ACF lag1=0.247, persistent to lag24), giving N_eff_vol≈9,820
+  — useful for a vol model, but a vol model is not a tradeable edge once the 7.5-pip cost wall
+  applies.
+
+  2. THE COST WALL IS INSIDE THE REWARD (load-bearing).
+  Trial 48 is the proof, not a hypothesis: a REAL directional MR edge (gross +3.41 pip/trade,
+  hit-rate 0.5517) was cleanly killed because ~7.5-pip RT cost dominates the ~11-pip median
+  range. An RL agent faces the identical economics — except it has FAR more ways to fool
+  itself: a reward on gross PnL will teach it to over-trade and post a gorgeous backtest that
+  evaporates on cost. The only honest design puts the full 7.5-pip RT cost inside the per-step
+  reward so turnover is penalized at the source. And the dataset has NO spread column — so the
+  single most decision-relevant quantity is a modeled assumption, which is itself a reason the
+  data is not ready.
+
+  3. MULTIPLICITY vs DSR (the killer at the org level).
+  An RL policy's effective hypothesis space — architecture × reward shaping × state features ×
+  hyperparameters × training seeds — is enormous, and crucially CHEAP to search on 31k bars
+  (CPU-hours per run). Cheap search against one path is the perfect overfitting machine. Honest
+  effective N runs to the hundreds–thousands, not the 48 logged trials. The deflated-Sharpe bar
+  rises ~√(2 ln N); the RL policy must clear a HIGHER bar than the classic basket while carrying
+  the SAME cost drag that already produced DSR=0.00. The expected outcome is failure of the
+  deflation — and an under-deflated RL Sharpe is exactly the "1.4 pre-reg → 0.2 live" trap the
+  fin-ml skill exists to prevent.
+
+  4. EVAL IF PURSUED (designed, not waived — AC-B3).
+  Combinatorial-purged WALK-FORWARD (standard CPCV breaks for sequential RL: trajectory state +
+  cross-fold gradient coupling violate the per-label purge assumption); retrain each step; purge
+  ≥ policy memory horizon; embargo on the vol-autocorr scale (≥ several days). Deflated Sharpe at
+  org-wide-N + full RL multiplicity. ≥6 pre-declared regime buckets, DSR>0 in ≥3 to pass.
+  Calibration per regime if the policy emits any confidence/sizing. ONE never-touched terminal
+  holdout, burned once. Forward shadow/observe-only confirmation gate (no capital). NEVER train,
+  early-stop, HP-select, or seed-select on the holdout.
+
+  5. WHAT FLIPS IT TO FEASIBLE.
+  Not compute (compute is cheap here — that's the trap). The flip is DATA-CAPABILITY:
+  (a) multi-pair intraday (≥ several of the 12 pairs at 1h or finer) to multiply independent
+  realizations the policy can generalize across; (b) finer granularity + REAL bid/ask spread so
+  the cost term is measured not assumed; (c) a leak-proof, cost-inside simulator (quant-developer,
+  downstream). With those, re-assess — single-pair 1h is the wrong arena for RL, but the firm's
+  standing data-capability unlock is precisely the lever that changes the verdict.
+
+  RECOMMENDATION TO HoQR (AC-B6 input): NOT RL NOW. Do not burn deflation budget or engineering
+  on an RL build against one cost-bound price path. Sequence RL AFTER the data-capability
+  acquisition the firm has already identified as the ceiling unlock (multi-pair intraday +
+  spread/tick). The classic-basket workstream faces the same cost wall but is far cheaper to
+  pre-register and falsify, and should be screened first under its own DSR discipline. RL stays a
+  designed, pre-registration-ready methodology on the shelf — not a build order.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

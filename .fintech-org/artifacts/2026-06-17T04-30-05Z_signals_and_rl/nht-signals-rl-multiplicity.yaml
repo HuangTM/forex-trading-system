@@ -1,0 +1,214 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent
+timestamp: 2026-06-17T04:30:05Z
+subtask_ref: signals-rl-multiplicity
+subtask_id: nht-signals-rl-multiplicity
+claim-tested: >
+  CLAIM A (classic basket): "A fixed basket of <=8 classic technical signals (RSI, Bollinger,
+  MACD, MA-cross variants) on EURUSD 1h can produce a forward-confirmable edge (member DSR>0.95)
+  under honest multiple-testing accounting at org-wide N = 48 + basket-size, given a 7.5-pip
+  round-trip cost."
+  CLAIM B (RL): "A reinforcement-learning trading policy trained on 5 years (31,019 1h bars) of
+  single-pair EURUSD can produce a forward-confirmable edge under honest accounting of its
+  effective hypothesis space."
+
+verdict_classic_basket: STRETCH
+verdict_RL: TRAP
+
+basket_dsr_bar: >
+  Working in annualized SR units (annualization factor sqrt(bars/yr) = sqrt(6204) ~= 78.8;
+  return-obs T = 31,019 hourly bars). At org-wide N=48 the expected best-of-N noise SR (E[max]
+  of N standard normals scaled by the SR-hat standard error 1/sqrt(T)) is ~1.02 annual. The
+  DSR>0.95 one-sided bar adds ~1.645*SE on top, giving a REQUIRED in-sample annual Sharpe of
+  ~1.75. A K-member basket increments N to 48+K: at K=1 the bar is ~1.750, at K=4 ~1.760, at
+  K=8 ~1.773. So the K-inflation of the bar itself is COSMETIC (logarithmic; +0.02 SR across
+  the whole K=1..8 range) -- that is NOT where the basket hurts. The basket hurts in TWO other
+  places the headline formula hides: (1) MEMBER-LEVEL screening. The claim says "member DSR>0.95",
+  i.e. each of the K members must individually clear ~1.75 annual SR after the 7.5-pip cost. You
+  are not buying one lottery ticket at the 1.75 bar, you are demanding K independent winners each
+  at the 1.75 bar -- and you only get to keep the basket if its weakest required member clears.
+  (2) HONEST effective-N is larger than 48+K because each "classic signal" is itself a family
+  (RSI has a lookback + thresholds; Bollinger has a window + k; MACD has 3 periods; MA-cross has
+  2 windows). If you scanned variants to pick the K basket members, the effective N is 48 + (the
+  size of the variant grid you searched), pushing the bar toward ~1.9-2.2 annual. The headline
+  "48+K" is a floor, not the honest count.
+
+rl_effective_N_estimate: >
+  An RL policy is the report-the-winner survivor of a search over architecture x reward-shaping x
+  feature-set x hyperparameters x random seeds. A DELIBERATELY MODEST search: architectures ~3
+  (e.g. MLP/LSTM/small-transformer) x reward variants ~4 (raw PnL, differential Sharpe, drawdown-
+  penalized, turnover-penalized) x feature sets ~4 x HP configs ~10 (lr, gamma, entropy, clip,
+  net-width) x seeds ~10 = ~4,800 distinct trained policies. That is the floor; a realistic search
+  with even light HP tuning and intermediate-checkpoint selection lands at 10^4-10^5. At N~5,000
+  the best-of-N noise SR is ~1.47 annual and the DSR>0.95 bar is ~2.20 annual; at N=10^4 the bar
+  is ~2.46; at N=10^5, ~2.70. AND seeds are NOT free trials in the benign sense -- selecting the
+  best seed is pure variance-mining on one price path. The RL effective hypothesis space is 2-4
+  orders of magnitude above the logged "1 trial", so the honest DSR denominator is N ~= 48 + 5,000+
+  -> required in-sample annual Sharpe ~2.2-2.7, BEFORE the cost wall and BEFORE the one-path
+  problem. Combined with: (a) ONE PRICE PATH -- 31,019 bars is a single historical realization, not
+  many episodes; an RL agent that "learns to trade EURUSD 2021-2025" has memorized one sample
+  trajectory and the effective independent-sample count is far below T (overlapping 1h returns,
+  strong vol-clustering autocorrelation shrink the effective T, INFLATING the SR-hat SE and the
+  bar further); (b) the 7.5-pip COST WALL that just buried trial-48's real +3.41 pip gross edge
+  (net -4.09). An RL policy with realistic turnover faces the same cost per round-trip; nothing
+  about RL lowers the 7.5-pip floor.
+
+cost_wall_prior: >
+  Honest prior that ANY single classic indicator member clears: LOW. Direct evidence: trial-48
+  (overnight mean-reversion) had a REAL directional edge -- +3.41 pip gross, 55% hit-rate, a
+  genuine signal -- and STILL went DSR=0 on a NET -4.09 pip economics after the cost. The data is
+  cost-bound: per-bar median range is 11.1 pips and the round-trip cost is 6-7.5 pips, i.e. the
+  cost is ~60-68% of a median bar's entire range. For a single-bar-horizon classic signal to clear,
+  its gross per-trade edge must exceed ~7.5 pips AND the residual net must annualize above ~1.75 SR.
+  Classic indicators on 1h are low-edge-per-trade, moderate-turnover signals -- exactly the profile
+  that loses to a 7.5-pip floor. My honest prior on the cost-dominated fraction of a <=8 member
+  classic basket: ~6 of 8 (>=70%) are expected to be cost-dominated (real-but-net-negative, the
+  trial-48 pattern), ~1-2 may have a real net edge but below the ~1.75 DSR bar (STRETCH, not TRAP),
+  and the probability that even ONE classic single-indicator member clears member-DSR>0.95 net of
+  7.5 pips is roughly 10-20%. The basket does not rescue this: averaging cost-dominated members
+  does not manufacture net edge; it averages negatives toward a smaller negative. A basket helps
+  only if members are NET-positive and decorrelated -- and the cost wall is precisely what makes
+  net-positive members scarce.
+
+flip_thresholds:
+  classic: >
+    Flips CONFIRMABLE if a SPECIFIC member is pre-registered (single committed variant, no post-hoc
+    selection) and shows in-sample annual Sharpe >= ~1.75 NET of 7.5-pip round-trip, with the net
+    per-trade gross edge > 7.5 pips demonstrated, and survives block-bootstrap + the null controls
+    below. Flips clearly TRAP if the member relies on lower-than-7.5-pip cost assumptions, or its
+    edge is gross-only, or it was selected from an unlogged variant grid (effective N >> 56).
+  rl: >
+    Flips out of TRAP toward STRETCH ONLY if: (a) the FULL search is pre-registered with its true
+    grid size logged to trials.jsonl (architectures x rewards x features x HP x seeds) so the DSR
+    denominator is honest; (b) seed selection is frozen / averaged not cherry-picked; (c) the policy
+    clears the resulting ~2.2-2.7 annual-SR bar NET of 7.5 pips on a purged/embargoed walk-forward
+    (NOT in-sample), and (d) it beats a random-policy-at-matched-turnover control at the same cost.
+    Absent honest effective-N logging, RL stays TRAP regardless of in-sample Sharpe -- the headline
+    number is uninterpretable.
+
+tests-requested:
+  - "matched-random benchmark: random-entry policy at the SAME turnover and SAME 7.5-pip round-trip cost; member/policy must beat this net distribution (kills cost-blind 'edge')."
+  - "label/feature permutation: shuffle the indicator->signal mapping (or model input features) and re-fit; surviving Sharpe under permutation = the bar is measuring noise structure, not signal."
+  - "regime-shuffle: permute vol/trend regime blocks to break regime-conditional luck; report per-regime net Sharpe + per-regime DSR (vol-percentile + trend buckets, pre-declared)."
+  - "block-bootstrap on OVERLAPPING 1h returns (block length >= autocorrelation horizon, e.g. 24-72 bars) to get an honest SR-hat SE and CI under vol-clustering; naive iid bootstrap understates the SE."
+  - "RL reward-shuffle control: retrain with the reward signal time-shuffled; if the policy still 'learns', it is fitting path structure / leakage, not reward."
+  - "RL random-policy-at-same-turnover control: a no-skill policy matched on trade frequency and holding period at 7.5-pip cost; the trained policy must beat this net, on a purged/embargoed walk-forward, not in-sample."
+  - "RL purged+embargoed walk-forward (CPCV where N folds allow) with retraining at each window -- a single fixed-model train/test split is NOT walk-forward; embargo >= the label/return horizon to kill autocorrelation leakage."
+
+dsr-assessment: >
+  Annualization sqrt(6204)~=78.8; return-obs T=31,019; SR-hat periodic SE ~ 1/sqrt(T). Expected
+  best-of-N noise SR = E[max of N standard normals] * (1/sqrt(T)) * 78.8. DSR>0.95 (one-sided)
+  requires observed annual SR >= best-of-N + 1.645*SE_annual.
+    N=1     -> bar ~0.74 annual SR
+    N=48    -> best-of-N ~1.01, bar ~1.75
+    N=49..56 (48 + K=1..8) -> bar 1.750 -> 1.773  (K-inflation is logarithmic, ~+0.02 SR total)
+    N=5,000 (modest RL search) -> best-of-N ~1.47, bar ~2.20
+    N=10^4  -> bar ~2.46
+    N=10^5  -> bar ~2.70
+    N=10^6  -> bar ~2.91
+  Two structural caveats that raise these bars further: (1) the SE uses T=31,019 iid-equivalent obs,
+  but overlapping 1h returns under vol-clustering reduce EFFECTIVE T, inflating SE and the bar;
+  (2) skew/kurtosis of FX 1h returns (fat-tailed, negative-skew episodes) further inflate the
+  Bailey-LdP deflation beyond the Gaussian approximation used here. Net: the numbers above are
+  OPTIMISTIC floors. The classic basket bar (~1.75) is high but reachable IN PRINCIPLE if a real
+  net edge exists -- hence STRETCH not TRAP. The RL bar (~2.2-2.9 on one price path net of 7.5 pips)
+  is not credibly reachable given the cost wall just demonstrated -- hence TRAP.
+
+dissent-statement: >
+  I dissent against treating either claim's headline framing as admissible. CLAIM A understates N
+  by logging only "48 + basket-size": if the K members were selected from a variant grid (and
+  classic indicators ARE families of variants), the honest denominator is 48 + grid-size, not 48+K,
+  and the cost wall makes the expected cost-dominated fraction ~>=70% (the trial-48 pattern). CLAIM B
+  is structurally a TRAP as stated: "trained on 5 years" reports the survivor of a 10^3-10^5 search
+  as if N=1, on a single price path, against a 7.5-pip cost that already buried a REAL edge. Neither
+  is noise-confirmed-dead (a pre-registered single classic member could clear ~1.75), but neither
+  survives as currently framed. Required before any spend: pre-registration with honest effective-N
+  logged to trials.jsonl, net-of-7.5-pip economics, and the null controls above on purged walk-forward.
+
+contamination-check: "clean"
+
+evidence:
+  - "data/processed/EURUSD_1h.parquet: 31,019 1h bars 2021-2025, OHLCV + volume proxy, no spread column, ~5,200 tradeable hrs/yr."
+  - ".fintech-org/trials.jsonl: org-wide N=48 (DSR denominator); a K-member basket adds K."
+  - "Per-bar range median 11.1 pips / p99 55.4; realistic round-trip cost ~6-7.5 pips (cost = ~60-68% of a median bar's range)."
+  - "Trial-48 (overnight MR): REAL +3.41 pip gross, 55% hit-rate, net -4.09 -> DSR=0 KILL on cost. Directional signal real, economics cost-dominated."
+  - "DSR bar computation (this artifact): annual-SR required for DSR>0.95 at N=49..56 ~= 1.75; at N~5,000 ~= 2.20; at N=10^4 ~= 2.46; N=10^5 ~= 2.70."
+
+assumptions:
+  - "SR-hat periodic standard error ~ 1/sqrt(T) (Gaussian, ignores skew/kurtosis -- which would raise the bar further; this is an optimistic floor)."
+  - "E[max of N std normals] via the (1-gamma)*Phi_inv(1-1/N) + gamma*Phi_inv(1-1/(Ne)) approximation."
+  - "Annualization sqrt(bars/yr) with bars/yr=6204; if only ~5,200 tradeable hrs/yr are used, the factor drops ~9% and the annual bars scale proportionally -- conclusions unchanged."
+  - "RL search-grid sizing (3x4x4x10x10 ~= 4,800) is a deliberately MODEST illustrative floor; real searches are larger."
+  - "Members within a basket are cost-correlated (share the same 7.5-pip floor and overlapping turnover), so basket averaging does not decorrelate the cost drag."
+
+confidence: high
+
+body: |
+  THE MULTIPLICITY MATH (both claims share one engine).
+
+  Deflated Sharpe asks: is the observed SR distinguishable from the BEST of N noise draws?
+  The bar has two parts: (i) the expected best-of-N noise SR, which grows like sqrt(2 ln N) and is
+  scaled by the SR-hat standard error 1/sqrt(T); and (ii) a ~1.645*SE margin for the >0.95 one-sided
+  confidence. With T=31,019 hourly bars and annualization sqrt(6204)~=78.8, the bars are:
+    N=48      -> ~1.75 annual SR
+    N=49..56  -> 1.750..1.773  (the K=1..8 basket increment moves the bar by ~0.02 SR -- negligible)
+    N=5,000   -> ~2.20   N=10^4 -> ~2.46   N=10^5 -> ~2.70.
+
+  WHY THE BASKET-SIZE INFLATION IS A RED HERRING, AND WHERE THE REAL PENALTY IS.
+  The claim frames the cost of the basket as "N = 48 + basket-size". That is true but trivial: log-N
+  growth means K=8 vs K=1 barely moves the bar. The real penalties are elsewhere:
+    1. MEMBER-LEVEL clearance. "Member DSR>0.95" means EACH of K members must independently clear
+       ~1.75 annual SR net of cost. You need K winners, not one. The basket is only as confirmable as
+       its required-weakest member.
+    2. HONEST N >> 48+K. Each classic "signal" is a parameter family (RSI lookback+thresholds,
+       Bollinger window+k, MACD 3 periods, MA-cross 2 windows). If you searched variants to choose the
+       K members, the denominator is 48 + grid-size, pushing the bar to ~1.9-2.2. "48+K" is the floor
+       only if NO variant search occurred -- which is rarely the honest case for a "fixed basket"
+       assembled from classic indicators.
+
+  THE COST WALL IS THE DOMINANT CONTRIBUTOR (>50% of the problem -- so it IS the problem).
+  Trial-48 is the decisive datum: a REAL +3.41 pip gross edge with a 55% hit-rate -- a genuine
+  directional signal -- went DSR=0 on net -4.09 after a 7.5-pip round-trip. The data is cost-bound:
+  the cost is ~60-68% of a MEDIAN bar's entire 11.1-pip range. For a 1h classic signal to clear, its
+  gross per-trade edge must exceed 7.5 pips AND annualize net above ~1.75 SR. Classic indicators on 1h
+  are low-edge-per-trade -- the exact profile the 7.5-pip floor kills. Honest prior: ~>=70% of a <=8
+  member basket is expected cost-dominated (the trial-48 pattern), and P(>=1 member clears member-
+  DSR>0.95 net) ~= 10-20%. The basket cannot rescue this -- averaging net-negative members yields a
+  smaller negative, not a positive. CLAIM A is therefore STRETCH: not dead (a single pre-registered
+  net-positive member could in principle clear ~1.75), but the cost wall makes survivors scarce.
+
+  RL IS THE KILLER CASE -- TRAP.
+  Three compounding problems:
+    (1) EFFECTIVE-N EXPLOSION. A trained policy is the report-the-winner survivor of architecture x
+        reward x features x HP x seeds. A modest search ~= 3x4x4x10x10 ~= 4,800 trained policies;
+        realistic searches reach 10^4-10^5. Logging this as "1 trial" is the single largest honesty
+        failure available. At N~5,000 the bar is ~2.20 annual; at 10^4, ~2.46; at 10^5, ~2.70. Seed
+        selection in particular is pure variance-mining on one path.
+    (2) ONE PRICE PATH. 31,019 bars is ONE historical realization, not many episodes. An RL agent
+        "learning to trade EURUSD 2021-2025" can memorize one trajectory. Overlapping 1h returns and
+        vol-clustering shrink the EFFECTIVE independent-sample count well below T, inflating the SR-hat
+        SE and raising every bar above.
+    (3) COST WALL unchanged. Nothing about RL lowers the 7.5-pip floor; a realistic-turnover policy
+        eats it on every round-trip, same as trial-48.
+  Net: RL must clear ~2.2-2.7 annual SR, on one path, net of 7.5 pips, with an honestly-logged
+  denominator most RL workflows never produce. As stated ("trained on 5 years ... single trial"),
+  CLAIM B is a TRAP -- the headline Sharpe is uninterpretable until the full search is pre-registered.
+
+  CALIBRATION NOTE. I am not reflexively negative: the classic-basket bar (~1.75) is reachable in
+  principle, so CLAIM A is STRETCH not TRAP. But the firm JUST PROVED this data is cost-bound, and
+  multiplicity is my domain -- the RL framing as a single trial is the highest-impact error here and
+  earns the TRAP verdict and the dissent.
+
+knowledge_gaps:
+  - "Exact skew/kurtosis (gamma3, gamma4) of the EURUSD 1h return distribution -- route to quant-developer to compute; would tighten the Bailey-LdP deflation beyond the Gaussian floor used here."
+  - "Realized residual autocorrelation horizon -> the correct block-bootstrap block length and embargo width."
+  - "Whether any classic-basket member was selected from a variant grid (determines true N: 48+K vs 48+grid-size)."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: METHODOLOGY-DESIGN

@@ -1,0 +1,441 @@
+# =============================================================================
+# CRO RISK + DATA-QUALITY-GATE SLICE — While-We-Wait Prep Plan
+# =============================================================================
+# Disjoint-evidence note: this artifact was produced WITHOUT any proposer
+# narrative. It is grounded only in the real cost schema (src/forex_system/
+# costs/, config/default.yaml), the 1h ingest code (scripts/ingest_dukascopy_1h.py),
+# and the dataset provenance (references/dukascopy_1h_PROVENANCE.md). No
+# strategy hypothesis, no expected-return claim entered this assessment.
+
+role: cro
+artifact_type: methodology-design
+decision: approve            # approve = these gates+guardrails become binding pre-specs
+timestamp: 2026-06-17T05:49:25Z
+addressed_unit: "while-we-wait prep plan — CRO risk + data-quality-gate slice"
+
+no_capital_instruction: true   # Phase-0 backtest-only. No live capital. No order routing.
+
+# --- Standard CRO output fields -------------------------------------------
+size_multiplier: 0.0
+# RATIONALE (AC-03 honest O2): size_multiplier is 0.0 because there is NO
+# strategy to size yet — this is a PRE-spec produced before any 1h alpha exists.
+# This is NOT a forecast that future 1h strategies will be sized to zero; it is
+# the correct posture for "no validated edge on the table." The FIRST 1h
+# strategy that clears NHT inherits the size LADDER in `risk_guardrails` below,
+# which CAPS the opening multiplier at 0.25 (cold-start) regardless of backtest
+# Sharpe. Risk posture is UNCONDITIONAL: it does not assume any 1h system makes
+# money, and it tightens — never loosens — relative to the daily-bar contract.
+
+contamination_check: "clean"
+# No proposer hypothesis, rationale, or prior-artifact body present in prompt.
+# Prompt carried only: data references, cost schema, the VOIDED-trial lesson,
+# and redacted acceptance criteria. Disjoint-evidence contract intact.
+
+blowup_analog: "Knight Capital (2012) for the kill-switch/coverage-gate angle;
+  CHF unpeg (Jan 2015) and GBP flash crash (Oct 2016, 06:00-07:00 UTC Asia thin
+  book) for the intraday session/spread tail angle. The CHF/GBP analogs are the
+  load-bearing ones here: an intraday cost model calibrated on MEDIAN spread will
+  catastrophically under-charge the exact bars (rollover, news, illiquid Asia)
+  where a real strategy would actually be filled — the same thin-book regime that
+  moved GBP ~6% in two minutes. This is why every gate below stresses the P90
+  tail, not the median."
+
+claimed_domains:
+  - position-sizing
+  - risk-budget-allocation
+  - kill-switch-design-and-testing
+  - drawdown-contracts
+  - tail-risk-measurement
+  - correlation-and-concentration-limits
+  - market-access-controls
+
+# =============================================================================
+# DELIVERABLE A — INTRADAY COST-MODEL EXTENSION SPEC  (AC-02a)
+# =============================================================================
+deliverable_A_intraday_cost_model_spec:
+
+  summary: >
+    Extend the cost layer from a fixed/curve-derived spread to a MEASURED
+    per-bar spread sourced from the new Dukascopy 1h ingest, gated by an
+    EXCLUDE-NOT-IMPUTE coverage rule. The new ingest writes spread_median_pips,
+    spread_mean_pips, spread_p90_pips per bar (commit 96f6f84). This is a real
+    upgrade over HourlySpreadCostModel (which DERIVES a 24h curve from 4h data),
+    but it introduces NEW trust failure modes that must be gated before use.
+
+  # ---- A.1  What changes in the cost model -------------------------------
+  cost_model_changes:
+    - id: CM-1
+      change: "New IntradaySpreadCostModel(CostModel) charges per-bar spread from
+        the parquet's spread_*_pips columns, keyed by the bar timestamp, instead
+        of a fixed PairInfo.spread_pips or a derived hour-of-day curve."
+      default_spread_field: "spread_p90_pips"
+      rationale: >
+        Per the existing Phase-0 posture (make_hourly_spread_cost_model defaults
+        to quantile=0.9) and StaticRoundTripCostModel's deliberate over-statement
+        (7.5pip vs 4.0 median), the cost-stressed P90 is the DEFAULT charge. Using
+        spread_median_pips as the default is a REJECT condition — median
+        under-charges the thin-book tail where fills actually happen.
+    - id: CM-2
+      change: "Session-dependent swap / financing. Daily swap (PairInfo.swap_*_
+        pips_per_day) must be charged ONLY on bars whose hold crosses the 22:00
+        UTC FX rollover (tripled on Wednesday for the T+2 weekend roll), NOT
+        pro-rated by hour. An intraday position opened and closed inside one
+        session pays ZERO swap; one held across 22:00 UTC pays the full daily
+        swap (3x on Wed)."
+      anti_pattern_guarded: >
+        Pro-rating daily swap by (hours_held/24) is WRONG and silently
+        under-charges multi-session holds and over-charges intra-session holds.
+        The prior intraday swap-overcharge bug (commit dd9c235) is the live proof
+        this is a real failure class.
+      enforcement_status_HONEST: >
+        REQUIRED CODE CHANGE — not present today. RealisticCostModel.holding_cost
+        (model.py lines 42-53) takes days:float and pro-rates linearly (-daily_swap
+        * days) — i.e. it IMPLEMENTS the exact anti-pattern CM-2 bans. NONE of the
+        three cost classes (RealisticCostModel, HourlySpreadCostModel,
+        StaticRoundTripCostModel) has any 22:00-UTC rollover-crossing check or the
+        3x-Wednesday rule. CM-2 mandates a NEW rollover-aware holding_cost
+        (owner: quant-developer, see KG-4); until built, intraday swap is charged
+        by the banned pro-rata path and 1h backtests will mis-cost any
+        session-crossing hold. BUILD ITEM, flagged here as a precondition.
+    - id: CM-3
+      change: "Explicit cost-UNCERTAINTY flag per bar. Every bar carries a
+        cost_trust ∈ {MEASURED, DERIVED, EXCLUDED}. MEASURED = real spread_*_pips
+        present and passes sanity. DERIVED = spread columns absent (legacy
+        parquet) → fall back to HourlySpreadCostModel curve, flagged. EXCLUDED =
+        fails a coverage gate below → bar is DROPPED from the backtest, never
+        zero-imputed."
+
+  # ---- A.2  COST-COVERAGE GATE (HARD, PRE-FREEZE)  ------------------------
+  # This is the direct remediation of the VOIDED trial (3/12-pair cost config →
+  # ~50% post-2015 zero-imputed). EXCLUDE, never silently impute.
+  coverage_gate:
+    enforcement: "HARD, PRE-FREEZE. Runs BEFORE any pre-registration is frozen.
+      A trial that cannot meet the coverage threshold on its declared universe
+      MUST NOT be frozen — it is blocked at design time, not patched post-hoc."
+    disposition_rule: "EXCLUDE-NOT-IMPUTE. A bar that fails any PASS rule below is
+      DROPPED from the tradable set. It is NEVER assigned a zero, default, or
+      neighbour-imputed cost. Zero-imputation is the exact failure that voided the
+      prior trial."
+
+    enforcement_status_HONEST: >
+      CRITICAL — current code does NOT yet enforce these per-bar rules as an
+      exclusion gate. validate_1h_schema (ingest lines 439-458) sanity-checks ONLY
+      spread_median_pips (positivity, NaN, > 50) and appends ISSUE-STRING WARNINGS;
+      it does NOT reject/exclude, and it NEVER examines spread_p90_pips for
+      positivity or median<=p90 ordering. _SPREAD_MEDIAN_MAX_PIPS=50 is a WARNING
+      flag, NOT an exclusion. The per-bar rules below are the SPEC for a NEW
+      coverage-gate CALLABLE that must be BUILT (owner: quant-developer) — they are
+      required-future-enforcement, not present behavior. Until that callable
+      exists, a parquet with spread_p90_pips=0 or p90<median passes
+      validate_1h_schema cleanly and would reach the backtest — the exact
+      slip-through this gate is meant to stop. THIS IS A BUILD ITEM (see KG-4).
+    per_bar_PASS_rules:    # ALL must hold for cost_trust = MEASURED (NEW callable)
+      - "spread_p90_pips present, finite, and > 0   [NOT checked by current code]"
+      - "spread_median_pips present, finite, and 0 < median <= 50.0 pips
+         (current code only WARNS on this — the gate must make it an EXCLUSION)"
+      - "spread_median_pips <= spread_p90_pips (ordering sanity; a violation
+         signals corrupt aggregation)   [NOT checked by current code]"
+      - "bar volume > 0 (the venue tick-proxy is nonzero — a zero-volume bar has
+         no real ticks, so its spread aggregate is fabricated from nothing)"
+      - "bar is NOT a weekend/closed hour (Fri >21:00 UTC .. Sun ~21:00 UTC):
+         spread on a market-closed bar is meaningless and must be EXCLUDED"
+
+    per_pair_PASS_rules:   # gate on the WHOLE pair before it enters the universe
+      - "MEASURED-bar fraction over the declared trade window >= 0.90.
+         If < 0.90 of in-session bars are MEASURED, the PAIR is EXCLUDED from
+         that trial's universe (not imputed). Threshold mirrors PROVENANCE gate
+         #4's <50% reject but is TIGHTER (0.90) because cost is the make-or-break."
+      - "No contiguous MEASURED-gap > 24 in-session hours inside the trade window
+         (a multi-day spread blackout means the strategy's realized cost over that
+         span is unknown; EXCLUDE the span)."
+      - "spread sanity: pair-median of spread_median_pips must be within a
+         plausible band per pair type (non-JPY: 0.1–8 pips; JPY: 0.1–8 pips on
+         the /10 pip scale). Outside the band → flag for manual review, do not
+         auto-admit."
+
+    per_period_PASS_rules:
+      - "Spread columns absent (parquet predates 2026-06-17 spread change,
+         SPREAD_COL_MISSING_WARNING) ⇒ period is DERIVED at best, and is
+         EXCLUDED from any trial that claims MEASURED-spread cost realism.
+         A re-pull is required to upgrade DERIVED→MEASURED."
+      - "Pre-2010 / unverified-start pairs (CADJPY, NZDJPY per provenance) are
+         EXCLUDED until their start date is individually confirmed."
+
+    machine_check: "coverage_gate must be a CALLABLE (TO BE BUILT — see KG-4; does
+      not exist today) that returns {pair: {tradable_bars, excluded_bars,
+      measured_fraction, max_gap_hours, verdict ∈ ADMIT|EXCLUDE}} and is asserted
+      in the pre-registration freeze step. A trial whose universe contains any
+      EXCLUDE-verdict pair cannot freeze. Until this callable ships, NO 1h trial
+      may freeze — the gate is a hard precondition, not optional."
+
+  # ---- A.3  What can STILL go wrong with the new measured spread ----------
+  residual_cost_trust_risks:
+    - id: R-1
+      risk: "STALE / FABRICATED spread on thin bars. spread_*_pips are aggregated
+        from per-tick spreads; a bar with very few ticks (illiquid Asia, pre-news)
+        yields a spread aggregate computed from a handful of ticks — statistically
+        unstable and easily understated. The median of 3 ticks is not a spread."
+      mitigation: "min-tick-count gate: require volume (tick proxy) above a
+        per-pair floor before trusting the bar's spread; else EXCLUDE."
+    - id: R-2
+      risk: "CROSSED/LOCKED ticks clipped to 0.0 (ingest decode clips spread<=0
+        to zero). A bar dominated by clipped ticks reports an artificially LOW
+        spread → cost UNDER-charge."
+      mitigation: "The ingest logs n_crossed_clipped per bar (decision-trace).
+        Add a gate: if clipped-tick fraction in a bar is high, EXCLUDE the bar.
+        REQUIRES the ingest to also persist the clipped-fraction, not only log it
+        (see KNOWLEDGE_GAP KG-1)."
+    - id: R-3
+      risk: "ROLLOVER (22:00 UTC) and NEWS bars carry genuinely wide spreads that
+        the P90 may still UNDER-state if a strategy systematically trades them.
+        Realized fill spread in a 2-second spike can dwarf the hour's P90."
+      mitigation: "Session filter (see Deliverable B) BANS opening positions in
+        the 21:00-23:00 UTC rollover window and the +/-5min news window by
+        default; a strategy that must trade them charges spread_p90 x a stress
+        multiplier, declared pre-freeze."
+    - id: R-4
+      risk: "VENUE MISMATCH. Dukascopy is a broker-venue feed, NOT the Saxo
+        execution venue (provenance caveat #1). Dukascopy spread != Saxo fill
+        spread. A backtest 'realistic' on Dukascopy spread is still an
+        APPROXIMATION of Saxo execution cost."
+      mitigation: "Treat measured spread as a LOWER-trust proxy for true
+        execution cost; keep the conservative P90 default; flag any 1h result as
+        venue-approximated in the result artifact. (No live capital regardless.)"
+    - id: R-5
+      risk: "WEEKEND/CLOSED bars with empty bodies → silently missing bar,
+        indistinguishable from a true weekend, distorting signal+cost. NOTE: the
+        PROVENANCE 'No retry on empty body' caveat is now STALE (see KG-2) — the
+        current ingest DOES retry on failure (None) and only treats validated
+        empty bodies (b'') as empty hours. R-5 is SUBSTANTIALLY MITIGATED."
+      mitigation: "Retry-with-backoff already in code (confirmed). Residual:
+        no Content-Length cross-check. Keep the bar-count plausibility gate
+        (PROVENANCE #4) + coverage max-gap rule as the backstop for any silent
+        gap that slips through."
+
+# =============================================================================
+# DELIVERABLE B — RISK-GUARDRAIL PRE-SPEC  (AC-02b)
+# Becomes a HARD CONSTRAINT on EVERY future 1h CRO dispatch.
+# =============================================================================
+deliverable_B_risk_guardrails:
+
+  status: "PRE-SPEC. These are the DEFAULT hard constraints every 1h strategy
+    inherits at NHT pre-registration. A strategy may only LOOSEN a constraint by
+    an explicit, pre-frozen, CRO-co-signed exception — never silently. Tightening
+    is always allowed without sign-off."
+
+  # ---- B.1  Drawdown contract (machine-checkable, ES not VaR-only) --------
+  drawdown_contract:
+    max_intraday_drawdown_pct: 2.0
+    # 2% of modeled equity peak-to-trough WITHIN a single UTC session. Breach =>
+    # HALT-NEW for the rest of that session (no new entries; existing managed to
+    # stop). Machine-checkable against the equity curve.
+    max_trailing_drawdown_pct: 6.0
+    # 6% peak-to-trough over any trailing window => full HALT (de-risk the book)
+    # pending CRO review. Aligns with the firm's existing 6% intuition; explicit
+    # and machine-checkable here.
+    tail_metric_required: "Expected Shortfall (ES / CVaR) at 97.5% MUST be
+      reported alongside VaR for every 1h backtest. A result reporting VaR-only is
+      a REJECT (per CRO quality_gate). Intraday fat tails make VaR-only blind to
+      exactly the rollover/news/flash-crash bar that does the damage."
+
+  # ---- B.2  Exposure & concentration limits ------------------------------
+  exposure_limits:
+    max_single_pair_exposure_pct: 10.0
+    # Inherits config max_position_pct: 0.10. Unchanged — daily contract is the
+    # ceiling; intraday may not exceed it.
+    max_gross_exposure_pct: 30.0
+    # Sum of |notional| across all open 1h positions <= 30% of equity.
+    max_net_directional_exposure_pct: 20.0
+    # Net USD-bloc directional tilt (e.g. long EURUSD + long GBPUSD + short
+    # USDJPY are all "short USD") capped at 20%. CRO is the ONLY role with
+    # cross-position visibility (role spec); this limit exists because intraday
+    # books accrete correlated same-bloc bets that look diversified per-trade.
+    correlation_concentration_rule: >
+      No more than 2 positions in the same correlation cluster (USD-bloc,
+      JPY-cross, commodity-bloc AUD/NZD/CAD, EUR-cross) opened concurrently
+      without CRO co-sign. Correlation estimated on a LONG window, not a recent
+      window (stationarity fallacy guard) — recent-window correlation collapses
+      to 1.0 in exactly the stress regime where the limit matters.
+
+  # ---- B.3  Session filters (HARD default bans) --------------------------
+  session_filters:
+    timezone: "UTC (dataset is verified-UTC; no venue-local time anywhere)."
+    default_banned_entry_windows:
+      - window: "21:00-23:00 UTC"
+        reason: "FX daily rollover / liquidity vacuum / spread spike. 3x swap on
+          Wed. Default: NO new entries. The bar's measured spread is least
+          trustworthy here (few ticks, wide+spiky)."
+      - window: "Friday >= 21:00 UTC  and  Sunday < 22:00 UTC"
+        reason: "Weekend close/open. No new entries; flatten or explicitly carry
+          weekend gap risk (gap is unhedgeable intraday — CHF-unpeg class event)."
+      - window: "+/- 5 minutes around scheduled tier-1 releases (NFP 13:30 UTC,
+          FOMC, ECB, CPI)"
+        reason: "Spread blowout + slippage tail. Default ban; a news strategy must
+          declare and charge a stress spread multiplier pre-freeze."
+    asia_thin_book_caution: "00:00-06:00 UTC (Tokyo-only, pre-London): NOT banned,
+      but size multiplier capped at 0.5 of the strategy's normal size and the
+      min-tick-count spread gate (R-1) is strictest here. GBP flash crash
+      (2016-10-07 ~07:00 UTC) lived on this boundary."
+
+  # ---- B.4  Cold-start size ladder (unconditional) -----------------------
+  size_ladder:
+    rule: "Every newly-validated 1h strategy opens at size_multiplier <= 0.25
+      regardless of in-sample/OOS Sharpe. It may step 0.25 -> 0.5 -> 1.0 only
+      after each step accrues a pre-declared number of clean OUT-OF-SAMPLE
+      observation cycles with no drawdown-contract breach. This is unconditional:
+      a backtest Sharpe of 3.0 does NOT buy a higher opening multiplier."
+    rationale: "Backtest Sharpe is an in-sample artifact until proven OOS. The
+      ladder makes the firm pay for confidence with observation, not with
+      optimism. (Mirrors the existing daily-bar caution; no live capital either
+      way.)"
+
+  # ---- B.5  Kill-switch pre-spec (testable in prod, Knight Capital) ------
+  kill_switches:
+    note: "Phase-0 is backtest-only; these are PRE-SPECS for the simulated
+      execution path AND the design contract any future live path must satisfy.
+      Each must be TESTABLE without causing the outage it prevents (Knight
+      Capital 2012 — the dead code that fired was never tested in prod)."
+    switches:
+      - id: KS-1
+        name: max-intraday-drawdown-halt
+        trigger: "session drawdown > 2.0% (B.1) => HALT-NEW for the session"
+        testable_in_prod: "inject a synthetic equity-drop event in a shadow/
+          dry-run feed and assert HALT-NEW fires WITHOUT touching real entries."
+      - id: KS-2
+        name: cost-coverage-breach-halt
+        trigger: "if, at runtime, the fraction of MEASURED-cost bars in the
+          live/sim window drops below 0.90 (the coverage gate, re-checked live),
+          HALT-NEW. This is the live analog of the pre-freeze coverage gate and
+          the direct guard against the VOIDED-trial failure recurring in flight."
+        testable_in_prod: "feed a window with spread columns nulled; assert HALT."
+      - id: KS-3
+        name: max-order-rate / max-notional-per-minute
+        trigger: "intraday strategies can loop; cap orders/min and notional/min
+          per the kill-switch-design rubric. Breach => HALT + alarm."
+        testable_in_prod: "replay a burst in dry-run; assert clamp fires."
+      - id: KS-4
+        name: stale-data / heartbeat dead-man
+        trigger: "if the latest 1h bar is older than 90 min (a missed bar, R-5),
+          HALT-NEW — do not trade on a stale book."
+        testable_in_prod: "freeze the clock past the bar boundary in sim; assert."
+    reconciliation_tie_in: "Existing config paper.cost_reconciliation (alarm-only
+      until 30-50 cycles) extends to 1h: cumulative modeled-vs-broker cost
+      divergence > tol => consecutive_breach_halt_n breaches => HALT-NEW. Flip
+      enforce=true only AFTER calibration, same as the daily path."
+
+# =============================================================================
+# BINDING CONSTRAINTS (active risk-contract clauses)
+# =============================================================================
+binding_constraints:
+  - "EXCLUDE-NOT-IMPUTE: no bar may receive a zero/default/imputed cost; failing
+     bars are dropped. (Direct remediation of the VOIDED trial.)"
+  - "Per-pair MEASURED-cost fraction >= 0.90 over the trade window or the pair is
+     EXCLUDED from the universe at pre-freeze."
+  - "Default cost charge = spread_p90_pips (cost-stressed), never the median."
+  - "Daily swap charged only across the 22:00 UTC rollover (3x Wed), never
+     pro-rated by hour."
+  - "max_intraday_drawdown 2% (HALT-NEW) / max_trailing_drawdown 6% (HALT)."
+  - "max_gross_exposure 30% / max_single_pair 10% / max_net_directional 20%."
+  - "Default-banned entry windows: 21:00-23:00 UTC rollover, weekend close/open,
+     +/-5min tier-1 news. Loosening requires pre-frozen CRO co-sign."
+  - "Cold-start size_multiplier <= 0.25 for any new 1h strategy, ladder-gated by
+     OOS cycles."
+  - "Expected Shortfall (97.5%) reported with every 1h backtest; VaR-only = REJECT."
+  - "Kill switches KS-1..KS-4 specified and testable-in-prod before any 1h
+     strategy advances past pre-registration."
+
+# =============================================================================
+# REGIME FLAGS (current indicators factored in)
+# =============================================================================
+regime_flags:
+  - "DATA-IN-FLIGHT: 1h backfill running; coverage is INCOMPLETE right now. No
+     pair is gate-clearable until its backfill completes and the coverage gate is
+     run. Posture defaults to EXCLUDE until proven ADMIT."
+  - "SPREAD-NEWLY-MEASURED: per-bar spread is fresh (commit 96f6f84), unvalidated
+     at scale; trust = provisional until the per-pair sanity band is confirmed on
+     real backfilled data."
+  - "VENUE-PROXY: Dukascopy != Saxo execution venue; all 1h cost realism is an
+     approximation, flagged accordingly."
+  - "VOIDED-TRIAL PRECEDENT ACTIVE: the zero-imputation failure is a known,
+     recent, real failure of THIS firm — the coverage gate exists because it
+     already happened once."
+
+# =============================================================================
+# BLOWUP-ANALOG — CRO EXTENSIONS
+# =============================================================================
+blowup_analog_extensions:
+  - case: "Knight Capital (2012)"
+    lesson: "Untested dead code in the order path; deployment touched 8 servers,
+      one ran stale logic. APPLIED: coverage gate + every kill switch must be
+      TESTABLE IN PROD without causing the outage (KS-* testable_in_prod fields)."
+  - case: "CHF unpeg (2015-01-15)"
+    lesson: "A 'safe' peg regime ended in seconds; stops gapped through; spreads
+      went to hundreds of pips. APPLIED: weekend/gap entry ban, ES-not-VaR
+      requirement, and the principle that intraday cost models calibrated on
+      calm-regime spreads are blind to the regime that actually hurts."
+  - case: "GBP flash crash (2016-10-07, ~07:00 UTC Asia)"
+    lesson: "~6% move in ~2 minutes in the thinnest session. APPLIED: Asia
+      00:00-06:00 UTC size cap 0.5 + strict min-tick spread gate; P90-default
+      spread; rollover/news entry bans."
+  - case: "LTCM (1998)"
+    lesson: "Per-trade diversification masked one correlated bet. APPLIED:
+      max_net_directional 20% + same-cluster concurrent-position limit, computed
+      on a LONG correlation window (stationarity-fallacy guard)."
+
+# =============================================================================
+# KNOWLEDGE GAPS  (no web tools used; emit RESEARCH_REQUEST)
+# =============================================================================
+knowledge_gaps:
+  - id: KG-1
+    gap: "CONFIRMED OPEN. The ingest counts and LOGS n_crossed_clipped per bar
+      (ingest lines 212/219/223-231) but does NOT PERSIST a clipped fraction or
+      tick_count to the parquet — _resample_ticks_to_1h's bar dict carries only
+      spread median/mean/p90. R-1 (low-tick fabricated spread) and R-2
+      (crossed-tick under-charge) therefore CANNOT be gated per-bar from the
+      parquet alone."
+    needed: "QD add a per-bar tick_count and clipped_fraction column to
+      _resample_ticks_to_1h's bar dict so the coverage gate can EXCLUDE low-tick
+      and high-clip bars. Until then, the volume(tick-proxy)>0 rule and the
+      per-pair MEASURED-fraction gate are the only available proxies — weaker
+      than a true per-bar tick gate."
+    owner: quant-developer
+  - id: KG-2
+    gap: "RESOLVED-IN-CODE, STALE-IN-DOCS. I read scripts/ingest_dukascopy_1h.py
+      end-to-end: _fetch_bi5 + _classify_http_response now distinguish b'' (genuine
+      empty, validated HTTP 200/404 → no retry) from None (RETRYABLE: timeout,
+      socket error, 429/5xx, truncated header), and the fetch loop retries 3x with
+      exponential backoff (lines 282-328). The 0f7fac3 fix is confirmed present.
+      R-5 is therefore SUBSTANTIALLY MITIGATED, not open."
+    needed: "DOC FIX: PROVENANCE line 203-204 ('No retry on empty body') is now
+      STALE and contradicts the code — it should be corrected so a future reader
+      does not re-open a closed risk. Residual R-5 surface is only the
+      undocumented Content-Length cross-check; the bar-count plausibility gate
+      (PROVENANCE #4) covers the residue. Lowered from a blocking gap to a doc fix."
+    owner: cto
+  - id: KG-3
+    gap: "Per-pair plausible spread bands (the per_pair sanity rule) are stated as
+      0.1-8 pips placeholders. Real per-pair P50/P90 spread distributions are not
+      yet known (backfill in flight)."
+    needed: "RESEARCH_REQUEST: once 2-3 pairs complete backfill, compute per-pair
+      empirical spread_median/p90 distributions to set real sanity bands. No web
+      access in this dispatch."
+    owner: quant-researcher
+  - id: KG-4
+    gap: "BUILD-PRECONDITION (surfaced by critic, verified against code). The
+      cost-coverage gate and the rollover-aware swap that this artifact specifies
+      DO NOT EXIST in code yet. Specifically: (a) validate_1h_schema warns on
+      spread_median only and never checks spread_p90 positivity or median<=p90
+      ordering, and its checks are warnings not exclusions; (b) no cost class
+      implements a 22:00-UTC rollover-crossing swap or the 3x-Wed rule —
+      holding_cost pro-rates by days, the banned anti-pattern. These specs are
+      enforceable ONLY after the code is built."
+    needed: "QD build items, BLOCKING before any 1h trial freezes: (1) a
+      coverage_gate(parquet, window) -> per-pair {measured_fraction, max_gap,
+      verdict ADMIT|EXCLUDE} callable that EXCLUDES (not warns) per the per-bar /
+      per-pair PASS rules incl. spread_p90>0 and median<=p90; (2) a
+      rollover-aware holding_cost (charge daily swap only across 22:00 UTC, 3x
+      Wed; zero for intra-session holds); (3) optionally persist per-bar tick_count
+      / clipped_fraction (KG-1) so R-1/R-2 are gate-able. Until (1)+(2) ship, 1h
+      cost realism is NOT enforced and the VOIDED-trial failure class is NOT yet
+      closed in code — only specified."
+    owner: quant-developer

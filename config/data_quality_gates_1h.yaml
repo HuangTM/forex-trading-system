@@ -1,0 +1,107 @@
+# Data-quality gates for 1h Dukascopy parquets.
+#
+# Authoritative source: cto-gate-spec-corrected.yaml (2026-06-17).
+# QD implementation reference: src/forex_system/data/quality_gate_1h.py.
+#
+# FIELD SEMANTICS
+# ---------------
+# min_bars_2yr             : minimum bar count for a 2yr trade window
+# min_bars_5yr             : minimum bar count for a 5yr trade window
+# bar_coverage_min         : gate_1 — minimum fraction of expected trading-hour slots present
+# measured_spread_min      : gate_2 — minimum fraction of in-session bars with MEASURED spread
+# max_contiguous_gap_h     : maximum allowed run of consecutive missing in-session hours
+# spread_median_floor      : CRO-derived lower bound for the pair's median spread (pips)
+# spread_median_ceiling    : CTO upper bound for the pair's median spread (pips)
+# spread_p90_ceiling       : CTO upper bound for the pair's p90 spread (pips)
+#
+# BAND VALIDITY: spread_median_ceiling MUST be strictly greater than spread_median_floor.
+# The gate callable raises ConfigurationError if this invariant is violated.
+#
+# REVISION POLICY (CTO-spec Section 1):
+#   min_bars_* derived from floor(0.80 × 24h × 5day × 52wk × Nyrs).
+#   2yr: floor(0.80 × 12,480) = 9,984 → 10,000.
+#   Tightening thresholds requires no sign-off; loosening requires CTO PR review.
+
+global:
+  # These apply to all pairs unless overridden in per_pair.
+  min_bars_2yr: 10000
+  min_bars_5yr: 25000
+  bar_coverage_min: 0.85
+  measured_spread_min: 0.90
+  max_contiguous_gap_h: 24
+
+  # SC-3: consecutive zero-spread bars signalling silent tick-decode failure
+  zero_spread_run_threshold: 6
+
+  # SC-1 / SC-5 pair-level exclusion: if > 5% of bars fail ordering/p90 checks, exclude
+  sc1_sc5_pair_exclude_threshold: 0.05
+
+per_pair:
+  EURUSD:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 3.0
+    spread_p90_ceiling: 8.0
+
+  GBPUSD:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDJPY:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDCHF:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDCAD:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  AUDUSD:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  NZDUSD:
+    bar_coverage_min: 0.80     # NZD thinner; per-pair override
+    spread_median_floor: 0.1
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  EURGBP:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 3.0
+    spread_p90_ceiling: 8.0
+
+  EURJPY:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  GBPJPY:
+    spread_median_floor: 0.2
+    spread_median_ceiling: 6.0
+    spread_p90_ceiling: 20.0
+
+  AUDJPY:
+    spread_median_floor: 0.2
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  EURCHF:
+    spread_median_floor: 0.1
+    spread_median_ceiling: 6.0
+    spread_p90_ceiling: 20.0
+
+# SC-4 cross-pair scaling thresholds (applied after individual gates).
+# A ratio outside the band triggers MANUAL_REVIEW, not auto-exclude.
+sc4_scaling:
+  non_jpy_ratio_min: 0.1
+  non_jpy_ratio_max: 10.0
+  jpy_vs_nonjpy_ratio_min: 0.05
+  jpy_vs_nonjpy_ratio_max: 20.0

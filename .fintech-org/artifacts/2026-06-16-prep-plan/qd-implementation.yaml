@@ -1,0 +1,379 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-and-verified
+timestamp: "2026-06-17T17:30:44Z"
+no-capital-instruction: true
+
+spec_refs:
+  - ".fintech-org/artifacts/2026-06-16-prep-plan/cto-gate-spec-corrected.yaml"
+  - ".fintech-org/artifacts/2026-06-16-prep-plan/cro-risk-gates.yaml"
+
+claimed_domains:
+  - production-code-implementation-from-TradeIntent-specs
+  - test-authoring-pytest-property-based
+  - code-review-of-spec-translations
+  - logging-instrumentation-for-decision-trace
+  - firewall-enforcement-execution-side
+
+# =============================================================================
+# FILES CREATED / MODIFIED
+# =============================================================================
+files_changed:
+  - path: "config/data_quality_gates_1h.yaml"
+    action: created
+    summary: >
+      Per-pair gate config: global thresholds (min_bars_2yr=10000, min_bars_5yr=25000,
+      bar_coverage_min=0.85, measured_spread_min=0.90, max_contiguous_gap_h=24) +
+      per-pair spread floor/ceiling bands for all 12 pairs. SC-3 and SC-4 parameters.
+      Spec ref: CTO Section 6 per_pair_thresholds.
+    spec_sections: ["CTO Section 1 (F-001)", "CTO Section 2 (F-002)", "CTO Section 3 (F-003)", "CTO Section 6"]
+
+  - path: "src/forex_system/data/quality_gate_1h.py"
+    action: created
+    summary: >
+      coverage_gate() callable: loads parquet, runs structural schema check, gate_1
+      (bar_coverage_pct >= threshold), spread-correctness checks SC-1..SC-5, gate_2
+      (measured_spread_fraction >= 0.90), max_contiguous_gap_h check, spread-band
+      check with ConfigurationError on ceiling <= floor, emits ADMIT/EXCLUDE/MANUAL_REVIEW.
+      Cross-pair SC-4 via apply_sc4_cross_pair_check(). Aggregate runner
+      run_all_pair_gates() with never_lands_terminal logging. write_gate_results()
+      to YAML. load_gate_config() with per-pair override merging.
+    spec_sections: ["CTO Section 2", "CTO Section 4 (SC-1..SC-5)", "CTO Section 5 (gate algorithm steps 1-9)", "CTO Section 7", "CRO coverage_gate"]
+
+  - path: "src/forex_system/costs/model.py"
+    action: modified
+    summary: >
+      Added: count_rollover_crossings(), _to_utc_dt(), _next_rollover_at_or_after()
+      helper functions. Added RolloverAwareRealisticCostModel(RealisticCostModel)
+      subclass with: holding_cost(pair, direction, days, *, entry_ts, exit_ts) that
+      counts 22:00 UTC rollover crossings (3x Wednesday), zero for intraday.
+      Backward-compat: no-timestamp path falls back to pro-rata (daily-bar).
+      rollover_cost_for_bar(pair, direction, bar_ts) for per-bar accrual pattern.
+      RealisticCostModel UNCHANGED — its pro-rata semantics are correct for daily bars.
+    spec_sections: ["CRO CM-2 (rollover-aware swap)", "CRO binding_constraints"]
+
+  - path: "tests/data/test_quality_gate_1h.py"
+    action: created
+    summary: >
+      38 tests covering: load_gate_config, in-session helpers, expected_trading_bars,
+      _max_consecutive_run, coverage_gate ADMIT/EXCLUDE paths, SC-1..SC-5
+      correctness checks, SC-4 cross-pair scaling, ConfigurationError on bad config,
+      trade_window 2yr/5yr selection, _max_contiguous_gap_hours.
+
+  - path: "tests/costs/test_rollover_swap.py"
+    action: created
+    summary: >
+      26 tests covering: count_rollover_crossings (intraday zero, standard, wednesday,
+      entry-at-rollover semantics, exit-at-rollover, multi-day, edge cases),
+      RolloverAwareRealisticCostModel.holding_cost (all directions, backward-compat
+      no-timestamp path), rollover_cost_for_bar (no-lookahead invariant, Wed 3x,
+      per-bar semantics), _next_rollover_at_or_after helper.
+
+# =============================================================================
+# TESTS ADDED
+# =============================================================================
+tests_added:
+  # Quality gate (38 tests)
+  - test: "TestLoadGateConfig::test_loads_config_file"
+    invariants: "config YAML loads; global, per_pair, sc4_scaling keys present"
+  - test: "TestLoadGateConfig::test_eurusd_per_pair_merged"
+    invariants: "per-pair overrides merge onto global defaults"
+  - test: "TestLoadGateConfig::test_nzdusd_override_bar_coverage"
+    invariants: "NZDUSD bar_coverage_min=0.80 override respected"
+  - test: "TestInSessionHelpers::*"
+    invariants: "Mon/Sat/Fri-21h/Sun-22h/Sun-21h session classification; expected_bars one week"
+  - test: "TestMaxConsecutiveRun::*"
+    invariants: "empty run=0, all-true, gap-in-middle, single-true"
+  - test: "TestCoverageGateAdmit::test_clean_parquet_returns_admit"
+    invariants: "ADMIT verdict; approved=True; bar_count > 0"
+  - test: "TestCoverageGateAdmit::test_admit_reports_metrics"
+    invariants: "expected_trading_bars > 0; bar_coverage_pct in (0,1]; measured_spread_fraction in (0,1]"
+  - test: "TestCoverageGateExclude::test_missing_parquet_returns_exclude"
+    invariants: "non-existent path → EXCLUDE, approved=False"
+  - test: "TestCoverageGateExclude::test_insufficient_bars_returns_exclude"
+    invariants: "5000 bars < min_bars_2yr → EXCLUDE with gate_1 issue"
+  - test: "TestCoverageGateExclude::test_low_coverage_returns_exclude"
+    invariants: "sparse 5yr dataset → gate_1 coverage fail"
+  - test: "TestCoverageGateExclude::test_spread_above_ceiling_returns_exclude"
+    invariants: "spread_median > ceiling → EXCLUDE with spread_band issue"
+  - test: "TestCoverageGateExclude::test_spread_below_floor_returns_exclude"
+    invariants: "spread_median < floor → EXCLUDE"
+  - test: "TestCoverageGateExclude::test_missing_spread_columns_returns_exclude"
+    invariants: "no spread cols → EXCLUDE (DERIVED not accepted)"
+  - test: "TestCoverageGateExclude::test_low_measured_spread_fraction_returns_exclude"
+    invariants: "15% zero-volume bars → measured_fraction < 0.90 → gate_2 FAIL"
+  - test: "TestCoverageGateExclude::test_contiguous_gap_too_large_returns_exclude"
+    invariants: "30-bar contiguous gap → gap FAIL"
+  - test: "TestSpreadCorrectnessChecks::test_sc1_ordering_violation"
+    invariants: "SC-1 median > p90 → excluded from measured → gate_2 FAIL"
+  - test: "TestSpreadCorrectnessChecks::test_sc5_nonpositive_p90_excluded"
+    invariants: "SC-5 p90 = 0 → excluded → gate_2 FAIL"
+  - test: "TestSpreadCorrectnessChecks::test_sc3_zero_spread_run_triggers_flag"
+    invariants: "8 consecutive zero-spread bars → SC-3 flag → MANUAL_REVIEW"
+  - test: "TestSpreadCorrectnessChecks::test_sc2_zero_volume_excluded_from_measured"
+    invariants: "5% zero-vol → excluded but measured_fraction > 0.90 (gate_2 passes)"
+  - test: "TestSC4CrossPairScaling::test_sc4_flags_suspicious_jpy_ratio"
+    invariants: "100× JPY ratio → SC-4 flag → MANUAL_REVIEW"
+  - test: "TestSC4CrossPairScaling::test_sc4_clean_ratios_no_flag"
+    invariants: "normal ratios → no SC-4 flags"
+  - test: "TestSC4CrossPairScaling::test_sc4_never_auto_excludes"
+    invariants: "SC-4 never flips approved=False"
+  - test: "TestSC4CrossPairScaling::test_sc4_skips_excluded_pairs"
+    invariants: "excluded pairs not checked by SC-4"
+  - test: "TestConfigurationError::test_ceiling_le_floor_raises_configuration_error"
+    invariants: "ceiling < floor → ConfigurationError raised"
+  - test: "TestConfigurationError::test_equal_ceiling_floor_raises_configuration_error"
+    invariants: "ceiling == floor → ConfigurationError raised"
+  - test: "TestTradeWindowSelection::test_2yr_window_uses_min_bars_10000"
+    invariants: "9500 bars → EXCLUDE on 2yr gate"
+  - test: "TestTradeWindowSelection::test_5yr_window_uses_min_bars_25000"
+    invariants: "12000 bars → EXCLUDE on 5yr gate"
+  - test: "TestMaxContiguousGapHours::test_no_gap_returns_zero"
+    invariants: "dense index → max gap = 0"
+  - test: "TestMaxContiguousGapHours::test_25h_gap_detected"
+    invariants: "27h manual gap → detected >= 25h"
+  # Rollover swap (26 tests)
+  - test: "TestCountRolloverCrossings::test_no_crossing_within_session"
+    invariants: "10:00-15:00 same day → (0,0)"
+  - test: "TestCountRolloverCrossings::test_one_standard_rollover"
+    invariants: "Mon 10:00 → Tue 10:00 → (1,0)"
+  - test: "TestCountRolloverCrossings::test_wednesday_rollover_is_triple"
+    invariants: "Wed 10:00 → Thu 10:00 → (0,1)"
+  - test: "TestCountRolloverCrossings::test_entry_at_rollover_not_counted"
+    invariants: "entry at exactly 22:00 → NOT counted"
+  - test: "TestCountRolloverCrossings::test_exit_at_rollover_counted"
+    invariants: "exit at exactly 22:00 → counted"
+  - test: "TestRolloverAwareHoldingCost::test_intraday_no_rollover_crossing_zero_swap"
+    invariants: "no rollover → zero swap (ENTRY)"
+  - test: "TestRolloverAwareHoldingCost::test_one_rollover_charges_one_day_swap"
+    invariants: "1 rollover → exactly 1× daily swap"
+  - test: "TestRolloverAwareHoldingCost::test_wednesday_rollover_charges_triple"
+    invariants: "Wed rollover → 3× daily swap (NON-ENTRY invariant: other days = 1×)"
+  - test: "TestRolloverAwareHoldingCost::test_backward_compat_no_timestamps_falls_back_to_prorata"
+    invariants: "no timestamps → falls back to pro-rata (daily-bar path)"
+  - test: "TestRolloverCostForBar::test_no_lookahead_cost_at_bar_close_time"
+    invariants: "cost fires ONLY at 21:00 bar (closes at 22:00), NOT at 20:00 (lookahead check)"
+  - test: "TestRolloverCostForBar::test_wednesday_rollover_bar_triple_charge"
+    invariants: "Wed 21:00 bar → 3× charge"
+
+# =============================================================================
+# TESTS PASSING
+# =============================================================================
+tests_passing:
+  tests_run: 65
+  passed: 65
+  failed: 0
+  blocked: 0
+  note: "64 initial + 1 added after quick-critic review (test_sc1_pair_level_exclusion_keeps_honest_fraction)"
+
+critic_findings:
+  - finding: "SC-1/SC-5 pair-level exclusion zeroed the measured mask → measured_spread_fraction reported 0% not the true rate (misleading diagnostic)"
+    severity: minor
+    status: FIXED
+    resolution: "_apply_sc_bar_checks now returns a dedicated pair_sc_exclude flag; verdict stays EXCLUDE via an issue string, but measured_spread_fraction reports the honest per-bar rate. New test verifies fraction > 0.5 at 10% failure."
+  - finding: "_max_contiguous_gap_hours resets gap counter on weekend hours → weekday gap bridging a weekend split in two"
+    severity: minor
+    status: WONTFIX-DOCUMENTED
+    resolution: "Deliberate and spec-faithful (weekend is not a trade window per CRO coverage_gate). Added explicit docstring note."
+  - finding: "GateResult init approved=True but verdict=EXCLUDE (confusing)"
+    severity: cosmetic
+    status: ACKNOWLEDGED-NO-CHANGE
+    resolution: "Confirmed non-functional by critic; Step 8 emit logic is correct."
+
+sacred_test_status: pass
+sacred_test_file: "tests/backtest/test_engine.py::test_no_lookahead"
+sacred_test_note: >
+  test_no_lookahead PASSED. Implementation does not touch the engine's signal-shift
+  or position logic. The rollover-aware cost model is additive (new class) and does
+  not modify the engine's entry_delay_bars path.
+
+ruff_status: pass
+ruff_command: "python3 -m ruff check src/forex_system/data/quality_gate_1h.py src/forex_system/costs/model.py"
+ruff_output: "All checks passed!"
+
+bash_blocked: false
+
+# =============================================================================
+# SPEC-TO-IMPL TRACE
+# =============================================================================
+spec_to_impl_trace:
+  - spec: "CTO F-001: min_bars_2yr corrected to 10000"
+    code: "config/data_quality_gates_1h.yaml global.min_bars_2yr=10000; quality_gate_1h.py:step3 min_bars"
+  - spec: "CTO F-002: gate_1 bar_coverage_pct >= 0.85 (in-session denominator)"
+    code: "quality_gate_1h.py _expected_trading_bars() + bar_coverage_pct computation using actual_in_session"
+  - spec: "CTO F-002: gate_2 measured_spread_fraction >= 0.90"
+    code: "quality_gate_1h.py step 5: measured_spread_fraction; CRO binding constraint adopted verbatim"
+  - spec: "CTO F-003: spread band [CRO floor, CTO ceiling]"
+    code: "quality_gate_1h.py step 7: spread_band_check; ConfigurationError when ceiling <= floor"
+  - spec: "CTO F-005 SC-1: ordering sanity median <= p90"
+    code: "quality_gate_1h.py _apply_sc_bar_checks() bad_order mask"
+  - spec: "CTO F-005 SC-2: zero-volume exclusion"
+    code: "quality_gate_1h.py _apply_sc_bar_checks() bad_vol mask"
+  - spec: "CTO F-005 SC-3: zero-spread run >= 6 bars"
+    code: "quality_gate_1h.py _apply_sc_bar_checks() _max_consecutive_run() + spread_flags"
+  - spec: "CTO F-005 SC-4: cross-pair scaling check (MANUAL_REVIEW only)"
+    code: "quality_gate_1h.py apply_sc4_cross_pair_check() — never auto-excludes"
+  - spec: "CTO F-005 SC-5: p90 positive/finite"
+    code: "quality_gate_1h.py _apply_sc_bar_checks() bad_p90 mask"
+  - spec: "CTO Section 5 step 9: never_lands_terminal"
+    code: "quality_gate_1h.py run_all_pair_gates() critical log when all pairs EXCLUDE"
+  - spec: "CRO CM-2: swap charged only on 22:00 UTC rollover (3x Wed)"
+    code: "costs/model.py count_rollover_crossings(); RolloverAwareRealisticCostModel.holding_cost()"
+  - spec: "CRO CM-2: zero swap for intraday (no rollover crossing)"
+    code: "costs/model.py count_rollover_crossings returns (0,0) when no boundary crossed"
+  - spec: "CRO CM-2: per-bar accrual pattern"
+    code: "costs/model.py RolloverAwareRealisticCostModel.rollover_cost_for_bar() fires only on 21:00 UTC bars"
+  - spec: "CRO coverage_gate: EXCLUDE not impute"
+    code: "quality_gate_1h.py: no path creates a default/zero/imputed cost; only EXCLUDE emitted"
+  - spec: "CRO per_period_PASS_rules: spread columns absent → EXCLUDE"
+    code: "quality_gate_1h.py step 2: spread_cols_present check → EXCLUDE with 'DERIVED cost not accepted'"
+
+# =============================================================================
+# DEVIATIONS FROM SPEC
+# =============================================================================
+deviations_from_spec:
+  - deviation: >
+      bar_coverage_pct numerator uses actual_in_session (in-session bars only), not
+      raw len(df). The spec says 'actual bars present' but the denominator is in-session
+      slots. Using in-session numerator ensures the ratio stays in [0,1] even when a
+      parquet contains non-trading-hour bars (e.g. synthetic test data or misclassified bars).
+      The spec's intent is clearly a coverage fraction in [0,1]; using in-session numerator
+      achieves this faithfully.
+    justification: "Faithful to spec intent; prevents > 1.0 ratio from confusing the gate"
+    spec_section: "CTO Section 2 gate_1_completeness"
+
+  - deviation: >
+      validate_1h_schema data-quality warnings (volume <= 0, spread_median <= 0)
+      are NOT treated as structural failures causing early-exit. These bars are
+      instead handled by the SC gate's per-bar exclusion logic (SC-2, SC-5).
+      This allows the gate to correctly compute measured_spread_fraction rather
+      than hard-rejecting the entire dataset on the first per-bar quality warning.
+    justification: >
+      The CTO spec says step 2 invokes validate_1h_schema and if issues are 'non-empty
+      and any issue is NOT SPREAD_COL_MISSING_WARNING, return EXCLUDE.' The spec authors
+      did not anticipate that validate_1h_schema emits data-quality warnings (not just
+      structural failures) — if applied literally, any dataset with even one zero-volume
+      bar would EXCLUDE before measuring coverage. The QD interprets the intent as:
+      structural corruption (missing columns, bad index, stale OHLC, NaN prices) →
+      early-exit; data-quality issues → defer to SC gates.
+    spec_section: "CTO Section 5 step 2"
+
+# =============================================================================
+# OBSERVABILITY HOOKS
+# =============================================================================
+observability_hooks:
+  - boundary: "coverage_gate() entry — parquet load"
+    log: "INFO coverage_gate[{pair}] loaded {n} bars from {path}"
+  - boundary: "gate_1 failure"
+    log: "WARNING coverage_gate[{pair}] gate_1 fail: coverage={pct}"
+  - boundary: "gate_2 failure"
+    log: "WARNING coverage_gate[{pair}] gate_2 fail: measured_fraction={frac}"
+  - boundary: "gap failure"
+    log: "WARNING coverage_gate[{pair}] gap fail: max_gap={h} h"
+  - boundary: "SC-3 zero-spread run flag"
+    log: "WARNING SC-3: run of {n} consecutive zero-spread bars detected"
+  - boundary: "SC-1/SC-5 pair-level exclusion"
+    log: "WARNING SC-1/SC-5: {pct}% of bars failed — forcing pair exclusion"
+  - boundary: "gate result verdict"
+    log: "INFO coverage_gate[{pair}] verdict={v} approved={b} issues={n} flags={m}"
+  - boundary: "never_lands_terminal"
+    log: "CRITICAL coverage_gate NEVER_LANDS_TERMINAL: all {n} pairs returned EXCLUDE"
+  - boundary: "rollover crossing per trade"
+    log: "DEBUG rollover_cost[{pair}] entry={ts1} exit={ts2} n_single={k} n_triple={m} total_days={d}"
+  - boundary: "rollover_cost_for_bar"
+    log: "DEBUG rollover_cost_for_bar[{pair}] ts={ts} multiplier={m}"
+  - boundary: "backward-compat fallback"
+    log: "DEBUG RolloverAwareRealisticCostModel.holding_cost: no timestamps — falling back to pro-rata"
+
+# =============================================================================
+# KNOWLEDGE GAPS
+# =============================================================================
+knowledge_gaps:
+  - id: KG-QD-1
+    gap: >
+      KG-1 (CRO): per-bar tick_count and clipped_fraction are NOT persisted in the
+      parquet — only volume (tick proxy) and spread aggregates. R-1 (low-tick
+      fabricated spread) and R-2 (crossed-tick under-charge) cannot be gated per-bar.
+      SC-2 (volume > 0) is the available proxy; it is weaker than a true tick-count gate.
+    status: "OPEN — pending QD adding tick_count/clipped_fraction to _resample_ticks_to_1h"
+    owner: quant-developer
+    deferred: true
+
+  - id: KG-QD-2
+    gap: >
+      Spread band floors and ceilings in config/data_quality_gates_1h.yaml are
+      first-principles estimates — no empirical 1h data exists yet. All 12-pair bands
+      will need revision on first data-land (per CTO revision_policy).
+    status: "OPEN pending backfill completion"
+    owner: quant-researcher
+
+  - id: KG-QD-3
+    gap: >
+      RolloverAwareRealisticCostModel is currently NOT integrated into the backtest
+      engine's per-bar accrual loop. The engine (engine.py line 369) still calls
+      cost_model.holding_cost(pair, Direction.LONG, bar_duration_days) without
+      timestamps. Integration into the engine's 1h intraday path is a separate task
+      for the QD (requires engine changes + engine test updates).
+    status: "OPEN — separate task; this implementation is the prerequisite"
+    owner: quant-developer
+
+# =============================================================================
+# FIREWALL SELF-REVIEW
+# =============================================================================
+firewall_self_review:
+  rubric_applied: "execution-firewall-review"
+  decision: approve
+
+  section_A:
+    A1_hardcoded_thresholds: >
+      All thresholds (min_bars_2yr=10000, bar_coverage_min=0.85, measured_spread_min=0.90,
+      max_contiguous_gap_h=24, spread floors/ceilings, SC-3 run=6, SC-4 ratios) are
+      sourced from the CTO and CRO frozen specs. No implementer-invented thresholds.
+      All are parameterized via config/data_quality_gates_1h.yaml — revision controlled.
+      PASS.
+    A2_silent_data_cleaning: >
+      EXCLUDE-not-impute: no fillna(), no zero-imputation, no clip() applied to data.
+      SC exclusions set bar to not-MEASURED (boolean mask); the bar is DROPPED from
+      measured count, never given a synthetic value. PASS.
+    A3_lookback_windows: >
+      No lookback window parameters. Gate is a single-pass scan over the parquet.
+      SC-3 consecutive-run threshold is from spec. PASS.
+    A4_regime_branching: >
+      No regime/market-state branching. Gate is stateless per-pair. PASS.
+    A5_signal_transformations: >
+      No signal transformations. Gate is a data-quality callable, not a signal path.
+      PASS.
+
+  section_B:
+    B_spec_completeness: >
+      Both source specs (CTO and CRO) are complete methodologically. The gate spec
+      includes per-pair thresholds, rollover definition, exclusion semantics, and
+      NEVER_LANDS_TERMINAL branch. No missing required fields. PASS.
+
+  section_C:
+    parameter_sourcing: >
+      Every numeric constant traces to CTO Section 1 (10000/25000), Section 2 (0.85,
+      0.90, 24h), Section 3 (per-pair bands), Section 4 (SC-3 run=6, SC-4 ratios).
+      The only implementer choice was separating 'structural' from 'data-quality' issues
+      in validate_1h_schema — documented as a deviation from spec with justification.
+      PASS.
+
+  section_D:
+    observability: >
+      Every gate decision boundary emits a structured log (see observability_hooks above).
+      Coverage gate emits INFO on load, WARNING on each gate failure, INFO on verdict.
+      Rollover model emits DEBUG on crossing count and per-bar fires. PASS.
+
+  section_E:
+    integration_tests: >
+      Tests include: entry (ADMIT), non-entry (EXCLUDE paths × 7), invalidation
+      (ConfigurationError), spread-correctness checks (SC-1..SC-5), trade_window
+      selection, gap detection. Rollover swap: intraday zero (non-entry), 1-rollover
+      exact charge (entry), Wed triple (entry), backward-compat. PASS.
+
+  notes: >
+    No research-class decisions were made. The one deviation (structural vs data-quality
+    schema issues) is an implementer judgment about faithful translation of CTO intent,
+    documented above. If CTO disagrees with this interpretation, the gate step 2 logic
+    can be tightened to full-reject on any schema issue — the test fixtures would need
+    to use structurally-clean datasets that bypass early-exit.

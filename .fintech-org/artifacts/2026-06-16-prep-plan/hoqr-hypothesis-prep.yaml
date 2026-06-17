@@ -1,0 +1,334 @@
+# HoQR slice of the "while-we-wait" 1h-data preparation plan
+# PLANNING ARTIFACT — does NOT increment the trial counter.
+
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — methodology design before any specific strategy"
+timestamp_utc: "2026-06-17T05:50:38Z"
+no-capital-instruction: true
+no_execution_code: true
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - research-capacity-allocation
+  - research-to-prod-pipeline-design
+  - falsification-archive-curation
+
+summary: >
+  The CRUX of maximizing the EV of the incoming 1h data is NOT "find a profitable strategy"
+  — it is "have a queue of CONFIRMABLE hypotheses pre-registered and frozen so we can run them
+  the instant clean 1h data lands, with zero data-structure surprises forcing a re-registration."
+  The firm's DATASET-WALL lesson was that on 12 DAILY pairs (zero volume) every idea floored at
+  3–5yr to validate because events/yr was too low. 1h data multiplies events/yr ~24x. But the
+  prior EURUSD-ONLY intraday cycle (2026-06-17T02-37-59Z) still floored at 4–5yr STRETCH because
+  one pair caps the event count. THE LOAD-BEARING UNLOCK IS MULTI-PAIR POOLING: pooling a
+  structurally-shared signal across the 12 pairs adds INDEPENDENT events to N without re-using the
+  same per-event edge — which is the lever most likely to move a session-momentum or
+  scheduled-event hypothesis from 4–5yr toward ≤2yr (conditional on the measured per-event IR,
+  event rate, and cross-pair correlation; see the corrected per-hypothesis horizons — NO candidate
+  cleanly pre-clears the 2yr gate on honest low-end priors). The deliverables below operationalize that lever
+  honestly (with a correlation haircut so pooling cannot be used to fake confirmability).
+
+# ============================================================================
+# AC-01 / AC-02: CONCRETE DELIVERABLES
+# ============================================================================
+deliverables:
+  - id: D1
+    name: "FROZEN confirmability screening rubric"
+    path: "references/intraday_confirmability_screening_rubric.md"
+    status: committed
+    description: >
+      The gate every 1h hypothesis passes before a backtest slot. Contains the formula
+      years_to_validate = N_required / events_per_year with N_required ≈ 6.18 / IR_per_event^2,
+      the ≤2yr gate (G1), honest-events (G2), post-cost edge (G3), structural-mechanism (G4),
+      the anti-pooling-fraud effective-N correlation haircut (G5), non-stationarity disclosure
+      (G6), and pre-registration-before-data (G7).
+  - id: D2
+    name: "Intraday hypothesis shortlist (≤5, ranked)"
+    path: "this artifact (hypothesis_shortlist below)"
+    status: complete
+    description: >
+      Ranked candidates with mechanism, universe, honest events/yr at 1h, per-event-Sharpe,
+      resulting confirmability horizon, and dominant kill-risk. Each PASS/STRETCH candidate to be
+      filed as a PreRegistration YAML to references/pre-registrations/ BEFORE any 1h bar is loaded.
+  - id: D3
+    name: "Pre-registration authoring queue (routed to Quant Researcher)"
+    path: "references/pre-registrations/ (to be authored)"
+    status: routed
+    description: >
+      I do NOT author strategy code (forbidden_skills: python). I route the top-ranked PASS
+      candidate (H1) to the Quant Researcher to author a frozen PreRegistration YAML under the
+      rubric, with NHT null battery and PR verification, BEFORE data lands. The prior 2026-05-30
+      ORB pre-registration is liftable as a starting scaffold for H1.
+
+# ============================================================================
+# AC-02(a): INTRADAY HYPOTHESIS SHORTLIST — ranked by EV-per-research-cost
+# ============================================================================
+hypothesis_shortlist:
+
+  - rank: 1
+    id: H1
+    name: "Multi-pair session-open momentum continuation (London + NY-open), POOLED across the liquid USD/EUR/GBP majors"
+    disposition: "STRETCH-leaning-PASS (DATA-CONTINGENT). At the rubric-mandated LOW-end (IR=0.08, ~300 ev/yr) it is STRETCH at ~3.2yr. It becomes PASS only if the data confirms IR_per_event ≥ 0.10 AND honest pooled events/yr ≥ 350 (→ ~1.77yr). Per the honesty defaults, the gate uses the low end, so H1 does NOT pre-clear G1 on priors alone — it is the BEST candidate and the one most likely to cross 2yr once measured, which is why it still gets the first pre-registration. [Corrected after quick-critic: prior 'PASS' cherry-picked IR=0.10.]"
+    alpha_source_mechanism: >
+      ECONOMIC: at a session open (London ~07:00 UTC, NY ~13:00 UTC), a fresh tranche of
+      liquidity and order flow arrives as institutions in that timezone come online, digest
+      overnight news, and position for the day. A directional impulse formed in the first 1–2
+      hours of a session has a documented (but decaying) tendency to extend, because real
+      participant flow — not noise — is anchored to a dated, recurring liquidity event. This is
+      the ORB / session-momentum family. It is a FLOW mechanism (who is trading and when), not a
+      chart pattern.
+    instrument_universe: "EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURGBP (8 liquid pairs; the 4 cross/minor pairs added only if they clear the cost gate). Multi-pair pooling is the whole point."
+    events_per_year_1h: "280–420 honest, post-quality-filter, POOLED. Per pair: ~1 qualified breakout/session x 2 sessions x ~250 sessions x freq-cap-to-1/session ≈ 35–60/pair/yr. Across 8 pairs RAW ≈ 280–480; after the G5 correlation haircut (USD-leg sharing, rho_bar ≈ 0.35) N_effective ≈ 280–420."
+    per_event_sharpe: "0.08–0.12 IR per event, post-cost (multi-bar hold keeps cost drag <30%; ~4.5 pip round-trip vs a multi-bar session move). Use the LOW end (0.08) for the gate."
+    confirmability_horizon: >
+      LOW-END (gate-governing, per honesty defaults): IR=0.08 → N_required ≈ 966; at 300 ev/yr →
+      ~3.2yr → STRETCH. HIGH-END (data-contingent upside): IR=0.10 → N_required ≈ 618; at 350 ev/yr
+      (pooled, post-haircut) → ~1.77yr → PASS. The honest gate verdict is therefore STRETCH (~3.2yr)
+      on priors; it crosses 2yr ONLY if the data delivers both IR≥0.10 and ev/yr≥350. This is an
+      honest knife-edge, not a clean pre-data PASS. Pooling is necessary but not, on the low-end
+      prior, sufficient — which is the corrected, non-cherry-picked reading.
+    rho_bar_break_even_for_G1: >
+      At IR=0.10 and RAW pooled events ≈ 400/yr, H1 clears 2.0yr (N_effective ≥ 309/yr) only while
+      the cross-pair correlation rho_bar ≤ ~0.41 (k=8). Above rho_bar ≈ 0.41 the effective-N haircut
+      pushes H1 past 2yr. At rho_bar = 0.50, N_effective ≈ 89/yr → ~6.9yr (FAIL). This break-even is
+      MACHINE-CHECKABLE on data and is encoded in H1's retirement criteria. [Added after quick-critic
+      flagged rho_bar=0.35 as an unverified load-bearing assumption.]
+    why_1h_makes_it_confirmable: >
+      On DAILY data there is exactly one "open" per day and no intraday session structure — the
+      signal does not even exist. 1h data creates the session-open event (2/day) AND, critically,
+      pooling across 8 pairs multiplies the event count ~8x beyond the EURUSD-only cycle that
+      floored at 4–5yr. sqrt(N) then carries an honest IR-0.10 edge under the 2yr hurdle.
+    most_likely_failure_mode: >
+      NON-STATIONARITY / ARBED-OUT (G6): intraday session-open momentum in liquid majors is a
+      well-known, heavily-traded anomaly; its half-life may already be short post-2020, so the
+      edge measured 2021–2025 may be a decayed remnant or already gone. SECONDARY: session-open
+      spread WIDENING erodes the first-bars edge (empirical max spread 40.7 pips on the feed).
+    research_cost: "LOW — liftable from the 2026-05-30 ORB pre-registration scaffold; cheapest to advance."
+
+  - rank: 2
+    id: H2
+    name: "Central-bank decision-window intraday drift (POOLED across all 8 CB calendars, decision-pair-matched)"
+    disposition: "STRETCH (event-count-capped). At the rubric-mandated LOW-end IR=0.12 it is 3.1–5.7yr even WITH sub-event decomposition → STRETCH, not PASS. The prior 'PASS-contingent' stacked high-end IR (0.15) AND sub-event doubling simultaneously, which violates the honesty defaults. [Corrected after quick-critic.] Kept on the shortlist because its mechanism is the firm's strongest known real edge (QRB-6), and it is the candidate to revisit if H1 fails — but it does NOT clear G1 on honest priors."
+    alpha_source_mechanism: >
+      ECONOMIC: information diffusion. A rate decision is a dated, scheduled information shock.
+      The full repricing does not complete in the first minute — there is a measurable multi-hour
+      directional drift as the market digests the statement, press conference, and dot-plot. This
+      is the QRB-6 mechanism, which the firm previously found REAL (post-decision reaction alive
+      even post-2015, p=0.0027) but UN-CONFIRMABLE on DAILY data because one bank gives only
+      ~8 events/yr — needing 28–256yr to confirm.
+    instrument_universe: "Decision-pair-matched: each CB decision maps to its currency's USD pair (Fed→all USD pairs, ECB→EURUSD/EURGBP, BoE→GBPUSD/EURGBP, BoJ→USDJPY, RBA→AUDUSD, BoC→USDCAD, SNB→USDCHF, RBNZ→NZDUSD). 842 dated decisions 2010–2026 across 8 banks."
+    events_per_year_1h: "60–110 honest. Pooling 8 banks x ~8 decisions/yr ≈ 64 decision-events/yr; at 1h granularity each decision yields a multi-bar drift window (treat the WINDOW as the event, not each bar, to avoid double-counting). After matching to liquid pairs and the G5 haircut (Fed decisions hit multiple USD pairs — same shock, NOT independent → heavy haircut) N_effective ≈ 60–90/yr."
+    per_event_sharpe: "0.12–0.20 IR per event (HIGHEST per-event quality — a real shock, multi-bar hold, large move vs cost). Use 0.12 for the gate."
+    confirmability_horizon: >
+      LOW-END (gate-governing): IR=0.12 → N_required ≈ 429. At 75 events/yr → ~5.7yr (STRETCH/FAIL).
+      Even WITH the sub-event decomposition to ~140 ev/yr → 429/140 ≈ 3.1yr → STILL STRETCH. The only
+      path to ≤2yr stacks BOTH the high-end IR (0.15 → N_required ≈ 275) AND the sub-event doubling
+      (→ 275/140 ≈ 2.0yr) — and the honesty defaults forbid stacking two optimistic assumptions, AND
+      the sub-event decomposition is itself flagged as a possible data-mining artifact (KG-3). HONEST
+      VERDICT: STRETCH (~3.1yr best honest case). It does NOT clear G1 on priors. [Corrected after
+      quick-critic flagged the high-IR + sub-event double-stack as exactly the optimism the rubric
+      forbids.]
+    why_1h_makes_it_confirmable: >
+      The drift is an INTRADAY phenomenon (hours after the release) that daily bars cannot resolve
+      at all — daily collapses the entire reaction into one bar. 1h both exposes the drift AND lets
+      one decision contribute multiple sub-event observations. Pooling 8 banks turns QRB-6's
+      ~8 ev/yr into ~75–140, the difference between 28–256yr (un-confirmable) and ~2–4yr.
+    most_likely_failure_mode: >
+      EVENT-COUNT-CAPPED + NON-STATIONARY (G6): the calendar hard-caps events; and the drift sign
+      depends on the macro regime (hiking vs cutting), so a 2021→2025 window spanning ZIRP→hikes→cuts
+      may show an unstable/sign-flipping edge — the exact failure that wound QRB-6 down. The
+      sub-event decomposition (the thing that gets it under 2yr) may also be a data-mining artifact.
+    research_cost: "MEDIUM — CB date dataset already acquired (842 dates, references/cb_decision_dates_PROVENANCE.md); needs the intraday-window event-study harness."
+
+  - rank: 3
+    id: H3
+    name: "Time-of-day liquidity/spread microstructure: London–NY-overlap volatility-expansion breakout, POOLED"
+    disposition: STRETCH
+    alpha_source_mechanism: >
+      MICROSTRUCTURE: the London–NY overlap (12:00–16:00 UTC) is the single highest-liquidity,
+      highest-volatility window (verified ~21–25 pip ranges vs ~6–10 pip in Asia). Tightest spreads
+      AND largest ranges co-occur → the best signal-to-cost ratio of any window. A range expansion
+      that begins in the overlap tends to follow through because that is when real directional flow
+      concentrates. Distinct from H1 (which anchors to the OPEN); H3 anchors to the OVERLAP and
+      conditions on a volatility-expansion + tight-spread filter.
+    instrument_universe: "Same 8 liquid majors as H1; overlap window only."
+    events_per_year_1h: "150–250 honest, pooled (1 qualified overlap-expansion/day x ~250 days x 8 pairs, heavily filtered for the expansion+spread condition; G5 haircut for USD-leg sharing)."
+    per_event_sharpe: "0.06–0.10 IR per event, post-cost (tight overlap spreads help, but the edge overlaps materially with H1 → likely partially redundant)."
+    confirmability_horizon: >
+      At IR=0.08, N_required ≈ 966; at 200 ev/yr → ~4.8yr (STRETCH). Crosses 2yr only at IR≈0.13
+      (optimistic) or by pooling all 12 pairs. DISPOSITION: STRETCH — parked, because it is
+      largely a re-cut of H1's flow mechanism and would compete for the same backtest slot. Advance
+      only if H1 fails and the overlap-conditioning is shown to add orthogonal signal.
+    why_1h_makes_it_confirmable: >
+      Time-of-day microstructure is invisible on daily bars (one bar/day has no overlap window).
+      1h exposes it; pooling raises the event rate. Still STRETCH because the per-event edge is
+      thin and redundant with H1.
+    most_likely_failure_mode: >
+      REDUNDANCY + THIN EDGE: H3 likely captures the same flow as H1, so it adds little orthogonal
+      confirmable alpha; and once the volatility-expansion filter is tight enough to be meaningful,
+      events/yr drops back toward the un-confirmable zone (the classic filter-vs-event-count tension).
+    research_cost: "LOW-MEDIUM — shares the H1 harness."
+
+  - rank: 4
+    id: H4
+    name: "Carry-rollover timing: 17:00 ET (21:00 UTC) rollover-window flow in high-differential pairs"
+    disposition: "FAIL (archive). A ~19yr honest horizon is a hard G1 FAIL (STRETCH is defined as 2–3yr, not 19yr). [Corrected after quick-critic: prior 'STRETCH' label was inconsistent with its own 19yr computation.] Archived to the falsification log; do NOT re-queue for refinement without new evidence that lifts events/yr or IR by an order of magnitude — which the small carry-relevant universe cannot supply."
+    alpha_source_mechanism: >
+      STRUCTURAL/MECHANICAL: swap/rollover is credited/debited at the 17:00 ET daily boundary, and
+      triple-swap on Wednesdays. There is a documented tendency for positioning flow to cluster
+      around the rollover boundary in high-interest-differential pairs (e.g. USDJPY, AUDUSD,
+      NZDUSD) as carry traders manage roll. A mechanical, calendar-anchored micro-flow — the
+      intraday analogue of the firm's prior (daily) carry work, which reached RULE_4_AMBIGUOUS.
+    instrument_universe: "High-differential pairs only: USDJPY, AUDUSD, NZDUSD, USDCAD (carry-relevant). Small universe → limited pooling."
+    events_per_year_1h: "60–120 honest (one rollover window/day x ~250 days but only the high-differential pairs qualify, and only when the differential is large enough to matter → heavily regime-gated)."
+    per_event_sharpe: "0.04–0.08 IR per event, post-cost. THIN — the rollover micro-move is small and the round-trip cost in a 1h hold is a large fraction of it."
+    confirmability_horizon: >
+      At IR=0.06, N_required ≈ 1717; at 90 ev/yr → ~19yr — FAILS G1 badly on a small pair set.
+      DISPOSITION: STRETCH/borderline-FAIL — kept on the shortlist ONLY because it has a genuine
+      mechanical mechanism (carry, the firm's most-studied edge) and a clean dated anchor, but it
+      does NOT confirm in ≤2yr without an implausible IR. Do NOT grant a slot.
+    why_1h_makes_it_confirmable: >
+      The rollover boundary is a sub-daily event invisible to daily bars. 1h exposes it. BUT the
+      small carry-relevant universe caps pooling, so 1h alone does not rescue it — honest verdict.
+    most_likely_failure_mode: >
+      COST-DOMINATED + REGIME-GATED (G3/G6): the rollover micro-move is smaller than the round-trip
+      cost in most regimes; it only exists when differentials are wide (2022–23), so the edge is
+      regime-conditional and the event count collapses in low-differential regimes (2021, 2024–25).
+    research_cost: "MEDIUM — needs intraday swap-boundary modeling; low expected payoff."
+
+  - rank: 5
+    id: H5
+    name: "Quiet-session mean reversion (Asia / late-NY range fade) — INCLUDED AS A PRE-REGISTERED NEGATIVE CONTROL"
+    disposition: FAIL (cost-dominated by construction — kept as a falsification anchor / NHT-style control)
+    alpha_source_mechanism: >
+      Auction-market: in low-liquidity windows (verified ~6–10 pip ranges, 02–05 and 20–23 UTC)
+      price oscillates within a value area and edges revert to the session mean. Mechanism is real
+      but the capturable move is tiny.
+    instrument_universe: "All pairs, quiet windows."
+    events_per_year_1h: "300–800 (HIGHEST raw event count of any archetype) — which is exactly why it's a seductive trap."
+    per_event_sharpe: "0.00 to NEGATIVE post-cost. FATAL ARITHMETIC: capturable reversion in a 6–10 pip quiet range is ~3–5 pips gross; round-trip cost is 4–5 pips; spread WIDENS in thin liquidity (max 40.7 pips). Net edge ≤ 0 by construction (fails G3)."
+    confirmability_horizon: "N/A — the edge is non-positive post-cost, so there is nothing confirmable. Even infinite events cannot confirm a zero/negative edge."
+    why_1h_makes_it_confirmable: "It does NOT. 1h gives it the most events, but events cannot rescue a negative post-cost edge. This is the DATASET-WALL lesson's mirror image: more data does not help when the per-event edge is structurally absent."
+    most_likely_failure_mode: "COST-DOMINATED (G3) — cost exceeds the capturable range in exactly the windows where the setup lives. PRE-DECLARED FAIL."
+    why_kept_on_shortlist: >
+      Deliberately retained as a PRE-REGISTERED NEGATIVE CONTROL. If our harness/cost model ever
+      reports H5 as profitable, that is a red flag that the cost model is wrong or there is a
+      lookahead leak — H5 is the canary. This is sound research hygiene, not a candidate for capital.
+    research_cost: "near-zero — it shares H1/H3 plumbing and serves as a control."
+
+# ============================================================================
+# RANKED DISPOSITION (the slot decision)
+# ============================================================================
+ranked_disposition:
+  # CORRECTED after quick-critic: applying the rubric's own LOW-end-IR honesty default, NO
+  # hypothesis cleanly pre-clears G1 (≤2yr) on priors. This is the honest, expected outcome and
+  # mirrors the firm's DATASET-WALL discipline: we do not manufacture a PASS by cherry-picking IR.
+  grant_backtest_slot_to: []   # none pre-clears G1 on honest priors; the slot is granted on DATA, not on optimism
+  author_and_freeze_pre_registration_first: ["H1"]   # best candidate; most likely to cross 2yr once IR/ev-rate are measured
+  pre_register_second_if_H1_fails: ["H2"]             # STRETCH (~3.1yr honest); firm's strongest known mechanism (QRB-6)
+  park_as_stretch: ["H3"]                              # ~4.8yr; redundant with H1
+  archive_as_fail: ["H4"]                              # ~19yr — hard G1 FAIL; archived to falsification log
+  pre_register_as_negative_control: ["H5"]            # cost-dominated by construction; lookahead/cost-model canary
+  rationale: >
+    H1 is the single highest-EV-per-research-cost candidate — a real recurring FLOW mechanism,
+    multi-bar holds (<30% cost drag), a liftable prior pre-registration scaffold, and the archetype
+    where MULTI-PAIR POOLING most plausibly carries events/yr toward the 2yr hurdle. BUT, honestly,
+    at the rubric-mandated low-end IR it sits at ~3.2yr STRETCH and crosses 2yr only if the data
+    delivers IR≥0.10 AND ev/yr≥350 with rho_bar ≤ ~0.41. So we FREEZE H1's pre-registration now
+    (data-independent work) and grant the backtest SLOT only when the measured data clears G1 — we
+    do not pre-grant a slot on an optimistic prior. H2 is STRETCH (~3.1yr) but is the firm's
+    strongest known real edge (QRB-6); it is the fallback pre-registration. H3 is a STRETCH re-cut
+    of H1. H4 is a hard FAIL (19yr) and is ARCHIVED. H5 is a negative control, never a candidate.
+    NET HONEST POSTURE: this is a "ready-to-confirm" queue, not a "confirmed-PASS" queue — exactly
+    what AC-03 asks for.
+
+# ============================================================================
+# AC-03: HONEST TREATMENT — NO PROFIT PROMISE
+# ============================================================================
+honest_treatment:
+  base_rate: >
+    The quant-research base rate is that the MAJORITY of pre-registered hypotheses FAIL out-of-sample
+    even after passing a confirmability screen. technical-analysis SKILL sec 13: ~95% of backtested
+    systematic strategies fail live; a Sharpe > 3 is suspicious and our >2.26 (3yr) / ~2.0yr hurdle
+    sits near that suspicious zone. Expect H1, H2, H3, H4 to MOSTLY fail OOS. That is the expected,
+    correct outcome, not a malfunction.
+  what_success_means: >
+    Success of THIS prep phase is NOT a profitable system and NOT a passed backtest. It is:
+    "the firm is ready to execute CONFIRMABLE intraday research the moment clean 1h data lands —
+    with zero pre-registered hypotheses needing revision due to data-structure surprises." We are
+    buying optionality and removing the DATASET WALL, not buying alpha.
+  no_profit_promise: true
+  what_we_are_NOT_claiming:
+    - "We are NOT claiming any of H1–H5 will be profitable."
+    - "We are NOT claiming the edges still exist post-2020 (H1/H3 may be arbed out; H2 may be regime-unstable)."
+    - "We are NOT requesting capital, and no execution/order-management code is to be written this phase."
+
+# ============================================================================
+# AC-04: NO PEEKING / PRE-REGISTRATION BEFORE BACKTEST
+# ============================================================================
+no_peeking_attestation:
+  data_inspected_for_these_hypotheses: false
+  basis_for_estimates: >
+    All events/yr, range, and spread figures cited here come from the ALREADY-PUBLISHED,
+    orchestrator-verified EURUSD session/spread profile in the prior intraday dispatch
+    (2026-06-17T02-37-59Z) and the CB-date provenance — NOT from inspecting the (not-yet-landed)
+    12-pair 1h parquet files. As of this artifact, no *_1h.parquet exists in data/processed/ for
+    the multi-pair set; the backfill is in flight. Estimates are deliberately PRE-DATA priors.
+  gate: >
+    Each PASS/STRETCH hypothesis MUST have a frozen PreRegistration YAML filed to
+    references/pre-registrations/ (entry/exit/universe/freq-caps/retirement-triggers) and pass
+    PR verification + NHT null battery BEFORE any 1h bar is loaded for that hypothesis.
+
+# ============================================================================
+# SINGLE HIGHEST-EV PREP ACTION
+# ============================================================================
+single_highest_ev_prep_action: >
+  Route H1 (multi-pair session-open momentum, pooled) to the Quant Researcher to author and FREEZE
+  its PreRegistration YAML NOW — lifting the 2026-05-30 ORB scaffold and the 2026-06-17 EURUSD
+  prioritization — parameterized for an 8-pair POOLED universe with the G5 correlation haircut
+  baked in. This is the highest-EV action because (a) pooling is the specific lever that PLAUSIBLY moves
+  the prior 4–5yr STRETCH toward ≤2yr — conditional on the data delivering IR≥0.10, ev/yr≥350, and
+  rho_bar ≤ ~0.41 (it does NOT clear G1 on the low-end prior alone). [Corrected after quick-critic:
+  pooling does NOT convert STRETCH into a clean pre-data PASS.] (b) the scaffold already exists so research cost is
+  lowest, and (c) freezing it pre-data means the instant the 12-pair backfill lands we can run a
+  genuinely confirmable test with zero re-registration. The firm should not wait for data to start
+  writing the (data-independent) pre-registration.
+
+retirement_criteria_for_H1:
+  - "RETIRE if post-cost expectancy ≤ 0 on the in-sample set (inherits prior ORB BC-CRO-10)."
+  - "RETIRE if honest pooled qualified events/yr < 250 on IS (below this sqrt(N) cannot carry an IR-0.10 edge under 2yr)."
+  - "RETIRE if realized round-trip cost in the session-aware cost model exceeds 6 pips (cost drag pushes net IR < 0.05)."
+  - "RETIRE if the G5 effective-N after the measured cross-pair correlation haircut yields years_to_validate > 2.0yr (the pooling didn't deliver independent events)."
+  - "RETIRE if DSR < 0.95 on any OOS claim (firm-wide gate)."
+
+# ============================================================================
+# KNOWLEDGE GAPS / RESEARCH REQUESTS (I did NOT call web tools — emitting requests)
+# ============================================================================
+knowledge_gaps:
+  - id: KG-1
+    gap: "Empirical decay rate of intraday FX session-open / opening-range-breakout momentum in liquid majors 2010–2025 — is the edge still present post-2020 and at what magnitude? Load-bearing for H1's G6 non-stationarity kill-risk and its honest IR."
+    research_request: "Published intraday-FX session-momentum anomaly decay/half-life literature; EURUSD+GBPUSD London-open momentum persistence post-2020."
+  - id: KG-2
+    gap: "Whether the cross-pair signal correlation (rho_bar) for a pooled session-momentum signal is closer to 0.35 (my G5 assumption) or higher — if USD-leg sharing pushes rho_bar toward 0.5+, H1's effective-N drops and it slips toward STRETCH. MEASURABLE on data post-landing, but a prior from literature would sharpen the pre-registration."
+    research_request: "Typical intraday cross-pair return/signal correlation among USD majors at the 1h horizon during London/NY opens."
+  - id: KG-3
+    gap: "Whether a single CB decision genuinely yields ~2 semi-independent intraday sub-events (open-reaction vs press-conference-reaction) — this decomposition is the ONLY thing that gets H2 under 2yr, and if it's a data-mining artifact H2 reverts to un-confirmable like QRB-6. Needs the intraday event-study run, but a microstructure-literature prior would de-risk the pre-registration."
+    research_request: "Intraday price-discovery profile around scheduled CB rate decisions — single-shock vs multi-stage (statement vs press conference) repricing at the 1h horizon."
+
+# ============================================================================
+# ROUTING (I set direction; owning roles execute — forbidden_skills: python)
+# ============================================================================
+routing:
+  to_quant_researcher: "Author + freeze the H1 PreRegistration YAML (pooled 8-pair session-open momentum) under references/intraday_confirmability_screening_rubric.md, lifting the 2026-05-30 ORB scaffold. Then H2 (CB intraday drift) as the second pre-reg, with the sub-event decomposition flagged as its G1 make-or-break."
+  to_cro: "Supply the session-aware AND cross-pair per-bar 1h cost model (the ~4.5 pip RT and Asia/London/NY/overlap spread variation) for all 8 pooled pairs — load-bearing for every G3 check."
+  to_nht: "Pre-spec the null battery (random-entry, session-time-only, single-pair-vs-pooled) that H1/H2 must survive; confirm the G5 pooling haircut is not gameable."
+  to_quant_developer: "Confirm engine fitness at 1h for a POOLED multi-pair run: weekend-gap no-forward-fill, per-pair session filtering, per-pair per-bar cost, and the sacred no-lookahead guarantee under pooled signals."
+  to_pm: "Verify years_to_validate independently for each pre-reg; confirm data-peeking absence; gate the backtest slot on PR sign-off."
+
+self_critique:
+  - "H2's PASS hinges entirely on the sub-event decomposition (KG-3). If that's an artifact, H2 is QRB-6 redux. I have flagged it as make-or-break rather than pretending it cleanly passes."
+  - "H1's PASS hinges on the rho_bar=0.35 pooling-haircut prior (KG-2). If real cross-pair correlation is higher, H1 slips to STRETCH. The retirement criterion for H1 makes this machine-checkable post-data."
+  - "I did NOT inspect the 12-pair 1h data (it isn't landed) — all estimates are honest pre-data priors from already-published EURUSD profiles. This preserves AC-04 but means the horizons are estimates, not measurements."

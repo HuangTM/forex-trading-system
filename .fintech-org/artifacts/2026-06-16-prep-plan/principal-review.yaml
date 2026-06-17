@@ -1,0 +1,361 @@
+# =============================================================================
+# PRINCIPAL REVIEWER — independent review of the while-we-wait prep plan
+# Structurally independent. Other roles' approval stances were NOT in context.
+# =============================================================================
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-17T05:57:38Z"
+subtask_ref: "prep-plan-while-backfill-2026-06-16"
+no-capital-instruction: true
+
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection
+  - hidden-bug-and-edge-case-surfacing
+  - test-coverage-and-test-quality-review
+
+contamination-check: "clean"
+# The prompt stated other roles' decision fields had been STRIPPED and explicitly
+# instructed me to judge artifacts on their merits, not on whether others approved.
+# No approval/reject stance, no author self-review justification, and no CEO
+# preference about these artifacts appeared in my context. Independence intact.
+
+artifact-under-review:
+  - "pm-acceptance-criteria.yaml (PM, acceptance-criteria)"
+  - "cto-infra-prep.yaml (CTO, methodology-design)"
+  - "cro-risk-gates.yaml (CRO, methodology-design)"
+  - "hoqr-hypothesis-prep.yaml (HoQR, methodology-design)"
+  - "ml-methodology-prep.yaml (ML, methodology-design)"
+  - "nht-dissent.yaml (NHT, dissent)"
+
+rubrics-applied:
+  - "Spec-to-implementation trace: APPLIED (AC-01..AC-06 vs each role section; SPEC-not-CODE claims verified against repo)."
+  - "execution-firewall-review: APPLIED (research vs execution; spec-vs-code drift; silent-default hunt)."
+  - "log-as-decision-trace: APPLIED to the gate/coverage decision points and kill-switch testability."
+  - "Edge-case enumeration: APPLIED (clean-data, partial-land, zero-volume, DST, midnight-wrap, empty-fold)."
+  - "Invariant search: APPLIED (no-lookahead, EXCLUDE-not-impute, single-source-of-truth for session constants)."
+  - "Test inversion: APPLIED to CTO-D1 test classes and ML leakage-check log-line contract."
+  - "Failure-mode reasoning: APPLIED (data DOA, throttling, spread-column trust)."
+  - "Numerical/statistical correctness: APPLIED (years_to_validate formula, effective-N, DSR N, bar-count arithmetic)."
+
+# =============================================================================
+# EVIDENCE GATHERED INDEPENDENTLY (I read the repo, not just the artifacts)
+# =============================================================================
+evidence-verified:
+  - claim: "CRO CM-2: holding_cost pro-rates swap by days (the banned anti-pattern)."
+    verification: "CONFIRMED. src/forex_system/costs/model.py line 53: `return -daily_swap * days`. Linear pro-rata. No 22:00-UTC rollover check, no 3x-Wed rule in any cost class. CRO's 'REQUIRED CODE CHANGE — not present today' is HONEST."
+  - claim: "CRO/CTO: validate_1h_schema only WARNS on spread, is not an exclusion gate, never checks spread_p90 or median<=p90 ordering."
+    verification: "CONFIRMED. scripts/ingest_dukascopy_1h.py validate_1h_schema() returns a list of issue STRINGS (warnings), only sanity-checks spread_median_pips (>0, finite, <=50). No spread_p90 positivity check, no median<=p90 ordering check, no row exclusion. CRO's KG-4 BUILD-PRECONDITION framing is HONEST."
+  - claim: "CTO: features/ has zero intraday modules; session_filter exists in backtest/."
+    verification: "CONFIRMED. src/forex_system/features/ contains only indicators.py + registry.py. src/forex_system/backtest/session_filter.py exists. Stubs are genuinely net-new."
+  - claim: "No 1h data has landed (no-peeking currently safe)."
+    verification: "CONFIRMED. No *_1h.parquet in data/processed/. No-peeking posture is not yet at risk."
+  - claim: "ML + NHT honest-N = 48."
+    verification: "CONSISTENT. .fintech-org/trials.jsonl has 49 lines (~48 terminal trials). Both artifacts cite N=48; no contradiction between them."
+
+# =============================================================================
+# FINDINGS
+# =============================================================================
+findings:
+
+  - id: F-001
+    severity: blocking
+    location: "cto-infra-prep.yaml — CTO-D2 schema (every pair: min_bars_2yr: 17520) vs CTO-D2 FM-4 mitigation arithmetic"
+    category: numerical
+    observation: >
+      CTO-D2 sets min_bars_2yr = 17520 identically for all 12 pairs. The SAME artifact's
+      FM-4 computes the achievable count: "8760h/yr × 78.6% = ~6885 bars/yr. 2yr ≈ 13,770
+      bars" and asserts "min_bars_2yr = 17,520 is SET DELIBERATELY LOWER THAN CALENDAR-FULL
+      (17,520 = 24×365×2 full calendar)". But 24×365×2 = 17,520 IS the full-calendar count,
+      and it is GREATER than the ~13,770 bars a clean 24x5 forex parquet can actually contain.
+    inference: >
+      The min-bar threshold (17,520) exceeds the maximum achievable bar count (~13,770) for a
+      perfectly clean 2yr parquet. Under CTO-D1 TestPerPairBarCountGate ("gate fails when
+      bar_count < threshold_for_pair"), EVERY clean pair would FAIL the bar-count gate and be
+      EXCLUDED. The gate's EXCLUDE-not-impute posture then removes all 12 pairs from research.
+      The artifact's own FM-4 prose contradicts its own schema number; the prose reasoning is
+      correct and the schema value is wrong. This is the inverse of the QRB-6 failure (there,
+      bad data slipped through; here, all GOOD data is rejected) — same class: an unvalidated
+      threshold constant in a gate.
+    evidence: "cto-infra-prep.yaml CTO-D2 schema block (min_bars_2yr: 17520, repeated 12x); FM-4 mitigation text (bars/yr ≈ 6885, 2yr ≈ 13,770)."
+    recommended-action-class: clarify-spec   # (reviewer forbidden from supplying the corrected number)
+    owning-role: cto
+
+  - id: F-002
+    severity: major
+    location: "Cross-artifact: cro-risk-gates.yaml coverage_gate (per-pair MEASURED fraction >= 0.90 of in-session bars) vs cto-infra-prep.yaml CTO-D2 (max_gap_pct 0.005–0.010 against EXPECTED bar count) — two independent, unreconciled completeness gates."
+    category: spec-drift
+    observation: >
+      CRO defines a HARD pre-freeze coverage gate keyed to MEASURED-cost-bar fraction >= 0.90
+      over the trade window. CTO independently defines a max_gap_pct gate (0.5%–1.0% missing)
+      against expected bar count. These are two different completeness gates with different
+      denominators (CRO: in-session measured-spread bars; CTO: calendar-expected bars) and
+      very different thresholds (CRO tolerates up to 10% missing; CTO tolerates 0.5–1%).
+    inference: >
+      A pair could PASS CTO's gap gate and FAIL CRO's coverage gate, or vice-versa, with no
+      defined precedence. The AC-06 workflow (CTO step 1 runs the gate; nothing runs CRO's
+      coverage gate as a distinct step) does not say which gate is authoritative or that BOTH
+      must pass. The two gates are not contradictory in intent but are unreconciled in
+      mechanism and threshold — a strategy's admitted universe is ambiguous.
+    evidence: "cro-risk-gates.yaml coverage_gate.per_pair_PASS_rules ('MEASURED-bar fraction ... >= 0.90'); cto-infra-prep.yaml CTO-D2 (max_gap_pct 0.005..0.010) and data_to_backtest_workflow step 1 (only CTO-D1 gate named)."
+    recommended-action-class: clarify-spec
+    owning-role: cto   # CTO owns the workflow; reconcile with CRO coverage gate, define precedence and a single AND-of-both admit rule
+
+  - id: F-003
+    severity: major
+    location: "cto-infra-prep.yaml CTO-D2 spread_median_pips_max (3.0–6.0 pips/pair) vs cro-risk-gates.yaml per_pair sanity band (0.1–8 pips) and DEFAULT cost charge = spread_p90_pips"
+    category: spec-drift
+    observation: >
+      CTO gates on spread_MEDIAN ceilings of 3.0 (EURUSD) up to 6.0 (GBPJPY). CRO's per-pair
+      sanity band is 0.1–8 pips on the median, and CRO's binding cost charge is spread_P90,
+      with separate spread_p90_pips_max in CTO (8.0–20.0). CTO itself flags (CTO-D2
+      knowledge_gap + routed_to.cro) that CRO and CTO spread thresholds "must be reconciled"
+      and that discordance is a "research-quality blocker", but the reconciliation has NOT
+      happened in these artifacts — both sets of numbers are pre-data estimates set
+      independently.
+    inference: >
+      The two roles have flagged the dependency but shipped UNRECONCILED numbers. CTO's
+      median ceiling (e.g. EURGBP 3.0) and CRO's band (up to 8.0) can disagree on whether a
+      given pair admits. Because CTO explicitly calls discordance a blocker, shipping both
+      un-reconciled is a self-identified open blocker, not a closed one. Honest disclosure
+      (good) but the condition it raises is unmet.
+    evidence: "cto-infra-prep.yaml CTO-D2 spread_median_pips_max per pair + knowledge_gap_flagged RESEARCH_REQUEST + routed_to.cro; cro-risk-gates.yaml per_pair_PASS_rules sanity band 0.1–8 + binding_constraints 'Default cost charge = spread_p90_pips'."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: cro   # CRO supplies authoritative per-pair spread priors; CTO ceilings then derive from them
+
+  - id: F-004
+    severity: major
+    location: "Cross-artifact: nht-dissent.yaml NHT-D2 (blind structural data-quality report is the ONLY permitted data contact before freeze; shortlist must be EXPANDABLE after it) vs hoqr-hypothesis-prep.yaml (freeze H1 pre-registration NOW) and pm-acceptance-criteria.yaml AC-06 (no blind-report step)"
+    category: invariant-violation
+    observation: >
+      NHT-D2 issues a RULING (not a suggestion): pre-registrations may be authored now but the
+      shortlist "must be EXPANDABLE after a BLIND data-quality report ... That blind report is
+      the only data contact permitted before freeze." HoQR's single_highest_ev_prep_action
+      freezes H1 NOW. The PM AC-06 workflow has no blind-structural-report step between
+      data-quality-gate and pre-registration finalize, and no expandability window.
+    inference: >
+      There is an unresolved sequencing conflict. If H1 is frozen NOW (HoQR) but NHT requires
+      the shortlist to remain expandable until a blind structural report is seen, then either
+      (a) H1's freeze is premature under NHT's ruling, or (b) NHT's ruling is not honored in
+      the workflow. Both the no-peeking invariant (don't see data before freeze) and the
+      anti-anchoring mitigation (allow structural-only expansion) are load-bearing, and the
+      plan does not encode the one permitted exception NHT carved. The dissent is marked
+      "must appear verbatim in CONSENSUS" but the workflow does not operationalize D2.
+    evidence: "nht-dissent.yaml NHT-D2 verbatim + dissent-summary item (3); hoqr-hypothesis-prep.yaml single_highest_ev_prep_action ('FREEZE its PreRegistration YAML NOW'); pm-acceptance-criteria.yaml AC-06 steps (no blind-report / expandability step)."
+    recommended-action-class: clarify-spec
+    owning-role: head-of-quant-research   # reconcile freeze-now vs NHT blind-structural-report-then-expandable
+
+  - id: F-005
+    severity: major
+    location: "Cross-artifact: nht-dissent.yaml NHT-D5/RR-2 (per-pair LAND/PARTIAL/MISSING status + explicit 'data partially/never lands' workflow branch + spread-column CORRECTNESS check) vs pm-acceptance-criteria.yaml AC-06 + cto-infra-prep.yaml workflow"
+    category: edge-case
+    observation: >
+      NHT-D5 requires (i) a per-pair LAND/PARTIAL/MISSING status, (ii) a spread-column
+      CORRECTNESS check (not just presence/plausibility), and (iii) an explicit AC-06 branch
+      for "data partially/never lands". CTO FM-6 addresses partial landing for the per-pair
+      gate, and CTO step 2 has an on_fail. But neither the PM AC-06 nor the CTO workflow
+      contains a spread-column END-TO-END CORRECTNESS check (independent reconstruction); the
+      existing validate_1h_schema (verified) checks presence + plausibility ONLY. No artifact
+      owns a never-lands terminal branch ("if Dukascopy throttling means data never arrives
+      clean, the plan does X").
+    inference: >
+      The plan's single most catastrophic dependency — a wrong/mis-scaled spread column —
+      is checked only for presence and a 50-pip plausibility ceiling, which is exactly the
+      class of silent corruption that VOIDED the first QRB-6 run (different field, same
+      failure mode). NHT and CRO (R-4 venue mismatch) both flag spread trust; the plan
+      acknowledges it as a KNOWLEDGE_GAP / RESEARCH_REQUEST but does NOT make a spread
+      correctness gate a precondition in the workflow. "Data never lands" has no defined
+      terminal state, so the entire plan is conditioned on an assumption the firm's own
+      history (4-day run got ~1.6%) says is uncertain.
+    evidence: "nht-dissent.yaml NHT-D5 verbatim + research-requests RR-1/RR-2; verified validate_1h_schema (presence + <=50 plausibility only, no correctness reconstruction); pm-acceptance-criteria.yaml assumptions[0] ('clean ... lands') as load-bearing assumption; cto data_to_backtest_workflow (no spread-correctness step, no never-lands branch)."
+    recommended-action-class: add-edge-case-handling
+    owning-role: cto   # CTO owns the data-quality gate + workflow; spread-correctness check + LAND/PARTIAL/MISSING/NEVER branch belong there
+
+  - id: F-006
+    severity: minor
+    location: "ml-methodology-prep.yaml dsr.org_wide_trial_count_N: 48 vs hoqr-hypothesis-prep.yaml honest_treatment + horizon math (N_required ≈ 6.18 / IR^2)"
+    category: numerical
+    observation: >
+      ML pins DSR deflation to org-wide N=48 and states effective-N >= logged-N for searched
+      families. HoQR computes years_to_validate from N_required ≈ 6.18/IR^2 (a per-hypothesis
+      sample-size-for-power), a DIFFERENT N than the DSR deflation N. Both are correct in their
+      own context but the artifacts never state they are different quantities, and a reader
+      could conflate "N=48 deflation" with the "N_required" in the confirmability formula.
+    inference: >
+      Low risk of an actual error (both formulas are individually sound), but the unlabeled
+      collision of two distinct "N" concepts is exactly the kind of ambiguity that produced
+      the broken-DSR-gate reset. A one-line disambiguation prevents a future mis-application.
+    evidence: "ml-methodology-prep.yaml dsr.org_wide_trial_count_N + effective_N_caveat; hoqr-hypothesis-prep.yaml D1 ('N_required ≈ 6.18 / IR_per_event^2') and per-hypothesis confirmability_horizon blocks."
+    recommended-action-class: clarify-spec
+    owning-role: ml-researcher
+
+  - id: F-007
+    severity: minor
+    location: "hoqr-hypothesis-prep.yaml H1 disposition 'STRETCH-leaning-PASS' + ranked_disposition (grant_backtest_slot_to: []) vs pm-acceptance-criteria.yaml AC-02 HoQR ('confirmability horizon ... must be ≤ 2yr to proceed')"
+    category: spec-drift
+    observation: >
+      AC-02's HoQR deliverable requires each hypothesis's honest confirmability horizon to be
+      <=2yr "to proceed". HoQR's own corrected analysis concludes NO candidate clears the 2yr
+      gate on honest low-end priors (H1 ~3.2yr STRETCH; H2 ~3.1yr; H3 ~4.8yr; H4 ~19yr FAIL;
+      H5 negative). grant_backtest_slot_to is correctly empty. But the plan still routes H1 to
+      be FROZEN as a pre-registration now, and AC-06 step 6 grants a backtest slot — for a
+      hypothesis that does not pre-clear the gate.
+    inference: >
+      This is HONEST (HoQR explicitly says the slot is granted on DATA not optimism, and the
+      self-critique flags the cherry-pick it removed). It is NOT a violation: freezing a
+      data-independent pre-registration whose slot is contingent on measured IR/ev-rate
+      clearing G1 is consistent with AC-03. But the workflow should state explicitly that H1's
+      backtest slot remains BLOCKED unless measured data moves it <=2yr, so a future reader
+      does not treat "H1 pre-registered" as "H1 approved to backtest". The gate-contingency is
+      in the prose but not in the AC-06 step list.
+    evidence: "hoqr-hypothesis-prep.yaml ranked_disposition.grant_backtest_slot_to: [] + H1 disposition; pm-acceptance-criteria.yaml AC-02 head-of-quant-research ('≤ 2yr to proceed') + AC-06 step 6."
+    recommended-action-class: clarify-spec
+    owning-role: head-of-quant-research
+
+  - id: F-008
+    severity: observation
+    location: "Whole plan — NHT-D1 infrastructure-theater self-test"
+    category: other
+    observation: >
+      NHT-D1 raises the firm's own documented kill-criterion ("producing infrastructure, not
+      insight") and requires every artifact to carry an explicit 'expected-value mechanism'
+      line naming the decision it gates. CTO (why_raises_ev per deliverable) and CRO (gate ties
+      to VOIDED-trial) satisfy this. ML and HoQR articulate it in prose. The PM plan does not
+      add a per-artifact decision-gated EV line as NHT-D1 demands.
+    inference: >
+      Not blocking. The prep work is genuinely decision-gating (each artifact removes a degree
+      of freedom or prevents a re-run), so it is not theater by NHT's own test. But NHT-D1's
+      required mitigation (every artifact names the decision it gates, or is cut) is not
+      uniformly enforced across the six artifacts. Worth a uniform EV-mechanism line at
+      consensus assembly.
+    evidence: "nht-dissent.yaml NHT-D1 verbatim; cto why_raises_ev fields; cro coverage_gate rationale."
+    recommended-action-class: other
+    owning-role: pm
+
+# =============================================================================
+# PREMISE ASSESSMENT (does the plan correctly answer the CEO?)
+# =============================================================================
+premise-assessment:
+  ceo-question: "Can CTO/CRO/ML learn their domain to create a money-earning system while data backfills?"
+  plan-answer: >
+    The plan REFRAMES correctly. Learning is not the lever (domain expertise is presumed and
+    abundant per AC assumptions; the firm has run 48 rigorous trials). The lever is
+    READINESS-FOR-CONFIRMABLE-RESEARCH: durable artifacts that ensure the instant clean 1h
+    data lands, confirmable intraday research can begin with no re-registration and no
+    infrastructure scramble. NHT sharpens this into a category-error diagnosis (profit is an
+    OUTCOME with a low base rate, not an assignable task) and HoQR/ML add the honest unlock
+    thesis (1h multiplies events/yr; multi-pair pooling is the specific lever) WITHOUT
+    overclaiming (NHT-D3: the wall likely MOVES to ~1.5-3yr, not breaks; HoQR: no candidate
+    pre-clears 2yr on honest priors).
+  verdict: "CORRECT and NOT overclaiming. The reframe is the strongest part of the plan."
+
+# =============================================================================
+# AC-BY-AC COMPLETENESS
+# =============================================================================
+ac-completeness:
+  AC-01_deliverables-not-study: "MET. Every role names a file/artifact (test file, gate YAML, stubs, rubric, pre-reg, null battery, honest-N protocol). No study-only outputs."
+  AC-02_per-role-prep: "MET with conditions. All required role deliverables present. Conditions: F-001 (CTO bar-count threshold rejects clean data), F-002/F-003 (CTO/CRO gate + spread reconciliation unmet — self-identified blocker), F-004 (HoQR freeze-now vs NHT blind-report unresolved)."
+  AC-03_honest-O2: "MET. Verbatim base-rate statements present in CTO (base_rate_statement), HoQR (honest_treatment, technical-analysis ~95% fail), ML (honest_statement 'does NOT manufacture alpha'), NHT (D4 ~15%). No profit/expected-return/'will earn money' phrasing found in any role section. Success defined as research-readiness. PASS_when conditions satisfied."
+  AC-04_guardrails: "MET. no_live_capital, no_peeking_fishing (named in CTO + HoQR + NHT, strengthened by NHT-D2), pre_registration_required end-to-end (author→review→file→unlock), execution_researcher_firewall (CTO firewall_review structural), trial_counter_unchanged stated by all. No role loads/inspects 1h data; no execution code proposed."
+  AC-05_out-of-scope: "MET. All six mandatory entries present verbatim/equivalent in PM out-of-scope and CTO out_of_scope. No item contradicted elsewhere."
+  AC-06_workflow-sequencing: "PARTIALLY MET — see F-004, F-005, F-007. The 6-step ordered DAG is present (gate→publish→prereg-finalize→PR-sign→NHT-freeze→CEO-grant) and CEO is named as required approver for scope expansion (step 6). MISSING: NHT-D2 blind-structural-report step, NHT-D5 spread-correctness check + never-lands branch, and an explicit statement that a >2yr-on-priors pre-reg's slot stays blocked until measured data clears G1."
+
+# =============================================================================
+# HONESTY / O1 INTEGRITY ASSESSMENT
+# =============================================================================
+o1-integrity:
+  spec-vs-code-honesty: >
+    STRONG. Both CTO and CRO explicitly and accurately label what is SPEC vs CODE. CRO's
+    enforcement_status_HONEST blocks and KG-4 BUILD-PRECONDITION are verified-accurate against
+    the repo (holding_cost pro-rates by days; validate_1h_schema warns-not-excludes; no
+    spread_p90 ordering check). This is exactly the SPEC-treated-as-CODE gap that voided a
+    prior trial, and the artifacts do NOT make that mistake — they call it out loudly. This is
+    the plan's second strongest feature after the reframe.
+  no-clean-data-assumption-smuggled: >
+    MOSTLY. ML and HoQR explicitly condition on a post-backfill data-quality gate and label
+    estimates as pre-data priors. NHT-D5 correctly flags that PM assumptions[0] ('clean data
+    lands') is load-bearing without a failure branch — F-005 carries this. No role pretends
+    the data is already clean.
+  no-profit-promise: "CLEAN. No forward-looking profit claim found in any artifact (AC-03 fail_when not triggered)."
+  exclude-not-impute-consistency: "CONSISTENT across CTO (gate_behavior.on_fail: EXCLUDE) and CRO (EXCLUDE-NOT-IMPUTE binding). Directly remediates the QRB-6 zero-imputation void. No imputation path proposed."
+
+# =============================================================================
+# LOAD-BEARING RISKS NO ROLE FULLY CAUGHT
+# =============================================================================
+reviewer-surfaced-risks:
+  - id: PR-RISK-1
+    risk: >
+      F-001 — the min_bars_2yr=17520 threshold exceeds the maximum achievable clean bar count
+      (~13,770), so the bar-count gate as specified would EXCLUDE every clean pair. No role
+      caught this; CTO's own FM-4 prose contains the disproving arithmetic but the schema value
+      was not corrected. This is the single most important finding: it would silently empty the
+      research universe at the exact moment the data lands clean, inverting the gate's purpose.
+  - id: PR-RISK-2
+    risk: >
+      F-002/F-003 — there are TWO independent completeness gates (CTO max_gap_pct vs CRO
+      MEASURED-fraction>=0.90) and TWO independent spread-threshold sets (CTO median ceilings
+      vs CRO p90-default + sanity band) with no defined precedence and an unmet, self-declared
+      reconciliation blocker. A pair's admit/exclude verdict is currently ambiguous.
+  - id: PR-RISK-3
+    risk: >
+      F-005 — spread-column CORRECTNESS (independent reconstruction) is a RESEARCH_REQUEST, not
+      a workflow precondition. The current code checks presence + a 50-pip plausibility ceiling
+      only. A mis-scaled-but-plausible spread (e.g. JPY-pip scaling error producing values
+      under 50) would pass every existing check and silently corrupt all TCA — the QRB-6 failure
+      mode in a new field. NHT flagged the need; the plan did not make it a gate.
+
+# =============================================================================
+# COVERAGE
+# =============================================================================
+coverage-statement: >
+  I reviewed 6 of 6 artifacts in scope (PM, CTO, CRO, HoQR, ML, NHT). None skipped. I additionally
+  read the real repo to verify the SPEC-not-CODE claims: src/forex_system/costs/model.py
+  (holding_cost), scripts/ingest_dukascopy_1h.py (validate_1h_schema), src/forex_system/features/
+  (no intraday modules), src/forex_system/backtest/session_filter.py (exists), data/processed/
+  (no 1h parquets), .fintech-org/trials.jsonl (49 lines / N≈48). All SPEC-vs-CODE honesty claims
+  verified TRUE.
+
+time-spent-reasoning: "~25 minutes (read 6 artifacts in full + 5 repo verifications + cross-artifact contradiction trace)."
+
+# =============================================================================
+# DECISION
+# =============================================================================
+decision-rationale: >
+  APPROVE-WITH-CONDITIONS. The plan's SHAPE, premise reframe, O1/SPEC-vs-CODE honesty, and
+  AC-03 no-profit discipline are strong and largely correct — this is a defensible, decision-
+  gating use of the wait, not infrastructure theater. However there is ONE blocking finding
+  (F-001: the bar-count gate threshold would reject all clean data) that must be fixed before
+  the gate is run, plus three major cross-artifact reconciliation gaps (F-002/F-003 dual gates
+  + unreconciled spread thresholds; F-004 freeze-now vs NHT blind-report; F-005 missing spread-
+  correctness gate + never-lands branch). Because F-001 is blocking, this review's disposition
+  is approve-with-conditions: the PLAN may stand as the agreed direction, but the CTO-D2 gate
+  MUST NOT be run against landed data until F-001 is corrected, and the AC-06 workflow MUST
+  encode F-004/F-005 before any pre-registration is frozen.
+
+single-most-important-condition: >
+  Fix F-001 before the data-quality gate is ever run: the per-pair min_bars threshold must be
+  set BELOW the maximum achievable clean 24x5 bar count (CTO's own FM-4 computes ~13,770 for 2yr),
+  not at/above the full-calendar 17,520. As specified, a perfectly clean parquet fails the
+  bar-count gate and is EXCLUDED, silently emptying the research universe. (I state the defect
+  and its evidence; the corrected constant is CTO's to set and re-validate against real density.)
+
+conditions:
+  - "BLOCKING (F-001): correct min_bars_2yr/5yr per pair to below achievable clean bar count; re-validate against measured Dukascopy 1h density before the gate runs."
+  - "MAJOR (F-002): define a single authoritative completeness rule (precedence or AND-of-both) reconciling CTO max_gap_pct and CRO MEASURED-fraction>=0.90; add CRO coverage gate as a named AC-06 step."
+  - "MAJOR (F-003): CRO supplies authoritative per-pair spread priors; CTO median/p90 ceilings derive from them; close CTO's self-declared discordance blocker before gate run."
+  - "MAJOR (F-004): reconcile HoQR freeze-H1-now with NHT-D2 blind-structural-report-then-expandable; encode the one permitted pre-freeze data contact in AC-06."
+  - "MAJOR (F-005): add a spread-column END-TO-END CORRECTNESS check (independent reconstruction, per NHT RR-1) as a workflow precondition, plus per-pair LAND/PARTIAL/MISSING/NEVER status and a never-lands terminal branch."
+  - "MINOR (F-006, F-007): disambiguate DSR-N vs N_required; state explicitly that a >2yr-on-priors pre-reg's backtest slot stays BLOCKED until measured data clears G1."
+
+knowledge-gaps:
+  - "I could not execute the ingest or run the gate (no landed 1h data exists; runtime behavior of validate_1h_schema on real data unverifiable). F-001 is a static-arithmetic finding, not a runtime observation — but the corrected threshold's fitness can only be confirmed against measured 1h density once data lands."
+  - "Spread-column correctness (NHT RR-1) is unverifiable by me: no landed pair, no independent reference feed in-repo. I confirm the GAP exists in the workflow; I cannot confirm the spread values themselves are right or wrong."
+  - "config/default.yaml uses a list-of-{symbol:} format, not the dict format CTO-D2's mental model implies; CTO correctly notes only 3 pairs are in config today and the gate YAML must cover all 12 from the manifest. Not a finding — flagged so a future implementer does not assume a dict keyed by pair."
+
+contamination-check-final: "clean"
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0

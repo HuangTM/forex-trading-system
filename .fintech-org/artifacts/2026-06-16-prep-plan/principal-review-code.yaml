@@ -1,0 +1,350 @@
+role: principal-reviewer
+artifact_type: review
+decision: approve-with-conditions
+timestamp: "2026-06-17T17:38:24Z"
+no-capital-instruction: true
+
+claimed_domains:
+  - independent-code-review
+  - independent-algorithm-review
+  - hidden-bug-and-edge-case-surfacing
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review
+
+artifact-under-review:
+  description: >
+    Two CEO-authorized build-preconditions implemented by Quant Developer from frozen
+    CTO/CRO specs: (1) the 1h data-quality EXCLUDE gate; (2) the rollover-aware swap cost model.
+  files:
+    - src/forex_system/data/quality_gate_1h.py        # NEW gate callable
+    - config/data_quality_gates_1h.yaml               # NEW per-pair thresholds
+    - src/forex_system/costs/model.py                 # MODIFIED — RolloverAwareRealisticCostModel
+    - tests/data/test_quality_gate_1h.py              # NEW (38 tests)
+    - tests/costs/test_rollover_swap.py               # NEW (26 tests; +1 critic = 65 total run)
+  qd_handoff: .fintech-org/artifacts/2026-06-16-prep-plan/qd-implementation.yaml
+  specs_checked_against:
+    - .fintech-org/artifacts/2026-06-16-prep-plan/cto-gate-spec-corrected.yaml
+    - .fintech-org/artifacts/2026-06-16-prep-plan/cro-risk-gates.yaml
+
+contamination-check: "clean"
+# Prompt carried the authoritative specs, the QD handoff, and the code. The QD handoff
+# DOES contain a firewall_self_review block (author self-review). Per role spec this would
+# normally be redacted. I did NOT read it as an approval stance and did not anchor on it;
+# I re-derived every finding from the code and specs directly. Noting its presence for the
+# record. No OTHER role's approve/reject decision or justifying body text was present.
+
+rubrics-applied:
+  - name: "spec-to-implementation-trace"
+    status: applied
+  - name: "execution-firewall-review"
+    status: applied
+  - name: "clock-and-ordering"
+    status: applied  # HIGHEST-RISK rubric for the rollover swap
+  - name: "log-as-decision-trace"
+    status: applied
+  - name: "edge-case-enumeration"
+    status: applied
+  - name: "invariant-search"
+    status: applied  # sacred no-lookahead invariant verified preserved
+  - name: "test-inversion"
+    status: applied
+  - name: "failure-mode-reasoning"
+    status: applied
+  - name: "numerical-statistical-correctness"
+    status: "skipped-mostly — no statistical estimator under review; gate is a deterministic counting/threshold callable. Spread-median is an exact median, no FP-accumulation concern at this scale."
+
+# =============================================================================
+# VERIFICATION PERFORMED (verify means execute)
+# =============================================================================
+verification_performed:
+  - "Ran `pytest tests/costs/test_rollover_swap.py tests/data/test_quality_gate_1h.py -v` → 65 passed, 0 failed (confirmed QD's claim)."
+  - "Constructed and EXECUTED independent adversarial rollover edge cases (Fri->Mon weekend hold, Wed-only span, full week) against count_rollover_crossings — see F-001."
+  - "Executed rollover_cost_for_bar on Sat/Sun 21:00 bars to confirm the per-bar path shares the phantom-weekend-boundary defect."
+  - "Executed _is_in_session boundary checks (Fri20/21, Sun21/22, Mon21/22) — gate weekend window is internally correct and matches spec."
+  - "Grepped engine.py + src tree: confirmed RolloverAwareRealisticCostModel is NOT imported/wired into the engine (KG-QD-3 honest); engine still calls holding_cost(pair, dir, days) positionally (lines 369, 560) → new model's no-timestamp fallback keeps engine behavior unchanged."
+  - "Confirmed sacred test untouched: implementation adds a NEW cost subclass + a NEW module; does not modify engine signal-shift/position logic."
+
+# =============================================================================
+# FINDINGS
+# =============================================================================
+findings:
+
+  - id: F-001
+    severity: major
+    location: "src/forex_system/costs/model.py:40-84 (count_rollover_crossings); 247-287 (rollover_cost_for_bar)"
+    category: correctness
+    title: "Phantom weekend rollover boundaries: swap over-charged on a weekend-spanning hold"
+    observation: >
+      count_rollover_crossings walks every calendar day's 22:00 UTC boundary between entry and
+      exit and charges a single (or Wed-triple) swap at each. For a Friday 10:00 -> Monday 10:00
+      hold it returns n_single=3 (Fri 22:00, Sat 22:00, Sun 22:00). I executed this:
+      count_rollover_crossings(ts('2023-01-06 10:00'), ts('2023-01-09 10:00')) -> (3, 0).
+      rollover_cost_for_bar shares the defect: it charges a Saturday-21:00 bar and a Sunday-21:00
+      bar (executed: both return 1.0 pip).
+    inference: >
+      The FX market is CLOSED Fri 22:00 UTC through Sun 22:00 UTC — Saturday 22:00 and Sunday
+      22:00 are NOT real rollover/financing events. Standard FX swap convention (which CM-2
+      encodes via the Wednesday 3x rule) pre-pays the weekend's two non-trading settlement days
+      on WEDNESDAY; it does not bill an additional single charge on Saturday and Sunday. As
+      written, every weekend-spanning hold is over-charged by ~2 extra days of swap. This
+      DIRECTLY contradicts CRO CM-2 (the swap must reflect real rollover crossings, with the
+      weekend captured by the Wed triple) and is exactly the clock-and-ordering rubric item-9
+      failure class (weekend wrap-around / session-boundary handling).
+      NOTE (scope-limiting, why MAJOR not BLOCKING): the per-bar path (rollover_cost_for_bar),
+      which is the engine-facing accrual API, is in practice driven by REAL bars from the gated
+      parquet — and the gate excludes all Sat/Sun bars. So when fed only real bars, the per-bar
+      path will not see Sat/Sun 21:00 bars and the over-charge does not materialize. The discrete
+      holding_cost(entry_ts, exit_ts) path has NO such protection and over-charges directly. Since
+      neither path is wired into the engine yet (KG-QD-3) and there is no live capital, this is not
+      deployment-blocking today — but it is a latent wrong-number that WILL mis-cost the first 1h
+      backtest that uses the discrete path or feeds synthetic continuous bars, and it must be fixed
+      before this model is wired in.
+    evidence: >
+      Executed: count_rollover_crossings(Fri10:00, Mon10:00) = (3,0).
+      Executed: rollover_cost_for_bar(Sat 21:00)=1.0, (Sun 21:00)=1.0.
+      Spec: cro-risk-gates.yaml CM-2 lines 84-88 ("tripled on Wednesday for the T+2 weekend
+      roll"); session_filters lines 263-268 mark Fri>=21:00..Sun<22:00 as market-closed.
+      The gate module itself (quality_gate_1h.py:55-62) defines this exact weekend-closed window,
+      so the two modules DISAGREE about when the market is open.
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+    must_fix: true
+
+  - id: F-002
+    severity: major
+    location: "tests/costs/test_rollover_swap.py:105-138, 201-209"
+    category: test-coverage-gap
+    title: "No test exercises a full-weekend-spanning hold; existing tests encode the F-001 bug as expected behavior"
+    observation: >
+      The longest holds tested are Mon 10:00 -> Sat 10:00 (test_five_days_four_single_one_triple,
+      test_five_day_hold_mon_to_sat). These assert n_single counts that INCLUDE the Friday 22:00
+      crossing into the closed weekend and stop before Sat/Sun 22:00. No test holds a position
+      from Friday across the weekend into Monday — the exact case that surfaces the phantom Sat/Sun
+      boundaries. The test suite is therefore structured so the F-001 over-charge can never fail a
+      test.
+    inference: >
+      Test inversion: if the implementation silently bills Saturday and Sunday rollovers (it does),
+      NO existing test would catch it. A reviewer trusting "65/65 green" would miss a real
+      cost-correctness bug. This is the canonical "tests describe the input but not the load-bearing
+      invariant (no phantom weekend financing)" anti-pattern.
+    evidence: >
+      grep of the test file for weekend/Fri/Sat/Sun holds returns only the two Mon->Sat cases at
+      lines 131-136 and 201-209. Independent execution of the Fri->Mon case (F-001) is what
+      surfaced the defect; no test covers it.
+    recommended-action-class: add-test
+    owning-role: quant-developer
+    must_fix: true
+
+  - id: F-003
+    severity: minor
+    location: "src/forex_system/data/quality_gate_1h.py:353-401 (step 2 structural-vs-data-quality split); qd-implementation.yaml deviations_from_spec[2]"
+    category: spec-drift
+    title: "QD-documented deviation: validate_1h_schema data-quality warnings down-graded from EXCLUDE to per-bar handling"
+    observation: >
+      CTO spec Section 5 step 2 says: invoke validate_1h_schema; if issues are non-empty and any
+      issue is NOT SPREAD_COL_MISSING_WARNING, return EXCLUDE. The implementation instead
+      partitions schema issues into a hand-maintained _STRUCTURAL_ISSUE_PREFIXES allowlist
+      (early-exit EXCLUDE) and a _DATA_QUALITY_WARNINGS list (deferred to SC-2/SC-5 per-bar
+      exclusion). QD documents this as deviation #2.
+    inference: >
+      The deviation is defensible and arguably MORE faithful to the spec's INTENT (a single
+      zero-volume bar should not EXCLUDE a 12,000-bar pair; it should be a per-bar exclusion feeding
+      measured_spread_fraction). It does NOT weaken the EXCLUDE-not-impute guarantee — a down-graded
+      bar is still dropped from the measured count, never imputed. HOWEVER: the partition is driven
+      by literal substring matching on validate_1h_schema's message strings. If validate_1h_schema
+      ever changes a message string (e.g. renames "bars with volume <= 0"), a genuine structural
+      failure could silently fall through to the data-quality bucket and be down-graded from
+      EXCLUDE to a soft per-bar handling. This is a fragile, string-coupled gate boundary on the
+      load-bearing EXCLUDE path. The CTO authored the step-2 clause; whether this re-interpretation
+      is acceptable is the CTO's call to ratify, not the implementer's to assume.
+    evidence: >
+      quality_gate_1h.py:332-351 defines both string-prefix lists; line 377 does
+      `i.startswith(w) or w in i for w in _DATA_QUALITY_WARNINGS`. No test asserts that an UNKNOWN
+      schema-issue string defaults to the STRUCTURAL (EXCLUDE) bucket — i.e. fail-closed on an
+      unrecognized message.
+    recommended-action-class: clarify-spec
+    owning-role: cto   # ratify the re-interpretation; QD to add a fail-closed default + test if approved
+    must_fix: false
+
+  - id: F-004
+    severity: minor
+    location: "src/forex_system/data/quality_gate_1h.py:353-365 (sys.path mutation + scripts import)"
+    category: maintainability
+    title: "Gate imports validate_1h_schema from scripts/ via runtime sys.path insertion with silent ImportError degrade"
+    observation: >
+      Step 2 inserts the scripts/ dir into sys.path at runtime and imports validate_1h_schema from
+      ingest_dukascopy_1h. On ImportError it sets schema_issues=[] and logs a WARNING, then
+      continues — the structural schema check is silently skipped.
+    inference: >
+      A production data-quality gate depending on a script module via sys.path mutation is brittle
+      (import order, cwd, packaging). More importantly, the ImportError branch degrades the gate to
+      "no structural check" while still emitting ADMIT/EXCLUDE verdicts — a structurally corrupt
+      parquet (bad index, OHLC violation, stale run) could be ADMITted if the import silently fails
+      in some deployment context. The failure mode is named (logged) but the consequence (gate runs
+      WITHOUT its structural layer yet still issues verdicts) is not fail-closed. Per the spec,
+      structural corruption must EXCLUDE; a gate that cannot run its structural check should arguably
+      refuse to ADMIT rather than proceed.
+    evidence: >
+      quality_gate_1h.py:360-364: `except ImportError: schema_issues = []` then proceeds to steps 3-8.
+      No test covers the ImportError degrade path or asserts fail-closed behavior under it.
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+    must_fix: false
+
+  - id: F-005
+    severity: observation
+    location: "src/forex_system/costs/model.py (whole module) + engine.py:369,560"
+    category: other
+    title: "KG-QD-3 confirmed honest: rollover model not wired into engine — tracked follow-on, not a silent gap"
+    observation: >
+      I grepped the engine and src tree: RolloverAwareRealisticCostModel is never imported or
+      constructed by the backtest engine. engine.py calls cost_model.holding_cost(pair, direction,
+      days) positionally (lines 369, 560) with no entry_ts/exit_ts, so any RolloverAware instance
+      passed in would take the pro-rata fallback. The sacred no-lookahead test is untouched.
+    inference: >
+      This matches the QD's KG-QD-3 disclosure exactly. The CM-2 rollover semantics are therefore
+      BUILT but NOT YET ACTIVE in any backtest. This is correctly out-of-scope for this artifact and
+      is honestly tracked. CONDITION: the engine-integration follow-on MUST resolve F-001 before
+      wiring, and CRO's binding constraint "swap charged only across 22:00 UTC rollover (3x Wed)"
+      is not yet enforced in any runnable 1h path until that integration lands. No silent gap;
+      flagged so the orchestrator tracks it as a blocking precondition on the NEXT task, not this one.
+    evidence: "grep: no RolloverAware/count_rollover/rollover_cost_for_bar references outside costs/model.py; engine.py:369,560 positional holding_cost calls."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-developer
+    must_fix: false
+
+  - id: F-006
+    severity: observation
+    location: "src/forex_system/costs/model.py:87-98 (_to_utc_dt); 247-264 (rollover_cost_for_bar tz handling)"
+    category: correctness
+    title: "Clock-naming and tz-handling are disciplined; tz-naive timestamps assumed-UTC (documented)"
+    observation: >
+      All rollover timestamps are normalized to tz-aware UTC. tz-naive inputs are assumed UTC
+      (documented in the count_rollover_crossings docstring). timedelta(days=1) is used to advance
+      the 22:00 boundary with an explicit comment that FX swap is UTC-only and DST-independent.
+    inference: >
+      This is correct for a UTC-only FX dataset (the CRO spec states the dataset is verified-UTC
+      with no venue-local time). clock-and-ordering items 1, 3, 9 (DST) pass for the UTC-only
+      assumption. Residual: the assume-UTC-on-naive behavior is a silent coercion — acceptable here
+      because the dataset is verified-UTC and the engine path is tz-aware, but it would mask a bug
+      if a naive LOCAL-time timestamp were ever passed. Not a finding given the verified-UTC dataset;
+      noted for the integration follow-on.
+    evidence: "model.py:54-57 docstring; :82 timedelta(days=1) DST comment; :87-98 _to_utc_dt coercion."
+    recommended-action-class: other
+    owning-role: quant-developer
+    must_fix: false
+
+# =============================================================================
+# RUBRIC-SPECIFIC SUMMARIES
+# =============================================================================
+clock_and_ordering_summary:
+  rubric_decision_basis: >
+    Item 9 (weekend / session-boundary handling) FAILS via F-001 — phantom Sat/Sun rollover
+    boundaries. Items 1 (clock source named), 3 (tz explicit), 7 (backtest/live clock —
+    no now() in the gate or cost path; rollover is data-timestamp driven), and the no-lookahead
+    item (5) PASS. Per the clock-and-ordering decision matrix, an item-9 finding is "reject"-class
+    in a wired execution path; because the model is NOT wired (F-005) and there is no live capital,
+    I down-grade to approve-with-conditions with F-001/F-002 as must-fix-before-integration.
+  concrete_edge_case_checked:
+    case: "Long EURUSD held Friday 2023-01-06 10:00 UTC -> Monday 2023-01-09 10:00 UTC (full weekend)."
+    correct_answer: >
+      The market is closed Fri 22:00 -> Sun 22:00. A normal weekend-spanning hold should incur the
+      weekend financing ONCE — and under the CM-2/standard convention that weekend charge is
+      pre-paid by the preceding Wednesday's 3x. At most ONE rollover (the Sunday reopen / Friday
+      roll) should be billed for the weekend, NOT three.
+    code_answer: "count_rollover_crossings returned (3, 0) — Fri 22:00 + Sat 22:00 + Sun 22:00 all billed as single charges."
+    verdict: "INCORRECT — over-charges the weekend by ~2 extra swap-days. Confirmed by direct execution."
+  lookahead_found: false
+  lookahead_note: >
+    rollover_cost_for_bar fires on the 21:00 bar (which CLOSES at 22:00), not the 20:00 bar — the
+    cost attaches to the bar whose own period contains the crossing, with no read of a future bar.
+    test_no_lookahead_cost_at_bar_close_time covers this and passes. Sacred engine test untouched.
+
+execution_firewall_summary:
+  section_A_research_in_impl: "PASS — no hardcoded thresholds (all from config/spec), no fillna/clip/winsorize, no lookback windows, no regime branching, no signal transforms in the gate or cost model."
+  section_B_spec_completeness: "PASS — both source specs are complete; thresholds, bands, exclusion semantics, never-lands branch all present."
+  section_C_parameter_sourcing: "PASS — every numeric literal traces to CTO Section 1/2/3/6 or CRO CM-2. The one implementer judgment (structural vs data-quality issue split) is documented as a deviation (F-003)."
+  section_D_observability: "PASS (adequate) — every gate decision boundary and rollover crossing emits a structured log per observability_hooks; verdict/issue/flag counts logged. Minor: the ImportError-degrade (F-004) logs a WARNING but does not fail closed."
+  section_E_integration_tests: "PASS-with-gap — ADMIT, 7x EXCLUDE, ConfigurationError, SC-1..SC-5, trade-window, gap all tested; the weekend-hold cost case is the missing integration test (F-002)."
+  drift_verdict: "No SILENT drift in the gate. The cost model has a MATERIAL semantic drift from CM-2 (F-001) that the tests fail to surface (F-002). The two documented deviations are benign-to-minor (F-003 minor, bar_coverage numerator benign)."
+
+exclude_not_impute_confirmation:
+  verdict: "CONFIRMED — no zero-imputation path exists."
+  evidence: >
+    Read every branch of coverage_gate and _apply_sc_bar_checks. Failing bars are removed from a
+    boolean measured_mask (dropped from the measured count); they are never assigned a synthetic
+    spread/cost. No fillna(), no .clip(), no neighbour-fill, no default-cost substitution anywhere
+    in quality_gate_1h.py. On any gate failure the verdict is EXCLUDE and the pair is dropped, never
+    patched. The SC-1/SC-5 pair-level exclusion was specifically refactored (post-critic) to keep
+    measured_spread_fraction an HONEST per-bar diagnostic rather than zeroing it — and verified by
+    test_sc1_pair_level_exclusion_keeps_honest_fraction (fraction > 0.5 at 10% failure). This is the
+    direct, intact remediation of the QRB-6 zero-imputation void.
+
+documented_deviation_judgments:
+  - deviation: "bar_coverage_pct numerator uses in-session bars only (not raw len(df))."
+    judgment: "BENIGN. Keeps the ratio in [0,1] and is faithful to the spec's stated intent (a coverage fraction). Does not weaken any gate. No action."
+  - deviation: "validate_1h_schema data-quality warnings deferred to per-bar SC handling instead of full-dataset EXCLUDE."
+    judgment: "MINOR / needs CTO ratification — see F-003. Defensible intent-faithful re-read, but the string-coupled, not-fail-closed partition is a fragile boundary on the EXCLUDE path."
+
+# =============================================================================
+# CONDITIONS (must be satisfied before this work is considered done)
+# =============================================================================
+conditions:
+  - id: C-1
+    blocking_for: "wiring RolloverAwareRealisticCostModel into any runnable 1h backtest path"
+    condition: >
+      Fix F-001: count_rollover_crossings and rollover_cost_for_bar must NOT bill Saturday 22:00
+      and Sunday 22:00 (market-closed) boundaries. A weekend-spanning hold must incur the weekend
+      financing consistent with the CM-2 / standard FX convention (weekend pre-paid by the Wed 3x),
+      not three separate single charges. The cost module's notion of "when is the FX market open"
+      must agree with the gate module's weekend-closed window (Fri 21:00 -> Sun 22:00 UTC).
+    owning-role: quant-developer
+  - id: C-2
+    blocking_for: "closing F-001"
+    condition: >
+      Fix F-002: add a test for a full-weekend-spanning hold (e.g. Fri 10:00 -> Mon 10:00) asserting
+      the correct (non-phantom) number of swap charges, plus a Fri->Tue case that also crosses a
+      normal weekday rollover. The test must fail against the current implementation.
+    owning-role: quant-developer
+  - id: C-3
+    blocking_for: "merge (CTO ratification)"
+    condition: >
+      Resolve F-003: CTO ratifies (or rejects) the structural-vs-data-quality step-2 re-interpretation.
+      If ratified, add a fail-closed default (unrecognized schema-issue string -> STRUCTURAL/EXCLUDE
+      bucket) and a test asserting it.
+    owning-role: cto
+  - id: C-4
+    blocking_for: "none (advisory hardening)"
+    condition: >
+      Address F-004: make the validate_1h_schema import failure fail-closed (do not ADMIT when the
+      structural check could not run), or vendor the validator into the package so the sys.path
+      mutation is unnecessary.
+    owning-role: quant-developer
+
+# =============================================================================
+# COVERAGE STATEMENT
+# =============================================================================
+coverage-statement: >
+  I reviewed 5 of 5 artifacts in scope (quality_gate_1h.py, data_quality_gates_1h.yaml,
+  costs/model.py, test_quality_gate_1h.py, test_rollover_swap.py) plus both authoritative specs and
+  the QD handoff, end to end. I executed the full 65-test suite (65 passed) AND ran independent
+  adversarial rollover edge cases not covered by the suite. Nothing in scope was skipped.
+
+time-spent-reasoning: "~30 minutes (read 7 files in full, ran the suite, executed 4 independent edge-case probes, traced engine integration)."
+
+# =============================================================================
+# OVERALL
+# =============================================================================
+overall_verdict: approve-with-conditions
+summary: >
+  The data-quality gate is solid, spec-faithful, and the EXCLUDE-not-impute guarantee is intact and
+  well-tested — it correctly closes the QRB-6 zero-imputation void in code. The rollover swap model
+  is clock-disciplined in its tz handling and no-lookahead bar attribution, BUT contains one MATERIAL
+  correctness bug (F-001): it bills phantom Saturday/Sunday rollover boundaries during a
+  weekend-spanning hold, over-charging swap by ~2 extra days per weekend — a direct drift from CM-2's
+  weekend convention and a clock-and-ordering item-9 failure. The test suite (F-002) is structured so
+  this bug cannot fail a test. Both are down-graded from blocking to must-fix-before-integration only
+  because the model is not yet wired into the engine (F-005, confirmed honest) and there is no live
+  capital. Two minor findings (F-003 string-coupled non-fail-closed schema partition needing CTO
+  ratification; F-004 brittle sys.path import) round out the conditions. Approve to land the work as
+  a tracked prerequisite, with C-1/C-2 as hard preconditions on the engine-integration follow-on.

@@ -1,0 +1,140 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: 2026-06-17T17:10:15Z
+subtask_ref: "h1-session-open-momentum-pooled-prereg"
+subtask_id: qr-h1-prereg
+trial_id: 5fff4c63-cc2e-4939-8f63-6859a711fa53
+counter_burned: false                 # authoring does NOT burn the org-wide trial counter
+status: FROZEN-AWAITING-DATA          # burns once, later, only when spawned as a backtest
+trial-count-at-spawn: 48              # current org-wide N; would be 49 at the moment of spawn
+pre-registration-ref: "references/pre-registrations/h1_session_open_momentum_pooled.md"
+triggers-ref: "references/pre-registrations/h1_session_open_momentum_pooled.triggers.yaml"
+source_rubric: "references/intraday_confirmability_screening_rubric.md"
+hoqr_shortlist_ref: ".fintech-org/artifacts/2026-06-16-prep-plan/hoqr-hypothesis-prep.yaml"
+scaffold_lifted: ".fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/qr-prereg-v2.yaml"
+
+no-capital-instruction: true
+no_execution_code: true               # Execution-Researcher Firewall: declarative spec only
+
+claimed_domains:
+  - hypothesis-formulation-and-pre-registration
+  - falsification-criteria-design
+  - signal-vs-noise-justification
+  - data-snooping-and-look-ahead-prevention
+  - regime-and-period-selection-for-eval
+
+hypothesis: >
+  H1: the directional impulse formed in the first hour after a major FX session open
+  (London 07:00 UTC, New York 13:00 UTC) extends intraday, so taking the position in the
+  SIGN of the qualified opening-range impulse and holding a fixed 3 bars has expected value
+  > 0 net of a conservative session-aware p90 round-trip cost, and -- pooled across 8 majors
+  -- is confirmable in <=2yr. H0 (null tested): pooled session-open momentum is NOT
+  net-of-TCA tradeable (expected value <= 0 after cost / cost-dominated / arbed-out
+  non-stationary remnant); any positive in-sample pooled Sharpe is multiple-testing captured
+  by org-wide Deflated-Sharpe deflation.
+
+universe: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURGBP]
+universe_note: "8 liquid majors POOLED into one return stream. 4 JPY/cross minors NOT in H1's frozen universe."
+
+windows:
+  IS: "2021-01-01T00:00Z .. 2024-05-31T21:00Z  (~3.4yr in-sample / development)"
+  seam_embargo_trading_days: ">=20 (2024-06 discarded; ~480 hourly bars; neither trained nor tested)"
+  OOS_holdout: "2024-07-01T00:00Z .. 2025-12-31T21:00Z  (~1.5yr one-shot)"
+  oos_one_shot: true
+  oos_overlap: false
+
+metric: >
+  PRIMARY = Deflated Sharpe Ratio (Lopez de Prado), net of session-aware per-bar p90
+  round-trip cost, on the POOLED per-trade stream. IS pooled Sharpe via CPCV (N_groups=6,
+  k=2, 15 combos; purge=embargo=~480 bars feature-window-sized per fold). DSR deflated by
+  org-wide trial count at spawn (48 -> 49) and realized pooled skew/kurtosis. PASS bar:
+  DSR >= 0.95. events_per_year is the autocorrelation-corrected, NON-OVERLAPPING,
+  session-clustering-aware, cross-pair-haircut EFFECTIVE count (NHT D6) -- never nominal.
+  Expected Shortfall (97.5%) reported (VaR-only = REJECT). Never report raw Sharpe alone.
+
+frozen_single_structure:
+  entry: >
+    On completed bar at H_open in {07:00, 13:00} UTC: r_open = log(close[H_open]/close[H_open-1h]).
+    LONG if r_open >= +1.0*sigma_sess; SHORT if r_open <= -1.0*sigma_sess; else flat.
+    Direction = sign(impulse) [momentum continuation]. sigma_sess = stdev of 1h log-returns
+    over trailing 20 same-open-hour-class bars, computed strictly from bars <= H_open-1h
+    (current open bar EXCLUDED; window skips weekend/holiday gaps). Engine shifts by
+    entry_delay_bars=1 (no-lookahead; test_no_lookahead must stay green).
+  exit: >
+    Enter at open of H_open+1h; hold fixed 3 bars, exit at close of H_open+3h (time-stop),
+    OR earlier on per-trade adverse stop = 1.5*sigma_sess_pips. NO-TRADE if the 3-bar hold
+    would straddle the weekend/holiday gap.
+  pooling: "identical structure on each of 8 pairs independently; returns pooled; no per-pair tuning/selection."
+  cost: "session-aware per-bar p90 round-trip (CRO) + rollover-aware swap (22:00 UTC, 3x Wed; never pro-rated)."
+  locked_dof: "open-hours {07,13}UTC; impulse=1 bar; kappa=1.0; sigma-lookback=20 same-open-hour-class; momentum sign; hold=3 bars; stop=1.5*sigma; 1 signal/open/pair; p90 cost; size<=0.25 cold-start; weekend NO-TRADE. NO GRID."
+  honest_N: 1
+
+falsification-criteria:
+  - "KILL-0 (power, IS-only): N_oos_expected = f_IS * OOS trading days < 48 -> INSUFFICIENT-POWER, OOS never burned."
+  - "KILL-1 (DSR primary): IS pooled net-of-cost DSR <= 0.95 at org-wide N -> KILL."
+  - "KILL-2 (cost domination): avg net pips/trade <= 0 after session-aware p90 cost on qualified subset -> KILL."
+  - "KILL-3 (directional-edge sanity): pooled directional hit-rate <= 0.50 (impulse did not continue) -> KILL."
+  - "KILL-4 (pooling-fraud/effective-N, G5): post measured rho_bar haircut N_eff=N_raw/(1+(k-1)*rho_bar) years_to_validate > 2.0yr -> KILL."
+  - "KILL-5 (forward-decay, OOS one-shot): OOS pooled net annualized Sharpe < 0.30 -> KILL."
+  - "KILL-6 (sign-inversion, OOS): OOS pooled net Sharpe sign != IS sign -> KILL."
+  - "KILL-7a (pair concentration): any single pair > 50% of pooled net PnL -> KILL (single-name artifact, not breadth)."
+  - "KILL-7b (quarter concentration): any single calendar quarter > 40% of pooled net PnL -> KILL (single-regime artifact)."
+  - "DECISION RULE (machine-readable in .triggers.yaml `decision_rule`): ANY trigger firing -> whole trial FALSIFIED; PASS = logical AND over all gates; pre-OOS gates first, OOS read only if all pre-OOS pass; backtest slot granted only if all 3 pass-conditions clear FIRST."
+  - "PASS requires ALL: KILL-0 cleared AND DSR>=0.95 AND avg net pips>0 AND hit-rate>0.50 AND rho-haircut years<=2.0 AND OOS Sharpe>0.30 AND sign-concordant AND no >50%-pair (7a) AND no >40%-quarter (7b) concentration."
+
+confirmability_pass_conditions_measured_pre_slot:
+  - "IR >= 0.10  (per-event Information Ratio post p90 cost; low-end 0.08 -> ~3.2yr STRETCH)."
+  - "effective events/yr >= 350  (autocorrelation-corrected, non-overlapping, post-filter, post-haircut, pooled)."
+  - "rho_bar <= 0.41  (measured mean cross-pair signal correlation, k=8; above it N_eff haircut pushes past 2.0yr)."
+  - "DISPOSITION RULE: all three must clear FIRST; if any fails on landed data, H1 is STRETCH and the backtest slot is NOT granted (parked), counter not burned."
+
+alpha-source: >
+  A session open is a dated, recurring liquidity event; fresh institutional order flow arrives
+  as a timezone comes online, and a qualified directional impulse in the first hour reflects
+  real participant FLOW (ORB / session-momentum family), not a chart pattern, with a documented
+  but decaying tendency to extend. Under-arbitraged because per-event edge is small vs the cost
+  hurdle; pooling 8 pairs is the lever that makes it confirmable in <=2yr rather than merely
+  present. PRE-REGISTERED REASONS IT WOULD FAIL: (1) non-stationary/arbed-out post-2020 across a
+  ZIRP->hikes->cuts regime sweep (G6; KILL-6 machine-check); (2) redundant with London-NY overlap
+  volatility (no orthogonal alpha); (3) cost domination -- session-open spreads widen at the open
+  (KILL-2, the trial-48 arithmetic); (4) pooling fraud -- shared USD/EUR legs push rho_bar > 0.41,
+  collapsing effective-N (KILL-4); (5) insufficient power -- kappa=1.0 cap thins honest events/yr
+  below the floor (KILL-0).
+
+data_preconditions:
+  - "CTO per-pair data-quality gate ADMIT for every pooled pair (EXCLUDE-not-impute; config/data_quality_gates_1h.yaml)."
+  - "CRO cost-coverage EXCLUDE gate PASS (MEASURED fraction >= 0.90, no >24h in-session gap); default charge = spread_p90_pips."
+  - "Rollover-aware swap implemented (22:00 UTC, 3x Wed; never pro-rated by hour) -- CRO CM-2 / KG-4 build precondition."
+  - "Spread-column correctness verified end-to-end vs independent reconstruction (NHT D5 / RR-1), not merely present/plausible."
+  - "NHT null battery frozen: pooled net-of-TCA Sharpe must BEAT random-entry, session-time-only, daily-momentum-carryover; AND DSR>=0.95."
+  - "Principal-Reviewer counter-signature + CEO backtest-slot grant (cto-infra-prep AC-06 steps 1-6); CEO confirms counter increment at spawn."
+
+evidence:
+  - "HoQR rank-1 shortlist + STRETCH-leaning-PASS disposition: .fintech-org/artifacts/2026-06-16-prep-plan/hoqr-hypothesis-prep.yaml"
+  - "FROZEN confirmability rubric G1-G7 + N_eff=N_raw/(1+(k-1)rho_bar) haircut: references/intraday_confirmability_screening_rubric.md"
+  - "House-style KILL-gate scaffold (trial-48 overnight_mr, DSR>=0.95 + IS-only power gate + feature-window purge): .fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/qr-prereg-v2.yaml"
+  - "CRO binding cost/risk gates (p90 default, rollover-aware swap, EXCLUDE-not-impute, cold-start size<=0.25, ES-not-VaR): .fintech-org/artifacts/2026-06-16-prep-plan/cro-risk-gates.yaml"
+  - "CTO per-pair data-quality gate + AC-06 data->backtest workflow: .fintech-org/artifacts/2026-06-16-prep-plan/cto-infra-prep.yaml"
+  - "NHT null battery + effective-N (D6) + spread-correctness/DOA branch (D5/RR-1): .fintech-org/artifacts/2026-06-16-prep-plan/nht-dissent.yaml"
+  - "Lopez de Prado (DSR/CPCV): never report raw Sharpe; purge+embargo cover the feature window, not the label."
+  - "Org trial count = 48 (trials.jsonl, 49 lines incl. trial-48 spawn+archive); DSR N=49 at execution. Counter NOT touched by this authoring."
+
+assumptions:
+  - "sigma_sess uses ONLY same-open-hour-class bars at or before H_open-1h; the current open bar is excluded from its own statistic."
+  - "The ~480-bar feature window sets both CPCV purge/embargo AND the IS/OOS seam embargo (not the 3-bar label)."
+  - "Cost is a session-aware p90 per-bar charge (CRO-supplied) on entry+exit; rollover swap only across 22:00 UTC, 3x Wed."
+  - "Effective-N stays singular (=49 at spawn) ONLY because the structure is singular and every DoF is pre-committed; no tuning."
+  - "Pooling adds independent events ONLY to the extent measured rho_bar <= 0.41; KILL-4 makes this machine-checkable on data."
+  - "All events/yr, IR, and rho_bar figures are HONEST PRE-DATA PRIORS; no 1h price data was inspected to author this."
+
+no_peeking_attestation:
+  data_inspected_for_this_hypothesis: false
+  basis_for_estimates: "HoQR pre-data priors (rank-1 shortlist) + the FROZEN rubric; no *_1h.parquet read or inspected."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+confidence: medium

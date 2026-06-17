@@ -1,0 +1,343 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: approve
+timestamp: "2026-06-17T05:45:48Z"
+subtask_ref: "prep-plan-while-backfill-2026-06-16"
+subtask_id: "8b2e3f4a-1d7c-4e9a-b5f6-0c2a7d8e9f01"
+
+task-statement: >
+  Define per-role deliverables to maximize expected value of incoming 1h OHLCV data
+  while Dukascopy backfill runs; honest about alpha base rates.
+
+deliverable-type: strategy-design
+
+deadline: "2026-06-17T23:59:59Z"
+
+instrument-universe:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - USDCHF
+  - USDCAD
+  - AUDUSD
+  - NZDUSD
+  - EURGBP
+  - EURJPY
+  - GBPJPY
+  - AUDJPY
+  - EURCHF
+
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "no_backtest_before_data_lands: true"
+  - "no_peeking_fishing: true — no exploratory charts, stats, or descriptive analysis of the incoming 1h data before pre-registration is frozen"
+  - "execution_researcher_firewall: true — strategy designers must not see raw tick/order data; execution researchers must not see signal logic"
+  - "pre_registration_required: true — all hypotheses must be frozen and filed BEFORE any 1h data is loaded into any analytical tool"
+  - "trial_counter_unchanged: true — planning work does NOT increment trials.jsonl counter"
+  - "no_profit_promise: true — success is defined as confirmable-research-readiness, not earned profit"
+  - "confirmability_gate_active: true — every pre-registered hypothesis must demonstrate years_to_validate ≤ 2yr under honest effective-N before the backtest slot is granted"
+  - "dsr_gate_active: true — DSR ≥ 0.95 required for any future OOS claim"
+  - "no_execution_code: true — no order management, broker API, or live-execution code may be written during this phase"
+
+wraps_invocation_of: []
+
+# ─────────────────────────────────────────────────────────────────
+# ACCEPTANCE CRITERIA — numbered checklist for downstream roles
+# ─────────────────────────────────────────────────────────────────
+
+criteria:
+
+  # ── CRITERION 1: Deliverables vs. study ──────────────────────────
+  - id: AC-01
+    label: "Deliverables-not-study mandate"
+    description: >
+      Each role's output MUST name a concrete, durable, repo-checkable deliverable
+      (a file, schema, test, gate, or pre-registration artifact). Outputs of the form
+      "role X will study / learn / review domain Y" do NOT satisfy this criterion.
+      Domain expertise is presumed; the plan is judged solely on what artifact or
+      infrastructure each role will produce that raises the expected value of the
+      incoming 1h dataset.
+    pass_when:
+      - Every role section contains at least one deliverable named as a file path or
+        artifact type with an explicit purpose-link to 1h-data readiness.
+    fail_when:
+      - Any role section contains only study/learning goals with no concrete output.
+
+  # ── CRITERION 2: Per-role concrete prep work ─────────────────────
+  - id: AC-02
+    label: "Per-role prep scoped to 1h-data expected value"
+    description: >
+      Each dispatched role must articulate ONLY work that is:
+      (a) completable before data lands, AND
+      (b) demonstrably raises the expected value of the 1h dataset
+          (infra readiness, validation gates, pre-registered hypotheses, or
+          eval methodology).
+      Work that would be done regardless of the 1h dataset is NOT in scope.
+    required_role_deliverables:
+      cto:
+        - label: "1h ingest validation harness"
+          description: >
+            Extend the existing OHLCV validation suite to cover 1h-specific checks:
+            spread column presence and plausibility, session boundary completeness
+            (London/NY/Tokyo/Sydney open-close bar counts per pair), no-Friday-close
+            gap detection, and duplicate-timestamp guard. Deliverable: new or extended
+            pytest test file(s) that will fail on corrupt 1h data and pass on clean data.
+        - label: "Data-quality gate spec"
+          description: >
+            A machine-checkable YAML spec (or pytest parametrize fixture) defining
+            per-pair minimum bar-count thresholds, max tolerable gap fraction, and
+            spread plausibility bounds. This gates whether a pair's 1h data is
+            approved for research use. Deliverable: the spec file committed to the repo.
+        - label: "Intraday feature scaffold"
+          description: >
+            Skeleton modules (no implementation, no data dependency) for intraday
+            indicators likely to be needed: session-open/close filters, intraday ATR
+            normalization, volume proxy (if derivable from spread), time-of-day
+            encoding. Deliverable: empty or stub modules with interface contracts
+            (type signatures, docstrings) committed to src/forex_system/features/.
+      cro:
+        - label: "Intraday cost model extension spec"
+          description: >
+            Document the per-pair 1h TCA cost structure: spread estimates at 1h
+            resolution (vs. daily), slippage model adjustments for intraday liquidity
+            windows, and session-dependent swap accrual. Deliverable: a typed CRO
+            artifact (cost-model-spec) naming per-pair assumptions and their sources.
+            NO live capital implications. Must flag any pair where cost uncertainty
+            exceeds expected edge at reasonable Sharpe targets.
+        - label: "Risk guardrail pre-spec for intraday strategies"
+          description: >
+            Pre-specify the binding risk constraints that any intraday strategy
+            must satisfy to proceed to a backtest slot: max intraday drawdown %, max
+            single-pair exposure, session-filter requirements. These become
+            hard-constraints in every future CRO dispatch for 1h research.
+      head-of-quant-research:
+        - label: "Intraday hypothesis shortlist (pre-registered, not yet backtested)"
+          description: >
+            A ranked shortlist of ≤5 intraday hypotheses derived from the firm's
+            prior research log and the DATASET-WALL lesson. Each hypothesis must
+            include: (i) alpha-source rationale, (ii) instrument universe, (iii)
+            honest events/yr estimate at 1h granularity, (iv) per-event-Sharpe
+            assumption, (v) confirmability horizon under honest effective-N (must
+            be ≤ 2yr to proceed). Deliverable: a pre-registration YAML per hypothesis
+            filed to references/pre-registrations/ BEFORE any data is loaded.
+        - label: "Confirmability screening rubric (frozen)"
+          description: >
+            The frozen rubric (extending the existing QRB / confirmability gate)
+            for evaluating 1h hypotheses. Must include the formula
+            years_to_validate = N_required / events_per_year and the ≤2yr gate.
+            Deliverable: a markdown doc committed to references/ and referenced in
+            every pre-registration YAML.
+      ml-researcher:
+        - label: "Methodology design artifact (no-backtest)"
+          description: >
+            A typed methodology-design artifact (artifact_type: methodology-design,
+            trial_id: METHODOLOGY-DESIGN, pre-registration-ref: N/A) specifying:
+            (i) feature engineering pipeline design for 1h ML models, (ii) CPCV
+            config for walk-forward validation at 1h frequency, (iii) regime
+            stratification approach, (iv) DSR calculation plan, (v) leakage-check
+            protocol for intraday data. Does NOT touch any data. Does NOT claim
+            a strategy. Deliverable: the typed artifact filed to .fintech-org/artifacts/.
+        - label: "Overfitting-risk pre-assessment"
+          description: >
+            A written assessment of the specific overfitting risks elevated by 1h vs.
+            daily data: autocorrelation in 1h bars, multiple-comparison inflation
+            from N×24 bars per day, regime non-stationarity across sessions. Must
+            conclude with the minimum out-of-sample period required for ML validation
+            and whether that is ≤2yr under the confirmability gate.
+      null-hypothesis-tester:
+        - label: "Null-hypothesis battery pre-spec"
+          description: >
+            A pre-specified battery of null models against which any 1h strategy
+            claim must survive: (i) random-entry baseline, (ii) session-time-only
+            baseline (entry at London open, exit at NY close), (iii) momentum
+            carry-over from daily signal. Deliverable: a typed NHT artifact
+            (artifact_type: pre-registration-review or methodology-design variant)
+            defining the test battery and the p-value / DSR thresholds that constitute
+            passing. Filed before any backtest runs.
+        - label: "Honest-N protocol for 1h data"
+          description: >
+            Written protocol for computing effective-N at 1h resolution:
+            autocorrelation correction, non-overlapping window counting, session
+            boundary handling. Must produce a per-pair effective-N estimate for a
+            representative 2yr lookback. Deliverable: a committed markdown or YAML
+            spec with example calculations.
+      principal-reviewer:
+        - label: "Pre-registration review checklist"
+          description: >
+            A checklist artifact (artifact_type: pre-registration-review) that the
+            PR will apply to every hypothesis pre-registration BEFORE the backtest
+            slot is granted. Must include: (i) years_to_validate computed
+            independently and matches HoQR claim, (ii) data-peeking absence
+            attestation, (iii) CRO cost-model coverage verified, (iv) NHT null
+            battery referenced, (v) execution-firewall compliance confirmed.
+            Deliverable: checklist YAML committed to .fintech-org/protocols/.
+
+  # ── CRITERION 3: Honest O2 treatment ─────────────────────────────
+  - id: AC-03
+    label: "Honest treatment of O2 — no profit promises"
+    description: >
+      The plan must explicitly state the quant research base rate: the majority of
+      hypotheses do not survive rigorous OOS testing. Success for this preparation
+      phase is defined as: "the firm is ready to execute confirmable intraday
+      research the moment clean 1h data lands — with zero pre-registered hypotheses
+      needing revision due to data-structure surprises."
+    pass_when:
+      - The plan contains a verbatim base-rate statement (e.g., "most strategies fail
+        OOS; historical quant literature finds <30% of strategies survive rigorous
+        multi-test correction").
+      - Success is defined in terms of research-readiness, not in terms of
+        profit projections or expected returns.
+      - No role output contains a phrase of the form "this will earn money",
+        "expected profit", "expected return", or equivalent forward-looking
+        profit claim.
+    fail_when:
+      - Any role section projects or implies future profitability as a deliverable
+        outcome.
+      - Success metrics are defined in dollar or return terms rather than
+        research-readiness terms.
+
+  # ── CRITERION 4: Hard guardrails enforced ────────────────────────
+  - id: AC-04
+    label: "All hard guardrails explicitly honored in each role section"
+    description: >
+      Each role's deliverable section must explicitly acknowledge the applicable
+      hard constraints from hard-constraints list above. The plan document itself
+      must contain a guardrails section that lists all constraints and the role
+      responsible for each.
+    pass_when:
+      - "no_live_capital" confirmed by every role
+      - "no_peeking_fishing" named in the data-validation and HoQR sections
+      - "pre_registration_required" workflow is described end-to-end
+        (who authors → who reviews → where filed → what unlocks backtest slot)
+      - "execution_researcher_firewall" described structurally, not just named
+      - "trial_counter_unchanged" stated explicitly; planning work is distinguished
+        from trials that increment the counter
+    fail_when:
+      - Any role section describes loading or inspecting 1h data before pre-registration
+        is frozen.
+      - Any role section proposes writing execution, broker, or order-management code.
+      - Trial counter increment language appears in any planning artifact.
+
+  # ── CRITERION 5: Out-of-scope list explicit ──────────────────────
+  - id: AC-05
+    label: "Explicit out-of-scope list"
+    description: >
+      The plan must contain an explicit out-of-scope section. The following items
+      are MANDATORY entries in that section (the plan may add others):
+    mandatory_out_of_scope:
+      - "Running any backtest — 1h data not yet available; any backtest run now
+        constitutes data-peeking if data has partially landed"
+      - "Building execution infrastructure (order management, broker API wrappers,
+        position sizing for live orders)"
+      - "Live or paper trading — no live capital; observe-only canary is the
+        maximum allowed per prior NHT ruling"
+      - "Descriptive or exploratory data analysis on the 1h data — any EDA before
+        pre-registration is frozen violates the no-peeking constraint"
+      - "Generating new daily-pair strategies — the daily dataset wall is a firm
+        finding; the 1h dataset is the unlock; daily strategy generation is out
+        of scope during this phase"
+      - "Increating the trial counter — planning and pre-registration do not
+        constitute trials"
+    pass_when:
+      - All six mandatory entries appear verbatim or with substantive equivalence.
+    fail_when:
+      - Any mandatory entry is missing.
+      - Any item on the out-of-scope list is contradicted elsewhere in the plan.
+
+  # ── CRITERION 6: Workflow sequencing is explicit ─────────────────
+  - id: AC-06
+    label: "End-to-end workflow from data-lands to backtest-slot is described"
+    description: >
+      The plan must include a sequenced workflow (ordered steps or DAG) that
+      describes exactly what happens the moment clean 1h data is confirmed:
+      (1) data-quality gate runs (CTO),
+      (2) per-pair approval status published,
+      (3) HoQR finalizes any pending pre-registrations,
+      (4) PR reviews and signs each pre-registration,
+      (5) NHT null battery is frozen,
+      (6) backtest slot is granted per pre-registration.
+      The workflow must identify the human CEO as the required approver for any
+      step that would expand scope beyond this plan.
+    pass_when:
+      - An ordered sequence of steps is present, covering all six listed above.
+      - CEO approval is identified as required for scope expansions.
+    fail_when:
+      - Steps are unordered or left to role discretion.
+      - No mention of who approves the backtest-slot grant.
+
+evidence:
+  - "file://Users/huangtm/Projects/forex-trading-system/CLAUDE.md — project architecture, test patterns, cost model"
+  - "file://Users/huangtm/.claude/projects/-Users-huangtm-Projects-forex-trading-system/memory/MEMORY.md — firm state: DATASET-WALL finding, confirmability rubric, honest-N protocol, QRB-6 wound-down"
+  - "file://Users/huangtm/.claude/skills/fintech-org/roles/pm.md — PM role spec and schema requirements"
+  - "file://Users/huangtm/.claude/skills/fintech-org/templates/handoff.md — artifact schema"
+
+assumptions:
+  - "The Dukascopy 1h backfill (12 pairs) is actively running and has NOT yet landed cleanly — no 1h data is available for analysis."
+  - "The firm has no validated OOS alpha from any prior cycle (honest-review-2026-05-31 finding is authoritative)."
+  - "Expert-level domain skills are already present in the role-agents; prep work means DELIVERABLES, not domain study."
+  - "The confirmability gate (years_to_validate ≤ 2yr) established in prior cycles is frozen and applies to all intraday hypotheses."
+  - "DSR ≥ 0.95 and p-value correction thresholds from prior cycles are carried forward."
+  - "No live capital has ever been deployed (charter rule 1, never broken)."
+
+confidence: high
+
+body: |
+  The CEO's question asks whether roles can "learn their domain to create a trading
+  system which can earn money" while the backfill runs. As PM I am re-framing this
+  before dispatch: domain expertise is not the bottleneck, and earning money is not
+  a promise the firm can or should make at this stage.
+
+  The real lever is PREPARATION: each role producing durable, repo-checkable artifacts
+  that ensure the moment clean 1h data lands, the firm can immediately begin
+  CONFIRMABLE intraday research — without redoing infrastructure work, without
+  scrambling to write validation harnesses, and without violating the no-peeking
+  and pre-registration guardrails that are load-bearing for the firm's rigor posture.
+
+  The six acceptance criteria above force the downstream plan to:
+  1. Name deliverables, not study goals (AC-01)
+  2. Assign concrete per-role prep tied directly to 1h-data expected value (AC-02)
+  3. Be honest about the quant research base rate (AC-03)
+  4. Enforce all existing guardrails from prior cycles (AC-04)
+  5. Enumerate what is explicitly out of scope (AC-05)
+  6. Define the sequenced workflow from data-landing to backtest-slot (AC-06)
+
+  PM makes no technical decisions about which hypotheses to pursue, what the cost
+  model should contain, or how ML validation should be structured. Those are
+  dispatched to CTO, CRO, HoQR, ML, NHT, and PR respectively.
+
+knowledge_gaps:
+  - "Unknown: current state of src/forex_system/features/ — whether intraday session-filter stubs already exist or are net-new work for CTO. CTO should verify before scoping."
+  - "Unknown: whether the existing OHLCV validation suite already covers spread-column checks introduced in the 96f6f84 commit ('recover true per-bar bid/ask spread in Dukascopy 1h ingest'). CTO should check tests/ before writing duplicate gates."
+
+policy_violations_detected: []
+
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+
+roles-staffed:
+  - role: cto
+    rationale: "Owns data validation harness, ingest pipeline, feature scaffold — all infra deliverables gated to 1h-data readiness."
+  - role: cro
+    rationale: "Owns cost model extension and risk guardrails for intraday strategies — required before any strategy can proceed to backtest."
+  - role: head-of-quant-research
+    rationale: "Owns hypothesis generation, confirmability screening, and pre-registration authoring — the research strategy layer."
+  - role: ml-researcher
+    rationale: "Owns ML methodology design and overfitting-risk pre-assessment — required before any model-based hypothesis is filed."
+  - role: null-hypothesis-tester
+    rationale: "Owns the null battery pre-spec and honest-N protocol — load-bearing for research rigor; must be frozen before any backtest slot is granted."
+  - role: principal-reviewer
+    rationale: "Owns the pre-registration review checklist — the gate between pre-registration and backtest-slot grant."
+
+out-of-scope:
+  - "Running any backtest (1h data not yet available; partial-data backtests constitute peeking)"
+  - "Building execution infrastructure (order management, broker API, live-position sizing)"
+  - "Live or paper trading of any kind"
+  - "Descriptive or exploratory data analysis on the 1h data before pre-registration is frozen"
+  - "Generating new daily-pair strategies (daily dataset wall is a firm finding; not the unlock)"
+  - "Incrementing the trial counter (planning and pre-registration are not trials)"
+  - "Promises or projections of profit (O2 is a target direction, not a deliverable outcome)"
+  - "Domain study outputs without a corresponding artifact (reading papers, watching videos, etc.)"

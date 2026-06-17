@@ -1,0 +1,324 @@
+# ============================================================================
+# ML-Researcher methodology-design artifact
+# Prep-plan slice: evaluation-methodology + overfitting-defense for 1h intraday
+# NO data access. NO backtest. NO trial-counter increment.
+# ============================================================================
+role: ml-researcher
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — methodology design"
+timestamp: 2026-06-17T05:49:47Z
+no-capital-instruction: true
+
+# ---- claimed_domains (from quality_gate.domains_owned) ----
+claimed_domains:
+  - cross-validation-design-CPCV-purged-embargoed
+  - deflated-sharpe-and-multiple-testing-correction
+  - regime-stratified-evaluation
+  - feature-engineering-and-leakage-detection
+  - hyperparameter-search-and-trial-budget
+
+summary: >
+  Pre-build specification of the evaluation + overfitting-defense machinery that
+  MUST be ready and frozen BEFORE the first 1h backtest runs. This is the harness
+  contract, NOT a strategy and NOT an eval. Grounds its numbers in the org's
+  existing 1h precedent (trial-48 EURUSD prereg-v2: CPCV N_groups=6/k=2/15 folds,
+  purge+embargo sized to the ~480-bar feature window, >=20-trading-day IS/OOS seam,
+  DSR computed at honest org-wide N=48). HONEST POSTURE (AC-03): better methodology
+  REDUCES false positives; it does NOT manufacture alpha. Nothing here promises
+  profit. The dominant 1h-specific risk is that intraday multiplies the number of
+  candidate signals and bars, inflating multiple-comparison burden, while ZERO real
+  volume forbids an entire class of microstructure features that *look* available.
+
+# ============================================================================
+# AC-02(a) — methodology-design core
+# ============================================================================
+
+# ---------- CPCV CONFIG (1h bars) ----------
+cpcv-config:
+  scheme: combinatorial-purged-cross-validation
+  rationale: >
+    1h bars are strongly autocorrelated and feature/label windows overlap across
+    many bars; standard k-fold leaks through label-overlap and vol-clustering.
+    CPCV (Lopez de Prado Ch.12) gives many train/test paths and a distribution of
+    OOS Sharpe rather than a single point.
+  N_groups: 6
+  k_test_groups: 2
+  n_folds: 15            # C(6,2) = 15 train/test paths — matches trial-48 precedent
+  bar_frequency: 1h
+  trading_hours_per_day: 24   # FX is ~24x5; weekend gaps are NOT bars
+
+  # PURGE — sized to the FEATURE+LABEL span, never to "1 bar".
+  # Purge must remove training bars whose feature window OR label window overlaps
+  # the test fold. Default driven by the longest feature lookback in the pipeline.
+  purge_bars: 480        # = ~20 trading days of 1h bars; covers a 480-bar feature window (trial-48 precedent)
+  purge_rule: >
+    purge_bars = max(longest_feature_lookback_bars, label_horizon_bars) applied on
+    BOTH sides of every test fold. If a strategy uses shorter features, recompute and
+    pre-register the smaller number; 480 is a conservative default, not a floor for
+    every strategy.
+
+  # EMBARGO — kills serial-correlation leakage that survives the purge.
+  # MUST be derived from the MEASURED autocorrelation decay of the strategy's own
+  # 1h residual returns, not assumed. Pre-build default below; tighten/loosen after
+  # the empirical ACF is computed (this measurement is a REQUIRED pre-backtest step).
+  embargo_bars: 480      # ~20 trading days; default until empirical ACF decay length is measured
+  embargo_floor_bars: 24 # HARD FLOOR — never below 24 bars (~1 trading day); a 1-bar embargo is a finding
+  embargo_rule: >
+    embargo_bars = max(embargo_floor, measured_ACF_decay_length_of_residual_returns).
+    The ACF-decay measurement is itself a pre-registered, pre-backtest deliverable.
+
+  # IS / OOS hard seam (one-shot OOS, burned exactly once)
+  is_oos_seam:
+    seam_embargo_trading_days: ">=20"
+    rule: >
+      Carve a >=20-trading-day dead zone between IS end and OOS start; the discarded
+      month is neither trained on nor tested. No feature window may cross the seam.
+    oos_touch_policy: burn-once-at-end   # OOS read exactly once, at terminal evaluation
+
+  walk_forward: retrain-each-window      # true walk-forward; a single fixed model is NOT walk-forward
+  anti_patterns_rejected:
+    - random-or-stratified-k-fold-on-time-series
+    - embargo-of-one-bar
+    - purge-sized-to-1-bar-label-when-features-span-480-bars
+    - feature-window-crossing-the-IS/OOS-seam
+    - walk-forward-without-retraining
+
+# ---------- FEATURE-PIPELINE DESIGN ----------
+feature-pipeline:
+  cardinal_rule: >
+    The ENTIRE feature pipeline (scaling, selection, target construction, any fit
+    parameter) lives INSIDE the CV fold. Anything fit on the full dataset before the
+    split is leakage. Feature selection on the full dataset is a hard veto trigger
+    (veto_authority: in-sample-feature-selection).
+  per_fold_fitting:
+    - standardization/normalization-fit-on-train-fold-only-then-applied-to-test
+    - feature-selection-inside-fold-only
+    - any-imputation/winsorization-fit-on-train-fold-only
+  current_bar_exclusion: >
+    The signal at bar N may use information only up to the CLOSE of bar N-entry_delay.
+    No same-bar OHLC of the execution bar enters the feature (preserves the repo's
+    sacred no-lookahead invariant; trial-48 enforced current-bar exclusion F-002).
+  labeling:
+    default_scheme: triple-barrier         # trade-realizable; fixed-horizon is a finding unless justified
+    barriers_vol_scaled: true              # +/-X sigma, ATR-scaled — NOT fixed pips, because 1h vol is session-non-stationary
+    purge_respects_label_windows: true
+  feature_importance_stability:
+    computed_per_fold: true
+    summary: mean-abs-importance-across-folds + std-dev-across-folds
+    instability_flag: top-5-features-reshuffling-each-fold = fitting-fold-noise
+  spread_handling:
+    note: >
+      The recovered bid/ask spread column is admissible ONLY as a COST input and as a
+      coarse liquidity *proxy*. It is NOT order-flow and NOT depth (see
+      what-1h-ohlcv-cannot-support). Using spread as a predictive microstructure
+      feature is permitted but must be pre-registered AND flagged as proxy-not-truth.
+
+# ---------- DSR (DEFLATED SHARPE) ACCOUNTING PLAN ----------
+dsr:
+  method: Bailey-Lopez-de-Prado-2014-Deflated-Sharpe
+  org_wide_trial_count_N: 48
+  N_source: .fintech-org/trials.jsonl   # honest-N = terminal trials counting toward deflation; verified 48 at trial-48 completion
+  N_policy: >
+    N is ORG-WIDE, not per-strategy. Every backtest that could have produced a
+    winner-by-chance increments N. Trial-counter is burned at SPAWN (frozen DoF),
+    not at result, so a strategy cannot dodge deflation by failing quietly.
+  effective_N_caveat: >
+    Effective N > logged N whenever an intraday signal family is searched. 1h data
+    makes this WORSE: more candidate entry rules, session filters, lookback windows,
+    and barrier multiples multiply the implicit search. Each grid point, each session
+    filter variant, each "let's try one more lookback" counts. If a grid runs inside
+    IS-only CPCV, EACH grid point increments the trial budget. Frozen single-structure
+    (no grid) is the only way to keep effective-N == logged-N.
+  threshold: 0.95                          # firm standard; conventional, not absolute
+  non_positive_sharpe_rule: >
+    DSR pins to 0.0 for any non-positive input Sharpe (trial-48 precedent: CPCV
+    Sharpe -4.93 -> DSR 0.0 before skew/kurtosis even matter). KILL-gate fires.
+  required_inputs_to_surface:
+    - observed_sharpe (use the CPCV pooled OOS Sharpe, NOT the in-sample point Sharpe)
+    - org_wide_N (48, with effective-N caveat stated)
+    - sample_length_T_in_bars
+    - skewness_gamma3 and kurtosis_gamma4 of the strategy return distribution
+    - autocorrelation_adjustment (1h returns are autocorrelated -> effective independent obs << raw bar count)
+  intraday_caution: >
+    A high bar count (e.g. ~15,600 1h bars/2.5yr) does NOT mean high effective sample.
+    Serial correlation collapses effective independent observations; block-bootstrap
+    with block length = measured ACF decay is REQUIRED before any power/DSR claim.
+
+# ---------- REGIME-STRATIFIED DSR ----------
+regime-stratified-dsr:
+  rule: >
+    Report DSR PER regime bucket, not just pooled. Strata are PRE-DECLARED before
+    seeing performance (post-hoc stratification = data snooping = veto). Pass bar:
+    DSR > 0 in >=3 of the buckets (role spec rule 3).
+  min_buckets: 6
+  pre_declared_buckets:
+    - vol_regime: ATR-percentile bands (e.g. p0-20, p20-50, p50-80, p80-95, p95+)
+    - trend_regime: rolling-window directional (up / flat / down)
+    - session_regime: Asia / London / NY / overlap  # 1h-SPECIFIC, see below
+  session_stratification_note: >
+    Session is a FIRST-CLASS regime axis for 1h data (it does not exist at daily
+    frequency). Liquidity, spread, and volatility differ sharply across Asia/London/NY
+    and the London-NY overlap. Pooled intraday Sharpe hides session-conditional alpha.
+  regime_labels_blinded_during_training: true   # veto: regime-labels-leaked-into-training
+  per_bucket_report: { dsr: required, sample_size: required, sharpe: required }
+
+# ---------- LEAKAGE-CHECK PROTOCOL ----------
+leakage-check:
+  audited_paths:
+    - same-bar-lookahead: signal must not read execution-bar OHLC (no-lookahead invariant; entry_delay_bars shift)
+    - feature-window-crossing-IS/OOS-seam: no lookback reaches across the >=20-day seam
+    - purge-overlap: training bars whose feature OR label window overlaps a test fold are dropped
+    - embargo-survival: serial-correlation leakage past the purge killed by ACF-sized embargo
+    - scaler/selector-fit-on-full-dataset: ALL pipeline fitting inside the fold only
+    - OOS-pre-touch: OOS slice never read before the single terminal burn
+    - spread-as-of-time: spread/cost column timestamped as-of bar close, not forward-filled from future
+    - weekend/holiday-gap: cross-weekend bars not treated as adjacent (24x5, not 24x7)
+  blocking_checks:
+    - any-pipeline-fit-outside-fold = REJECT (hard gate)
+    - missing-purge-or-embargo-on-overlapping-labels = REJECT (hard gate)
+    - OOS-touched-before-terminal = REJECT (hard gate)
+  protocol: >
+    Each check is a pre-registered assertion the quant-developer harness must emit as
+    a log line at run time (e.g. "PURGE applied: 480 bars/fold; train bars dropped=K";
+    "OOS slice never read"). Absence of the log line is treated as the check FAILING.
+
+# ============================================================================
+# AC-02(b) — OVERFITTING-RISK PRE-ASSESSMENT (1h-SPECIFIC HAZARDS)
+# ============================================================================
+overfitting_risk_preassessment:
+  - hazard: bar-autocorrelation
+    why_1h_specific: >
+      1h FX returns are far more autocorrelated than daily. Naive CV treats adjacent
+      bars as independent; they are not. Inflates apparent significance and shrinks
+      true effective sample.
+    defense: >
+      Purge + ACF-sized embargo (floor 24 bars) on every fold; block-bootstrap with
+      block length = MEASURED residual-return ACF decay; report effective-N not bar-count.
+    residual_risk: >
+      Embargo length is only as good as the ACF measurement; if ACF is mis-measured
+      short, leakage survives. The ACF-decay measurement is a REQUIRED pre-backtest step.
+
+  - hazard: multiple-comparison-inflation
+    why_1h_specific: >
+      Intraday unlocks many MORE candidate signals: session filters, finer lookbacks,
+      barrier multiples, time-of-day rules. Each is an implicit trial. The search space
+      explodes vs daily, so the lucky-best-of-N bar rises sharply.
+    defense: >
+      DSR deflation against ORG-WIDE N=48 (not per-strategy N=1); effective-N caveat
+      explicitly counts grid points / session-filter variants; FROZEN single-structure
+      pre-registration (no grid) to keep effective-N == logged-N. Each grid point that
+      IS run increments the counter.
+    residual_risk: >
+      Effective-N is inherently undercounted; the only true defense is freezing degrees
+      of freedom before the run. Discipline, not arithmetic, is load-bearing here.
+
+  - hazard: session-non-stationarity
+    why_1h_specific: >
+      Vol, spread, and liquidity differ by session (Asia/London/NY/overlap) and by
+      time-of-day — structure invisible at daily frequency. A pooled Sharpe can be a
+      blend of a real London edge and an illusory Asia edge.
+    defense: >
+      Session is a PRE-DECLARED regime axis; report per-session DSR; vol-scale (ATR)
+      the triple-barrier so labels are comparable across sessions; require DSR>0 in
+      >=3 of 6 buckets, not pooled-only.
+    residual_risk: >
+      Session structure can itself drift (e.g. liquidity regime shifts); regime-coverage
+      claim must name which sessions are in/out of scope.
+
+  - hazard: zero-volume-phantom-microstructure-features
+    why_1h_specific: >
+      The 1h feed is OHLCV-shaped but carries ZERO real volume/tick data. The danger is
+      building features that LOOK available — order-flow imbalance, VPIN, tick-rule
+      signed volume, trade-count intensity, Kyle's lambda, true Amihud illiquidity —
+      that silently degrade to constants, NaNs, or noise, or get back-filled from a
+      proxy that smuggles look-ahead. A model can "learn" a phantom feature and overfit
+      to an artifact.
+    defense: >
+      Hard ALLOW/DENY feature list (below) enforced at pipeline-build time; any
+      volume/order-flow feature is DENIED; spread admitted only as cost + coarse
+      liquidity proxy, flagged proxy-not-truth and pre-registered as such. Leakage-check
+      asserts no DENIED feature is present.
+    residual_risk: >
+      Proxies (spread, range, gap) tempt re-introduction of microstructure stories;
+      reviewer must reject any feature whose narrative depends on flow/depth we do not have.
+
+# ============================================================================
+# HONEST CONSTRAINT (AC-03) — what 1h OHLCV-WITHOUT-VOLUME CANNOT support
+# ============================================================================
+what-1h-ohlcv-cannot-support:
+  cannot_build:
+    - order-flow-imbalance / signed-order-flow      # no trade direction, no flow
+    - VPIN / volume-synchronized-probability-of-informed-trading  # needs volume buckets
+    - tick-rule-signed-volume / trade-count-intensity            # no ticks, no volume
+    - Kyle's-lambda / price-impact-per-unit-volume              # needs volume
+    - true-Amihud-illiquidity (|return|/volume)                 # denominator is volume
+    - real-depth / order-book / quote-size / book-imbalance     # not in OHLCV at all
+    - realized-volume-profile / VWAP-as-truth                   # no per-bar volume
+  proxies_only_not_truth:
+    - bid/ask-spread: cost input + COARSE liquidity proxy — NOT depth, NOT flow
+    - high-low-range: volatility proxy — NOT volume, NOT participation
+    - gap-at-session-open: a liquidity/event proxy — NOT order-flow
+  honest_statement: >
+    Better methodology REDUCES false positives; it does NOT manufacture alpha and does
+    NOT promise profit (AC-03). The 1h unlock raises the CEILING (more events/year,
+    session structure) but ZERO volume caps the floor: an entire microstructure feature
+    class is off the table, and the spread column is a proxy, not order-flow or depth.
+    Any result that survives this harness is *not yet alpha* — it is a result that has
+    cleared the most common false-positive traps and earned a one-shot OOS burn.
+
+# ============================================================================
+# AC-01 — concrete DELIVERABLES the harness must have BEFORE any 1h backtest
+# ============================================================================
+deliverables_before_first_1h_backtest:
+  - id: D1
+    item: CPCV harness configured for 1h (N_groups=6, k=2, 15 folds, purge+embargo per rule)
+    owner: quant-developer            # ROUTE_TO (firewall: ML-Researcher does not write exec code)
+    blocking: true
+  - id: D2
+    item: Empirical 1h residual-return ACF-decay measurement -> sets embargo/block length
+    owner: quant-developer
+    blocking: true
+  - id: D3
+    item: DSR module verified against honest org-wide N=48 + non-positive-Sharpe-pins-0 contract
+    owner: quant-developer
+    blocking: true
+  - id: D4
+    item: Pre-declared 6-regime bucket definitions incl. session axis (Asia/London/NY/overlap)
+    owner: ml-researcher
+    blocking: true
+  - id: D5
+    item: ALLOW/DENY feature list enforced at build time (DENY all volume/order-flow features)
+    owner: ml-researcher
+    blocking: true
+  - id: D6
+    item: Leakage-check assertion log-lines wired into the harness (each check emits pass/fail)
+    owner: quant-developer
+    blocking: true
+  - id: D7
+    item: Pre-registration template requiring frozen DoF (no grid) before OOS burn
+    owner: quant-researcher
+    blocking: true
+
+# ============================================================================
+# AC-04 — guardrails
+# ============================================================================
+guardrails:
+  pre_registration_required_before_backtest: true   # refuse to eval a backtest without a PreRegistration artifact
+  no_data_access_in_this_artifact: true
+  no_backtest_in_this_artifact: true
+  trial_counter_not_incremented: true               # per protocols/spawn-agent.md step 3 (methodology-design)
+  no_capital: true
+  firewall: >
+    ML-Researcher emits this methodology declaratively. Implementation of CPCV/DSR/
+    leakage-assertion code is ROUTE_TO: quant-developer. No executable code blocks here.
+
+ROUTE_TO:
+  - quant-developer: "implement D1 (CPCV harness), D2 (ACF measurement), D3 (DSR module), D6 (leakage assertions)"
+  - quant-researcher: "author D7 pre-registration template with frozen DoF"
+
+knowledge_gaps:
+  - "Empirical 1h residual-return autocorrelation decay length is NOT yet measured; embargo=480 is a conservative default and the 24-bar floor a backstop. The ACF measurement (D2) MUST run before any DSR/power claim — until then, all effective-N and embargo numbers are provisional."
+  - "Skewness gamma3 / kurtosis gamma4 of 1h strategy returns are unknown pre-data; DSR cannot be numerically computed until a strategy + the backfilled 1h series exist. This artifact specifies the ACCOUNTING PLAN, not a computed DSR."
+  - "Whether the recovered bid/ask spread column is clean/continuous across all 12 pairs and all sessions is unverified here (data still backfilling); spread-as-cost admissibility is conditional on a data-quality gate the firm runs post-backfill."

@@ -1,0 +1,168 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: survives
+timestamp: 2026-06-17T02:37:59Z
+subtask_ref: intraday-eurusd-1h-confirmability
+subtask_id: nht-intraday-confirmability
+claim-tested: "A single-pair EURUSD 1h intraday trading edge can be FORWARD-CONFIRMED (out-of-sample, DSR>0.95 under org-wide N) within <=3 years of observation, given only the available 5-year (2021-2025) EURUSD 1h dataset and the firm's current org-wide trial count of 47."
+confirmability-verdict: STRETCH
+tests-requested:
+  - name: matched-random-benchmark
+    spec: >-
+      Generate K>=1000 random strategies with the SAME structural footprint as the candidate
+      (same #parameters, same session-window granularity, same trade frequency band, same
+      holding-period distribution) over the IS window. Report the empirical distribution of
+      annualized Sharpe. Candidate must beat the 95th percentile of this matched-random null,
+      NOT a zero-Sharpe null. This sets the honest DSR benchmark instead of the nominal N=48.
+  - name: session-label-permutation
+    spec: >-
+      Hold the price path fixed; randomly permute the session/hour labels that gate entries
+      (e.g., shuffle which UTC hour is 'London open'). Re-evaluate the candidate's edge under
+      M>=1000 permutations. If the edge survives label permutation, the 'session structure'
+      is not the source of alpha and the candidate is mis-specified / data-snooped. p-value =
+      fraction of permutations >= observed.
+  - name: oos-decay-walkforward
+    spec: >-
+      Anchored walk-forward: fit on expanding IS, evaluate on the next contiguous OOS block;
+      slide. Plot OOS Sharpe vs fold. Require monotone-or-flat (no cliff) and that the
+      pooled true-OOS Sharpe (last untouched 3yr-equivalent, embargoed >=24h around the
+      IS/OOS boundary to kill 1h autocorrelation leakage) exceeds the matched-random + DSR
+      floor. One-shot holdout: the final OOS slice may be scored ONCE.
+  - name: block-bootstrap-overlapping-returns
+    spec: >-
+      Stationary/circular block bootstrap on the 1h PnL series with block length L tuned to
+      the empirical return autocorrelation decay (L ~ 24-72 bars given intraday persistence;
+      do NOT assume iid hourly returns). B>=5000 resamples. Report bootstrap CI on annualized
+      Sharpe; the lower 5% bound must exceed the DSR benchmark, not just the point estimate.
+  - name: cost-stress-grid
+    spec: >-
+      Re-run candidate across a round-trip cost grid {3,4,5,6,7} pips and a slippage shock.
+      Report the cost level at which net Sharpe crosses zero. If breakeven is below ~5 pips
+      (the empirical realistic round-trip), the edge is cost-fragile -> downgrade to TRAP.
+tests-results: "design-stage: not yet executed"
+matched-benchmark-sharpe: >-
+  Expected: a structure-matched random ensemble on a single 1h pair will produce a 95th-percentile
+  annualized Sharpe of roughly 0.9-1.4 over a 3yr OOS, driven entirely by the breadth of the
+  honest config search (session windows x thresholds x lookbacks). Any candidate not clearing
+  this band is noise-indistinguishable. This is the real null, far above zero.
+permutation-results: >-
+  Expected: for a genuine intraday session edge (e.g., London/NY-open volatility expansion),
+  session-label permutation should DESTROY the edge (p<0.05), because the alpha is structurally
+  tied to specific clock hours. A candidate whose edge SURVIVES label permutation is almost
+  certainly fitting price autocorrelation / overlapping-window artifacts, not session structure.
+dsr-assessment: >-
+  DSR>0.95 at N~=48 requires the OOS Sharpe to clear a multiple-testing floor, not zero.
+  Expected-max Sharpe under the null for N independent trials (Bailey/Lopez de Prado):
+  E[max] ~= SE_SR * [(1-g)*Z^-1(1-1/N) + g*Z^-1(1-1/(N e))], g=0.5772.
+  At N=48: Z^-1(1-1/48)=Z^-1(0.9792)~=2.04; Z^-1(1-1/(48e))=Z^-1(0.99234)~=2.425;
+  bracket ~= 0.4228*2.04 + 0.5772*2.425 ~= 2.26.
+  SE of an annualized Sharpe over a 3yr OOS (T_years=3): SE_SR ~= sqrt((1+0.5*SR^2)/T_years).
+  For modest SR~1, SE_SR ~= sqrt(1.5/3) ~= 0.707; the null-max benchmark ~= 2.26*0.707 ~= 1.60
+  annualized SR. For SR~0.5, SE_SR ~= sqrt(1.125/3)~=0.612 -> benchmark ~= 1.38.
+  So DSR>0.95 effectively demands an OOS ANNUALIZED Sharpe in the ~1.4-1.6 band PLUS a further
+  ~1.645*SE margin to push PSR past 0.95: PSR = Phi[(SR_oos - SR_bench)*sqrt(n_obs-1)/sqrt(1-skew*SR+(kurt-1)/4*SR^2)].
+  Mapping to per-trade economics: required IS Sharpe is set by
+  SR_annual = (edge_per_trade / sigma_per_trade) * sqrt(trades_per_year).
+  With ~5,200 tradeable hours/yr but realistic intraday strategies trading ~1-4x/day after the
+  cost wall (~250-1000 trades/yr), and net edge/vol per trade ~0.03-0.06, even a per-trade
+  IR of 0.05 * sqrt(500) ~= 1.12 annualized -- BELOW the ~1.4-1.6 DSR floor. To clear it you
+  need either per-trade IR ~0.07 at ~500 trades/yr (0.07*sqrt(500)=1.57) or ~1000 clean
+  trades/yr at IR ~0.05 (1.58). Both are at the optimistic edge of what a single 1h pair
+  plausibly delivers net of cost. Hence STRETCH, not CONFIRMABLE -- but materially MORE
+  reachable than the daily-pair wall, because trades/year is ~10-40x higher than daily strategies.
+effective-trial-count-note: >-
+  The nominal denominator is 47 (-> 48 for the next trial), but an HONEST N for a single 1h pair
+  is far larger once the search space is counted. Session windows (~6-12 candidate hour-blocks)
+  x entry/exit thresholds (~5-10 levels) x lookbacks (~5-10) x direction/filter toggles (~2-4)
+  yields a config space of ~10^3-10^4 implicitly-tested specs. If the proposer searches that grid
+  and reports the winner, the EFFECTIVE N is in the thousands, not 48. At N_eff=2000:
+  Z^-1(1-1/2000)=Z^-1(0.9995)~=3.29, pushing the null-max benchmark from ~1.6 to ~2.3+ annualized
+  SR -- which a single-pair intraday edge essentially cannot reach. CONFIRMABILITY THEREFORE
+  HINGES ON PRE-REGISTRATION: the candidate must be specified (session, threshold, lookback frozen)
+  BEFORE touching the OOS holdout, so N legitimately stays ~48 rather than ~10^3. Unregistered
+  config search collapses the claim to TRAP. This is the load-bearing condition.
+flip-threshold: >-
+  STRETCH -> CONFIRMABLE flips when, under PRE-REGISTERED single-structure (N stays ~48):
+  events/yr * per-event-Sharpe clears the DSR floor over a 3yr OOS, i.e.
+  sqrt(events_per_yr) * per_event_IR >= ~1.6 (the N=48, SR~1 benchmark).
+  Concrete crossing points: (a) >=500 clean (cost-surviving) trades/yr at per-trade IR >=0.072;
+  (b) >=1000 trades/yr at per-trade IR >=0.051; (c) >=250 trades/yr at per-trade IR >=0.101.
+  Equivalently a sustained net annualized Sharpe >= ~1.6 held across the full embargoed 3yr OOS.
+  Below per-trade IR ~0.05 at <500 trades/yr, the claim is noise-indistinguishable.
+dissent-statement: ""
+contamination-check: "clean"
+evidence:
+  - "data/processed/EURUSD_1h.parquet: 31,019 hourly bars 2021-2025 (verified present on disk)"
+  - ".fintech-org/trials.jsonl: 47 lines (verified wc -l = 47) -> DSR denominator, next trial = 48"
+  - "Vol: hourly std ~10bps; annualized ~7.7%; range pips median 11.1, p99 55.4 (provided)"
+  - "Realistic round-trip ~4-5 pips vs median range 11.1 pips (provided)"
+  - "Tradeable hours ~26,000 over 5yr (~5,200/yr) (provided)"
+  - "Standing dataset-wall finding: 12 daily pairs floored prior research at ~3-5yr horizons (MEMORY)"
+assumptions:
+  - "Per-trade return std for an intraday EURUSD strategy is on the order of one bar's range (~10-15 bps), used to map per-trade IR to annualized Sharpe via sqrt(trades/yr)."
+  - "Realistic round-trip cost ~4-5 pips is the binding net-edge constraint (matches provided empirical spread)."
+  - "DSR/PSR use the Bailey-Lopez de Prado expected-max-Sharpe deflation; SE_SR via the Lo (2002) annualized-Sharpe standard error."
+  - "1h returns are autocorrelated, so effective independent obs << 15,600; block-bootstrap and >=24h embargo are required to avoid overstating power."
+  - "The proposer can and will be held to PRE-REGISTRATION; absent it, effective N balloons to ~10^3+."
+confidence: medium
+body: |
+  PRIOR: every claimed edge is noise until evidence shifts it. I assess the CONFIRMABILITY
+  CEILING analytically; I do not run code (forbidden). All numbers are order-of-magnitude
+  ceilings, specified so quant-developer can falsify a concrete candidate later.
+
+  1) DSR FLOOR (the binding wall). DSR>0.95 is NOT "beat zero Sharpe." With N~=48 trials the
+     null's expected MAX Sharpe deflates the bar to ~1.4-1.6 annualized SR over a 3yr OOS
+     (math in dsr-assessment: bracket 2.26 * SE_SR 0.61-0.71). Mapping to per-trade economics via
+     SR_annual = per_trade_IR * sqrt(trades/yr): a single 1h pair can plausibly trade
+     ~250-1000 cost-surviving times/yr at a net per-trade IR ~0.03-0.07. The product lands
+     RIGHT AT or just below the floor -- you need the optimistic corner (per-trade IR ~0.07 at
+     ~500 trades or ~0.05 at ~1000 trades). Achievable in principle, not comfortably. => STRETCH.
+
+  2) EFFECTIVE-N IS THE REAL THREAT. A single 1h pair is a multiple-testing minefield: ~10^3-10^4
+     implicit configs (session x threshold x lookback x filter). If searched and the winner is
+     reported, honest N -> thousands, the null-max benchmark -> ~2.3+ SR, and the claim collapses
+     to TRAP. The ONLY way N legitimately stays ~48 is hard PRE-REGISTRATION of a single structure
+     before the OOS holdout is touched. This is the load-bearing precondition; the claim is
+     confirmable ONLY under it.
+
+  3) COST WALL. Round-trip ~4-5 pips against a median 11.1-pip hourly range means any signal whose
+     expected favorable excursion is < ~5 pips is cost-dominated. Crudely, signals targeting the
+     median single-bar move keep <~55% of gross as net; sub-median targets go net-negative.
+     This (a) prunes the tradeable signal set sharply and (b) RAISES the per-trade edge needed,
+     because cost eats a fixed ~4-5 pips regardless of edge. It does not make confirmation
+     impossible -- vol-expansion / session-open setups target the p90+ range (>30 pips) where
+     a 5-pip cost is ~15% drag -- but it caps the usable trade frequency, which is exactly the
+     lever that feeds sqrt(trades/yr). Net: the cost wall is why this is STRETCH and not CONFIRMABLE.
+
+  4) WHY STILL "SURVIVES" / STRETCH (calibration, not reflexive negativity). The standing
+     dataset-wall finding floored DAILY-pair research at 3-5yr forward horizons because daily bars
+     give ~250 obs/yr and a handful of events. A 1h pair gives ~5,200 bars/yr and 10-40x more
+     trade opportunities. That extra frequency is precisely what shrinks SE_SR and shortens the
+     confirmation horizon: a real per-trade IR of ~0.06 at ~600 trades/yr = ~1.47 annualized SR,
+     confirmable in ~2-3yr OOS -- BELOW the daily wall's 3-5yr. So the honest verdict is:
+     STRETCH, but STRICTLY BETTER than the daily dataset wall, AND gated on pre-registration.
+     I therefore record decision=survives (the claim is not noise-indistinguishable at the design
+     level) with confirmability-verdict=STRETCH.
+
+  5) FALSIFICATION PLAN (route to quant-developer when a candidate exists). The five tests above
+     form an AND-gate: matched-random benchmark (real null, not zero) -> session-label permutation
+     (is the alpha actually session-structural?) -> embargoed walk-forward OOS-decay (one-shot
+     holdout) -> overlapping-return block bootstrap (lower-5% CI must clear the DSR floor) ->
+     cost-stress grid (breakeven must exceed ~5 pips). A candidate must pass ALL to upgrade
+     STRETCH->CONFIRMABLE. Any single failure, or any evidence of post-hoc config search, => TRAP.
+
+  BOTTOM LINE: The claim as stated is CONFIRMABLE-CONDITIONAL: confirmable within <=3yr ONLY IF
+  (i) the structure is pre-registered so N stays ~48, and (ii) the candidate clears net annualized
+  Sharpe ~1.6 over the embargoed OOS (per-trade IR ~0.07 @ ~500/yr or ~0.05 @ ~1000/yr). Absent
+  pre-registration, effective N ~10^3 makes it a TRAP. Standalone verdict: STRETCH (better than the
+  daily wall, not a free pass).
+knowledge_gaps:
+  - "Actual realized trade frequency of any concrete candidate is unknown at design stage; the per-trade-IR x trades/yr product is the decisive unknown."
+  - "Empirical 1h return autocorrelation decay length (sets block-bootstrap L and embargo) not measured here; must be computed before power claims."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: METHODOLOGY-DESIGN

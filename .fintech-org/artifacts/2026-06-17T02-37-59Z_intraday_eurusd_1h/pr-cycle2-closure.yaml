@@ -1,0 +1,98 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve
+timestamp: 2026-06-17T05:12:00Z
+subtask_ref: intraday-eurusd-1h-cycle2-closure
+subtask_id: pr-intraday-cycle2
+rework-cycle: 2
+findings-from-cycle1-status:
+  - finding_id: F-006
+    status: closed
+    evidence: "qr-prereg-v2 frozen_DoF L51 + static_cost_assumption L53-73: per-bar realized-spread NO-TRADE gate REMOVED, replaced by frozen 7.5-pip static round-trip cost charged to every trade (grounded in 4h overnight-P90 spread leg). Uncomputable-from-OHLCV measurement eliminated."
+  - finding_id: F-009
+    status: closed
+    evidence: "qr-prereg-v2 KILL-4 L97: power gate now estimates f_IS from IS DATA ONLY, extrapolates N_oos_expected = f_IS * OOS_trading_days; if <48, OOS is never run/read/counted. 'No computation touches OOS data before the one-shot burn.' Latent OOS peek removed."
+  - finding_id: F-002
+    status: closed
+    evidence: "qr-prereg-v2 signal-logic L108-110 + assumptions L201: sigma_sess computed STRICTLY from bars at or before t-1; current bar t EXCLUDED from its own statistic. Self-referential standardization-window leak removed by construction."
+  - finding_id: F-003
+    status: closed
+    evidence: "qr-prereg-v2 metric L79-86: CPCV PURGE = ~480 hourly bars (= full feature window = 20 same-hour-class bars) on EACH side of every test fold; EMBARGO = same ~480 bars, sized to feature window NOT 1-bar label. Effective-N held at 48 ONLY via fully-frozen DoF (frozen_degrees_of_freedom L39-51, no grid)."
+  - finding_id: F-010
+    status: closed
+    evidence: "qr-prereg-v2 windows L24-37: HARD SEAM EMBARGO >=20 trading days carved between IS end 2024-05-31 and OOS start 2024-07-01 (2024-06 discarded, neither trained-on nor tested). Feature window cannot cross the IS/OOS seam."
+  - finding_id: F-004
+    status: closed
+    evidence: "qr-prereg-v2 frozen_DoF L49 + signal-logic L114-118: last in-window bar before a Fri/holiday gap is NO-TRADE; single-bar reversion bet never held across the Fri 21:00Z->Sun 21:00Z gap; trailing sigma window skips gap bars (no forward-fill)."
+  - finding_id: F-007
+    status: closed
+    evidence: "qr-prereg-v2 KILL-1 L94: now gates on IS net-of-cost DEFLATED Sharpe (DSR <= 0.95 at N=48), consistent with the DSR primary metric. Raw-Sharpe threshold removed; the inconsistent raw-vs-deflated mix is resolved."
+  - finding_id: F-001
+    status: not-closed
+    evidence: "tests/backtest/test_engine.py:248-249 still uses hardcoded np.sqrt(252) and `assert sharpe < 3.0`, unchanged. NOT in qr-prereg-v2 closes_blocking_findings, and qd-engine-fixes scope was swap-scaling + session-filter only. Persists at MAJOR (non-blocking) severity; does not gate approval but remains an open coarse-tripwire weakness at 1h."
+new-blocking-gaps: []
+test-inversion-note: >
+  Neither a broken swap-scaling nor a lookahead-introducing filter slips past the new tests.
+  test_swap_accrual_1h_is_1_24th_of_daily (test_engine.py:53-132) computes the per-bar swap
+  RATIO and asserts 0.99<=ratio<=1.01, with the comment stating the reverted-bug ratio would be
+  ~576 — a hardcoded `days=1` 24x over-charge would fail this assertion. test_no_lookahead_after_shift
+  (test_session_filter.py:80-128) tracks distinct per-bar values and asserts filtered[i]==signals[i]
+  in-window (no internal shift) AND shifted[i]==filtered[i-1] (downstream shift still applied) — a
+  filter that displaced the index or read future bars would break one of these. Ran the named tests
+  + swap/duration checks: 15 passed.
+contamination-check: clean
+time-spent-reasoning: ~22 minutes
+evidence:
+  - "src/forex_system/backtest/engine.py:296-304,366-370 (per-bar swap now scaled by bar_duration_days; daily=1.0, 1h=1/24)"
+  - "src/forex_system/backtest/engine.py:654-676 (_infer_bar_duration_days: median timedelta / 86400, gap-robust, fallback 1.0)"
+  - "src/forex_system/backtest/session_filter.py:50-117 (pure zero/pass-through; [start,end) at L98; no hardcoded hours, caller-supplied allowed_windows; tz_convert UTC)"
+  - "tests/backtest/test_session_filter.py:80-128 (no-lookahead-after-shift assertions)"
+  - "tests/backtest/test_engine.py:53-132 (swap-ratio inversion test, ~576 if bug present)"
+  - "tests/backtest/test_engine.py:248-249 (F-001 unchanged: sqrt(252) + sharpe<3.0)"
+  - "qr-prereg-v2.yaml L24-37,79-86,94,97,108-110,114-118; frozen_degrees_of_freedom L39-51"
+  - "pytest run: 15 passed (test_no_lookahead, 16 session_filter, swap_1_24th, infer_1h)"
+assumptions:
+  - "qd-engine-fixes line-number citations (e.g. _infer at 595-615) were slightly off from current source (helper actually at 654-676; swap call at 369), but the SUBSTANCE matches: per-bar swap scales by inferred bar-duration-days, daily unchanged, 1h=1/24. Verdict rests on the source, not the artifact's line refs."
+  - "Discrete single-bar path (A2') is unaffected by FIX-1 regardless: per-bar accrual lives only in _run_continuous; the prereg holds single-bar close-to-close with swap inert (frozen_DoF L50)."
+  - "F-001 was MAJOR (non-blocking) in cycle 1; per the decision rule (approve = no BLOCKING remains), its non-closure does not block approval but is carried forward as an open major item for the QD."
+confidence: high
+body: |
+  FOCUSED CLOSURE VERDICT: approve. All three cycle-1 BLOCKING items and the blocking
+  feature-window triad are closed against the spec/source; the two engine fixes are real,
+  correct, and guarded by inversion-proof tests.
+
+  Blocking triad + blocking items (F-006, F-009, F-002/003/010): all CLOSED in qr-prereg-v2.
+  F-006 dissolves the uncomputable spread gate by removing it and substituting a frozen,
+  conservative-by-construction 7.5-pip static round-trip cost (built at the overnight-P90 leg,
+  deliberately above median) — the right resolution given OHLCV-only 1h data; the spike regime
+  is honestly flagged as un-modellable rather than papered over. F-009 closes the OOS peek with
+  an IS-only frequency extrapolation. The feature-window leak is closed on all three fronts:
+  current-bar exclusion (F-002), purge/embargo sized to the ~480-bar feature window not the
+  1-bar label (F-003), and a >=20-trading-day IS/OOS seam embargo with 2024-06 discarded (F-010).
+  Effective-N=48 is now honest only because every DoF is enumerated and frozen pre-look
+  (frozen_degrees_of_freedom) — no grid, no post-hoc selection.
+
+  Majors: F-004 (pre-gap NO-TRADE) and F-007 (KILL-1 gates on DSR, not raw Sharpe) are CLOSED.
+  F-001 is NOT closed: the sacred test still hardcodes sqrt(252) and sharpe<3.0 — it was a
+  MAJOR finding, was not routed into either v2 artifact's scope, and persists as a coarse
+  tripwire weaker at 1h than its CLAUDE.md billing. It does not block (non-blocking severity)
+  but the firm should track it before any 1h strategy code is trusted on the no-lookahead guard.
+
+  Engine fixes verified at SOURCE: swap accrual (engine.py:369) now scales by
+  bar_duration_days from _infer_bar_duration_days (median timedelta, gap-robust; daily->1.0
+  identical to old code, 1h->1/24) — the continuous path; the A2' discrete single-bar path is
+  untouched and swap stays inert per spec. session_filter.apply_session_filter is a pure
+  zero/pass-through applied BEFORE the entry_delay shift, uses [start,end) UTC semantics
+  (L98), and contains no hardcoded hours. New tests assert the invariants in a way a regression
+  could not pass (swap-ratio ~576-if-broken; filter commutes-with-shift with distinct per-bar
+  values). 15/15 named tests green; full suite reported 336 passed.
+
+  No new blocking gaps introduced by the v2 artifacts.
+knowledge_gaps:
+  - "F-001 remediation ownership/timing — unaddressed in this cycle; flagged for QD but not scheduled in the artifacts provided."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

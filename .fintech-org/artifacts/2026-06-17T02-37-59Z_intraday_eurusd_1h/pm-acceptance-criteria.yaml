@@ -1,0 +1,114 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: 2026-06-17T02:39:11Z
+subtask_ref: intraday-eurusd-1h-strategy-design
+subtask_id: pm-accept-intraday-eurusd-1h
+evidence:
+  - "data/processed/EURUSD_1h.parquet — verified: 31,019 rows, columns [open,high,low,close,volume], 2021-01-03 22:00 UTC → 2025-12-31 21:00 UTC, all volume rows non-zero"
+  - "references/dukascopy_1h_PROVENANCE.md — UTC verified (weekend gap + NFP anchoring), volume = Dukascopy ask-side lot proxy (NOT exchange volume)"
+  - ".fintech-org/trials.jsonl — 47 lines, confirmed org-wide trial count = 47"
+  - "tests/backtest/test_engine.py — test_no_lookahead exists and is the sacred test"
+  - "src/forex_system/backtest/engine.py — entry_delay_bars: int = 1 is the no-lookahead mechanism"
+  - "src/forex_system/core/config.py — entry_delay_bars default = 1"
+  - "CLAUDE.md — architecture, invariants, conventions confirmed"
+assumptions:
+  - "EURUSD 1h is the sole intraday dataset available; all other 11 pairs remain daily-only"
+  - "The backtest engine is vectorized and daily-frequency by design; intraday session handling (Asia/London/NY sessions, weekend gaps, rollover) is NOT yet validated for 1h use — this is a QD open question"
+  - "The existing RealisticCostModel per-pair spread/slippage/commission parameters were calibrated for daily/4h bars; per-bar cost at 1h may require re-parameterization"
+  - "OOS holdout has NOT yet been burned on EURUSD 1h data — the one-shot burn is intact and available"
+  - "Volume column is a venue-specific liquidity proxy, not market-wide notional; any volume-signal must acknowledge this explicitly"
+  - "The 5-year window (2021-2025, ~26,000 tradeable hours ex-weekends) is the full available dataset; IS/OOS split must be declared before first backtest look"
+confidence: high
+task-statement: >
+  Design a pre-registration-ready intraday research plan for EURUSD 1h,
+  covering candidate strategies, falsification criteria, confirmability assessment,
+  and infrastructure readiness.
+deliverable-type: strategy-design
+deadline: 2026-06-18T00:00:00Z
+instrument-universe: [EURUSD]
+hard-constraints:
+  - "paper_only: true"
+  - "no_live_capital: true"
+  - "no_lookahead_guarantee: must_hold (test_no_lookahead in tests/backtest/test_engine.py)"
+  - "pre_registration_before_backtest: true — falsification criteria and IS/OOS split MUST be frozen before any backtest is run"
+  - "org_trial_counter_increment: true — any trial registered must increment .fintech-org/trials.jsonl; current baseline = 47"
+  - "oos_holdout_one_shot: true — holdout boundary declared pre-registration; burned exactly once; no re-looks permitted"
+  - "confirmability_gate: estimated forward-validation horizon must be ≤ 3 years at the declared edge magnitude (events/yr × per-event-Sharpe); STRETCH candidates must be labeled and cannot auto-advance to backtest without CEO approval"
+  - "volume_caveat_acknowledged: any strategy using volume must document 'Dukascopy ask-side lot proxy, not exchange volume' in the pre-registration"
+  - "utc_timezone_verified: all bar timestamps are UTC; any session-boundary logic must use verified UTC session windows, not assumed local times"
+  - "cost_model_validation: per-bar cost at 1h frequency must be explicitly validated or re-parameterized before a backtest result is reported as credible"
+  - "no_new_pairs: design is scoped to EURUSD 1h only; cross-pair generalization is out-of-scope for this deliverable"
+  - "engine_intraday_compatibility: QD must confirm or fix the vectorized backtester for 1h bar handling (weekend gaps, session-aware cost, rollover timing) BEFORE any IS backtest result is used"
+criteria:
+  - "HoQR delivers a prioritized ranked list of ≥ 2 and ≤ 5 intraday candidate strategy archetypes, each with: (a) economic rationale, (b) estimated events/year at 1h frequency on EURUSD, (c) estimated per-event Sharpe contribution, (d) estimated forward-validation horizon, (e) confirmability verdict (CONFIRMABLE ≤ 3yr / STRETCH / TRAP)"
+  - "QR delivers a pre-registration template for the top-ranked confirmable candidate, including: (a) full signal specification (no free parameters unspecified), (b) IS period, OOS period, and split date, (c) primary metric and pre-declared falsification threshold (e.g., IS Sharpe > X AND DSR > 0.95), (d) secondary metrics, (e) explicit null hypothesis statement"
+  - "CRO delivers a structured risk memo covering: (a) realistic per-trade cost at 1h (spread + slippage + commission, in pips), (b) swap/rollover exposure for strategies that hold overnight, (c) maximum position sizing consistent with paper-trading constraints, (d) session-specific cost variation (Asia vs London vs NY spread differences)"
+  - "NHT delivers a confirmability verdict: given EURUSD 1h, 5yr dataset, current trial count (47+), is ANY intraday candidate confirmable without multi-year live observation? Verdict must be one of: CONFIRMABLE / STRETCH / TRAP for each candidate reviewed"
+  - "QD delivers an infrastructure readiness report: (a) does test_no_lookahead pass at 1h bar resolution with the existing engine? (b) does the engine handle weekend gaps (Friday 21:00 UTC close, Sunday 21:00 UTC open) without forward-filling across the gap? (c) are session boundaries (London 07:00-16:00 UTC, NY 12:00-21:00 UTC, overlap 12:00-16:00 UTC) correctly filterable? (d) is per-bar cost correctly applied at 1h (not scaled from daily)?"
+  - "Principal Reviewer delivers an independent pass/fail verdict on the full design package before any backtest is run, confirming: pre-registration completeness, no-lookahead integrity, OOS holdout integrity, cost model credibility, confirmability assessment honesty"
+  - "The final deliverable is a signed CONSENSUS artifact (ratification record per agent-accountability primitives) that CEO can approve as the pre-registration document before any backtest proceeds"
+out-of-scope:
+  - "Live or paper-trading execution — this is design only"
+  - "Any pair other than EURUSD"
+  - "Daily or 4h bar strategies (separate research track)"
+  - "Multi-pair portfolio construction or correlation analysis"
+  - "ML/deep-learning signal generation"
+  - "Infrastructure build (new backtester, new data pipeline) — QD is assessing existing engine fitness; if major build is required that is a separate deliverable"
+  - "Backtest execution — the design deliverable ends at a ratified pre-registration; the backtest is a subsequent task requiring CEO approval"
+  - "Live data feeds or broker connectivity"
+  - "Expanding the dataset (acquiring additional pairs at 1h) — separate data-capability track"
+roles-staffed:
+  - "head-of-quant-research: owns alpha direction, confirmability scoring, and candidate prioritization under the dataset-wall/≤3yr lesson; final arbiter of which candidates advance to pre-registration"
+  - "quant-researcher: produces concrete signal specifications, pre-registration templates, and IS/OOS split proposals for the top-ranked confirmable candidate(s)"
+  - "cro: delivers realistic intraday cost/slippage/swap assessment in structured fields (only structured fields; no prose interpretation); flags candidates that are cost-dominated at 1h frequency"
+  - "null-hypothesis-tester: independently assesses whether any EURUSD 1h edge is forward-confirmable given current trial count and 5yr dataset; dissent is append-only and must be preserved verbatim in the consensus artifact"
+  - "quant-developer: assesses existing vectorized backtester for 1h intraday correctness (no-lookahead at sub-daily, weekend gap handling, session filtering, per-bar cost scaling); identifies any required fixes before first backtest run"
+  - "principal-reviewer: independent wave-2 review of the full design package after fan-out; issues pass/fail on pre-registration completeness, OOS holdout integrity, and confirmability honesty; may not be the same agent as any fan-out role"
+body: |
+  ## Context
+  EURUSD 1h data is confirmed on disk: 31,019 hourly bars, 2021-01-03 → 2025-12-31, UTC,
+  with Dukascopy ask-side volume proxy (non-zero on all rows). This is the firm's first
+  intraday-capable dataset. All other 11 pairs remain daily-only (the standing dataset-wall finding).
+
+  ## The core tension this design must resolve
+  Intraday strategies offer higher events/year (potentially confirmable in ≤3yr) vs daily.
+  But the single-pair constraint (EURUSD only) limits diversification, and the existing
+  backtester was designed for daily/4h — QD must validate it before any result is trusted.
+  CRO must confirm that 1h intraday costs (spread + slippage at sub-daily holding periods)
+  do not eliminate the edge before it is detectable. NHT must assess whether a EURUSD-only
+  intraday edge survives the now-47-trial multiple-comparisons penalty.
+
+  ## Key infrastructure risk (load-bearing for the timeline)
+  If QD finds the vectorized engine does NOT handle 1h correctly (weekend gap forward-fill,
+  session boundaries, per-bar cost scaling), the design deliverable must include a remediation
+  scope estimate. The backtest task cannot proceed until QD confirms engine fitness.
+
+  ## Prior art in the firm's record
+  The firm attempted an intraday ORB (Opening Range Breakout) design on 2026-05-30
+  (.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/). That artifact pre-dates the
+  intraday data being available. Roles should review it for context but are not bound by it.
+
+  ## Trial counter note
+  Current count = 47 (verified from .fintech-org/trials.jsonl). Any strategy pre-registered
+  under this design task will become trial 48+. The DSR denominator already carries the
+  full 47-trial penalty. Higher-Sharpe or higher-frequency candidates are more likely to
+  survive DSR deflation.
+
+  ## Volume column caution (load-bearing for signal design)
+  Volume is Dukascopy ask-side lots only. It is a useful intra-session liquidity proxy
+  (lower in Asia, higher in London/NY overlap) but cannot be treated as market-wide notional.
+  Any volume-based signal must pre-register this caveat and must not over-weight it as an
+  independent information source.
+
+knowledge_gaps:
+  - "Whether the existing RealisticCostModel spread parameters (calibrated for daily/4h) are accurate at 1h frequency — CRO must resolve"
+  - "Whether the vectorized backtest engine correctly handles weekend gaps at 1h (no forward-fill across Friday close to Sunday open) — QD must resolve"
+  - "What the actual EURUSD 1h bid-ask spread looks like session-by-session (Asia vs London vs NY) — CRO should quantify from known broker benchmarks"
+  - "Whether the 2026-05-30 ORB pre-design (.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/) was invalidated or superseded — HoQR should review"
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

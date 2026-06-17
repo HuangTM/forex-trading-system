@@ -1,0 +1,136 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: 2026-06-17T02:37:59Z
+subtask_ref: intraday-eurusd-1h-risk
+subtask_id: cro-intraday-eurusd-1h-risk
+size_multiplier: 0.25
+binding_constraints:
+  - "max-spread gate: reject/flatten any signal where live spread > 4.0 pips (2x empirical median); hard halt > 8.0 pips"
+  - "min-gross-edge: researcher must declare expected gross edge >= 6.0 pips/trade AND show it survives the realistic round-trip cost on the OOS holdout"
+  - "drawdown cap: per-strategy equity circuit-breaker at -3R rolling-20-trade and -8% peak-to-trough on the paper book"
+  - "no overnight/weekend carry without explicit swap modeling: any hold across 21:00 UTC rollover or across a weekend-gap event (348 observed) must price the carry into the pre-registered edge"
+  - "cost re-parameterization: backtest MUST use empirical-spread-derived round-trip (~6 pips), NOT the 1.5/side config default, or it is voided"
+  - "pre-registration before backtest + one-shot OOS holdout (inherited hard-constraints)"
+  - "session gate: restrict entries to liquid windows (06:00-19:00 UTC) unless the strategy explicitly models the thin-session spread tail"
+regime_flags:
+  - "low-realized-vol regime: annualized 7.7% (2021 5.6% -> 2022 10.6% -> 2025 7.9%); cost-to-vol ratio is HIGH, edge is thin"
+  - "spread-spike regime: max 40.7 pips observed, std 1.98 on a 2.0 median -> fat right tail; spikes cluster at session opens/closes and around 21:00 UTC rollover and the weekend reopen"
+  - "weekend-gap exposure: 348 time-gaps >1h, max 3 days; any position held Fri ~21:00 UTC -> Sun ~21:00 UTC is unhedgeable through the gap"
+  - "thin-session regime: 20:00-05:00 UTC range 6-10 pips with wider proportional spreads -> worst cost-to-range ratio of the day"
+  - "volume-proxy regime: Dukascopy ask-side proxy is NOT exchange volume; any volume-conditioned signal carries model risk and must be flagged STRETCH"
+min_gross_edge_pips: 6.0
+cost_breakdown_pips:
+  modeled_per_side: 1.5
+  empirical_spread_median: 2.0
+  realistic_round_trip: 6.0
+kill_switch: >
+  Five-part machine-checkable design (per kill-switch-design skill). (a) Pre-trade max-spread gate:
+  out-of-band check reads live spread before every order; reject if > 4.0 pips, auto-flatten + halt strategy
+  if > 8.0 pips. (b) Max-order-rate cap: <= N orders/min hard-coded (intraday 1h-class should emit far below
+  one order/min; set N=3 as a runaway tripwire). (c) Drawdown circuit-breaker: auto-halt on -3R/20-trade or
+  -8% peak-to-trough. (d) Heartbeat / dead-man: if the market-data feed or the risk-check heartbeat is silent
+  > 60s, order routing auto-halts (no stale-data trading across the 348 gaps). (e) Per-strategy manual kill,
+  one command, out-of-band from the strategy process, operable by the most-junior on the desk, < 1s to stop
+  new orders / < 5s to cancel outstanding. Every invocation emits a structured decision-trace log
+  (who/why/what/time-to-effect). Paper-only now, but the switch must be the SAME mechanism that would run live;
+  test it on a schedule against a live paper session and record to .fintech-org/kill-switch-tests.jsonl.
+drawdown_contract: >
+  Machine-checkable, evaluated every closed trade and every bar-mark. Per-strategy: HALT at rolling-20-trade
+  realized loss <= -3R OR peak-to-trough paper-equity drawdown <= -8%. Soft de-risk (size_multiplier -> 0.5 of
+  current) at -2R/20-trade or -5% peak-to-trough. R is defined at pre-registration as the per-trade stop in pips
+  * declared size. Breach => auto-halt + alert + mandatory CRO review before re-enable; no discretionary override
+  of an auto-halt. Drawdown is computed on a monotonic equity timestamp (exchange/bar close time, tz-explicit UTC),
+  never wall-clock, to stay consistent across the weekend gaps.
+tail_risk: >
+  Use Expected Shortfall (ES 97.5%), not VaR-only (per quantitative-risk-management Decision 1; FRTB anchor).
+  Per-bar range has a fat right tail: mean 13.9 pips but p99 55.4 pips (~4x the mean), and spread itself tails to
+  40.7 pips. A Gaussian tail is INADMISSIBLE here (excess kurtosis evident from p99/median ratio); estimate ES by
+  historical simulation over the 2021-2025 window (covers the 2022 vol regime) or POT/EVT on per-trade P&L
+  exceedances. The binding tail event is a spread-spike + adverse-range bar coinciding with a stop: a 55-pip
+  adverse move against a 6-pip gross target is a ~9R single-bar loss. Liquidity-horizon: the relevant exit horizon
+  is sub-day for entries but JUMPS to multi-day for any position caught in a weekend gap (max 3 days) -- ES must be
+  computed at BOTH horizons, not a single blended one. ES backtest: >=250 obs, Acerbi-Szekely Z1/Z2, out-of-sample
+  on the holdout.
+blowup-analog: >
+  Knight Capital (Aug 1, 2012) for the kill-switch/runaway-order class: an automated strategy with an inadequate
+  out-of-band stop is the failure mode the max-order-rate cap + dead-man heartbeat here defend against. Secondary
+  analog for the cost/edge thesis: classic retail intraday-scalp failure -- a real signal whose gross edge is
+  smaller than the realistic round-trip + thin-session spread tail, bleeding to zero via costs that the modeled
+  1.5/side config hid.
+contamination-check: "clean"
+evidence:
+  - "measured-data:EURUSD_1h.volatility -> hourly std 9.96 bps, annualized 7.7%, by-year 5.6-10.6%"
+  - "measured-data:EURUSD_1h.per_bar_range -> mean 13.9, median 11.1, p90 25.9, p99 55.4 pips"
+  - "measured-data:EURUSD_1h.session_range -> 02-05 UTC 7-10, 12-15 UTC 21-25, 20-23 UTC 6-8 pips"
+  - "data/spreads/EURUSD_4h_spreads.parquet -> spread median 2.0, mean 2.44, std 1.98, max 40.7 pips (file verified present)"
+  - "firm-cost-config -> spread 0.5 + slippage 0.5 + commission 0.5 = 1.5 pips/side modeled"
+  - "measured-data:EURUSD.swap -> long -1.2 pips/day, short +0.3 pips/day"
+  - "measured-data:EURUSD_1h.liquidity_gaps -> 348 gaps >1h, max 3 days, Fri ~21:00 -> Sun ~21:00 UTC"
+  - "redacted-acceptance-criteria.hard-constraints -> paper_only, no_lookahead, pre_registration, oos_holdout_one_shot, confirmability<=3yr, cost_model_validation required, volume_caveat"
+assumptions:
+  - "Empirical spread (2.0 median) is measured on the 4h parquet; 1h spreads are assumed no-better than 4h (intraday windows include thinner sub-windows), so 2.0 is a FLOOR not a ceiling for 1h cost."
+  - "Realistic round-trip ~6.0 pips = empirical median spread (2.0) crossed twice (entry+exit, ~2.0 each side effective) + slippage 0.5 + commission 0.5 per side; this roughly DOUBLES the 3.0-pip round-trip implied by the config."
+  - "1R is defined at pre-registration; the -3R/-8% caps assume a per-trade stop is declared. No declared stop => veto, not size-reduced."
+  - "size_multiplier 0.25 is the design-stage ceiling for any sizing a researcher proposes, pending OOS evidence the gross edge clears 6 pips with margin."
+confidence: medium
+body: |
+  RISK REASONING (structured inputs only).
+
+  1) COST AT 1h FREQUENCY. The config models 1.5 pips/side -> 3.0 round-trip. The EMPIRICAL spread median
+     alone is 2.0 pips (mean 2.44, std 1.98). The config's 0.5-pip spread component is therefore ~4x optimistic.
+     A defensible realistic round-trip = empirical spread crossed entry+exit + slippage + commission ~= 6.0 pips.
+     As a fraction of the median hourly range (11.1 pips): modeled 3.0 = 27%; realistic 6.0 = 54%. Against a
+     "typical intraday target" (say one median range, ~11 pips), realistic cost eats >50% of the move. This is a
+     THIN-edge instrument at 1h: cost is the dominant adversary, not direction. The cost_model_validation
+     hard-constraint is therefore load-bearing -- a backtest run on 1.5/side is VOID.
+
+  2) MIN GROSS EDGE. To net positive after ~6 pips realistic round-trip, a 1h strategy must capture >= 6 pips
+     GROSS per trade just to break even, and materially more to clear a confirmability bar in <=3yr at realistic
+     trade counts. I set min_gross_edge_pips = 6.0 as the floor and require the researcher to show edge survives
+     this on the OOS holdout. size_multiplier recommendation: 0.25 ceiling on any proposed sizing at design stage
+     (low vol + thin edge + fat cost tail => do not let a researcher size to full risk budget on unproven edge).
+
+  3) SWAP / ROLLOVER. Long carry is -1.2 pips/day, short is +0.3 pips/day. A long held across the 21:00 UTC
+     rollover loses 1.2 pips/day -- ~20% of the entire min gross edge per overnight. Across a weekend that is
+     typically 3 rollover charges (~3.6 pips for a long) plus unhedgeable gap risk through up to a 3-day close
+     (348 observed gaps). Any candidate that holds across rollover or weekend MUST price carry into the
+     pre-registered edge or it is mis-stated. A long-biased intraday strategy that drifts into overnight holds is
+     structurally penalized; a short-biased one is mildly subsidized but still gap-exposed.
+
+  4) SESSION-SPECIFIC COST VARIANCE. Spread spikes to 40.7 pips (std 1.98 on a 2.0 median => fat right tail).
+     These concentrate at low-liquidity boundaries: the 20:00-05:00 UTC window (range only 6-10 pips, so cost-to-
+     range is worst), the 21:00 UTC daily rollover, and the Friday-close / Sunday-reopen gap. The 12-15 UTC window
+     (range 21-25 pips) is where edge is most achievable relative to cost. REQUIRED gate: pre-trade max-spread
+     check rejecting any entry with live spread > 4.0 pips (2x median), hard halt + flatten > 8.0 pips; and a
+     session restriction to 06:00-19:00 UTC unless the strategy explicitly models the thin-session tail.
+
+  5) DRAWDOWN CONTRACT + KILL SWITCH. See drawdown_contract and kill_switch fields. Both are machine-checkable and
+     evaluated automatically; auto-halts are non-overridable without CRO review. The kill switch carries all five
+     properties (out-of-band, junior-operable, <1s/<5s SLA, prod-tested-on-schedule, observable/attributable) plus
+     the automated pre-trade caps and a 60s dead-man heartbeat so the system never trades stale data across the
+     gaps. Timestamps are UTC-explicit and bar-close/exchange-time sourced (clock-and-ordering): drawdown and gap
+     logic on wall-clock would mis-order events around the 21:00 rollover and weekend reopen.
+
+  6) TAIL RISK (ES, not VaR). See tail_risk field. Fat right tail (p99 range 55.4 vs median 11.1; spread to 40.7)
+     makes Gaussian VaR inadmissible. Use ES 97.5% by historical simulation / POT, at BOTH the intraday and the
+     weekend-gap (multi-day) liquidity horizon, backtested out-of-sample with Acerbi-Szekely. The worst single-bar
+     scenario -- a 55-pip adverse range with a spread spike hitting a stop -- is ~9R against a 6-pip target and is
+     the event the drawdown circuit-breaker and max-spread halt exist to bound.
+
+  DECISION: size-reduced (0.25 ceiling), NOT approve. The instrument is tradeable intraday in principle but the
+  cost-to-vol ratio is hostile and the config cost is ~2x optimistic. Approval to full size requires: (i) backtest
+  re-parameterized to ~6-pip realistic round-trip, (ii) pre-registered gross edge >= 6 pips surviving on the
+  one-shot OOS holdout, (iii) carry priced for any overnight/weekend hold, (iv) the max-spread gate + drawdown
+  circuit-breaker + dead-man heartbeat implemented and testable. Absent a declared per-trade stop (needed to
+  define R), escalate to veto rather than size-reduced.
+knowledge_gaps:
+  - "No 1h-native spread series was provided; 1h cost is inferred from the 4h parquet (median 2.0). A true 1h spread distribution could be worse in thin sessions."
+  - "No realized slippage/fill data for paper execution; the 0.5-pip slippage assumption is the config's, not measured."
+  - "Trade-count / turnover of the candidate strategy is unknown, so the per-trade cost cannot yet be annualized into a confirmability-vs-3yr verdict."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

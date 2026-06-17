@@ -1,0 +1,192 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: 2026-06-17T03:05:00Z
+subtask_ref: intraday-eurusd-1h-archetype-ranking
+subtask_id: hoqr-intraday-archetype-ranking
+evidence:
+  - "PM acceptance criteria: .fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/pm-acceptance-criteria.yaml (confirmability_gate <=3yr; org trial baseline 47; volume = Dukascopy ask-side proxy; cost re-parameterization required)"
+  - "Orchestrator-verified data facts (in the dispatch): 31,019 1h bars 2021-2025; session range profile (overlap 12-15 UTC ~21-25 pip peak; Asia/late ~6-10 pip); hourly ret std ~10bps, ann vol ~7.7% (range 5.6-10.6% by year); per-bar range mean 13.9 / median 11.1 / p90 25.9 / p99 55.4 pips; empirical spread median 2.0 / mean 2.4 / max 40.7 pips; round-trip cost ~4-5 pips; 348 weekend gaps."
+  - "DSR mechanics read from source: src/forex_system/harness/dsr.py::compute_dsr (Bailey & Lopez de Prado 2014; SR_pp = SR_ann/sqrt(periods_per_year); z = (SR_pp - SR_star)*sqrt(T-1)/sqrt(var); DSR=Phi(z)); src/forex_system/harness/deflated_sharpe.py shim."
+  - "DSR null practice read from source: src/forex_system/analysis/null_hypothesis.py (empirical random-signal null matched on trade-frequency PLUS analytical DSR; both deflate the full equity-curve annualized Sharpe)."
+  - "HoQR-computed DSR hurdle at n_trials=48, periods_per_year=6240 (firm constant TRADING_HOURS_PER_YEAR, src/forex_system/core/constants.py:41/49; confirmed as the 1h factor returned by infer_periods_per_year in src/forex_system/backtest/metrics.py:30-31): annualized Sharpe needed to reach DSR>0.95 (z>=1.645) is 3.91 @1yr, 2.76 @2yr, 2.26 @3yr, 1.75 @5yr OOS window. NOTE: these ANNUALIZED hurdle values are invariant to the exact periods_per_year choice -- the hurdle is sqrt(P)*(SR_star + 1.645/sqrt(T-1)) and the P-dependence cancels because T scales with P; I re-derived at both P=6240 and P=5200 and got the same four numbers to 3 d.p. (A prior draft mislabeled the factor as an empirical 5200 tradeable-bar count; corrected to the source constant 6240. The numbers did not change; the provenance did.)"
+  - "HoQR-computed event aggregation: SR_ann = sqrt(events_per_yr) * IR_per_event. To clear the 3yr hurdle (2.26) you need e.g. 500 ev/yr at IR 0.10, or 250 ev/yr at IR 0.14 -- both optimistic post-cost on one pair."
+  - "HoQR-computed cost domination: round-trip 4.5 pips vs ~1.9 pip per-trade noise std (1-3 bar hold) = a ~2.4-sigma per-event cost hurdle; cost drag is 65% of gross at 0.5-bar capture, 32% at 1-bar, falling below 30% only for multi-bar (multi-hour) holds."
+  - "Prior art reviewed: .fintech-org/artifacts/2026-05-30T-p3-intraday-orb/ (ORB design, PRE-DATA). Settled on EURUSD+USDJPY ORB, GBP non-gating arm, freq cap 1/pair/session & 2/day/pair, post-cost expectancy<=0 auto-reject, stop-limit/limit-on-retest only, no mid/market fills. KG-1 'intraday data unconfirmed' was a blocking-impl gap then -- now resolved for EURUSD only. Risk envelope (BC-CRO-1..11) is reusable; the frequency caps it imposed are the very thing that pushes ORB into STRETCH on events/yr."
+  - "Standing firm thesis (MEMORY): dataset-wall -- 2 prior hypothesis cycles / 18 ideas floored at ~3-5yr because data caps events/yr x per-event-Sharpe. CONFIRMABILITY rubric (events/yr x per-event-Sharpe -> validate <=3yr) is frozen and load-bearing."
+  - "Skill: technical-analysis SKILL.md sec 3 (trend-following vs mean-reversion are structurally negatively correlated; ~70% of time markets range), sec 13 (95% of backtested systematic strategies fail live; Sharpe>3 suspicious -> our >2.26 hurdle is near the suspicious zone), sec 4/Volume-Profile (session VA structure)."
+  - "Skill: forex-trading SKILL.md sec 3 (London-NY overlap 12-16 UTC = peak vol; matches verified range profile), sec 5.1 (scheduled-event calendar: NFP/CPI/FOMC/ECB ~8x/yr each -> bounded event counts), sec 6 (cost/swap discipline; swap long -1.2 / short +0.3 pip/day verified)."
+assumptions:
+  - "DSR n_obs is the full bar count of the OOS equity curve (flat bars included), consistent with how null_hypothesis.py and the firm's prior trials deflated the equity-curve Sharpe. If a future pre-registration instead deflates a per-TRADE info-ratio series (n_obs = number of trades), the hurdle arithmetic changes and should be re-derived by QR/Mathematician BEFORE freeze -- this is flagged as a knowledge gap, not silently assumed away."
+  - "periods_per_year for 1h is 6240 (firm constant TRADING_HOURS_PER_YEAR = 24*260, constants.py:41; returned by infer_periods_per_year for <=1h30m spacing, metrics.py:30-31). CONFIRMED from source. The annualized DSR-hurdle values above are invariant to this exact factor (P-dependence cancels), so this is no longer a hurdle-arithmetic risk; QD should still confirm calculate_metrics actually applies 6240 at 1h end-to-end on the real series before any DSR number is reported as credible."
+  - "Per-event IR (information ratio per trade = mean edge / std edge per event) is the honest order-of-magnitude estimate; true values are only knowable post-backtest. I estimate them conservatively from cost-vs-range arithmetic, NOT from optimism."
+  - "EURUSD is the SOLE intraday instrument; no cross-pair sqrt(N) diversification is available to lift the aggregate Sharpe (the single-pair constraint is the binding amplifier of the dataset wall)."
+  - "5yr is the entire dataset; an honest IS/OOS split leaves AT MOST ~1.5-2.5yr of OOS, so the relevant hurdle is the 2yr (2.76) to 3yr (2.26) column, NOT the 5yr column."
+  - "Volume is a Dukascopy ask-side liquidity proxy only; usable as a session-liquidity FILTER, never as a standalone notional/flow signal."
+confidence: high
+ranked-archetypes:
+  - name: "A1 -- Session-open / London-open momentum continuation (incl. ORB as a special case)"
+    rationale: >
+      Structural: the London open (06-09 UTC) and the London-NY overlap (12-15 UTC, the verified
+      daily range peak ~21-25 pips) concentrate order flow as institutional desks reprice overnight
+      news and position for the US session. A directional impulse formed in the first 1-2 hours of a
+      session has a documented (but decaying) tendency to extend. This is the ORB family the firm
+      already designed (pre-data). Persistence rationale: the flow is real and recurring (desk
+      open/close ritual), but it is the MOST-arbed intraday FX pattern, so any edge is thin and
+      shrinking. Best-of-a-bad-lot because it at least holds multiple bars (keeps cost drag <30%)
+      and anchors to a real, dated liquidity event.
+    events_per_year: "200-500 (1-2 qualified breakouts/session x ~250 sessions, before a quality filter; the prior ORB freq cap of 1/session would cut this to ~150-250)"
+    per_event_sharpe: "0.05-0.10 IR per event, post-cost (optimistic end). Cost drag is ~30% of gross at a 1-bar hold; thin."
+    forward_validation_years: ">3yr (STRETCH). 500 ev/yr x IR 0.10 = SR_ann 2.24 ~ exactly the 3yr boundary; but post-cost IR 0.10 on a single pair is optimistic, and the prior freq cap pushes N down. Honest central estimate SR_ann ~1.5-1.9 -> 4-5yr+."
+    confirmability: STRETCH
+    dominant_kill_risk: "already-arbed (most-studied intraday FX pattern; edge decays year-over-year and likely non-stationary across the 2021-2025 regime shift) compounded by cost-domination at the high-frequency end."
+  - name: "A2 -- Quiet-session mean reversion (Asia / late-NY range fade, 20-05 UTC)"
+    rationale: >
+      Structural: in low-liquidity windows (verified ~6-10 pip ranges in 02-05 and 20-23 UTC), price
+      oscillates inside an intraday Value Area with little directional flow; small dislocations revert
+      to the session mean (Auction Market Theory: within-VA = balance -> fade the edges; technical-analysis
+      SKILL sec 4). Mean reversion is structurally negatively correlated with A1 (sec 3), so if BOTH
+      survived they would diversify -- but see kill-risk. Persistence: ranging is the market's ~70%
+      default state, so the SETUP recurs; the question is whether the captured move clears cost.
+    events_per_year: "300-800 (several fade opportunities per quiet window per day) -- highest event count of any archetype."
+    per_event_sharpe: "0.02-0.05 IR per event, post-cost. FATAL arithmetic: the capturable reversion in a 6-10 pip quiet range is ~3-5 pips gross; round-trip cost is 4-5 pips -> net edge near zero or negative. This is the textbook cost-dominated case."
+    forward_validation_years: ">5yr (effectively never on this pair). Even 800 ev/yr at IR 0.05 = SR_ann 1.41 < 1.75 (5yr hurdle); at the honest post-cost IR 0.02-0.03 it is sub-1.0 and likely net-negative."
+    confirmability: TRAP
+    dominant_kill_risk: "cost-dominated (round-trip cost EXCEEDS the capturable range in exactly the windows where the setup exists; the spread also WIDENS in thin liquidity -- empirical max spread 40.7 pips -- so realized cost is worse than the median when this strategy is most active)."
+  - name: "A3 -- Scheduled-macro-event drift (NFP / CPI / FOMC / ECB post-release directional hold)"
+    rationale: >
+      Structural: high-impact USD/EUR releases (forex-trading SKILL sec 5.1: each ~8x/yr) inject a
+      genuine information shock; the post-release repricing has a short, structural directional drift
+      as the market digests surprise vs forecast. This is an EVENT-STUDY edge with a real economic
+      mechanism (information diffusion), closest in spirit to the firm's earlier QRB-6 CB-decision
+      event study -- which the firm found REAL-but-modest (~0.47 annual Sharpe) and UN-confirmable.
+      Persistence: the mechanism is durable (information shocks recur), but the per-event edge is
+      small and the event count is hard-capped by the macro calendar.
+    events_per_year: "30-60 (NFP 12 + US CPI 12 + FOMC 8 + ECB 8 + a few others ~= 40-50 high-impact EUR/USD-relevant releases). Hard-capped by the calendar -- cannot be increased on one pair."
+    per_event_sharpe: "0.10-0.20 IR per event (HIGHEST per-event quality -- a real shock, multi-bar hold, cost drag <20% because moves are large: 50-100+ pip NFP moves vs 4.5 pip cost). But spreads BLOW OUT at the release (the SKILL and prior ORB both flag session-open/news spread widening), eroding the first-minutes edge."
+    forward_validation_years: ">5yr (STRETCH->TRAP on confirmability). 50 ev/yr x IR 0.15 = SR_ann 1.06; even at the optimistic 0.20 IR, SR_ann 1.41 < 1.75. The calendar cap on N is the binding wall: you cannot sqrt(N)-aggregate your way past 60 events/yr."
+    confirmability: STRETCH
+    dominant_kill_risk: "non-stationary + event-count-capped. The drift sign and magnitude depend on the prevailing macro regime (hiking vs cutting cycle); 5yr spans a full regime flip (2021 ZIRP -> 2022-23 hiking -> 2024-25 cuts), so the edge is unstable across the very window you'd validate on. Secondary: news-spread blowout."
+ranked-alternatives: >
+  HONEST CONCLUSION FIRST: under the frozen confirmability rubric (DSR>0.95 at n_trials=48, OOS<=~2.5yr),
+  NONE of the three archetypes is CONFIRMABLE on EURUSD 1h alone. The best (A1) sits at the 3yr boundary
+  ONLY under an optimistic post-cost per-event IR that I do not believe; my honest central estimates put
+  all three at STRETCH-to-TRAP. This is the dataset wall reappearing in the intraday domain: going from
+  daily to 1h raised events/yr by ~24x, but (a) the per-event edge fell by MORE than 24x because cost
+  (~4.5 pip RT) now dominates the ~14-pip hourly range, and (b) the single-pair constraint removes the
+  cross-sectional sqrt(N) lift, and (c) the 47-trial DSR penalty sets a ~2.26 annualized-Sharpe hurdle
+  that is in the "suspicious" zone (TA SKILL sec 13: Sharpe>3 = overfit warning; we are demanding >2.26).
+  Higher frequency did NOT buy confirmability; it bought cost domination.
+
+  RECOMMENDED DIRECTIONS, ranked by expected-alpha-per-unit-research-cost:
+  1. ADVANCE A1 (session-open momentum) to pre-registration AS A STRETCH candidate ONLY -- explicitly
+     labeled, cannot auto-advance to backtest without CEO approval (per confirmability_gate). Rationale:
+     it is the single archetype with a real flow mechanism AND multi-bar holds that keep cost drag <30%,
+     AND the firm already has a ratified risk envelope (BC-CRO-1..11) and a near-complete pre-registration
+     from the 2026-05-30 ORB cycle that can be lifted onto real data cheaply. Lowest marginal research cost.
+  2. Treat A3 (macro-event drift) as a SECOND-priority event study, NOT a 1h-bar strategy. Its natural home
+     is the firm's existing CB-calendar event-study machinery (QRB-6 lineage), not the intraday bar engine.
+     Re-using that pipeline is cheaper than building intraday event handling; but it is calendar-N-capped and
+     was already found un-confirmable, so expected payoff is low.
+  3. DO NOT pursue A2 (quiet-session mean reversion) -- it is cost-dominated by construction (cost > range)
+     and would burn an OOS look for a near-certain null. Killing it now is the highest-value cheap decision.
+  4. STRATEGIC (out of this subtask's scope but the load-bearing finding for the CEO): the ceiling unlock is
+     NOT a cleverer single-pair 1h signal -- it is intraday data on the OTHER 11 pairs, which would restore
+     the cross-sectional sqrt(N) diversification that collapses the aggregate-Sharpe hurdle. One pair at 1h
+     does not break the dataset wall; it relocates it.
+retirement-criteria: >
+  For A1 if advanced to pre-registration (machine-checkable, frozen BEFORE backtest):
+  - RETIRE if pre-registered post-cost IS annualized Sharpe < 1.5 on the IS slice (below this, the OOS
+    cannot reach the 2.26 3yr / 2.76 2yr DSR hurdle even with a perfect OOS -- do not burn the holdout).
+  - RETIRE if post-cost expectancy <= 0 on IS (inherit the prior ORB auto-reject, BC-CRO-10).
+  - RETIRE if qualified events/yr on IS < 150 (below this, sqrt(N) cannot carry even an IR-0.12 edge to the hurdle).
+  - RETIRE if the realized round-trip cost in the session-aware cost model exceeds 6 pips (cost drag would push net IR below 0.05).
+  - RETIRE if the IS Sharpe is not stable across the 2021-2025 sub-periods (year-by-year Sharpe sign flips -> non-stationary -> the 5yr regime flip kills it).
+  - HARD STOP: do not run the OOS holdout at all unless IS clears BOTH (Sharpe>=1.5 AND expectancy>0 AND events>=150). The holdout is one-shot.
+  A2: RETIRED NOW (cost-dominated by construction; no backtest warranted).
+  A3: re-route to event-study track; retire as a 1h-bar candidate.
+body: |
+  ## Bottom line
+  I am approving a SINGLE archetype (A1, session-open momentum) to advance to pre-registration, and
+  ONLY as an explicitly-labeled STRETCH candidate that cannot auto-advance to backtest without CEO
+  approval (per the PM confirmability_gate). I am killing A2 outright and re-routing A3 off the 1h-bar
+  track. The honest headline -- which the firm's standing dataset-wall thesis predicted -- is that
+  NONE of the three is CONFIRMABLE on EURUSD 1h alone within a <=3yr OOS window. That is the valuable
+  finding here, and I am stating it plainly rather than flattering an intraday "breakthrough."
+
+  ## Why higher frequency did not buy confirmability (the core arithmetic)
+  The intuition "intraday gives more events/year, so it confirms faster" is half-right and dangerous.
+  Confirmability under our DSR gate is set by the AGGREGATE annualized Sharpe, which aggregates as
+  SR_ann = sqrt(events/yr) x IR_per_event. Moving daily->1h multiplied events/yr by ~24x, which lifts
+  SR_ann by only sqrt(24) ~ 4.9x AT CONSTANT per-event edge. But the per-event edge did NOT stay
+  constant -- it COLLAPSED, because the ~4.5-pip round-trip cost is now a first-order fraction of the
+  ~14-pip median hourly range (32% drag at a 1-bar hold, 65% at a half-bar hold; a 2.4-sigma cost
+  hurdle against the ~1.9-pip per-trade noise std). The net effect is that per-event IR fell by MORE
+  than sqrt(24), so aggregate Sharpe went DOWN, not up. Higher frequency bought cost domination.
+
+  ## The DSR hurdle is the binding wall
+  With the org trial counter at 47 (this becomes trial 48), I computed the annualized Sharpe required
+  to reach DSR>0.95 (z>=1.645) directly from src/forex_system/harness/dsr.py at periods_per_year=5200:
+  3.91 at a 1yr OOS, 2.76 at 2yr, 2.26 at 3yr, 1.75 at 5yr. Since an honest IS/OOS split of a 5yr
+  dataset leaves at most ~2-2.5yr of OOS, the operative hurdle is ~2.5-2.8 annualized Sharpe.
+  Technical-analysis SKILL sec 13 flags Sharpe>3 as an overfit warning and notes 95% of systematic
+  backtests fail live; we are being asked to clear >2.5, which is uncomfortably close to that warning
+  zone for a single-pair post-cost intraday edge. A real, durable, un-arbed 2.5-Sharpe single-pair 1h
+  FX strategy is not something I expect exists; if a backtest shows one, my prior is overfit, not alpha.
+
+  ## Per-archetype honest read
+  - A1 (session momentum / ORB): the only one with both a real recurring flow mechanism AND multi-bar
+    holds that keep cost drag tolerable. Sits at the 3yr boundary only under optimistic IR=0.10; my
+    central estimate is SR_ann 1.5-1.9 -> 4-5yr. STRETCH. Cheapest to advance (prior ORB pre-reg +
+    BC-CRO risk envelope already ratified). Kill-risk: already-arbed + non-stationary.
+  - A2 (quiet-session mean reversion): TRAP. The capturable reversion (3-5 pips) is SMALLER than the
+    round-trip cost (4.5 pips), and spreads WIDEN precisely in the thin windows where the setup lives
+    (empirical max spread 40.7 pips). Net edge is near-zero-to-negative by construction. Highest-value
+    cheap decision is to kill it now without burning a look.
+  - A3 (macro-event drift): real mechanism, best per-event quality (large shocks, low relative cost),
+    but the macro calendar HARD-CAPS events at ~40-60/yr -- you cannot sqrt(N) past the wall on one pair.
+    It also spans a full regime flip over 2021-2025 (ZIRP->hiking->cutting), so it is non-stationary on
+    the validation window. This is the QRB-6 lesson recurring: real-but-modest, un-confirmable. Belongs
+    in the event-study pipeline, not the 1h-bar engine.
+
+  ## Engagement with the dataset-wall thesis (as instructed -- engage, do not flatter)
+  The thesis holds and EXTENDS to intraday. Two prior cycles found daily ideas floored at ~3-5yr because
+  data caps events/yr x per-event-Sharpe. Intraday EURUSD does not escape this; it changes WHICH term
+  binds. On daily multi-pair, the binding constraint was low events/yr. On single-pair 1h, the binding
+  constraints become (a) cost-domination crushing per-event IR and (b) loss of cross-sectional sqrt(N)
+  because there is only one pair. The wall is the same wall. The genuine unlock the CEO should weigh is
+  intraday data ACROSS the 11 other pairs (restoring cross-sectional diversification), not a smarter
+  single-pair signal. I am NOT recommending a spend on more single-pair generation -- diminishing returns.
+
+  ## What I am asking downstream roles to do
+  - QR: build the pre-registration template for A1 ONLY, labeled STRETCH, with all free parameters fixed,
+    a frozen IS/OOS split (<=2.5yr OOS), and the falsification thresholds in my retirement-criteria.
+  - CRO: deliver session-aware per-bar 1h cost (the 4.5 pip RT and the Asia/London/NY spread variation;
+    flag A2 as cost-dominated -- I have pre-flagged it but want the structured-field confirmation).
+  - NHT: independently verdict each archetype against the 48-trial DSR penalty; I expect concurrence that
+    none is CONFIRMABLE on one pair, and I want that dissent preserved verbatim.
+  - QD: confirm engine fitness at 1h (weekend-gap no-forward-fill, session filtering, per-bar cost, and
+    that test_no_lookahead holds at 1h) BEFORE any IS result is trusted -- and confirm the exact
+    periods_per_year my DSR-hurdle arithmetic depends on.
+knowledge_gaps:
+  - "Whether DSR n_obs should be the full bar count or the per-trade count for an event-driven intraday strategy. My hurdle arithmetic assumes full-bar (firm precedent), but for a sparse event strategy a per-trade deflation may be the more honest convention -- QR/Mathematician must resolve and FREEZE this before pre-registration, as it materially moves the hurdle."
+  - "RESOLVED: periods_per_year at 1h is the firm constant 6240 (constants.py:41, metrics.py:30-31), not the 5200 a prior draft used. The annualized DSR hurdle is invariant to this (re-derived identical at both factors), so it is NOT a hurdle-arithmetic risk. Residual gap: QD must confirm calculate_metrics applies 6240 end-to-end on the real EURUSD 1h series."
+  - "Published intraday-FX anomaly decay rates (how fast London-open momentum has been arbed out) -- needed to quantify A1's non-stationarity kill-risk. Emitted as a RESEARCH_REQUEST below; I did NOT call WebSearch/WebFetch myself."
+  - "Whether the prior 2026-05-30 ORB pre-registration is liftable verbatim onto real EURUSD 1h data or needs re-parameterization for actual (vs assumed) session-open spreads."
+  - "Session-by-session realized spread (Asia vs London vs NY) on this specific Dukascopy feed -- CRO to quantify; load-bearing for A1's true per-event IR."
+RESEARCH_REQUEST:
+  type: external-literature
+  requested_by: head-of-quant-research
+  do_not_self_fetch: true
+  reason: "untrusted-content firewall; websearch_used/webfetch_used MUST remain 0"
+  questions:
+    - "Empirical decay rate of intraday FX session-open / opening-range-breakout momentum in EURUSD 2010-2025 (is the edge still present post-2020, and at what magnitude?)"
+    - "Published post-macro-release (NFP/CPI/FOMC) short-horizon drift magnitudes and half-lives in EURUSD, and whether they flip sign across hiking vs cutting regimes."
+    - "Whether any peer-reviewed or practitioner source documents a single-pair 1h FX strategy with a post-cost annualized Sharpe > 2.0 that replicated out-of-sample (prior: does not exist)."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: METHODOLOGY-DESIGN

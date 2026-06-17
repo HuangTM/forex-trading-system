@@ -1,0 +1,242 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: 2026-06-17T03:14:00Z
+subtask_ref: intraday-eurusd-1h-prereg-template
+subtask_id: qr-intraday-prereg-template
+trial_id: DESIGN-TEMPLATE-PENDING-EXECUTION
+trial-count-at-spawn: 47
+
+hypothesis: >
+  During the low-liquidity UTC overnight window (02:00-05:00), EURUSD price tends to
+  mean-revert intra-hour because order flow is dominated by inventory-rebalancing and
+  thin liquidity (no London/NY participation), so an hour that closes far from its own
+  open over-extends and the next hour partially retraces toward the prior session VWAP-proxy.
+
+universe: [EURUSD]
+
+windows:
+  IS: "2021-01-03T22:00Z .. 2024-06-30T21:00Z  (in-sample / development; ~3.5yr, ~21,700 bars)"
+  OOS_holdout: "2024-07-01T00:00Z .. 2025-12-31T21:00Z  (one-shot holdout; ~1.5yr, ~9,300 bars)"
+  split_rationale: >
+    70/30 chronological split, declared BEFORE any look. The holdout is the most recent
+    18 months because forward-confirmability is the question: if the edge is real it must
+    persist into the most-recent unseen regime (2024H2-2025 includes the post-2024-Fed-pivot
+    rate environment). The split boundary 2024-07-01 is fixed and one-shot; no walk-forward
+    re-look into the holdout is permitted. All parameter selection, robustness checks, and
+    CPCV tuning happen exclusively inside IS. The OOS is burned exactly once at the end.
+
+metric: >
+  PRIMARY = Deflated Sharpe Ratio (Lopez de Prado 2014). Compute IS Sharpe via Combinatorial
+  Purged Cross-Validation (CPCV): N_groups=6, k=2 (15 train/test splits), purge=24 bars on each
+  side of every test fold, embargo=1% of sample (~217 bars IS) to kill serial-correlation leakage
+  across the 1h autocorrelated series. DSR deflates the observed Sharpe by the multiple-testing
+  variance using org-wide N=48 effective trials (current 47 + this trial at execution) and the
+  skew/kurtosis of the realized per-bar return distribution. Report ANNUALIZED net-of-cost Sharpe
+  with bootstrap 95% CI (1000 resamples, stationary block bootstrap, block=24 bars). NEVER report
+  raw Sharpe alone. Secondary metrics (non-gating, reported for context): net annualized return,
+  max drawdown, Calmar, hit-rate, average trade pips net, trades/year, turnover, tail ratio (p95/p5).
+
+falsification-criteria:
+  - "KILL if IS net-of-cost annualized Sharpe <= 0.50 (edge too small to clear cost+deflation)."
+  - "KILL if DSR < 0.95 at org-wide N=48 (does not survive multiple-comparisons deflation)."
+  - "KILL if OOS_holdout net-of-cost annualized Sharpe < 0.30 (forward-decay below confirmable floor)."
+  - "KILL if OOS Sharpe sign != IS Sharpe sign (edge inverts out-of-sample => overfit)."
+  - "KILL if average net trade < 0 pips after the P90 slippage assumption (cost-dominated)."
+  - "KILL if >40% of total net PnL comes from any single calendar quarter (concentration => not a persistent structural edge)."
+  - "KILL if trades/year < 120 in IS (insufficient events to confirm in <=3yr; confirmability gate fails)."
+  - "PASS requires ALL of: IS Sharpe > 0.50 AND DSR > 0.95 AND OOS Sharpe > 0.30 AND sign-concordant AND avg net trade > 0 pips @ P90 slippage AND no >40% quarter concentration AND trades/year >= 120."
+
+alpha-source: >
+  STRUCTURAL INEFFICIENCY: the 02:00-05:00 UTC window is the trough of FX liquidity (Tokyo
+  winding down, London not yet open; orchestrator-measured avg hourly range only ~6-10 pips
+  vs ~21-25 at the London-NY overlap). In thin books, a large hourly move is more likely to be
+  a transient liquidity-demand/inventory shock than information, so it partially reverts -- a
+  classic Amihud illiquidity / inventory-risk premium (Ho-Stoll). It PERSISTS because the
+  window is structurally unattractive to size-constrained discretionary desks (spreads widest,
+  depth thinnest) and to most systematic CTAs (who trade liquid sessions), so the reverting
+  flow is under-arbitraged. SURVIVES-COST ARGUMENT (the honest crux): empirical round-trip is
+  ~4-5 pips (median spread 2.0 + slippage), but the overnight window has the WIDEST spreads
+  (worse than the 2.0 median), so realistic round-trip here is plausibly 5-7 pips. The signal
+  must capture a per-trade edge materially above that. Median hourly range overnight is only
+  ~6-10 pips, so a mean-reversion move large enough to clear cost is only available on the
+  upper-tail hours -- which is why entries are TAIL-CONDITIONED (only fade hours whose absolute
+  return exceeds a high session-relative threshold). This is precisely why the honest verdict
+  below is STRETCH, not CONFIRMABLE: the edge-to-cost ratio in the thinnest session is the
+  binding risk.
+
+signal-logic: >
+  All logic is close-to-close on completed 1h bars (no intrabar path dependence -- chosen
+  deliberately so the existing vectorized sign-based engine can run it without an intrabar
+  simulator; cf. prior ORB art which REQUIRED an intrabar engine and was blocked on it).
+  Define, on each completed bar t:
+    r_t = log(close_t / close_{t-1})                       [one-bar log return]
+    sigma_sess = rolling std of r over the trailing 20 bars restricted to the same UTC-hour
+                 class (overnight 02-05), computed ONLY from bars at or before t-1 (no lookahead)
+  Entry universe is restricted to bars whose UTC hour is in {02,03,04,05}.
+  A bar is a FADE-SHORT candidate if r_t >= +k_z * sigma_sess (over-extended up).
+  A bar is a FADE-LONG  candidate if r_t <= -k_z * sigma_sess (over-extended down).
+  Frozen parameters (NO free parameters left undeclared):
+    k_z = 2.0   (entry z-threshold; tail-conditioning to clear cost)
+    lookback = 20 same-hour-class bars for sigma_sess
+    entry hour-class = {02,03,04,05} UTC only
+    holding horizon = exactly 1 bar (enter at t+1 open per engine's entry_delay_bars=1, exit at
+                      close of t+1) -- a single-bar reversion bet.
+  Signal value emitted at bar t: -1.0 (short) on FADE-SHORT, +1.0 (long) on FADE-LONG, else 0.0.
+  The engine then shifts by entry_delay_bars=1 (no-lookahead invariant preserved -- signal at t
+  executes at t+1). NOTE: k_z is the ONLY discretion; it is FROZEN at 2.0 here, pre-look. It must
+  NOT be tuned on OOS. If IS robustness (inside CPCV only) is desired, the permissible grid is
+  declared as {1.5, 2.0, 2.5} and the chosen value counts toward the trial budget; the template
+  freezes 2.0 to avoid widening N.
+  ROUTE_TO: quant-developer  (for vectorized implementation, weekend-gap-safe sigma_sess rolling,
+  and per-session cost application -- this artifact emits NO executable code.)
+
+entry: >
+  Enter at the OPEN of bar t+1 (entry_delay_bars=1) when, at completed bar t with UTC hour in
+  {02,03,04,05}: |r_t| >= 2.0 * sigma_sess. Direction = opposite the sign of r_t (fade).
+  Skip the entry if bar t+1 would fall outside the entry hour-class is NOT required (we always
+  hold exactly one bar regardless of the next bar's hour), BUT skip if t+1 crosses the weekend
+  gap (Friday 21:00Z -> Sunday 21:00Z): never hold a reversion bet across the weekend gap.
+
+exit: >
+  Exit at the CLOSE of bar t+1 (single-bar horizon). No discretionary hold extension.
+  Flat between signals.
+
+stop: >
+  No intrabar stop is modeled (the position is held exactly one 1h bar and exited at that bar's
+  close; the bar itself is the time-stop). A DISASTER GUARD is declared for risk accounting only:
+  if the realized adverse move within the held bar exceeds 25 pips (>P99 of overnight range ~ the
+  observed p99 range 55.4 is full-session; overnight tail is smaller), the trade is flagged for
+  the CRO tail report. Because the engine is close-to-close, this guard is a reporting trigger,
+  not an execution stop -- modeling a true intrabar stop would REQUIRE the intrabar engine the
+  prior ORB art was blocked on. This is declared as a known modeling limitation, not hidden.
+
+target: >
+  No explicit profit target; the single-bar reversion IS the target (mean-reversion captured
+  over one hour). Exit is unconditional at t+1 close.
+
+size-rule: >
+  Volatility-targeted, capital-fraction sizing referencing portfolio state:
+    position_fraction = signal * min( risk_budget / (sigma_sess_pips * k_stop_proxy), max_frac )
+  where:
+    risk_budget       = 0.25% of current equity per trade (paper; matches prior-art tightening 0.5->0.25)
+    sigma_sess_pips   = sigma_sess converted to pips (the per-bar overnight vol estimate)
+    k_stop_proxy      = 2.0 (the entry-threshold horizon used as the risk-unit proxy since no
+                        intrabar stop exists)
+    max_frac          = 1.0 (cap; signal already in [-1,1])
+  This makes notional inversely proportional to estimated overnight bar volatility, so realized
+  per-trade risk is approximately constant in equity terms. References current equity (portfolio
+  state), so it compounds. No leverage beyond 1.0x notional (paper constraint).
+
+slippage-distribution:
+  basis: >
+    Derived from orchestrator-measured facts: empirical spread median 2.0 pips (max 40.7);
+    overnight (02-05 UTC) is the WIDEST-spread / thinnest-liquidity bucket, so its slippage
+    distribution is materially worse than the all-session median. Round-trip cost = spread +
+    slippage + commission; config's optimistic 0.5+0.5+0.5 is REJECTED for this window.
+  P50: 5.0   # pips round-trip, overnight bucket (spread ~3.5 P50 overnight + ~1.0 slip + ~0.5 comm)
+  P90: 8.0   # pips round-trip, overnight bucket (spread widening + thin-book slippage)
+  P99: 14.0  # pips round-trip, overnight bucket (event/illiquidity spikes; below full-session 40.7 max)
+  by_session:
+    overnight_02_05_UTC: { P50: 5.0, P90: 8.0, P99: 14.0 }   # the ONLY traded bucket; gating
+    london_06_11_UTC:    { P50: 3.5, P90: 5.5, P99: 9.0 }    # reference only (not traded here)
+    overlap_12_16_UTC:   { P50: 2.5, P90: 4.0, P99: 7.0 }    # tightest; reference only
+    quiet_20_23_UTC:     { P50: 5.0, P90: 8.0, P99: 14.0 }   # reference only
+  gating_rule: >
+    Falsification 'avg net trade > 0 pips' MUST be evaluated at the OVERNIGHT P90 (8.0 pips
+    round-trip), not P50. If the edge cannot clear 8 pips it does not exist for this firm.
+
+retirement-triggers:
+  - "MACHINE-CHECK: OOS_holdout net annualized Sharpe < 0.30 -> KILL (auto, one-shot)."
+  - "MACHINE-CHECK: DSR < 0.95 at N=48 -> KILL (auto)."
+  - "MACHINE-CHECK: IS Sharpe <= 0.50 -> KILL before OOS is even burned."
+  - "MACHINE-CHECK: avg net trade pips @ overnight P90 slippage <= 0 -> KILL."
+  - "MACHINE-CHECK: trades/year < 120 in IS -> KILL (confirmability fails; cannot validate in <=3yr)."
+  - "MACHINE-CHECK: any single calendar quarter contributes > 40% of net PnL -> KILL (concentration)."
+  - "POST-DEPLOY (if ever paper-promoted): rolling-63-bar live Sharpe < 0 for 2 consecutive months -> retire."
+  - "STRUCTURAL: if EURUSD overnight median spread rises above 4.5 pips P50 (cost regime shift) -> retire (edge no longer clears cost)."
+
+runners_up:
+  - "London open-range fade (06:00-08:00 UTC): fade the first London hour's over-extension back toward the Asia close. Higher events/yr and tighter spreads than overnight, BUT directional-breakout contamination is high (London open is often informative, not noise) and a true range/stop model needs the intrabar engine the prior ORB art was blocked on -> deferred."
+  - "Overlap (12:00-16:00 UTC) momentum-continuation on volume-proxy expansion: ride hours where the Dukascopy ask-side volume proxy spikes >2x its trailing median. CAVEAT: volume is a venue-specific ask-side lot proxy, NOT exchange notional (per PM hard-constraint); over-weighting it as independent information is forbidden -> demoted to runner-up, and momentum at 1h is the most crowded/arbitraged regime (weakest persistence argument)."
+
+evidence:
+  - "Orchestrator fact: session range by UTC hour -- quiet 02-05 ~6-10 pips, overlap 12-15 ~21-25 pips (thin overnight book = mean-reversion regime)."
+  - "Orchestrator fact: empirical spread median 2.0 pips, max 40.7; round-trip ~4-5 pips empirically vs ~14-pip median range; config 0.5+0.5+0.5 is optimistic and rejected for overnight."
+  - "Orchestrator fact: hourly std ~10 bps, range median 11.1 / mean 13.9 / p99 55.4 -- tail-conditioning (k_z=2.0) needed to find moves large enough to clear cost overnight."
+  - "PM acceptance criteria: pre_registration_before_backtest, oos_holdout_one_shot, confirmability_gate <=3yr, volume_caveat, utc_timezone_verified, cost_model_validation (.fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/pm-acceptance-criteria.yaml)."
+  - "Prior art: 2026-05-30 ORB design REQUIRED an intrabar engine (B-4) and was blocked on it (.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/principal-reviewer-cycle2-review-report.yaml:18) -- motivates choosing a close-to-close single-bar design that the existing sign-based engine can run."
+  - "Org trial count = 47 verified (.fintech-org/trials.jsonl, 47 lines); DSR N=48 at execution."
+  - "Skill (probability-statistics) sec 1.5/2.1: CLT O(1/sqrt(n)) and concentration -- confirmability horizon = f(events/yr, per-event Sharpe); trades/year>=120 floor chosen so ~1.5yr OOS carries ~180+ trades for a detectable mean."
+  - "CLAUDE.md no-lookahead invariant: entry_delay_bars=1 preserved; signal at t executes at t+1; test_no_lookahead must hold."
+  - "Lopez de Prado: never report raw Sharpe; DSR with CPCV + purge + embargo on autocorrelated 1h series."
+
+assumptions:
+  - "sigma_sess computed only from same-UTC-hour-class bars at or before t-1 (strictly no lookahead)."
+  - "Weekend gap (Fri 21:00Z -> Sun 21:00Z) is NOT forward-filled; QD must confirm engine does not bridge it (PM/QD open question)."
+  - "Single-bar close-to-close horizon means no intrabar stop is modeled; this is an honest modeling limitation, not a hidden assumption."
+  - "Overnight spread is worse than the 2.0 all-session median; P50=5.0 round-trip is an estimate pending CRO session-by-session quantification."
+  - "k_z frozen at 2.0 to avoid inflating N; if a grid is run inside IS-only CPCV, each grid point counts toward the trial budget."
+  - "Swap exposure is negligible: positions are intraday (held exactly 1 hour), never overnight, so the -1.2/day long swap does not apply."
+
+confidence: medium
+
+body: |
+  ## Honest verdict: STRETCH, not CONFIRMABLE.
+
+  The top candidate (overnight illiquidity mean-reversion) is the most forward-confirmable of
+  the intraday family ON THIS INFRASTRUCTURE because it is close-to-close and single-bar, so the
+  existing vectorized sign-based engine can run it WITHOUT the intrabar simulator that blocked
+  the 2026-05-30 ORB design. That is a real, decisive infrastructure advantage and the reason
+  it is ranked first.
+
+  BUT the binding risk is the edge-to-cost ratio. The 02-05 UTC window is structurally the most
+  attractive regime for mean-reversion (thinnest book, smallest informational content) AND
+  simultaneously the most expensive regime to trade (widest spreads). These two facts fight each
+  other. Overnight median hourly range is only ~6-10 pips while my honest overnight round-trip
+  cost estimate is 5-7 pips (P50 5.0, P90 8.0). The signal can only clear cost on the upper tail
+  of overnight moves (hence k_z=2.0 tail-conditioning), which mechanically REDUCES events/year --
+  directly threatening the trades/year >= 120 confirmability floor. There is a genuine tension:
+  raise k_z to clear cost -> fewer trades -> slower confirmation; lower k_z for more trades ->
+  cost eats the edge. The pre-registration is honest about this by gating on the overnight P90
+  slippage (8 pips), not the optimistic P50, and by killing if trades/year < 120.
+
+  Why STRETCH and not TRAP: there IS a defensible structural reason the inefficiency persists
+  (illiquidity/inventory premium in an under-arbitraged window), and the falsification battery is
+  strict enough that a spurious edge will be killed (DSR>0.95 at N=48, sign-concordant OOS,
+  avg-net-trade>0 at P90, no-quarter-concentration). If it passes ALL gates it is more likely
+  real than a daily-frequency survivor because the events/year are higher. But I will not call it
+  CONFIRMABLE pre-backtest, because the most probable outcome given the cost facts is that the
+  net-of-cost overnight edge is too thin to simultaneously clear 8-pip P90 cost AND maintain >=120
+  trades/year. The firm should expect a KILL is the modal result, and that is fine -- a clean KILL
+  on a pre-registered cost-honest design is a correct use of trial 48.
+
+  ## What would move it from STRETCH to CONFIRMABLE
+  - CRO quantifying that overnight EURUSD round-trip is actually <=4 pips P90 (better than my
+    estimate) -> the edge-to-cost ratio opens up.
+  - A second intraday pair at 1h (data-capability track) -> pooled events/year clears the
+    confirmability floor faster. Out of scope here (no_new_pairs), but named as the unlock.
+
+  ## Infrastructure dependencies (hand to QD, gating before any IS result is trusted)
+  - Weekend-gap-safe rolling sigma_sess (no fill across Fri->Sun).
+  - Per-session (overnight) cost application, NOT daily-scaled cost.
+  - Confirm test_no_lookahead holds at 1h with entry_delay_bars=1.
+
+  ## Null hypothesis (explicit)
+  H0: The sign-reversed return on the bar following an over-extended (|r_t| >= 2*sigma_sess)
+  overnight EURUSD hour has zero expected value net of overnight-P90 transaction cost; i.e., the
+  net-of-cost Sharpe of the strategy is <= 0 and any positive IS Sharpe is attributable to
+  multiple-testing/selection (captured by the DSR deflation at N=48). H1: net-of-cost expected
+  reversion > 0, persistent across IS and the one-shot OOS, sign-concordant, not quarter-concentrated.
+
+knowledge_gaps:
+  - "Actual overnight (02-05 UTC) EURUSD bid-ask spread session-by-session -- CRO must quantify; my P50=5.0 round-trip is an estimate."
+  - "Whether the vectorized engine bridges the weekend gap when computing rolling sigma_sess -- QD must confirm/fix."
+  - "Whether trades/year actually clears 120 at k_z=2.0 overnight-only -- cannot know pre-backtest; this is the modal kill risk."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,339 @@
+role: quant-developer
+artifact_type: observability-audit
+decision: implemented-bash-blocked
+timestamp: 2026-06-17T03:15:00Z
+subtask_ref: intraday-eurusd-1h-engine-readiness
+subtask_id: qd-intraday-engine-readiness
+engine_readiness_verdict: READY-WITH-FIXES
+
+findings:
+  - id: a_no_lookahead
+    status: pass
+    evidence: |
+      EXECUTED: `python3 -m pytest tests/backtest/test_engine.py::test_no_lookahead -v`
+      Result: PASSED (1 passed in 0.02s)
+
+      Full suite: `python3 -m pytest tests/backtest/ -v` → 38 passed, 0 failed.
+      This includes test_continuous_no_lookahead (tests/backtest/test_engine_continuous.py)
+      and test_hourly_curve_changes_realized_cost_in_engine
+      (tests/backtest/test_engine_cost_timestamp.py).
+
+      The no-lookahead guarantee at 1h is VALID by construction:
+        - engine.py:135: `delayed_signals = signals.shift(entry_delay_bars).fillna(0.0)`
+        - `.shift(1)` is ORDINAL — it shifts by bar index, not by calendar time.
+        - At the weekend gap: Friday bar N signal executes at Sunday bar N+1.
+          This is the correct market semantic (next market bar, not next calendar hour).
+        - No reindex is applied to the data before the shift, so no phantom bars
+          are inserted that could cause the shift to straddle real time.
+    remediation_scope: none
+
+  - id: b_weekend_gap
+    status: pass
+    evidence: |
+      EXECUTED probes on data/processed/EURUSD_1h.parquet (31,019 bars):
+
+      1. Gap structure:
+         `python3 -c "... gaps = idx.to_series().diff().dropna(); large_gaps = gaps[gaps > 1h] ..."`
+         - 348 total gaps > 1h; 260 gaps >= 48h (Friday 21:00 -> Sunday 22:00 UTC, modal 49h).
+         - 0 Saturday bars. 0 Sunday bars before 21:00 UTC.
+         → The parquet itself has genuine absence; no phantom weekend bars exist.
+
+      2. Forward-fill risk — NOT present in backtest path:
+         - `forward_fill_gaps()` (transforms.py:47) is DEFINED but NEVER imported or
+           called in any script or src/ module on the load→compute→signal→backtest path.
+           (grep forward_fill_gaps src/ scripts/ → only transform definition; 0 callers)
+         - `resample_ohlcv()` similarly has 0 callers outside transforms.py.
+         - `compute_indicators()` (features/registry.py) operates on the DataFrame as-is,
+           does NOT reindex to a contiguous hourly grid. Verified: row count unchanged
+           before (31,019) and after (31,019) compute_indicators call.
+         - Engine loop: `for i, (ts, row) in enumerate(data.iterrows())` — purely
+           index-driven; no grid reindex.
+
+      3. ATR inflation at gap-open bars — MINOR, NOT a correctness risk:
+         - indicators.atr() uses `close.shift(1)` for TR, treating the Friday close
+           as the prior bar regardless of the 49h gap. The Sunday open TR is inflated
+           by the weekend move.
+         - Measured: first gap bar TR = 16.8 pips vs normal 10.5 pips Friday bar.
+           (probe: python3 -c "... gap_move_pips = abs(sun_open - fri_close) / 0.0001 ...")
+         - Effect: ATR is slightly inflated for 1 bar → slightly smaller position size
+           at gap-open → CONSERVATIVE, NOT a lookahead or signal contamination risk.
+         - After ATR EWM warmup, the 1-bar spike decays per Wilder smoothing.
+
+      4. Prices after vs before 5 sample weekend gaps: all "different (ok)" —
+         no evidence of ffill across the gap.
+
+      VERDICT: The engine correctly handles weekend gaps. No forward-fill, no phantom
+      bars, no signal contamination. The minor ATR inflation at gap open is conservative
+      and well within acceptable bounds for a research backtest.
+    remediation_scope: none
+
+  - id: c_session_filtering
+    status: fail
+    evidence: |
+      SEARCHED: `grep -rni "session|london|ny|07:00|08:00|16:00" src/ --include=*.py`
+      Result: No session-filtering logic found anywhere in:
+        - engine.py (neither _run_discrete nor _run_continuous)
+        - strategies/ (no generate_signals hook for hour-of-day)
+        - core/interfaces.py (Strategy ABC has no session parameter)
+        - config/default.yaml (no session_hours field)
+
+      The engine operates on every bar in the data unconditionally. There is NO hook
+      to restrict signal generation or position-holding to UTC session windows
+      (London 07:00-16:00, NY 12:00-21:00, overlap 12:00-16:00).
+
+      To implement session filtering, two approaches are feasible:
+        Option A — Pre-filter data: caller masks the OHLCV DataFrame to trading-hour
+          rows before passing to run_backtest. Simplest; no engine change. Risk:
+          creates non-contiguous index; entry_delay_bars shift skips to next in-session
+          bar naturally. Files touched: strategy caller / run_backtest.py.
+        Option B — Signal masking in Strategy.generate_signals(): strategy zeroes
+          signals outside session window using df.index.hour logic. No engine change.
+          Files touched: strategy implementations (strategies/*.py), Strategy ABC
+          docstring (core/interfaces.py).
+        Option C — Engine-level session_hours parameter: add optional session filter
+          to run_backtest signature; engine zeroes signals outside window before delay.
+          Files touched: engine.py, run_backtest.py, config schema.
+
+      Option B (signal masking in strategy) is the cleanest without touching the
+      engine's no-lookahead invariant. The data index is UTC-aware (verified),
+      so `df.index.hour` comparisons are correct.
+
+      VERDICT: Session filtering is ABSENT. For strategies that require it
+      (e.g., ORB targeting the London open), this is a REQUIRED addition.
+      For strategies that trade 24/5 (e.g., carry, momentum), it is irrelevant.
+    remediation_scope: small
+    remediation_detail: |
+      Scope: SMALL. Option B requires ~10 lines per strategy class to zero signals
+      outside a configurable session window. No engine changes needed.
+      Files: src/forex_system/strategies/*.py (3 strategy files), optionally
+      src/forex_system/core/interfaces.py to document the convention.
+      No test infrastructure changes; the sacred test is unaffected.
+
+  - id: d_per_bar_cost
+    status: risk
+    evidence: |
+      TWO COST PATHS — different severity:
+
+      FINDING D1 — DISCRETE MODE: CORRECTLY STRUCTURED
+        Entry/exit cost: entry_cost() and exit_cost() are called PER-TRADE (on
+        direction change), not per bar. (engine.py:190, 482). This is correct at
+        any timeframe — cost is charged once per trade, not once per holding bar.
+
+        Swap in discrete mode: _close_position() (engine.py:480):
+          `hold_days = (exit_time - entry_time).days`
+          Uses timedelta.days which FLOORS to whole days.
+          For intraday trades (< 24h): hold_days = 0 → zero swap. CORRECT.
+          For overnight/multi-day discrete holds: hold_days increments daily. CORRECT.
+          No per-bar-rate scaling error in discrete mode.
+
+      FINDING D2 — CONTINUOUS MODE: SWAP IS 24× OVERCHARGED AT 1H — BUG
+        engine.py:316 (inside _run_continuous bar loop):
+          `daily_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, 1)`
+          `equity += daily_swap_pips * pip_value * cur_units`
+
+        This charges holding_cost(days=1) = 1.2 pips EVERY 1H BAR.
+        At 1h resolution, a 1-day hold spans 24 bars → 24 × 1.2 = 28.8 pips charged
+        vs the correct 1.2 pips/day = 24× overcharge.
+
+        Quantified (EURUSD, 100k lot):
+          Correct per 1h bar: 0.05 pips = $0.50/hr
+          Currently charged:  1.20 pips = $12.00/hr
+          For a 1-week (120-bar) hold:
+            Correct: $60.00 total swap
+            Current: $1,440.00 total swap (24× error)
+
+        The fix is: divide by bars_per_day (24 for 1h, 6 for 4h):
+          `daily_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, 1) / 24`
+        Or pass a `bar_duration_hours` parameter to run_backtest and infer it from
+        the data index median spacing.
+
+        NOTE: The current codebase has been used in DAILY mode only, where the
+        swap overcharge is 1× correct (1 bar = 1 day). The bug is latent at 1h.
+
+      FINDING D3 — RealisticCostModel.entry_cost/exit_cost: CORRECTLY IGNORES TIMESTAMP
+        The base RealisticCostModel ignores `timestamp` (model.py:29-40).
+        This means a FIXED spread is applied regardless of hour-of-day.
+        For 1h research, the HourlySpreadCostModel (costs/hourly_spread.py) already
+        exists and is the correct choice — it applies a time-varying spread curve
+        derived from 4h data. The engine already passes `timestamp=ts` to all cost
+        calls (engine.py:190, 331, 391, 482). Wire-up is ready; just needs to be
+        configured in the backtest caller.
+    remediation_scope: small
+    remediation_detail: |
+      D2 fix scope: SMALL. One line change in engine.py:_run_continuous.
+      Safest fix: infer bars_per_day from data index and divide.
+        e.g., `bar_hours = (data.index.to_series().diff().dropna().median().total_seconds() / 3600)`
+             `per_bar_swap = -cost_model.holding_cost(pair, Direction.LONG, 1) / max(bar_hours, 1/60)`
+      Files touched: src/forex_system/backtest/engine.py (1 location: line ~316).
+      Must add a test: test_continuous_1h_swap_not_overcharged (assert swap ~= 1.2 pips/day).
+      IMPORTANT: This fix MUST be in place before any continuous-mode 1h backtest
+      is reported; discrete-mode 1h backtests can proceed safely without it.
+
+      D3 wire-up scope: SMALL. Swap RealisticCostModel for HourlySpreadCostModel
+      in the 1h backtest caller. Requires a spreads source file (4h spreads parquet).
+      The infrastructure exists; this is a configuration/caller change.
+
+  - id: e_other
+    status: risk
+    evidence: |
+      E1 — TIMESTAMP TIMEZONE: NO RISK
+        data/processed/EURUSD_1h.parquet index is dtype=datetime64[us, UTC] (verified).
+        All timestamps are tz-aware UTC throughout load → indicators → engine.
+        HourlySpreadCostModel normalizes tz-aware inputs with ts.tz_convert("UTC") —
+        consistent. No timezone ambiguity.
+
+      E2 — ANNUALIZATION: HANDLED CORRECTLY
+        infer_periods_per_year() (metrics.py:17) uses median bar spacing and snaps
+        to canonical values. On EURUSD 1h index: returns 6240.0 (= 24h × 260 days).
+        Verified by execution:
+          `infer_periods_per_year(df.index)` → 6240.0
+        Sharpe at 1h is NOT mistakenly annualized with √252 (daily factor).
+        Tests confirm: test_infer_robust_to_weekend_gaps PASSES (38/38 all pass).
+
+      E3 — OVERLAPPING RETURNS IN METRICS: NOT AN ISSUE
+        The backtest uses per-bar returns on the equity curve, not per-trade returns.
+        At 1h, these are hourly non-overlapping returns → Sharpe is consistent with
+        the 6240 PPY factor. No Newey-West or HAC adjustment is applied, but this
+        is an IS research context, not a final inference stage.
+
+      E4 — RESAMPLE BOUNDARY RISK: NOT IN BACKTEST PATH
+        resample_ohlcv() is defined but never called during a backtest run.
+        The 1h parquet is stored pre-computed (Dukascopy native 1h bars).
+        No resample occurs in the run path.
+
+      E5 — ROLLOVER (22:00 UTC) COST SPIKE: PARTIALLY ADDRESSED
+        The 22:00 UTC bar (rollover/NY end) has a known spread spike.
+        RealisticCostModel uses a fixed spread and misses this.
+        HourlySpreadCostModel correctly models this via the 4h-derived hourly curve.
+        This is a cost calibration issue, not an engine correctness issue.
+        See D3 above.
+
+      E6 — DISCRETE MODE "STRADDLING" INTRADAY TRADES: MINOR EDGE CASE
+        A discrete strategy that generates a signal at bar N where N is the last bar
+        before a weekend gap will enter on bar N+1 (Sunday open). This is correct
+        market behavior. The swap for the weekend hold will be captured because
+        hold_days = (Sunday exit - Friday entry).days >= 2 for any multi-day hold.
+        No correctness issue.
+    remediation_scope: none
+
+sacred_test_status: pass
+bash_blocked: false
+commands_for_orchestrator: []
+
+evidence:
+  - "tests/backtest/test_engine.py::test_no_lookahead: PASSED (executed)"
+  - "pytest tests/backtest/: 38 passed, 0 failed (executed)"
+  - "data/processed/EURUSD_1h.parquet: 31,019 bars, datetime64[us, UTC], 0 Saturday bars, 0 Sunday bars <21:00 UTC (executed probe)"
+  - "Gap analysis: 260 gaps >= 48h, modal 49h (Fri 21:00 -> Sun 22:00 UTC), prices at gap differ (no ffill artifact) (executed)"
+  - "forward_fill_gaps: grep finds ZERO callers in src/ or scripts/ (executed)"
+  - "resample_ohlcv: grep finds ZERO callers in src/ or scripts/ (executed)"
+  - "compute_indicators: 31,019 rows in, 31,019 rows out — no reindex (executed)"
+  - "infer_periods_per_year on EURUSD 1h: 6240.0 (executed)"
+  - "engine.py:316 continuous swap: holding_cost(days=1) per hourly bar = 24x overcharge (calculated + source read)"
+  - "_close_position hold_days: timedelta.days floors correctly; 0-23h intraday = 0 swap (correct) (verified by probe)"
+  - "Session filtering grep: 0 matches for session/london/ny/hour windows in engine or strategy src (executed)"
+  - "HourlySpreadCostModel: exists at src/forex_system/costs/hourly_spread.py; timestamp wire-up to engine already present (read)"
+  - "test_hourly_curve_changes_realized_cost_in_engine: PASSED — confirms timestamp plumbing works end-to-end (executed)"
+  - "ATR gap inflation: gap open TR = 16.8 pips vs 10.5 pips intraday — inflated but conservative (executed probe)"
+  - "End-to-end 1h backtest probe (constant long, discrete): completed without error, 1 trade, plausible equity trajectory (executed)"
+
+assumptions:
+  - "Continuous mode (rebalance_mode=continuous) is relevant only if intraday strategies use VolTargetSizer or similar. The critical D2 swap bug applies ONLY to continuous mode."
+  - "Discrete mode (default) is safe for 1h use with zero engine changes, subject to adding session filtering per strategy if required."
+  - "The 4h spreads parquet needed to build HourlySpreadCostModel exists or will be provided; QD has not verified its existence (CRO owns this input)."
+  - "No walkforward window boundary logic was tested with 1h data; the walkforward module was not probed. Assumed OK since it slices by date, not bar count."
+  - "The OOS holdout for EURUSD 1h has NOT been burned (confirmed: no 1h entry in .fintech-org/oos-burns.jsonl by PM assertion)."
+
+confidence: high
+
+firewall-self-review: approve — this is an assessment artifact only; no trading code was written or modified; no signals, sizing, or execution code was emitted; all probes were read-only or ran the existing test suite.
+
+body: |
+  ## Summary
+
+  The existing vectorized backtester is READY-WITH-FIXES for 1h intraday research on EURUSD.
+  Three of five assessment areas are PASS or have no remediation needed. Two require action:
+
+  ### What passes today (no changes needed)
+
+  **No-lookahead guarantee (A):** The sacred test passes. The entry_delay_bars=1 shift
+  is ordinal-index-based, not calendar-based, so it correctly steps to the next market
+  bar across weekend gaps without injecting lookahead. The full 38-test suite passes.
+
+  **Weekend gap handling (B):** The parquet has genuine gaps (no Saturday bars, no early
+  Sunday bars). No forward-fill or reindex occurs anywhere in the backtest path —
+  forward_fill_gaps() and resample_ohlcv() have zero callers in the production path.
+  The engine's bar-loop iterates directly over the sparse index. Minor ATR inflation
+  at gap-open bars is conservative and non-material.
+
+  **Metrics annualization (E2):** infer_periods_per_year() correctly identifies 1h
+  bars (median spacing = 1h) and returns 6240 PPY, not 252. Sharpe is correctly
+  annualized for intraday use without any caller changes.
+
+  ### What requires fixes before an IS backtest is reported as credible
+
+  **Continuous mode swap overcharge (D2) — BLOCKER for continuous-mode backtests:**
+  In _run_continuous (engine.py:316), holding_cost(days=1) is charged every 1h bar,
+  producing a 24× overcharge vs the correct daily rate. For a 100k EURUSD lot held
+  one week, the error is $1,440 vs the correct $60. Fix: divide the per-bar swap by
+  `bar_duration_hours` (24 for 1h). Scope: SMALL — one line in engine.py + one new
+  unit test. DISCRETE MODE IS UNAFFECTED and can be used safely now.
+
+  **Session filtering absent (C) — required for session-specific strategies:**
+  No session-hour filtering exists anywhere in the engine, strategy ABC, or config.
+  For 24/5 strategies (carry, momentum), this is irrelevant. For strategies that
+  target specific sessions (e.g., London open ORB), signals must be masked at the
+  strategy level using df.index.hour comparisons. Scope: SMALL — ~10 lines per
+  strategy class, no engine changes.
+
+  ### Advisory (no fix required for research, but recommended)
+
+  **Fixed spread for 1h (D3):** The default RealisticCostModel uses a flat per-pair
+  spread that ignores hour-of-day liquidity variation. HourlySpreadCostModel already
+  exists and the engine already passes timestamps to cost calls. Wiring this up for
+  1h backtests would give more realistic (and conservative) cost estimates. Not a
+  correctness blocker, but recommended before concluding alpha survives costs.
+
+  ## Readiness matrix
+
+  | Criterion | Status | Blocker? |
+  |-----------|--------|----------|
+  | test_no_lookahead passes at 1h | PASS | — |
+  | Weekend gaps not forward-filled | PASS | — |
+  | Session filtering available | FAIL (absent) | Only for session strategies |
+  | Per-bar cost correct at 1h (discrete) | PASS | — |
+  | Per-bar swap correct at 1h (continuous) | FAIL (24× overcharge) | Yes for continuous mode |
+  | Metrics annualized correctly at 1h | PASS | — |
+  | Timestamps UTC-consistent | PASS | — |
+
+  ## Go / No-Go recommendation
+
+  **GO for discrete-mode 1h backtests**: All engine correctness requirements are met.
+  Use RealisticCostModel (with awareness of flat spread limitation) or wire up
+  HourlySpreadCostModel. Add session masking in strategy if strategy is session-specific.
+
+  **NO-GO for continuous-mode 1h backtests** until D2 swap fix is deployed and tested.
+  The 24× swap overcharge would make carry/overnight positions appear vastly more
+  expensive than they are, corrupting any continuous-mode result.
+
+knowledge_gaps:
+  - "Whether the 4h spreads parquet (needed for HourlySpreadCostModel) exists on disk at a known path — CRO owns this."
+  - "Whether any planned intraday strategy uses rebalance_mode=continuous. If all strategies are discrete, D2 is not on the critical path."
+  - "Walkforward window slicing with 1h data was not probed. Assumed safe (date-based slicing) but not executed."
+
+policy_violations_detected: []
+sources:
+  - "src/forex_system/backtest/engine.py (read + probed via pytest)"
+  - "src/forex_system/costs/model.py (read)"
+  - "src/forex_system/costs/hourly_spread.py (read)"
+  - "src/forex_system/data/storage.py (read)"
+  - "src/forex_system/data/transforms.py (read)"
+  - "src/forex_system/features/registry.py (read + executed)"
+  - "src/forex_system/backtest/metrics.py (read + executed infer_periods_per_year)"
+  - "tests/backtest/test_engine.py (read + executed)"
+  - "data/processed/EURUSD_1h.parquet (probed with multiple Python scripts)"
+  - ".fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/pm-acceptance-criteria.yaml (read)"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

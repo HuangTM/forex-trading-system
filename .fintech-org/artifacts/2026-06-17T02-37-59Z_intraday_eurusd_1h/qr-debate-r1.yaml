@@ -1,0 +1,133 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: 2026-06-17T02:37:59Z
+subtask_ref: debate-r1-candidate-path
+subtask_id: qr-debate-r1
+debate-round: 1
+converges_with_hoqr: partial
+position: |
+  REVISED + HOLD-ON-RUNNABILITY. I do NOT concede that A2 is dead, but I CONCEDE
+  HoQR's arithmetic on the UNCONDITIONAL window and CRO's veto condition. I revise
+  A2 into a cost-aware, stop-bounded, max-spread-gated variant (A2') that is the
+  cheapest honest falsification-archive entry runnable on the engine TODAY (QD:
+  discrete close-to-close = GO now; continuous/swap path NOT on critical path for a
+  single-bar design). The reframe lifts CRO's veto and respects the max-spread gate
+  even inside 02:00-05:00 UTC. Net: CONVERGE with HoQR that A2 is unconfirmable as a
+  standalone alpha, HOLD that running A2' ONCE as a pre-registered likely-KILL is
+  strictly cheaper and more honest than building session-filter+swap-fix infra to
+  reach A1/A3, which are ALSO STRETCH/unconfirmable on a single pair.
+concession_or_defense: |
+  DEFENSE OF THE 2-SIGMA SUBSET (the only place A2 can survive), then the honest limit:
+
+  HoQR's arithmetic is correct UNCONDITIONALLY: in a quiet 02:00-05:00 bar the range
+  is ~6-10 pips, the mean-reversion capturable move is ~3-5 pips, and round-trip cost
+  in thin liquidity is ~6 pips (CRO: ~6 pips = 54% of median hourly range; config
+  baseline RT ~3 pips spread+slippage+commission, but the THIN-window empirical spread
+  widens to a 40.7 pip max). On the unconditional distribution, cost > edge. A2
+  unconditional IS a TRAP. Conceded.
+
+  But the candidate was NEVER unconditional — it triggers on a 2-sigma close-to-close
+  displacement. Conditioning on a 2-sigma move is, by construction, sampling from the
+  TAIL, not the median. The capturable reversion is not the quiet-range ~3-5 pips; it
+  is a fraction of the REALIZED 2-sigma displacement. If the unconditional std of the
+  02:00-05:00 bar is sigma, a 2-sigma trigger means the entry dislocation is ~2*sigma,
+  and even a partial reversion (say 30-50% of the dislocation, which is the empirically
+  modest end for FX intraday MR) is ~0.6-1.0 * sigma. For the tail subset to clear a
+  6-pip RT with a min gross edge of 6 pips (CRO), I need 2*sigma displacement large
+  enough that 0.3-0.5 of it exceeds ~6 pips gross — i.e. sigma >= ~6-10 pips on the
+  trigger bar. That is the EXACT machine-checkable pre-registration: the trial only
+  fires when the conditioned displacement makes the reversion target exceed the
+  COST-AT-THAT-BAR, gated bar-by-bar on realized spread.
+
+  THE HONEST LIMIT (why this is still modal-KILL, not a defense of profitability):
+  the same 2-sigma conditioning that ENLARGES the capturable range ALSO co-selects the
+  widest-spread, news/flow-driven bars where (a) cost is worst and (b) the move is
+  often INFORMATION, not noise -> reversion fails precisely when the displacement is
+  real. So the tail subset has a larger capturable range AND a larger cost AND a lower
+  reversion hit-rate. I cannot defend that the net is positive ex-ante; I can only
+  defend that it is non-degenerate enough to be worth ONE pre-registered falsification
+  run, and that the per-bar max-spread gate + per-trade stop bound the downside of
+  being wrong to a known, small number. That is the whole point of the design: P90-cost
+  gate + 2-sigma conditioning + KILL pre-register AGAINST "expensive to trade." If the
+  tail edge is illusory, the trial KILLs cleanly and we archive trial-48. That is a
+  legitimate result, not a wasted run.
+revised_candidate: A2-with-stop+max-spread-gate
+per_trade_stop_added: |
+  Per-trade hard stop = 1.0 * (entry 2-sigma displacement magnitude), i.e. the position
+  is closed if price moves a further 1*sigma_trigger ADVERSE to the reversion thesis
+  (continuation through the dislocation). Rationale: in close-to-close single-bar form
+  the natural stop is "the move did not revert by next close" -> exit at next bar close
+  unconditionally (time-stop = 1 bar), PLUS an intrabar adverse-excursion cap of
+  1*sigma_trigger to bound the tail where the 2-sigma move was information and keeps
+  running. Max loss per trade therefore bounded ~= (1*sigma_trigger + round_trip_cost),
+  pre-declared and machine-checkable. This lifts CRO's escalation-to-VETO condition
+  ("no per-trade stop declared"). size_multiplier held at CRO's 0.25 ceiling.
+falsification-criteria:
+  - "ENTRY GATE (machine-checkable, pre-OOS): fire ONLY when |close_to_close_displacement| >= 2.0 * trailing_sigma AND realized_spread_at_bar <= max_spread_gate (set to P90 of 02:00-05:00 EURUSD spread, hard-capped at 4.0 pips per CRO) AND projected_reversion_target (0.3 * displacement) >= gross_edge_floor (6 pips). Bars failing ANY gate are NOT traded (no-trade is a valid outcome, not a skip-to-find-signal)."
+  - "KILL-1 (edge): OOS Sharpe over the 3yr holdout < NHT's DSR bar (1.4 ann. Sharpe at N~=48) -> KILL, archive as trial-48 falsification entry."
+  - "KILL-2 (cost-domination, HoQR's thesis confirmed): if realized mean per-trade gross edge < realized mean per-trade round-trip cost on the CONDITIONED subset -> KILL and record 'A2 cost-dominated even on the 2-sigma tail' (directly tests HoQR's arithmetic on the conditioned, not unconditional, distribution)."
+  - "KILL-3 (reversion-is-information): if reversion hit-rate on the 2-sigma subset <= 0.50 (i.e. the conditioned move is not noise) -> KILL."
+  - "KILL-4 (no-trades): if the triple entry gate produces < N=48 qualifying trades over the full sample -> INSUFFICIENT-POWER, archive, do NOT touch OOS holdout (NHT effective-N discipline: ONE structure, hard-pre-registered before holdout)."
+  - "GUARD: single-bar close-to-close design holds NO overnight position -> swap exposure nil (QD-confirmed safe, engine.py:316 per-bar swap path NOT on this candidate's critical path); weekend forward-fill never engaged."
+evidence:
+  - "HoQR typed position: A2 cost-dominated TRAP, empirical max spread 40.7 pips in thin window; NONE confirmable on single pair."
+  - "CRO typed position: round-trip ~6 pips = 54% of median hourly range; restrict 06:00-19:00 UTC, reject spreads > 4 pips; VETO unless per-trade stop declared; size_multiplier 0.25 ceiling."
+  - "NHT typed position: DSR bar N~=48 ~= 1.4-1.6 ann. Sharpe over 3yr OOS; effective-N 10^3-10^4 -> TRAP unless ONE structure hard-pre-registered before OOS; flip threshold sqrt(events/yr)*per-event-IR >= ~1.6."
+  - "QD typed position: discrete close-to-close = GO now; continuous/24x-swap-fix (engine.py:316) NOT required for single-bar design; session-filter ABSENT (small build); sacred no-lookahead test passes; weekend forward-fill not applicable."
+  - "config/default.yaml: EURUSD baseline spread 0.5 / slippage 0.5 / commission 0.5 pips (RT ~3 pips at baseline) -> confirms thin-window widening (to 40.7 max) is the binding cost, justifying a per-bar realized-spread gate over a static cost assumption."
+  - "src/forex_system/backtest/engine.py:~316: per-bar daily-swap accrual path applies only while cur_units>0; single-bar discrete design never carries cur_units across a bar boundary -> swap path inert for A2'."
+assumptions:
+  - "trailing_sigma is estimated from a strictly causal trailing window (no-lookahead; sacred test must stay green for the displacement z-score)."
+  - "realized per-bar spread for the 02:00-05:00 EURUSD window is available in the data (or proxied by configured thin-window widening); if NOT available, KILL-4/no-trade dominates and the candidate is INSUFFICIENT-POWER, which is itself an honest archived result."
+  - "30-50% partial-reversion fraction is a conservative FX-intraday-MR prior; the trial measures the realized fraction rather than assuming it."
+  - "A1 (session-open momentum) and A3 (macro-event drift) are ALSO STRETCH/unconfirmable on a single pair and REQUIRE the session-filter build first -> A2' is strictly cheaper to falsify now."
+confidence: medium
+body: |
+  RECONCILED POSITION (CONVERGE-with-HoQR-on-alpha, HOLD-on-cheapest-honest-run):
+
+  1. CONCEDE to HoQR on the unconditional distribution. A2 traded on the average
+     02:00-05:00 quiet bar is a cost-dominated trap: ~3-5 pip capturable reversion in a
+     6-10 pip range against a ~6 pip thin-window round-trip. I do not contest this.
+
+  2. HOLD that the candidate was conditioned, not unconditional. A 2-sigma close-to-close
+     trigger samples the TAIL. The capturable target scales with the realized
+     displacement (~2*sigma), not the median range. The defensible (medium-confidence)
+     claim is ONLY that the tail subset has a larger capturable range than HoQR's cited
+     unconditional average. I do NOT claim the tail subset is net-profitable — the same
+     conditioning co-selects wide-spread, information-driven bars where reversion fails.
+     So the modal outcome remains KILL, exactly as NHT pre-registered.
+
+  3. The decisive trade-off is COST-TO-FALSIFY, and QD is the swing vote: A2' is the
+     ONLY candidate runnable TODAY (discrete close-to-close, no infra build, swap path
+     inert, no-lookahead green). A1 and A3 both require the session-filter build first
+     and are themselves STRETCH/unconfirmable on a single pair. Therefore the cheapest
+     honest next action is: hard-pre-register ONE A2' structure, run it once against the
+     3yr OOS holdout, and accept a clean KILL as a legitimate trial-48 falsification
+     archive entry. "Expensive to trade" is precisely what the P90-cost gate, 2-sigma
+     conditioning, and KILL-2 pre-register AGAINST — KILL-2 directly tests HoQR's
+     arithmetic on the conditioned distribution and records the verdict either way.
+
+  4. REVISION lifts CRO's veto: per-trade stop = 1*sigma_trigger adverse-excursion cap
+     + 1-bar time-stop; max-spread gate hard-capped at 4.0 pips applied bar-by-bar EVEN
+     inside 02:00-05:00 (I do not need CRO to fully exclude the window — the per-bar gate
+     achieves CRO's cost-protection intent while preserving the only window where the
+     illiquidity-reversion structure can exist); size_multiplier 0.25.
+
+  5. NHT discipline honored: ONE structure, all gates frozen here BEFORE the OOS holdout
+     is touched; no parameter search post-registration; INSUFFICIENT-POWER (<48 trades)
+     archives without burning the holdout.
+
+  CONVERGE on the conclusion (A2 is not a standalone confirmable alpha) — HOLD on the
+  action (run A2' once as the cheapest honest falsification, do not redirect to infra
+  for equally-unconfirmable A1/A3 this round).
+knowledge_gaps:
+  - "Whether realized per-bar 02:00-05:00 EURUSD spread is present in the dataset or only proxied — determines if KILL-4 no-trade dominates."
+  - "Empirical partial-reversion fraction on the 2-sigma EURUSD subset (the trial measures it; not known ex-ante)."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: DESIGN-TEMPLATE-PENDING-EXECUTION

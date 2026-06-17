@@ -1,0 +1,339 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: 2026-06-17T02:37:59Z
+subtask_ref: intraday-eurusd-1h-design-review
+subtask_id: pr-intraday-design-review
+artifact-under-review: "pre-registration A2' spec + engine-readiness claims A-D"
+rubrics-applied:
+  - spec-to-impl-trace
+  - execution-firewall-review
+  - log-as-decision-trace
+  - review-plan (correctness/completeness/testing/risk dimensions)
+  - probability-statistics (DSR/CPCV/effective-N/autocorrelation)
+  - edge-case-enumeration
+  - invariant-search (no-lookahead)
+  - test-inversion (test_no_lookahead strength)
+  - numerical/statistical-correctness
+  - "performance dimension: skipped because no executable strategy code exists yet (design ends at pre-registration)"
+
+claims-verification:
+  - claim: A
+    verdict: confirmed
+    evidence: >
+      Ran `python3 -m pytest tests/backtest/test_engine.py::test_no_lookahead -q` -> "1 passed in 0.01s".
+      engine.py:135 (discrete) and engine.py:263 (continuous) both do
+      `signals.shift(entry_delay_bars).fillna(0.0)` with entry_delay_bars default 1
+      (engine.py:42). Signal at bar N is consumed at bar N+1. The shift is frequency-agnostic
+      (operates on row position, not wall-clock), so it holds identically at 1h.
+      CAVEAT (see F-001): the test asserts only `sharpe < 3.0` (test_engine.py:90) on the
+      sample fixture and is annualised with a hardcoded sqrt(252), NOT the 1h factor 6240.
+      It is a weak guard, not proof the 1h close-to-close path is leak-free.
+  - claim: B
+    verdict: confirmed
+    evidence: >
+      `grep -rn "forward_fill_gaps" src tests scripts` returns ONE definition
+      (data/transforms.py:47) and ZERO callers anywhere. `run_backtest` and its helpers
+      (engine.py) never import or call it. So weekend gaps are not synthesised into phantom
+      bars on the backtest path. Independent data check: data/processed/EURUSD_1h.parquet has
+      31019 rows, median spacing 1h, and 260 gaps >40h consistent with weekend closures left
+      as real discontinuities (NOT filled). NOTE: the engine iterates rows positionally
+      (engine.py:156/276), so the bar AFTER a weekend gap is treated as "next bar". For a
+      single-bar hold, a Friday-close signal would "exit" at the Sunday-open bar ~48h later
+      across the weekend gap — economically a multi-day hold, not a 1h hold. The no-phantom-bar
+      claim is TRUE; the across-gap-hold semantics is a separate design gap (F-004).
+  - claim: C
+    verdict: confirmed
+    evidence: >
+      BOTH halves confirmed. Half 1 (24x overcharge in continuous mode): engine.py:313-317
+      runs `if cur_units > 0: daily_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, 1)`
+      EVERY bar while in position, hardcoding days=1. holding_cost (costs/model.py:42-53)
+      returns -daily_swap*days, i.e. one full DAY of swap. At 1h that fires ~24x/day ->
+      24x the intended daily carry. Half 2 (inert for single-bar close-to-close): the
+      per-bar accrual lives only in _run_continuous. A single-bar discrete design uses
+      _run_discrete, where swap is charged once at close via
+      `hold_days = (exit_time - entry_time).days` (engine.py:480). Verified
+      (2021-01-04 02:00 -> 03:00).days == 0, so a 1h hold accrues ZERO swap in discrete mode.
+      Line 316 is therefore inert for this design. (Tangential finding F-005: `.days`
+      truncation makes discrete mode UNDER-charge swap for any sub-24h hold — the opposite
+      bug — but it does not affect this spec's net since its own slippage assumptions dominate.)
+  - claim: D
+    verdict: confirmed
+    evidence: >
+      `grep -rniE "session|hour|utc|02:00|05:00|time_filter|between_time|\.hour"` over
+      src/forex_system/backtest/ and src/forex_system/strategies/ returns ONLY
+      metrics.py annualisation-factor inference (periods_per_year), NO signal-gating by
+      UTC hour/session anywhere in backtest/ or strategies/. The 02:00-05:00 UTC window
+      restriction the spec depends on is NOT implemented. It must be applied upstream in
+      the (not-yet-written) strategy's generate_signals, and is a research-class parameter
+      that must be pre-registered, not an implementer default (firewall §A.4).
+
+findings:
+  - id: F-001
+    severity: major
+    location: tests/backtest/test_engine.py:55-90
+    category: test-coverage-gap
+    observation: >
+      test_no_lookahead asserts only Sharpe < 3.0 on a synthetic fixture and annualises with
+      a hardcoded sqrt(252), regardless of bar frequency.
+    inference: >
+      INFERENCE: A 3.0 ceiling at the wrong (5x-too-low) annualisation factor is a coarse
+      tripwire, not a guarantee. A genuine 1h leak that produces an annualised Sharpe between
+      ~3 (mis-scaled) and the real value could pass. The sacred-test guard is weaker at 1h
+      than its CLAUDE.md billing implies. The design relies on this invariant for OOS integrity.
+    evidence: "test_engine.py:90 `assert sharpe < 3.0`; sqrt(252) hardcoded at line 89."
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-002
+    severity: blocking
+    location: spec / entry-gate "trailing_σ on SAME UTC-hour class, 20-bar lookback"
+    category: correctness
+    observation: >
+      The spec does not state whether the 20-bar same-hour-class trailing σ EXCLUDES the
+      current (trigger) bar, nor how the σ window steps (calendar days vs available bars).
+    inference: >
+      INFERENCE: If the current bar's close-to-close return is included in its own trailing σ,
+      the displacement threshold |disp| >= 2σ becomes self-referential — a large move inflates
+      its own σ, attenuating the 2σ trigger and leaking same-bar information into the entry
+      decision. This is a classic standardisation-window lookahead. With same-hour-class
+      sampling, 20 observations span ~20 trading days (one per day per hour-class), so the
+      σ is also slow-moving; the spec must pin t-1..t-20 (strictly prior) and define behaviour
+      across weekend/holiday gaps where the prior same-hour bar may be 72h old.
+    evidence: "spec entry gate; engine has no σ code (Claim D) so the construction is unconstrained by impl."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-003
+    severity: major
+    location: spec / "Deflated Sharpe via CPCV — 24-bar purge, 1% embargo" + "N≈48"
+    category: numerical
+    observation: >
+      Purge is 24 bars and embargo 1%; effective-N for DSR deflation is taken as the org-wide
+      trial counter ~48.
+    inference: >
+      INFERENCE-1 (purge/embargo too small): For a SINGLE-BAR close-to-close hold the label
+      horizon is 1 bar, so 24-bar purge is generous for label overlap. BUT the FEATURE
+      (trailing σ over a 20-same-hour-class lookback ≈ 20 calendar days ≈ ~480 hourly bars)
+      reaches far back; a 24-bar purge plus 1% embargo does NOT decontaminate train/test folds
+      whose σ windows overlap the held-out block. Leakage flows through the feature window, not
+      the label. Purge/embargo must cover the FULL feature lookback (the same-hour-class span),
+      not the 1-bar label.
+      INFERENCE-2 (effective-N understated): DSR deflation needs the number of EFFECTIVE
+      INDEPENDENT trials in THIS study's search space, not just the org trial counter. The spec
+      embeds un-pre-registered researcher DoF: session window (02-05 vs other windows),
+      threshold (2σ vs 1.5/2.5), lookback (20 vs other), spread cap (4.0 pips), the 6-pip floor,
+      the 0.3x partial-reversion coefficient, and stop choice. If any were chosen by inspection,
+      effective trials >> 48 and the deflated bar is too lenient. N≈48 is only honest if EVERY
+      one of these is frozen in the pre-registration BEFORE any IS look.
+    evidence: "spec Metric + Entry-gate sections; org_trial_counter N=47 per acceptance criteria."
+    recommended-action-class: clarify-spec
+    owning-role: head-of-quant-research
+  - id: F-004
+    severity: major
+    location: spec / single-bar hold + engine positional iteration (engine.py:156, 276)
+    category: edge-case
+    observation: >
+      The engine advances by row position, not wall-clock. The 260 weekend gaps (>40h) and
+      300 gaps >2h in EURUSD_1h.parquet mean "next bar" after a Friday 02-05 UTC window is not
+      03:00 the same night but possibly the next available session.
+    inference: >
+      INFERENCE: A "single-bar close-to-close" exit can silently become a multi-day hold across
+      a weekend/holiday gap. The reversion hypothesis (revert NEXT hour) is violated when the
+      next bar is ~48h later, and the realised return then mixes in weekend risk and a gap jump
+      the slippage model (P50 5 / P90 8 pips overnight) does not price. The spec must define
+      NO-TRADE on the last in-window bar before any gap, or explicitly model the gap hold.
+    evidence: "engine.py:276 row loop; data check: 260 gaps >40h, 300 gaps >2h in the parquet."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-005
+    severity: minor
+    location: engine.py:480 (_close_position hold_days) and engine.py:313-317
+    category: correctness
+    observation: >
+      Discrete-mode swap uses `(exit_time - entry_time).days` which truncates any sub-24h hold
+      to 0 days; continuous-mode credits a full day of swap PER BAR.
+    inference: >
+      INFERENCE: Two opposite swap bugs coexist. For THIS single-bar discrete design swap is
+      simply 0 (immaterial vs the 5-8 pip slippage assumption), so it does not block. But it is
+      a latent class bug: any future intraday strategy that holds >0 but <24h gets zero swap in
+      discrete mode and 24x swap in continuous mode. Flagging for the class, not the instance.
+    evidence: "engine.py:480, engine.py:316; verified (03:00-02:00).days==0."
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+  - id: F-006
+    severity: blocking
+    location: spec / entry-gate "realized_spread ≤ P90 capped at 4.0 pips" + "P90 8.0 pip slippage"
+    category: correctness
+    observation: >
+      The gate requires a realised SPREAD per bar, capped at 4.0 pips, AND assumes an overnight
+      slippage distribution (P50 5 / P90 8 pips). The data has NO bid/ask/spread column —
+      verified: EURUSD_1h.parquet columns are exactly [open,high,low,close,volume]; volume is a
+      Dukascopy ask-side proxy (per acceptance criteria).
+    inference: >
+      INFERENCE: The spread gate is NOT testable from the available 1h bars. There is no
+      intrabar bid/ask to compute a realised spread, and OHLC ranges are not spreads. Either
+      (a) the gate is silently approximated from a proxy (e.g. high-low range or a constant),
+      which is an un-pre-registered implementer decision and a firewall §A.2/A.4 violation, or
+      (b) the gate is uncomputable and the strategy cannot honour its own NO-TRADE condition.
+      The spec also references a "40.7-pip spike regime" the P90<=4.0 gate is meant to dodge —
+      but a 1h close-to-close bar cannot reveal an intrabar 40.7-pip spread spike, so the gate
+      cannot actually exclude that regime. The cost-model-validation hard constraint cannot be
+      satisfied with this data. Must be resolved before pre-registration is ratifiable.
+    evidence: "data inspection: cols [open,high,low,close,volume]; no spread/bid/ask col found."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-007
+    severity: major
+    location: spec / falsification battery KILL-1 "OOS Sharpe < 1.4" vs Metric "Deflated Sharpe via CPCV"
+    category: numerical
+    observation: >
+      The metric is DEFLATED Sharpe (DSR, a probability/threshold via CPCV), but KILL-1 thresholds
+      a RAW "OOS Sharpe < 1.4". The two are different statistics on different (CPCV-IS vs
+      one-shot-OOS) samples.
+    inference: >
+      INFERENCE: Mixing a deflated-Sharpe IS gate with a raw-Sharpe OOS kill is internally
+      inconsistent. A raw OOS Sharpe of 1.4 on the 18-month holdout with KILL-4's minimum of
+      48 trades has a very wide confidence interval (SE of Sharpe ~ sqrt((1+0.5*SR^2)/N); for
+      SR=1.4, N=48 -> SE ≈ 0.22 on a per-... basis before annualisation) — 1.4 is not reliably
+      distinguishable from, say, 1.0. The bar should be a deflated/CI-aware OOS statistic, or the
+      spec must justify 1.4 as the deflated bar at N≈48 with the holdout sample size. As written
+      the pass/fail line is under-specified.
+    evidence: "spec Metric vs KILL-1; KILL-4 min 48 trades."
+    recommended-action-class: clarify-spec
+    owning-role: mathematician
+  - id: F-008
+    severity: minor
+    location: spec / KILL-2 "conditioned-subset gross edge < round-trip cost" vs entry-gate "0.3×displacement ≥ 6-pip gross floor"
+    category: correctness
+    observation: >
+      The entry gate already requires 0.3*displacement >= a 6-pip gross floor; KILL-2 separately
+      kills if conditioned-subset gross edge < round-trip cost.
+    inference: >
+      INFERENCE: Partial double-counting / tautology risk. The entry gate pre-selects only bars
+      whose modelled gross (0.3*disp) clears 6 pips, so the conditioned subset is, by
+      construction, biased toward clearing a cost floor — KILL-2 evaluated on that same
+      pre-filtered subset can be near-vacuous (it cannot easily fail because the gate already
+      enforced a related floor). The falsification loses teeth if its sample is the gate's own
+      survivors. KILL-2 should be evaluated on the UNCONDITIONED 2σ population (all qualifying
+      displacements before the 6-pip economic filter), or the relationship made explicit.
+    evidence: "spec entry-gate clause 3 (6-pip floor) and KILL-2."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-009
+    severity: major
+    location: spec / KILL-4 "< 48 qualifying trades -> INSUFFICIENT-POWER, do NOT burn OOS"
+    category: invariant-violation
+    observation: >
+      KILL-4 inspects the qualifying-trade COUNT to decide whether to burn the one-shot OOS
+      holdout. The count of qualifying OOS trades is itself a function of OOS data.
+    inference: >
+      INFERENCE: This branch is a potential OOS peek. To evaluate "< 48 qualifying trades" on
+      the OOS window you must run the entry gate over the OOS data, which touches the holdout.
+      If the trade count is computed on OOS and then the analyst decides NOT to burn (and later
+      re-tunes), the one-shot guarantee is broken — the holdout was observed without being
+      "spent". The power check must be done on IS (or on a pre-committed expected-frequency
+      calculation), NEVER by first counting OOS qualifiers. The spec must state that the
+      qualifying-count power gate is computed on IS frequency extrapolated to the OOS span,
+      and that ANY computation over OOS counts as the one-shot burn. As written, the
+      oos_holdout_one_shot hard constraint is at risk.
+    evidence: "spec KILL-4; acceptance criteria oos_holdout_one_shot (declared, burned once)."
+    recommended-action-class: tighten-invariant
+    owning-role: head-of-quant-research
+  - id: F-010
+    severity: minor
+    location: spec / 70/30 chronological split (IS 2021-01..2024-06, OOS 2024-07..2025-12)
+    category: edge-case
+    observation: >
+      Split is chronological 70/30. No embargo is declared at the IS/OOS BOUNDARY (the CPCV
+      embargo is within-IS).
+    inference: >
+      INFERENCE: The same-hour-class 20-bar (~20-day) trailing σ computed for the first OOS bars
+      reads back into late-IS data. Without a boundary embargo equal to the feature lookback, the
+      first ~20 trading days of OOS are contaminated by IS. A purge/embargo gap (>= the same-hour
+      lookback span) must sit at the IS->OOS seam, separate from the intra-CPCV embargo.
+    inference-note: same root cause as F-003 INFERENCE-1, applied to the holdout seam.
+    evidence: "spec Windows; entry-gate trailing-σ lookback."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-011
+    severity: observation
+    location: spec / slippage "rejects the config's optimistic 0.5/0.5/0.5"
+    category: other
+    observation: >
+      The spec overrides config slippage (0.5) with overnight P50 5.0 / P90 8.0 pips. Good — it
+      surfaces and rejects the optimistic default rather than inheriting it.
+    inference: >
+      Positive note (firewall §B.1 satisfied for slippage): the slippage distribution is
+      explicitly calibrated and the optimistic config default is consciously overridden, not
+      silently used. This is the right pattern. (Does not offset F-006, which is about
+      MEASURABILITY of the spread gate, not the slippage magnitude.)
+    evidence: "spec Slippage assumptions."
+    recommended-action-class: other
+    owning-role: principal-reviewer
+
+coverage-statement: >
+  I reviewed 2 of 2 artifacts in scope (the A2' pre-registration spec and all four engine-readiness
+  claims A-D), reading 6 of 6 named source files (engine.py, costs/model.py, metrics.py,
+  constants.py, transforms.py, test_engine.py) and independently inspecting
+  data/processed/EURUSD_1h.parquet. I ran test_no_lookahead (passed) and verified swap hold_days
+  arithmetic. Nothing in scope was skipped; the 'performance' review dimension was N/A because no
+  executable strategy code exists yet.
+contamination-check: clean
+time-spent-reasoning: ~30 minutes
+evidence:
+  - "tests/backtest/test_engine.py:55-90 (sacred test; ran -> 1 passed)"
+  - "src/forex_system/backtest/engine.py:42,135,156,263,276,313-317,480"
+  - "src/forex_system/costs/model.py:42-53"
+  - "src/forex_system/backtest/metrics.py:18-41 (1h annualisation 6240)"
+  - "src/forex_system/core/constants.py:37,41,49 (TRADING_HOURS_PER_YEAR=6240)"
+  - "src/forex_system/data/transforms.py:47 (forward_fill_gaps; zero callers)"
+  - "data/processed/EURUSD_1h.parquet: 31019 rows, 1h UTC, cols [O,H,L,C,volume], 260 gaps>40h, no spread/bid/ask"
+assumptions:
+  - "A single-bar close-to-close design will run in discrete rebalance_mode (not continuous); if it runs in continuous mode, Claim C half-2 fails and the 24x swap bug is LIVE — confirm the mode in the pre-registration."
+  - "The strategy's generate_signals (not yet written) will house the 02-05 UTC gate and the trailing-σ computation; review of that code is a separate gate."
+  - "org_trial_counter N reaches ~48 at execution (this design = trial 48) per the acceptance criteria."
+confidence: high
+body: |
+  Claims A-D all CONFIRMED against source (A by execution, B/D by exhaustive grep, C by
+  reading both code paths plus arithmetic verification). The engine is sound for a single-bar
+  discrete close-to-close design at 1h: no-lookahead holds, weekend gaps are not phantom-filled,
+  the 24x swap bug is genuinely inert in discrete mode, and there is no hidden session filter to
+  collide with.
+
+  The DESIGN, however, is not yet ratifiable. Three blocking/near-blocking issues:
+
+  (1) F-006 — the P90<=4.0-pip realised-SPREAD gate is uncomputable from OHLCV-only 1h bars
+  (no bid/ask/spread column; volume is an ask-side proxy). A strategy cannot honour a NO-TRADE
+  condition it cannot measure, and the "dodge the 40.7-pip spike" rationale fails because an
+  intrabar spread spike is invisible at 1h close-to-close. Resolve the data/measurement question
+  before pre-registration.
+
+  (2) F-009 — KILL-4's "count qualifying OOS trades, and if <48 do NOT burn the holdout" is a
+  latent OOS peek: counting OOS qualifiers IS touching the holdout. The power check must be an
+  IS-frequency extrapolation, and any computation over OOS must count as the one-shot burn.
+
+  (3) F-002 + F-003 + F-010 — leakage through the FEATURE window, not the label. The same-hour-class
+  20-bar trailing σ spans ~20 calendar days (~480 hourly bars). The spec must (a) pin σ to strictly
+  prior bars (current-bar exclusion), and (b) size CPCV purge/embargo AND the IS/OOS-seam embargo to
+  the full same-hour-class lookback, not the 1-bar label. The 24-bar purge / 1% embargo as written
+  decontaminates the label horizon but not the feature horizon.
+
+  Plus: effective-N for DSR is almost certainly > 48 given un-pre-registered DoF (session window,
+  2σ threshold, 20-bar lookback, 4.0 spread cap, 6-pip floor, 0.3 reversion coefficient, stop) — all
+  must be frozen pre-IS-look or the deflated bar is too lenient (F-003 INFERENCE-2). KILL-1's raw-Sharpe
+  1.4 is inconsistent with the deflated-Sharpe metric and under-powered at N=48 (F-007). KILL-2 risks
+  being vacuous when evaluated on the gate's own survivors (F-008). And the single-bar hold silently
+  becomes a multi-day hold across the 260 weekend gaps unless the last-in-window bar is NO-TRADE (F-004).
+
+  Net: APPROVE-WITH-CONDITIONS. Conditions = resolve F-006, F-009, and the F-002/F-003/F-010 feature-window
+  leakage triad before the pre-registration is frozen and the org trial counter advances to 48. The
+  engine claims are clean; the design package needs these tightenings. No backtest should run, and the
+  OOS holdout must not be touched, until F-006 and F-009 are closed.
+knowledge_gaps:
+  - "Whether the eventual strategy runs in discrete vs continuous rebalance mode (determines if Claim C's swap bug stays inert) — not specified in the artifacts provided."
+  - "How the spec intends to source a realised per-bar spread from OHLCV-only data (F-006) — no Dukascopy tick/spread artifact was in scope."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

@@ -1,0 +1,289 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: approve
+timestamp: 2026-06-17T03:58:00Z
+subtask_ref: intraday-eurusd-1h-prereg-v2
+subtask_id: qr-intraday-prereg-v2
+trial_id: DESIGN-TEMPLATE-PENDING-EXECUTION
+trial-count-at-spawn: 47
+version: 2
+closes_blocking_findings: [F-006, F-009, F-002, F-003, F-010, F-004]
+
+hypothesis: >
+  During the low-liquidity UTC overnight window (02:00-05:00), an EURUSD hour that closes
+  far beyond its own same-hour-class volatility (|r_t| >= 2.0 * sigma_sess) over-extends on
+  transient inventory/liquidity-demand flow rather than information, so the next single hour
+  partially reverts -- and the net-of-cost expected reversion is positive ONLY if it clears a
+  frozen, conservative, session-aware round-trip cost; under that conservative cost the modal
+  outcome is KILL.
+
+universe: [EURUSD]
+
+windows:
+  IS: "2021-01-03T22:00Z .. 2024-05-31T21:00Z  (in-sample / development; ~3.4yr)"
+  OOS_holdout: "2024-07-01T00:00Z .. 2025-12-31T21:00Z  (one-shot holdout; ~1.5yr)"
+  seam_embargo_trading_days: ">=20"
+  split_rationale: >
+    Chronological ~70/30 split declared BEFORE any look. A HARD SEAM EMBARGO of >=20 trading
+    days (one full feature-window of ~480 hourly bars; see F-002/003/010 below) is carved out
+    between the IS end (2024-05-31) and the OOS start (2024-07-01): the ~22 trading days in
+    2024-06 are NEITHER trained on NOR tested -- they are discarded so that no OOS sigma_sess
+    or label can be contaminated by any IS bar through the trailing feature window, and no IS
+    fit can peek forward across the seam. The holdout is the most recent ~18 months because
+    forward-confirmability is the question: if the edge is real it must persist into the most
+    recent unseen regime. The split boundary is fixed and one-shot; no walk-forward re-look into
+    the holdout is permitted. ALL parameter selection, robustness, and CPCV tuning happen
+    exclusively inside IS. The OOS is burned exactly once at the end, and ONLY if the IS-only
+    power gate (KILL-4) clears.
+
+frozen_degrees_of_freedom:
+  - "session_window_UTC = {02:00, 03:00, 04:00, 05:00} (entry hour-class) -- LOCKED"
+  - "sigma_lookback = 20 same-hour-class bars (trailing, current bar EXCLUDED) -- LOCKED"
+  - "entry_threshold k = 2.0 (z-score multiple of sigma_sess) -- LOCKED (NO grid; a grid would inflate N)"
+  - "static_round_trip_cost = 7.5 pips, frozen constant applied to EVERY trade -- LOCKED"
+  - "gross_edge_floor = 0.0 pips NET (i.e. avg net trade > 0 after the 7.5-pip static cost) -- LOCKED"
+  - "reversion_capture_coefficient = 0.30 (assumed partial-reversion fraction used ONLY for the IS-only power/feasibility projection, NOT applied to realized PnL) -- LOCKED"
+  - "per_trade_stop = 1.0 * sigma_trigger adverse-excursion cap -- LOCKED"
+  - "time_stop = exactly 1 bar (enter t+1 open, exit t+1 close) -- LOCKED"
+  - "size_multiplier = 0.25 (vol-targeted ceiling) -- LOCKED"
+  - "weekend/holiday-gap rule: last in-window bar before a Friday/holiday gap is NO-TRADE -- LOCKED"
+  - "holding: single-bar discrete close-to-close, swap path inert (never held across a bar boundary) -- LOCKED"
+  - "NO per-bar realized-spread NO-TRADE condition exists (removed; replaced by static cost) -- LOCKED"
+
+static_cost_assumption:
+  round_trip_pips: 7.5
+  justification: >
+    GROUNDED IN THE EMPIRICAL 4h SPREAD DISTRIBUTION (data/spreads/EURUSD_4h_spreads.parquet).
+    All-session per-side spread: median 2.0, mean 2.44, P90 2.6, max 40.7. The 02:00-05:00
+    overnight bucket (4h hours {0,2,4}) measures per-side median 2.0, mean 2.06, P90 ~2.1,
+    P95 ~2.2, tail-max 14.2 pips. Build a CONSERVATIVE session-aware round-trip from the
+    OVERNIGHT-P90 leg, deliberately worse than the median and worse than the optimistic config
+    (0.5 spread + 0.5 slippage + 0.5 commission = 1.5/side, REJECTED): take ~2.6 pips per-side
+    spread (rounding overnight P90 upward toward the all-session P90 to stay conservative against
+    the thin-book widening the 4h proxy cannot fully resolve at 1h), x2 legs = 5.2; add ~1.6 pips
+    round-trip thin-book slippage (entry + exit market fills in the trough of FX liquidity) and
+    ~0.7 pips round-trip commission -> ~7.5 pips. Frozen at 7.5 pips round-trip, charged to
+    EVERY trade as a fixed constant. This is CONSERVATIVE-BY-CONSTRUCTION: it sits at roughly
+    P90 (not median), so the backtest systematically OVER-states cost and UNDER-states net edge;
+    any strategy that survives it has real margin. The 40.7-pip spike regime (and the 14.2-pip
+    overnight tail) is ACKNOWLEDGED as UN-MODELLABLE at 1h close (intrabar spikes are invisible
+    at the 1h bar boundary) -> we cannot gate them out per-bar, which is an additional, honest
+    reason the modal outcome remains KILL: real overnight execution will sometimes pay the spike,
+    and the fixed 7.5-pip constant does not even capture that worst case.
+  replaces: "per-bar realized-spread NO-TRADE gate (closes F-006)"
+
+metric: >
+  PRIMARY = Deflated Sharpe Ratio (Lopez de Prado 2014), net of the 7.5-pip static cost.
+  Compute the IS Sharpe via Combinatorial Purged Cross-Validation (CPCV): N_groups=6, k=2
+  (15 train/test combinations). PURGE = ~480 hourly bars on EACH side of every test fold
+  (= the FULL feature window: 20 same-hour-class bars span ~20 trading days ~= ~480 contiguous
+  hourly bars; see F-002/003/010), so no train bar's label or sigma_sess overlaps a test bar's
+  feature window. EMBARGO = the same ~480 bars (feature-window-sized, NOT the 1-bar label),
+  applied after each test fold to kill trailing-window serial-correlation leakage. DSR deflates
+  the observed Sharpe by the multiple-testing variance using org-wide N=48 effective trials
+  (current 47 + this trial at execution) and the realized skew/kurtosis of the per-trade return
+  distribution. Report ANNUALIZED net-of-cost Sharpe with a bootstrap 95% CI (1000 stationary
+  block-bootstrap resamples, block ~= 24 bars). NEVER report raw Sharpe alone. Secondary
+  (non-gating) metrics: net annualized return, max drawdown, Calmar, hit-rate, avg net trade
+  pips, trades/year, turnover, tail ratio. NOTE on effective-N: it remains ~=48 ONLY BECAUSE the
+  structure is SINGULAR and every degree of freedom is pre-committed above (no grid, no post-hoc
+  selection); if any frozen DoF were tuned on IS, the true N would explode and the DSR bar would
+  rise -- which is precisely why they are LOCKED before any look.
+
+falsification-criteria:
+  - "KILL-1 (DSR edge, primary): KILL if the IS net-of-cost DEFLATED Sharpe (DSR) does NOT exceed 0.95 at org-wide N=48 (i.e. DSR <= 0.95). The gating bar is the DEFLATED Sharpe, not the raw Sharpe (closes F-007). Equivalent floor: the raw IS net Sharpe must clear the N=48 deflation hurdle (~1.4-1.6 annualized given the autocorrelation/skew correction) for DSR to exceed 0.95."
+  - "KILL-2 (cost-domination): KILL if the realized average NET trade <= 0 pips after the frozen 7.5-pip static round-trip cost on the conditioned (|r_t|>=2*sigma_sess) subset. Directly tests whether the 2-sigma tail edge clears the conservative cost; records 'overnight MR cost-dominated even on the 2-sigma tail' either way."
+  - "KILL-3 (reversion-is-information): KILL if the single-bar reversion hit-rate on the 2-sigma subset <= 0.50 (the conditioned move was information/continuation, not noise)."
+  - "KILL-4 (power gate, IS-ONLY EXTRAPOLATION -- closes F-009): Estimate qualifying-trade frequency f_IS = (count of IS bars satisfying the full entry gate, AFTER removing pre-gap NO-TRADE bars) / (IS trading days), using IS DATA ONLY. Extrapolate to the OOS horizon: N_oos_expected = f_IS * (OOS trading days). If N_oos_expected < 48 (the power floor), declare INSUFFICIENT-POWER and DO NOT RUN THE OOS AT ALL -- the holdout is never read, never counted, never burned. No computation touches OOS data before the one-shot burn. (This REPLACES the v1 KILL-4 which counted qualifying OOS trades -- a latent OOS peek.)"
+  - "KILL-5 (forward-decay): KILL if OOS_holdout net-of-cost annualized Sharpe < 0.30 (one-shot, machine-checked)."
+  - "KILL-6 (sign-inversion): KILL if OOS net Sharpe sign != IS net Sharpe sign (edge inverts -> overfit)."
+  - "KILL-7 (concentration): KILL if > 40% of total net PnL comes from any single calendar quarter (not a persistent structural edge)."
+  - "PASS requires ALL of: KILL-4 power gate cleared on IS-extrapolation AND DSR > 0.95 at N=48 AND avg net trade > 0 @ 7.5-pip static cost AND reversion hit-rate > 0.50 AND OOS net Sharpe > 0.30 AND sign-concordant AND no >40% quarter concentration."
+
+signal-logic: >
+  All logic is close-to-close on COMPLETED 1h bars (no intrabar path dependence -- runs on the
+  existing vectorized sign-based engine without an intrabar simulator). On each completed bar t:
+    r_t = log(close_t / close_{t-1})                              [one-bar log return]
+    sigma_sess = stdev of r over the trailing 20 bars of the SAME UTC-hour-class (overnight
+                 {02,03,04,05}), computed STRICTLY from bars at or before t-1 -- the CURRENT bar
+                 t is EXCLUDED from its own sigma (closes F-002: no bar contributes to the
+                 statistic that classifies it). Lookahead is therefore impossible by construction.
+  Entry universe = bars whose UTC hour is in {02,03,04,05}.
+  FADE-SHORT candidate if r_t >= +2.0 * sigma_sess (over-extended up).
+  FADE-LONG  candidate if r_t <= -2.0 * sigma_sess (over-extended down).
+  WEEKEND/HOLIDAY GAP (closes F-004): if bar t is the LAST in-window bar before a Friday close /
+  holiday gap (i.e. the t+1 single-bar hold would straddle the Fri 21:00Z -> Sun 21:00Z gap or
+  any holiday session gap), the bar is NO-TRADE -- a reversion bet is NEVER held across the gap.
+  sigma_sess rolling never bridges the gap (the trailing same-hour-class window skips gap bars,
+  it does not forward-fill across them).
+  Signal emitted at t: -1.0 (short) on FADE-SHORT, +1.0 (long) on FADE-LONG, else 0.0. The engine
+  shifts by entry_delay_bars=1 (no-lookahead invariant preserved: signal at t executes at t+1;
+  test_no_lookahead must stay green). NO executable code is emitted here.
+
+entry: >
+  Enter at the OPEN of bar t+1 when, at completed bar t with UTC hour in {02,03,04,05}:
+  |r_t| >= 2.0 * sigma_sess (sigma_sess from bars <= t-1, current bar excluded), AND bar t is NOT
+  a pre-weekend/pre-holiday-gap NO-TRADE bar. Direction = opposite the sign of r_t (fade).
+
+exit: >
+  Exit at the CLOSE of bar t+1 (single-bar time-stop), OR earlier if the per-trade adverse stop
+  triggers (see stop). Flat between signals. No discretionary hold extension; never carried
+  across a bar boundary (swap inert).
+
+stop: >
+  Per-trade hard stop = 1.0 * sigma_trigger ADVERSE-excursion cap PLUS a 1-bar time-stop.
+  sigma_trigger is the same sigma_sess (bars <= t-1) that fired the entry. If, within the held
+  bar t+1, price moves a further 1*sigma_trigger AGAINST the reversion thesis (continuation
+  through the dislocation), the position is closed at that adverse level; otherwise it exits
+  unconditionally at the t+1 close. Max loss per trade is bounded ~= (1*sigma_trigger +
+  7.5-pip static cost), pre-declared and machine-checkable. (Honest modeling note: a true
+  intrabar stop fill is approximated on the 1h bar; where the bar's low/high pierces the stop
+  level the stop is assumed filled at the stop level -- a conservative, declared approximation,
+  not a hidden one.)
+
+size-rule: >
+  Volatility-targeted at a 0.25 ceiling:
+    position_fraction = signal * 0.25 * min( risk_budget / (sigma_sess_pips * k_stop_proxy), 1.0 )
+  with risk_budget = 0.25% of current equity per trade, sigma_sess_pips = sigma_sess in pips,
+  k_stop_proxy = 1.0 (the 1*sigma_trigger stop is the risk unit). Notional is inversely
+  proportional to estimated overnight bar volatility (constant equity-risk per trade), compounds
+  on current equity, no leverage beyond 1.0x notional, size_multiplier 0.25 LOCKED.
+
+slippage-distribution: >
+  Slippage is NO LONGER a separate per-bar gate -- it is FOLDED INTO the frozen 7.5-pip static
+  round-trip cost (closes F-006). The static constant is built at the OVERNIGHT P90 spread leg
+  (~2.6 pips/side, conservative vs the ~2.1 measured overnight P90) plus ~1.6 pips round-trip
+  thin-book slippage plus ~0.7 pips commission. P50 (median 2.0/side) is DELIBERATELY NOT used;
+  the design charges the P90-grade figure to every trade. The P99/spike regime (overnight tail
+  14.2, all-session max 40.7) is acknowledged un-modellable at 1h close and is NOT captured even
+  by 7.5 -> a documented reason real execution is worse than this conservative backtest.
+
+retirement-triggers:
+  - "MACHINE-CHECK (pre-OOS): IS-extrapolated N_oos_expected < 48 -> INSUFFICIENT-POWER, archive, OOS never burned (KILL-4)."
+  - "MACHINE-CHECK (pre-OOS): IS net-of-cost DSR <= 0.95 at N=48 -> KILL before OOS is burned (KILL-1)."
+  - "MACHINE-CHECK (pre-OOS): avg net trade <= 0 pips @ 7.5-pip static cost on the 2-sigma subset -> KILL (KILL-2)."
+  - "MACHINE-CHECK (pre-OOS): 2-sigma reversion hit-rate <= 0.50 -> KILL (KILL-3)."
+  - "MACHINE-CHECK (one-shot OOS): OOS net annualized Sharpe < 0.30 -> KILL (KILL-5)."
+  - "MACHINE-CHECK (one-shot OOS): OOS net Sharpe sign != IS sign -> KILL (KILL-6)."
+  - "MACHINE-CHECK: any single calendar quarter > 40% of net PnL -> KILL (KILL-7)."
+  - "STRUCTURAL: if EURUSD overnight median spread regime rises materially above the frozen cost basis -> retire (cost assumption invalidated)."
+  - "POST-DEPLOY (if ever paper-promoted): rolling-63-bar live net Sharpe < 0 for 2 consecutive months -> retire."
+
+alpha-source: >
+  WHY IT COULD PERSIST: the 02:00-05:00 UTC window is the trough of FX liquidity (Tokyo winding
+  down, London not open). In thin books a large hourly move is more likely transient
+  liquidity-demand / inventory rebalancing than information, so it partially reverts -- an Amihud
+  illiquidity / Ho-Stoll inventory-risk premium. It is under-arbitraged because the window is
+  structurally unattractive to size-constrained discretionary desks (widest spreads, thinnest
+  depth) and to session-trading CTAs. WHY THE MODAL OUTCOME REMAINS KILL UNDER CONSERVATIVE COST:
+  the same 2-sigma conditioning that ENLARGES the capturable range also CO-SELECTS the
+  widest-spread, news/flow-driven bars where (a) cost is worst and (b) the move is often
+  information, not noise, so reversion fails precisely when the displacement is real. Overnight
+  median hourly range is only ~6-10 pips; the frozen round-trip cost is 7.5 pips charged to every
+  trade. The edge can clear cost only on the upper tail, which mechanically reduces events/year
+  and threatens the KILL-4 power floor. Charging a P90-grade static cost to EVERY trade (not the
+  median) makes the design conservative-by-construction: the most probable result is a clean,
+  pre-registered KILL -- a correct use of trial 48.
+
+evidence:
+  - "v1 pre-registration template: .fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/qr-prereg-template.yaml"
+  - "Debate round-1 refinement (A2', stop + size 0.25 + swap-inert + per-bar gate, now superseded by static cost): .fintech-org/artifacts/2026-06-17T02-37-59Z_intraday_eurusd_1h/qr-debate-r1.yaml"
+  - "DATA FACT (verified): data/processed/EURUSD_1h.parquet columns = [open,high,low,close,volume], 31019 rows -- OHLCV ONLY, NO bid/ask/spread column -> per-bar realized-spread gate is UNCOMPUTABLE (F-006)."
+  - "DATA FACT (verified): data/spreads/EURUSD_4h_spreads.parquet -> all-session per-side spread median 2.0, mean 2.44, P90 2.6, max 40.7; overnight bucket (4h hours {0,2,4}) median 2.0, mean 2.06, P90 ~2.1, P95 ~2.2, tail-max 14.2 -> justifies the 7.5-pip conservative static round-trip."
+  - "Org trial count = 47 verified (.fintech-org/trials.jsonl, 47 lines); DSR N=48 at execution."
+  - "Principal Reviewer BLOCKING findings closed: F-006 (static cost replaces uncomputable spread gate), F-009 (IS-extrapolation power gate, no OOS peek), F-002/003/010 (current-bar-excluded sigma + feature-window purge/embargo + >=20-trading-day seam embargo + frozen DoF), F-004 (no-trade before weekend/holiday gap), F-007 (KILL-1 gates on DSR not raw Sharpe)."
+  - "Lopez de Prado (DSR/CPCV): never report raw Sharpe; purge+embargo MUST cover the feature window on autocorrelated 1h series, not just the 1-bar label."
+  - "Skill (probability-statistics 1.5/2.1): confirmability horizon = f(events/yr, per-event IR); power floor N>=48 chosen so the one-shot OOS carries enough events for a detectable mean under N=48 deflation."
+  - "Skill (technical-analysis sec 11/13): quarter-Kelly-grade sizing (0.25), strict OOS holdout, walk-forward discipline; mean-reversion regime appropriate only in thin/ranging conditions."
+  - "CLAUDE.md no-lookahead invariant: entry_delay_bars=1; test_no_lookahead must hold."
+
+assumptions:
+  - "sigma_sess uses ONLY same-UTC-hour-class bars at or before t-1; the current bar t is excluded from its own statistic (F-002)."
+  - "The ~480-bar (~20 trading day) feature window sets BOTH the CPCV purge/embargo size AND the IS/OOS seam embargo; the 1-bar label is NOT the leakage horizon (F-003/F-010)."
+  - "The 7.5-pip round-trip cost is a FROZEN CONSTANT applied to every trade; there is NO per-bar realized-spread NO-TRADE condition (F-006)."
+  - "The KILL-4 power gate is computed from IS data ONLY and extrapolated; no OOS bar is read before the one-shot burn (F-009)."
+  - "Single-bar close-to-close hold means swap exposure is nil; positions are never carried across a bar boundary or across the weekend/holiday gap (F-004)."
+  - "Effective-N stays ~=48 ONLY because the structure is singular and every DoF is pre-committed; this is an honest condition, not an assumption that lowers the bar."
+  - "Intrabar stop fills are approximated on the 1h bar (filled at the stop level when the bar pierces it) -- a declared conservative approximation, not a hidden one."
+
+confidence: medium
+
+body: |
+  ## v2 closes the Principal Reviewer's three BLOCKING findings (CEO ratified 'proceed with fixes').
+
+  ### F-006 -- spread gate uncomputable -> FROZEN STATIC PER-SESSION COST (resolution (a)).
+  Verified: EURUSD_1h.parquet is OHLCV-only (31,019 rows, no bid/ask/spread column), so a
+  per-bar realized-spread "<=4-pip NO-TRADE gate" cannot be evaluated, and intrabar spikes are
+  invisible at the 1h close. The v1/debate per-bar realized-spread gate is REMOVED. In its place:
+  a single FROZEN, CONSERVATIVE round-trip cost = 7.5 pips, charged to EVERY trade. It is built
+  from the empirical 4h spread distribution at the OVERNIGHT P90 leg (overnight per-side median
+  2.0, P90 ~2.1; I round the spread leg up to ~2.6/side toward the all-session P90 to stay
+  conservative against thin-book widening the proxy understates), x2 legs + ~1.6 round-trip
+  thin-book slippage + ~0.7 commission = 7.5. This is NOT the optimistic config (1.5/side) and
+  NOT the median (4.0 round-trip). The backtest cost is therefore CONSERVATIVE-BY-CONSTRUCTION:
+  it over-states cost, under-states net edge. The spike regime (overnight tail 14.2; all-session
+  max 40.7) is explicitly ACKNOWLEDGED as un-modellable at 1h -> even 7.5 does not cover the
+  worst case, an additional honest reason the modal outcome is KILL.
+
+  ### F-009 -- KILL-4 latent OOS peek -> IS-FREQUENCY EXTRAPOLATION ONLY.
+  v1's KILL-4 counted qualifying OOS trades, which reads the holdout. v2 replaces it: estimate
+  the qualifying-trade frequency f_IS from IS DATA ONLY (post-gap-removal), extrapolate to the
+  OOS horizon (N_oos_expected = f_IS * OOS trading days). If N_oos_expected < 48 (power floor),
+  declare INSUFFICIENT-POWER and DO NOT RUN THE OOS AT ALL. No computation touches OOS data
+  before the one-shot burn. The holdout is read exactly once, and only if every pre-OOS IS gate
+  (KILL-1,2,3,4) clears.
+
+  ### F-002 / F-003 / F-010 -- feature-window leakage triad -> all four sub-fixes.
+  The same-hour-class 20-bar trailing sigma spans ~480 hourly bars / ~20 trading days. v2 closes:
+  (a) the CURRENT bar t is EXCLUDED from its own sigma_sess (sigma uses bars strictly <= t-1) --
+  no bar contributes to the statistic that classifies it (F-002);
+  (b) the CPCV PURGE and EMBARGO are sized to the FEATURE window (~480 bars / ~20 trading days)
+  on each side of every test fold, NOT the 1-bar label (F-003/F-010);
+  (c) an IS/OOS SEAM EMBARGO of >=20 trading days is carved out (2024-06 discarded between IS end
+  2024-05-31 and OOS start 2024-07-01) so neither side's feature window crosses the seam;
+  (d) every researcher degree-of-freedom is FROZEN before any IS look -- enumerated in
+  `frozen_degrees_of_freedom`: session window 02:00-05:00 UTC, sigma-lookback=20 same-hour-class,
+  k=2.0, the 7.5-pip static cost, the (net) gross-edge floor, the 0.30 capture coefficient, the
+  1*sigma stop, the 1-bar time-stop, size 0.25. Honest consequence: effective-N stays ~=48 ONLY
+  because the structure is singular and pre-committed; any tuning would explode N and raise the
+  DSR bar -- which is exactly why nothing is tuned.
+
+  ### F-004 -- weekend/holiday gap.
+  The last in-window bar before a Friday/holiday gap is NO-TRADE; a single-bar reversion bet is
+  never held across the Fri 21:00Z -> Sun 21:00Z gap (or any holiday session gap), and the
+  trailing sigma_sess window skips gap bars rather than forward-filling across them.
+
+  ### F-007 -- KILL-1 now gates on the DEFLATED Sharpe.
+  KILL-1 fires on DSR <= 0.95 at N=48 (the deflated, net-of-cost Sharpe), consistent with the
+  DSR primary metric -- not a raw-Sharpe threshold.
+
+  ### Debate refinements incorporated.
+  Per-trade stop = 1*sigma_trigger adverse cap + 1-bar time-stop; size_multiplier 0.25;
+  single-bar discrete close-to-close hold (swap inert, never across a bar boundary).
+
+  ## Null hypothesis (explicit)
+  H0: the sign-reversed return on the bar following an over-extended (|r_t| >= 2*sigma_sess)
+  overnight EURUSD hour has expected value <= 0 net of the frozen 7.5-pip round-trip cost; any
+  positive IS Sharpe is multiple-testing/selection (captured by the N=48 DSR deflation).
+  H1: net-of-cost expected reversion > 0, persistent across IS and the one-shot OOS,
+  sign-concordant, not quarter-concentrated, with reversion hit-rate > 0.50.
+
+  ## Honest verdict: STRETCH, modal outcome KILL.
+  This is the most forward-confirmable intraday candidate ON THIS INFRASTRUCTURE (close-to-close,
+  single-bar, runs on the existing vectorized engine, no intrabar simulator needed). But under a
+  conservative P90-grade static cost charged to every trade, the binding risk is the edge-to-cost
+  ratio in the thinnest, most-expensive session, and the 2-sigma conditioning co-selects exactly
+  the bars where reversion most often fails. The firm should expect a clean KILL as the modal,
+  legitimate result of trial 48.
+
+knowledge_gaps:
+  - "Whether trades/year clears the KILL-4 power floor (N_oos_expected >= 48) at k=2.0 overnight-only -- computed from IS only at execution; this is the modal pre-OOS kill risk."
+  - "Realized partial-reversion fraction on the 2-sigma subset -- measured at execution, not assumed (the 0.30 coefficient is used only for the IS-only feasibility projection)."
+  - "Whether the engine's 1h intrabar-stop approximation (fill-at-level when bar pierces) materially differs from true intrabar execution -- declared conservative approximation pending QD confirmation."
+
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

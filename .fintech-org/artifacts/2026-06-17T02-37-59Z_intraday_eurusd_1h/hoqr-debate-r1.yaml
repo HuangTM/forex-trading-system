@@ -1,0 +1,116 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit
+timestamp: 2026-06-17T02:37:59Z
+subtask_ref: debate-r1-candidate-path
+subtask_id: hoqr-debate-r1
+debate-round: 1
+converges_with_qr: partial
+recommended_first_move: "3 + sequenced: run A2 cost-aware NOW as trial 48 (likely clean KILL), in PARALLEL ship the swap-fix + session-filter infra so A1/A3 are pre-registerable as trial 49 — do NOT let A2's kill be the firm's only output."
+position: |
+  REVISED. I HOLD my substantive rating — A2 is still a cost-dominated TRAP on
+  expected value (CRO's 6-pip round-trip = 54% of median hourly range, P90
+  overnight 8 pips, spread spikes to 40.7 pips in 02:00–05:00 UTC is exactly the
+  window A2 trades). I do NOT believe A2 has positive expectancy. But I CONVERGE
+  with QR on the PROCESS claim that I had under-weighted: a pre-registered,
+  cost-aware A2 run is the cheapest possible way to convert a verbal TRAP rating
+  into a machine-checkable FALSIFICATION-ARCHIVE entry, and it is engine-feasible
+  TODAY with zero new infra. "Predicted TRAP" and "worth running once to falsify
+  cleanly" are not in tension. The error to avoid is the OPPOSITE one: spending
+  trial 48 on A2's likely-kill and then declaring the intraday thesis explored —
+  A2 dying tells us nothing about A1/A3, which are the actually-confirmable arms.
+ranked-archetypes:
+  - "A1 session-open momentum — STRETCH (most confirmable; needs session-filter + intrabar for ORB variant; NOT trial 48)"
+  - "A3 macro-event drift — STRETCH (confirmable; needs session-filter; calendar-gated; runner-up to A1)"
+  - "A2 overnight illiquidity mean-reversion — TRAP on expectancy, but ENGINE-FEASIBLE-NOW → advance as cost-aware falsification trial 48 with pre-declared KILL"
+retirement-criteria: |
+  A2 (trial 48), pre-registered & frozen BEFORE OOS holdout is touched:
+    KILL if avg-net-trade <= 0 at P90 overnight cost (8 pips) — QR's own gate, ratified.
+    KILL if entry rate at k_z=2.0 yields < 30 trades over the OOS window (under-powered, cannot clear DSR N≈48 bar).
+    KILL if any entry fires inside a bar whose realized spread > 4 pips (CRO max-spread gate) — i.e. A2 is mechanically forbidden from its own 02:00–05:00 spike window; if the cost-clean subset is empty, that IS the falsification.
+    VETO-BLOCK to dispatch unless a per-trade stop is declared (CRO escalation condition) — single-bar close-to-close satisfies this as a time-stop; declare it explicitly.
+    PASS only if net-of-P90-cost edge clears NHT flip threshold sqrt(events/yr) x per-event-IR >= ~1.6 on the frozen single structure. (Modal outcome: KILL.)
+  A1/A3 (trial 49+): NOT advanced until (i) swap 24x-overcharge fixed at engine.py:316 and (ii) session-filter shipped and unit-tested; A1-ORB additionally blocked on intrabar simulator. Pre-register ONE structure each; same DSR/effective-N discipline.
+evidence:
+  - "QR structured position: A2 chosen for close-to-close single-bar engine-feasibility; honest STRETCH/modal-KILL; gate on P90=8pips not P50; k_z=2.0; pre-declared KILL on avg-net<=0@P90."
+  - "CRO structured: 0.25 size ceiling; ~6pip round-trip = 54% of median hourly range; min gross edge 6pip; SESSION RESTRICTION 06:00–19:00 UTC + max-spread reject >4pip (excludes A2's window, empirical spike 40.7pip); VETO if no per-trade stop."
+  - "NHT structured: STRETCH at design; DSR bar N≈48 ≈1.4–1.6 ann.Sharpe/3yr OOS; effective-N 10^3–10^4 configs → TRAP unless single structure hard-pre-registered pre-holdout; flip threshold sqrt(events/yr)·per-event-IR ≥ ~1.6."
+  - "QD structured: DISCRETE close-to-close = GO now; CONTINUOUS = NO-GO pending 24x swap-overcharge fix; session-filter ABSENT (small build); sacred no-lookahead test passes; weekend-gap fwd-fill not applied (safe)."
+  - "VERIFIED engine.py:308-317 — continuous-mode daily swap accrual calls holding_cost(pair,dir,1) each BAR; on 1h bars that credits 1 full day's swap every hour = 24x overcharge. Confirms QD: bug is continuous-mode-only; A2's discrete close-to-close path (engine.py:470-486, include_swap default) is UNAFFECTED."
+  - "VERIFIED engine.py:135,263 — signals.shift(entry_delay_bars).fillna(0.0); no-lookahead guarantee intact for both discrete paths A2 relies on."
+  - "VERIFIED costs/model.py:42-53 — holding_cost returns -daily_swap*days (per-day unit), confirming the 24x mechanism when days=1 is passed per-hour-bar."
+assumptions:
+  - "A2 single-bar close-to-close means hold spans exactly one 1h bar → swap exposure is sub-daily and immaterial; the 24x continuous bug does not contaminate A2's P&L. (Verified path-level; not yet executed.)"
+  - "Infra work (swap one-liner + session-filter small build) is parallelizable with the A2 run by QD without blocking trial 48 dispatch."
+  - "OOS holdout for EURUSD-1h is sufficiently long that a 2σ-tail entry still yields >=30 trades; if not, A2 is under-powered and KILLs on the trade-count gate regardless of edge sign."
+confidence: medium
+body: |
+  RECONCILIATION.
+
+  Two things I got right and one I under-weighted.
+
+  Right #1 — A2 is a cost trap on EXPECTANCY. Nothing in the typed positions
+  rebuts this; CRO independently quantifies it harder than I did (54% of median
+  hourly range eaten by round-trip cost, 40.7-pip spike in the exact window A2
+  trades). I HOLD the TRAP rating as a prediction of the modal outcome.
+
+  Right #2 — A1/A3 are the confirmable arms, and they need infra. QD confirms
+  session-filter is ABSENT and A1-ORB needs intrabar. So A1/A3 cannot be trial 48
+  without a build. That hasn't changed.
+
+  Under-weighted — the falsification economics. QR's framing is correct and I was
+  treating "I predict it dies" as a reason NOT to run it. That's backwards. A
+  cost-aware A2 is the ONLY candidate that is dispatchable with zero new infra
+  (QD: discrete close-to-close = GO now), it carries a hard pre-declared KILL
+  gate (avg-net <= 0 @ P90), and I VERIFIED the one engine bug that could have
+  poisoned the result — the 24x swap overcharge at engine.py:316 — lives in the
+  CONTINUOUS path and does NOT touch A2's discrete single-bar path. So A2 can be
+  run cleanly TODAY and will produce a trustworthy result. A clean, archived,
+  cost-honest KILL of an overnight-MR thesis is a real research output, not a
+  wasted trial — it closes an archetype with evidence instead of an opinion.
+
+  So why approve-with-capacity-limit and not plain approve of QR's plan?
+
+  Because the failure mode here is NOT "running A2." It is "running A2 and
+  STOPPING." If trial 48 is A2, it dies, and the firm books that as "intraday
+  explored," we will have spent the cycle proving the one thing I already
+  predicted while leaving the two confirmable arms untouched behind an infra wall
+  that never gets built. The capacity limit is therefore: A2 is approved as a
+  bounded falsification probe ONLY IF the swap-fix + session-filter build is
+  funded IN PARALLEL so that A1 (or A3) is pre-registerable as trial 49 the
+  moment A2 resolves. A2's KILL must not be the terminal node.
+
+  On CRO's VETO and session gate: I adopt both as A2 pre-registration constraints
+  rather than treating them as blockers. Declare the single-bar close-to-close as
+  an explicit time-stop (satisfies "per-trade stop"). Apply the >4-pip max-spread
+  reject. Critically, that gate mechanically excludes A2's own 02:00–05:00 spike
+  window — which means the honest version of A2 can only trade the cost-clean
+  subset of overnight bars. If that subset is empty or trades <30 times, A2 KILLs
+  on structure, not on edge, and that is itself the cleanest possible
+  falsification: "this archetype cannot be traded net of realistic spread." Pre-
+  register that as a named KILL branch so the result is unambiguous either way.
+
+  RECOMMENDED FIRST MOVE = option 3, sequenced-parallel:
+    NOW:   pre-register A2 cost-aware (QR's spec + CRO's stop/spread gates +
+           the explicit empty-subset KILL branch), freeze, run once as trial 48.
+    PARALLEL: QD ships swap one-liner (engine.py:316) + session-filter small
+           build, unit-tested against the sacred no-lookahead test.
+    NEXT:  on A2 resolution (modal: KILL, archived), pre-register A1 or A3 as
+           trial 49 on the now-ready session-filtered engine.
+
+  Net: CONVERGE with QR on dispatching A2 now and on accepting a clean KILL as a
+  valid use of trial 48 — it is genuinely the cheapest path to a real
+  falsification-archive entry, and I verified it can be run without the swap bug
+  contaminating it. I HOLD the TRAP rating as the predicted outcome and REVISE my
+  recommendation to bind A2's run to a parallel infra commitment so the cycle
+  ends with the confirmable arm loaded, not with the trap merely confirmed dead.
+knowledge_gaps:
+  - "EURUSD-1h OOS holdout length → expected trade count at k_z=2.0 after >4-pip spread exclusion (determines whether A2 KILLs on power vs edge)."
+  - "Whether session-filter build can land before A2 resolves; if not, sequence is serial not parallel (still acceptable, A2 first)."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: METHODOLOGY-DESIGN

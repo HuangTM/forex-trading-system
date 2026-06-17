@@ -167,40 +167,72 @@ def _fetch_bi5(instrument: str, year: int, month_0based: int, day: int, hour: in
 def _decode_bi5(body: bytes | None, bar_start_utc: datetime, instrument: str) -> pd.DataFrame:
     """Decompress and parse a bi5 body into a tick DataFrame.
 
-    Returns a DataFrame with columns [timestamp_utc, mid, ask_vol] where
-    timestamp_utc is tz-aware UTC.  Empty body → empty DataFrame.
+    Returns a DataFrame with columns [timestamp_utc, mid, ask_vol, spread_pips]
+    where timestamp_utc is tz-aware UTC.  Empty body → empty DataFrame.
 
     The price divisor is 1e5 for non-JPY pairs and 1e3 for JPY pairs
     (Dukascopy stores all prices as integer * 1e5, but JPY pairs have only
     3 significant decimal places so the effective divisor is 1e3).
+
+    Spread pip conversion (verified against divisor and pip_size constants):
+      - Non-JPY: divisor=1e5, pip=1e-4 → spread_pips = (ask-bid) / (divisor*pip) = (ask-bid)/10
+      - JPY:     divisor=1e3, pip=1e-2 → spread_pips = (ask-bid) / (divisor*pip) = (ask-bid)/10
+    Both reduce to /10 because divisor*pip_size = 10.0 for BOTH pair types.
+    Implemented via explicit formula (not hardcoded) so it tracks any future divisor change.
+
+    Crossed/locked ticks (spread <= 0) are clipped to 0.0 and counted; the count
+    is logged at INFO per the decision-trace rubric so callers can assess data quality.
     """
+    _EMPTY_COLS = ["timestamp_utc", "mid", "ask_vol", "spread_pips"]
     if not body:
-        return pd.DataFrame(columns=["timestamp_utc", "mid", "ask_vol"])
+        return pd.DataFrame(columns=_EMPTY_COLS)
 
     try:
         raw = lzma.decompress(body)
     except lzma.LZMAError as e:
         logger.warning(f"LZMA decompress failed for {bar_start_utc}: {e}")
-        return pd.DataFrame(columns=["timestamp_utc", "mid", "ask_vol"])
+        return pd.DataFrame(columns=_EMPTY_COLS)
 
     n_ticks = len(raw) // _TICK_SIZE
     if n_ticks == 0:
-        return pd.DataFrame(columns=["timestamp_utc", "mid", "ask_vol"])
+        return pd.DataFrame(columns=_EMPTY_COLS)
 
     # Unpack all ticks at once
     ticks = _TICK_STRUCT.iter_unpack(raw[: n_ticks * _TICK_SIZE])
 
+    # Price divisor: 1e3 for JPY, 1e5 for all others (see module docstring)
     divisor = 1e3 if instrument in JPY_PAIRS else 1e5
+    # Pip size in price units: 0.01 for JPY, 0.0001 for others
+    pip_size = 1e-2 if instrument in JPY_PAIRS else 1e-4
+    # divisor * pip_size == 10.0 for BOTH pair types (see docstring); precompute
+    spread_divisor = divisor * pip_size  # = 10.0
 
-    rows: list[tuple[datetime, float, float]] = []
+    rows: list[tuple[datetime, float, float, float]] = []
     base_ts = bar_start_utc.timestamp() * 1000  # milliseconds since epoch for this hour
+    n_crossed = 0
     for ms, ask_raw, bid_raw, ask_vol, _bid_vol in ticks:
         ts_ms = base_ts + ms
         ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
         mid = (ask_raw + bid_raw) / 2.0 / divisor
-        rows.append((ts, mid, float(ask_vol)))
+        spread_pips_raw = (ask_raw - bid_raw) / spread_divisor
+        if spread_pips_raw <= 0.0:
+            n_crossed += 1
+            spread_pips_raw = 0.0  # clip crossed/locked ticks at zero
+        rows.append((ts, mid, float(ask_vol), spread_pips_raw))
 
-    df = pd.DataFrame(rows, columns=["timestamp_utc", "mid", "ask_vol"])
+    if n_crossed:
+        logger.info(
+            "tick.spread.crossed_clipped",
+            extra={
+                "event": "tick.spread.crossed_clipped",
+                "instrument": instrument,
+                "bar_start_utc": bar_start_utc.isoformat(),
+                "n_ticks_total": n_ticks,
+                "n_crossed_clipped": n_crossed,
+            },
+        )
+
+    df = pd.DataFrame(rows, columns=_EMPTY_COLS)
     return df
 
 
@@ -211,18 +243,32 @@ def _resample_ticks_to_1h(ticks_df: pd.DataFrame, bar_start_utc: datetime) -> di
 
     OHLC from mid-price: open=first, high=max, low=min, close=last.
     Volume = sum(ask_vol) — Dukascopy ask-side lot proxy.
+
+    Spread aggregates (from per-tick spread_pips column):
+      - spread_median_pips: median spread over the hour (tick-count weighted)
+      - spread_mean_pips:   mean spread over the hour
+      - spread_p90_pips:    90th-percentile spread (captures transient spike regimes)
+    Only populated when spread_pips column is present (post-change parquets).
     """
     if ticks_df.empty:
         return None
 
     mid = ticks_df["mid"]
-    return {
+    bar: dict[str, float] = {
         "open": float(mid.iloc[0]),
         "high": float(mid.max()),
         "low": float(mid.min()),
         "close": float(mid.iloc[-1]),
         "volume": float(ticks_df["ask_vol"].sum()),
     }
+
+    if "spread_pips" in ticks_df.columns:
+        sp = ticks_df["spread_pips"]
+        bar["spread_median_pips"] = float(sp.median())
+        bar["spread_mean_pips"] = float(sp.mean())
+        bar["spread_p90_pips"] = float(sp.quantile(0.90))
+
+    return bar
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +345,18 @@ def fetch_1h_bars(
 
     if not bars:
         logger.warning(f"No bars fetched for {instrument} {start.date()} → {end.date()}")
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume",
+                                     "spread_median_pips", "spread_mean_pips", "spread_p90_pips"])
 
     df = pd.DataFrame(bars)
     df = df.set_index("datetime")
     df.index = pd.DatetimeIndex(df.index, tz=timezone.utc)
     df.index.name = "datetime"
-    df = df[["open", "high", "low", "close", "volume"]]  # canonical column order
+    # Canonical column order: OHLCV first, then spread aggregates
+    core_cols = ["open", "high", "low", "close", "volume"]
+    spread_cols = [c for c in ["spread_median_pips", "spread_mean_pips", "spread_p90_pips"]
+                   if c in df.columns]
+    df = df[core_cols + spread_cols]
     df = df.sort_index()
 
     # Dedup (should never happen with hourly URL fetches, but be defensive)
@@ -354,6 +405,11 @@ def _max_identical_ohlc_run(df: pd.DataFrame) -> int:
     return max_run + 1 if max_run else 0
 
 
+SPREAD_COL_MISSING_WARNING = "spread_missing: parquet predates spread columns (mid-only); re-pull needed for spread data"
+_SPREAD_COLS = frozenset({"spread_median_pips", "spread_mean_pips", "spread_p90_pips"})
+_SPREAD_MEDIAN_MAX_PIPS = 50.0  # flag if median spread exceeds this (likely bad data)
+
+
 def validate_1h_schema(df: pd.DataFrame, pair: str) -> list[str]:
     """Validate output schema AND data quality matches firm conventions.
 
@@ -361,14 +417,45 @@ def validate_1h_schema(df: pd.DataFrame, pair: str) -> list[str]:
     (columns, UTC index, monotonic/unique, OHLC internal consistency) plus the
     data-quality gates that catch silent corruption: zero/negative volume,
     repeated-body stale runs, and outlier price spikes.
+
+    Backward compatibility: a parquet WITHOUT the spread columns is structurally
+    valid but is FLAGGED with SPREAD_COL_MISSING_WARNING so the caller knows it
+    predates this change and needs a re-pull to get spread data.  A parquet WITH
+    spread columns gets sanity checks: spread_median_pips must be > 0, finite,
+    and plausible (flag if median > 50 pips — that would indicate corrupt data).
     """
     issues: list[str] = []
 
-    # Columns
+    # Columns — core OHLCV required; spread columns optional (backward-compat)
     required = {"open", "high", "low", "close", "volume"}
     missing_cols = required - set(df.columns)
     if missing_cols:
         issues.append(f"Missing columns: {missing_cols}")
+
+    # Backward-compat spread check: flag (not reject) if spread columns absent
+    present_spread_cols = _SPREAD_COLS & set(df.columns)
+    if not present_spread_cols:
+        issues.append(SPREAD_COL_MISSING_WARNING)
+    elif present_spread_cols == _SPREAD_COLS:
+        # All three spread columns present — run sanity checks
+        median_col = df["spread_median_pips"]
+        n_nonpositive = int((median_col <= 0).sum())
+        n_nan = int(median_col.isna().sum())
+        n_implausible = int((median_col > _SPREAD_MEDIAN_MAX_PIPS).sum())
+        if n_nan:
+            issues.append(f"{n_nan} NaN spread_median_pips values")
+        if n_nonpositive:
+            issues.append(f"{n_nonpositive} bars with spread_median_pips <= 0")
+        if n_implausible:
+            worst = float(median_col.max())
+            issues.append(
+                f"{n_implausible} bars with spread_median_pips > {_SPREAD_MEDIAN_MAX_PIPS} pips "
+                f"(worst {worst:.1f} pips — likely corrupt)"
+            )
+    else:
+        # Partial set — something went wrong in assembly
+        missing_spread = _SPREAD_COLS - present_spread_cols
+        issues.append(f"Partial spread columns — missing: {missing_spread}")
 
     # Index
     if not isinstance(df.index, pd.DatetimeIndex):

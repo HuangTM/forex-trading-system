@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from ingest_dukascopy_1h import (
     JPY_PAIRS,
+    SPREAD_COL_MISSING_WARNING,
     _classify_http_response,
     _decode_bi5,
     _resample_ticks_to_1h,
@@ -170,7 +171,8 @@ class TestDecodeBi5:
     def test_empty_body_returns_empty_df(self):
         df = _decode_bi5(b"", _EURUSD_BAR_START, "EURUSD")
         assert df.empty
-        assert set(df.columns) == {"timestamp_utc", "mid", "ask_vol"}
+        # spread_pips added in the spread-column change; empty frame still carries all columns
+        assert set(df.columns) == {"timestamp_utc", "mid", "ask_vol", "spread_pips"}
 
     def test_invalid_lzma_returns_empty_df(self):
         df = _decode_bi5(b"not-lzma-data", _EURUSD_BAR_START, "EURUSD")
@@ -287,9 +289,18 @@ class TestValidate1hSchema:
         )
 
     def test_good_df_passes(self):
+        """An OHLCV-only (pre-spread) DataFrame must produce ONLY the spread_missing warning.
+
+        The spread-column change made spread_missing a backward-compat flag (not an
+        error), so a structurally-valid-OHLCV frame now always emits that warning.
+        The test fixture _good_df() has no spread columns; use _good_df_with_spread()
+        (in TestValidateSpreadBackwardCompat) for a zero-issue frame.
+        """
         df = self._good_df()
         issues = validate_1h_schema(df, "EURUSD")
-        assert issues == []
+        # Only the spread_missing warning — no structural errors
+        assert len(issues) == 1
+        assert SPREAD_COL_MISSING_WARNING in issues
 
     def test_missing_column_flagged(self):
         df = self._good_df().drop(columns=["volume"])
@@ -542,3 +553,232 @@ class TestVolumeProxy:
         # Tick count would be 3 — must not equal 3
         assert abs(bar["volume"] - 4.0) < 1e-6
         assert abs(bar["volume"] - 3.0) > 0.5  # not tick count
+
+
+# ---------------------------------------------------------------------------
+# Tests: spread_pips extraction in _decode_bi5
+# ---------------------------------------------------------------------------
+
+class TestSpreadPipsExtraction:
+    """Verify per-tick spread_pips computation for both non-JPY and JPY pairs.
+
+    Pip conversion math (both reduce to /10):
+      non-JPY: divisor=1e5, pip=1e-4 → spread_pips = (ask-bid)/(1e5*1e-4) = (ask-bid)/10
+      JPY:     divisor=1e3, pip=1e-2 → spread_pips = (ask-bid)/(1e3*1e-2) = (ask-bid)/10
+    """
+
+    def test_spread_pips_column_present(self):
+        """_decode_bi5 must return a spread_pips column for non-JPY pair."""
+        df = _decode_bi5(_EURUSD_BI5, _EURUSD_BAR_START, "EURUSD")
+        assert "spread_pips" in df.columns
+
+    def test_eurusd_spread_pips_values(self):
+        """Non-JPY: (ask_raw - bid_raw) / 10 = pip spread.
+
+        Tick 0: ask=110370, bid=110360 → (110370-110360)/10 = 1.0 pip
+        Tick 1: ask=110400, bid=110390 → (110400-110390)/10 = 1.0 pip
+        Tick 2: ask=110350, bid=110340 → (110350-110340)/10 = 1.0 pip
+        """
+        df = _decode_bi5(_EURUSD_BI5, _EURUSD_BAR_START, "EURUSD")
+        assert abs(df["spread_pips"].iloc[0] - 1.0) < 1e-6
+        assert abs(df["spread_pips"].iloc[1] - 1.0) < 1e-6
+        assert abs(df["spread_pips"].iloc[2] - 1.0) < 1e-6
+
+    def test_usdjpy_spread_pips_values(self):
+        """JPY: (ask_raw - bid_raw) / 10 = pip spread.
+
+        Tick 0: ask=147500, bid=147490 → (147500-147490)/10 = 1.0 pip
+        Tick 1: ask=147600, bid=147590 → (147600-147590)/10 = 1.0 pip
+        Tick 2: ask=147400, bid=147390 → (147400-147390)/10 = 1.0 pip
+        """
+        df = _decode_bi5(_USDJPY_BI5, _USDJPY_BAR_START, "USDJPY")
+        assert "spread_pips" in df.columns
+        assert abs(df["spread_pips"].iloc[0] - 1.0) < 1e-6
+        assert abs(df["spread_pips"].iloc[1] - 1.0) < 1e-6
+        assert abs(df["spread_pips"].iloc[2] - 1.0) < 1e-6
+
+    def test_spread_pips_nonnegative(self):
+        """All spread_pips values must be >= 0 (crossed ticks are clipped)."""
+        df = _decode_bi5(_EURUSD_BI5, _EURUSD_BAR_START, "EURUSD")
+        assert (df["spread_pips"] >= 0.0).all()
+
+    def test_crossed_tick_clipped_to_zero(self):
+        """A tick with bid > ask (crossed market) must be clipped to 0, not negative."""
+        # Build a tick where bid_raw > ask_raw (crossed)
+        crossed_ticks = [
+            (1000, 110370, 110380, 1.5, 1.0),  # bid > ask → crossed
+            (2000, 110400, 110390, 2.0, 1.5),  # normal
+        ]
+        bi5 = _make_bi5(crossed_ticks)
+        df = _decode_bi5(bi5, _EURUSD_BAR_START, "EURUSD")
+        assert df["spread_pips"].iloc[0] == 0.0, "crossed tick must be clipped to 0"
+        assert df["spread_pips"].iloc[1] > 0.0, "normal tick must have positive spread"
+
+    def test_wider_spread_known_value(self):
+        """Test a wider 2-pip spread to confirm the /10 divisor is right."""
+        # ask=110390, bid=110370 → (110390-110370)/10 = 2.0 pips
+        ticks = [(1000, 110390, 110370, 1.0, 1.0)]
+        bi5 = _make_bi5(ticks)
+        df = _decode_bi5(bi5, _EURUSD_BAR_START, "EURUSD")
+        assert abs(df["spread_pips"].iloc[0] - 2.0) < 1e-6
+
+    def test_empty_body_has_spread_column(self):
+        """Even an empty decode result must carry the spread_pips column."""
+        df = _decode_bi5(b"", _EURUSD_BAR_START, "EURUSD")
+        assert "spread_pips" in df.columns
+        assert df.empty
+
+
+# ---------------------------------------------------------------------------
+# Tests: spread aggregates in _resample_ticks_to_1h
+# ---------------------------------------------------------------------------
+
+class TestResampleSpreadAggregates:
+    """Verify median/mean/p90 spread aggregates over a synthetic tick set."""
+
+    def _make_spread_ticks(self, spreads_raw: list[int]) -> pd.DataFrame:
+        """Build a tick DataFrame with controlled integer spreads (ask-bid)."""
+        ticks_raw = [(i * 1000, 110370 + s, 110370, 1.0, 1.0) for i, s in enumerate(spreads_raw)]
+        bi5 = _make_bi5(ticks_raw)
+        return _decode_bi5(bi5, _EURUSD_BAR_START, "EURUSD")
+
+    def test_spread_aggregates_present_in_bar(self):
+        """Bar dict must contain spread_median_pips, spread_mean_pips, spread_p90_pips."""
+        df = _decode_bi5(_EURUSD_BI5, _EURUSD_BAR_START, "EURUSD")
+        bar = _resample_ticks_to_1h(df, _EURUSD_BAR_START)
+        assert bar is not None
+        assert "spread_median_pips" in bar
+        assert "spread_mean_pips" in bar
+        assert "spread_p90_pips" in bar
+
+    def test_spread_median_known_value(self):
+        """Median of [1,1,3] pips = 1 pip (raw: 10,10,30 → /10)."""
+        df = self._make_spread_ticks([10, 10, 30])
+        bar = _resample_ticks_to_1h(df, _EURUSD_BAR_START)
+        assert bar is not None
+        assert abs(bar["spread_median_pips"] - 1.0) < 1e-6
+
+    def test_spread_mean_known_value(self):
+        """Mean of [1,1,3] pips = (1+1+3)/3 = 5/3 ≈ 1.667 pips."""
+        df = self._make_spread_ticks([10, 10, 30])
+        bar = _resample_ticks_to_1h(df, _EURUSD_BAR_START)
+        assert bar is not None
+        assert abs(bar["spread_mean_pips"] - (1 + 1 + 3) / 3) < 1e-6
+
+    def test_spread_p90_known_value(self):
+        """p90 of [1,1,3] pips = p90 of [1.0, 1.0, 3.0]."""
+        import numpy as np
+        df = self._make_spread_ticks([10, 10, 30])
+        bar = _resample_ticks_to_1h(df, _EURUSD_BAR_START)
+        assert bar is not None
+        expected_p90 = float(np.percentile([1.0, 1.0, 3.0], 90))
+        assert abs(bar["spread_p90_pips"] - expected_p90) < 1e-5
+
+    def test_no_spread_aggregates_without_column(self):
+        """A tick DataFrame without spread_pips must produce no spread keys in bar."""
+        # Build a ticks_df manually without spread_pips (simulates pre-change data)
+        df = pd.DataFrame({
+            "timestamp_utc": [_EURUSD_BAR_START],
+            "mid": [1.1037],
+            "ask_vol": [1.0],
+        })
+        bar = _resample_ticks_to_1h(df, _EURUSD_BAR_START)
+        assert bar is not None
+        assert "spread_median_pips" not in bar
+        assert "spread_mean_pips" not in bar
+        assert "spread_p90_pips" not in bar
+
+
+# ---------------------------------------------------------------------------
+# Tests: validate_1h_schema backward compatibility and spread sanity checks
+# ---------------------------------------------------------------------------
+
+class TestValidateSpreadBackwardCompat:
+    """Verify backward-compat: mid-only parquets flagged, not rejected.
+    And that spread columns get sanity-checked when present.
+    """
+
+    def _good_df_with_spread(self, n: int = 5) -> pd.DataFrame:
+        """Return a minimal valid OHLCV DataFrame WITH spread columns."""
+        base = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        timestamps = [base + timedelta(hours=i) for i in range(n)]
+        idx = pd.DatetimeIndex(timestamps, tz=timezone.utc, name="datetime")
+        return pd.DataFrame(
+            {
+                "open": [1.10 + 0.001 * i for i in range(n)],
+                "high": [1.11 + 0.001 * i for i in range(n)],
+                "low": [1.09 + 0.001 * i for i in range(n)],
+                "close": [1.105 + 0.001 * i for i in range(n)],
+                "volume": [100.0] * n,
+                "spread_median_pips": [1.2] * n,
+                "spread_mean_pips": [1.3] * n,
+                "spread_p90_pips": [2.0] * n,
+            },
+            index=idx,
+        )
+
+    def _good_df_without_spread(self, n: int = 5) -> pd.DataFrame:
+        """Return a minimal valid OHLCV DataFrame WITHOUT spread columns (pre-change)."""
+        base = datetime(2024, 1, 2, tzinfo=timezone.utc)
+        timestamps = [base + timedelta(hours=i) for i in range(n)]
+        idx = pd.DatetimeIndex(timestamps, tz=timezone.utc, name="datetime")
+        return pd.DataFrame(
+            {
+                "open": [1.10 + 0.001 * i for i in range(n)],
+                "high": [1.11 + 0.001 * i for i in range(n)],
+                "low": [1.09 + 0.001 * i for i in range(n)],
+                "close": [1.105 + 0.001 * i for i in range(n)],
+                "volume": [100.0] * n,
+            },
+            index=idx,
+        )
+
+    def test_mid_only_parquet_is_flagged_not_rejected(self):
+        """A mid-only (pre-change) parquet must generate the SPREAD_COL_MISSING_WARNING.
+
+        It must NOT be rejected — backward compat is mandatory.
+        Structural OHLCV checks must still pass (no structural errors alongside the warning).
+        """
+        df = self._good_df_without_spread()
+        issues = validate_1h_schema(df, "EURUSD")
+        assert SPREAD_COL_MISSING_WARNING in issues, (
+            "mid-only parquet must be flagged with SPREAD_COL_MISSING_WARNING"
+        )
+        # No structural errors (only the spread warning)
+        structural_issues = [i for i in issues if i != SPREAD_COL_MISSING_WARNING]
+        assert structural_issues == [], f"Unexpected structural issues: {structural_issues}"
+
+    def test_parquet_with_spread_no_warning(self):
+        """A parquet WITH all three spread columns must NOT emit the spread_missing warning."""
+        df = self._good_df_with_spread()
+        issues = validate_1h_schema(df, "EURUSD")
+        assert not any("spread_missing" in i for i in issues)
+
+    def test_parquet_with_spread_passes_clean(self):
+        """A well-formed parquet with sane spread columns must produce no issues."""
+        df = self._good_df_with_spread()
+        issues = validate_1h_schema(df, "EURUSD")
+        assert issues == []
+
+    def test_implausible_spread_median_flagged(self):
+        """spread_median_pips > 50 pips must be flagged as likely corrupt."""
+        df = self._good_df_with_spread()
+        df["spread_median_pips"] = 100.0  # absurdly wide — corrupt data
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("spread_median_pips > 50" in i or "likely corrupt" in i for i in issues), (
+            f"Expected implausible spread flag; got: {issues}"
+        )
+
+    def test_nonpositive_spread_median_flagged(self):
+        """spread_median_pips <= 0 must be flagged."""
+        df = self._good_df_with_spread()
+        df.iloc[2, df.columns.get_loc("spread_median_pips")] = 0.0
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("spread_median_pips <= 0" in i for i in issues)
+
+    def test_nan_spread_median_flagged(self):
+        """NaN in spread_median_pips must be flagged."""
+        df = self._good_df_with_spread()
+        df.iloc[1, df.columns.get_loc("spread_median_pips")] = float("nan")
+        issues = validate_1h_schema(df, "EURUSD")
+        assert any("NaN spread" in i for i in issues)

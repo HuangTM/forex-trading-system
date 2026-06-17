@@ -24,6 +24,7 @@ import pandas as pd
 
 from forex_system.core.interfaces import CostModel, PositionSizer
 from forex_system.core.types import BacktestResult, Direction, Trade
+from forex_system.costs.model import RolloverAwareRealisticCostModel
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,13 @@ def _run_continuous(
     # FIX-1: Compute bar duration in fractional days from the actual index spacing.
     # Use the median timedelta so a few weekend gaps (daily) or session gaps (1h)
     # don't distort the result. Fallback to 1.0 (daily) for single-bar data.
+    # NOTE: bar_duration_days is used only in the pro-rata (non-rollover-aware) path.
     bar_duration_days = _infer_bar_duration_days(data.index)
+
+    # KG-QD-3: Select accrual path once before the loop — O(1) check, not per-bar.
+    # Plain RealisticCostModel (all validated daily-bar trials) → use_rollover_accrual=False
+    # → old pro-rata path, bit-identical results. No existing result changes.
+    use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)
 
     logger.debug(
         "continuous.bar_duration_days=%.6f (freq-agnostic swap scaling)",
@@ -363,11 +370,47 @@ def _run_continuous(
         # FIX-1: Scale the per-bar accrual by the bar's duration in days (bar_duration_days),
         # derived from the data index once before the loop. For daily bars this is ≈1.0 (no
         # change). For 1h bars this is 1/24, preventing the 24× over-charge.
+        #
+        # KG-QD-3: Two paths gated by use_rollover_accrual (set once before loop).
+        # rollover-aware path: charge only on 22:00 UTC crossing bars (returns 0.0 on all
+        #   non-crossing bars). Negation mirrors line 369: both holding_cost and
+        #   rollover_cost_for_bar return `-daily_swap * N`; the engine convention is
+        #   `equity += per_bar_swap_pips * pip_value * units` where a NEGATIVE
+        #   per_bar_swap_pips means cost (equity decreases).
+        # pro-rata path (else): UNCHANGED — bit-identical for all daily-bar callers.
         if cur_units > 0:
-            # holding_cost returns -swap_long_pips * days (negative = credit).
-            # Negate to get credit: positive value added to equity.
-            per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+            if use_rollover_accrual:
+                # Intraday rollover-aware path: charge only on 22:00 UTC crossing bars.
+                # rollover_cost_for_bar returns 0.0 on all non-crossing bars; no net
+                # change to equity on those bars. Negate per sign-convention (CTO spec
+                # sign_convention_correction): rollover_cost_for_bar returns
+                # -daily_swap*mult; negate → correct sign for equity accrual.
+                per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
+                    pair, Direction.LONG, ts
+                )
+            else:
+                # Daily/pro-rata path (unchanged — preserves validated daily results).
+                per_bar_swap_pips = -cost_model.holding_cost(
+                    pair, Direction.LONG, bar_duration_days
+                )
             equity += per_bar_swap_pips * pip_value * cur_units
+        elif cur_units < 0:
+            if use_rollover_accrual:
+                # Short-side rollover accrual: mirrors long branch.
+                # No else branch — daily pro-rata never accrued per-bar swap for shorts;
+                # do NOT add it silently (separate arch decision required).
+                #
+                # KNOWN GAP (KG-QD-3, out of scope): the engine is currently long-only
+                # (clamped_signal = max(raw_signal, 0.0) above), so cur_units < 0 never
+                # occurs in practice and this branch is dormant. The end-of-run cleanup
+                # block below only closes cur_units > 0. IF short intraday strategies are
+                # ever enabled, that cleanup block MUST gain a matching `elif cur_units < 0`
+                # close, or a held short would be silently abandoned at run end. Tracked in
+                # qd-engine-wiring.yaml remaining_concerns.
+                per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
+                    pair, Direction.SHORT, ts
+                )
+                equity += per_bar_swap_pips * pip_value * abs(cur_units)
 
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)

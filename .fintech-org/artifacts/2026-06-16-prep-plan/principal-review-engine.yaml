@@ -1,0 +1,319 @@
+---
+# Principal Reviewer — Independent Review
+# RolloverAwareRealisticCostModel per-bar swap accrual wired into _run_continuous (KG-QD-3)
+# =========================================================================
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+no_capital_instruction: true
+timestamp: "2026-06-17T20:43:44Z"
+authored_by: Principal Reviewer (independent review wave)
+
+claimed_domains:
+  - independent-code-review
+  - spec-vs-implementation-drift-detection
+  - hidden-bug-and-edge-case-surfacing
+  - test-coverage-and-test-quality-review
+
+artifact_under_review:
+  spec: .fintech-org/artifacts/2026-06-16-prep-plan/cto-engine-wiring-spec.yaml
+  handoff: .fintech-org/artifacts/2026-06-16-prep-plan/qd-engine-wiring.yaml
+  code:
+    - src/forex_system/backtest/engine.py  # import + _run_continuous accrual block
+    - tests/backtest/test_rollover_engine_accrual.py
+  diff_base: 6c6cb99
+
+rubrics_applied:
+  - spec-to-implementation-trace        # applied
+  - execution-firewall-review           # applied
+  - clock-and-ordering                  # applied (items 2, 5, 7 load-bearing)
+  - log-as-decision-trace               # applied (decision-boundary log already present at engine.py:351; accrual branch is a derived sub-decision, low materiality)
+  - edge-case-enumeration               # applied (rollover-cross / Wed-3x / intra-session / weekend / sign)
+  - invariant-search                    # applied (no-lookahead sacred test; daily equivalence gate)
+  - test-inversion                      # applied
+  - failure-mode-reasoning              # applied (short-close end-of-run gap)
+  - numerical-statistical-correctness   # skipped: no statistical method introduced; this is deterministic per-bar accrual arithmetic. Justified skip.
+
+contamination_check: "clean"   # prompt contained NO other role's decision/approval stance on this artifact; the QD handoff is the raw implementation artifact (author's self-report of test results), not a third-party approval. CTO spec is the source spec, not an approval of THIS code.
+
+# =========================================================================
+# SPEC-TO-IMPLEMENTATION TRACE (every clause -> implementing line)
+# =========================================================================
+spec_trace:
+  - clause: "isinstance selection computed once before the loop"
+    impl: "engine.py:307 `use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)` — placed after bar_duration_days (line 300), before the loop (line 321)."
+    verdict: MATCH
+  - clause: "intraday LONG = -cost_model.rollover_cost_for_bar(pair, Direction.LONG, ts) (negation applied per sign_convention_correction)"
+    impl: "engine.py long branch: `per_bar_swap_pips = -cost_model.rollover_cost_for_bar(pair, Direction.LONG, ts)`. Negation PRESENT."
+    verdict: MATCH
+  - clause: "new SHORT elif cur_units < 0 with Direction.SHORT, negation, abs(cur_units)"
+    impl: "engine.py: `elif cur_units < 0:` → `per_bar_swap_pips = -cost_model.rollover_cost_for_bar(pair, Direction.SHORT, ts)` → `equity += per_bar_swap_pips * pip_value * abs(cur_units)`. No else branch (matches spec step_3 'do not add silently')."
+    verdict: MATCH
+  - clause: "non-rollover / daily pro-rata path untouched (else branch = verbatim old code)"
+    impl: "else branch: `per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)` — identical computation to pre-change line 369."
+    verdict: MATCH
+  - clause: "_run_discrete untouched"
+    impl: "git diff 6c6cb99 shows exactly TWO hunks (import + accrual block); _run_discrete is in neither."
+    verdict: MATCH
+  - clause: "_close_position unchanged; include_swap=False guard preserved in continuous mode"
+    impl: "Diff does not touch _close_position. End-of-run close at engine.py:558 still passes include_swap=False."
+    verdict: MATCH
+  - clause: "runtime import (not TYPE_CHECKING)"
+    impl: "engine.py:27 `from forex_system.costs.model import RolloverAwareRealisticCostModel` — module-level runtime import."
+    verdict: MATCH
+  - clause: "comment near bar_duration_days noting it is pro-rata-path-only (fm_6 mitigation)"
+    impl: "engine.py:300 NOTE comment present."
+    verdict: MATCH
+
+spec_drift_found: NONE
+# The diff matches the CTO spec EXACTLY, including the addendum sign_convention_correction
+# (negation on BOTH long and short intraday branches) and the explicit no-else on the short side.
+
+# =========================================================================
+# SIGN-CONVENTION CHECK (independent trace, not relying on QD's claim)
+# =========================================================================
+sign_convention_check:
+  result: CORRECT
+  trace_long_negative_carry:
+    - "PairInfo EURUSD swap_long_pips_per_day = -1.2 (negative carry: holding LONG costs 1.2 pips/day)."
+    - "model.py:326 rollover_cost_for_bar returns `-daily_swap * multiplier` = -(-1.2)*1 = +1.2 (positive = cost-to-trader convention)."
+    - "engine negates: per_bar_swap_pips = -(+1.2) = -1.2."
+    - "engine: equity += (-1.2) * pip_value(>0) * cur_units(>0) → equity DECREASES. CORRECT — a negative-carry LONG on a rollover bar loses money."
+  trace_short_branch:
+    - "abs(cur_units) is used, so the magnitude is always positive; sign comes solely from per_bar_swap_pips."
+    - "For a SHORT, daily_swap = swap_short_pips_per_day. EURUSD swap_short = +0.3 (positive carry for SHORT)."
+    - "model returns -daily_swap*mult = -(+0.3) = -0.3 (negative = income/credit convention). engine negates → per_bar_swap_pips = +0.3 → equity += (+0.3)*pip*abs(units) → equity INCREASES. CORRECT — positive-carry SHORT earns carry."
+  double_negation_risk: "NONE. The negation is applied exactly once in the engine; the model encodes the cost-sign once. Mirrors the existing daily holding_cost negation (line 369) precisely."
+
+# =========================================================================
+# NO-LOOKAHEAD CONFIRMATION (clock-and-ordering items 2, 5, 7)
+# =========================================================================
+no_lookahead_check:
+  result: CONFIRMED — no lookahead introduced.
+  evidence:
+    - "rollover_cost_for_bar(pair, dir, ts) reads ONLY bar_ts_utc.hour and bar_ts_utc.weekday() (model.py:295-320). No index into data.index[i+1] or any future bar."
+    - "`ts` is the current bar's own index value, bound at the loop header (engine.py:321 `for i, (ts, row) in enumerate(data.iterrows())`), assigned BEFORE the accrual block executes."
+    - "clock-and-ordering item 2: `ts` is event-time (exchange/bar timestamp), the correct clock for determining rollover-crossing status — NOT wall-clock or monotonic."
+    - "clock-and-ordering item 5: no .shift(-n), no future indexing in the accrual path."
+    - "clock-and-ordering item 7 (backtest/live equivalence): accrual reads the bar's own timestamp, which is the simulated 'now' in backtest — consistent with the SimClock semantics the engine already relies on. No new now() call added."
+    - "test_no_lookahead (12 passing, orchestrator-verified) is unaffected: the change is in the cost path, which executes AFTER the signal/position decision; the sacred test exercises the entry_delay_bars signal-shift mechanism, which is untouched."
+  tz_robustness_observation: "model.py:295-297 localizes naive bar_ts to UTC and converts non-UTC tz to UTC before the hour check. This is a correctness safeguard (clock-and-ordering item 3, timezone explicit). Not a finding — positive note."
+
+# =========================================================================
+# FINDINGS
+# =========================================================================
+findings:
+
+  - id: F-001
+    severity: major
+    category: invariant-violation
+    location: "src/forex_system/backtest/engine.py — end-of-run cleanup `if cur_units > 0:` (line 544); mark-to-market `if cur_units > 0:` (line 536); new per-bar SHORT accrual `elif cur_units < 0:`"
+    observation: >
+      The new per-bar accrual block treats cur_units < 0 (short) as a supported, accruing
+      state. But THREE other sites in the same function remain long-only: (1) the
+      mark-to-market at line 536 (`if cur_units > 0: ... else: equity_curve = equity`) does
+      NOT mark a short position to market — unrealized P&L on a short would never appear in
+      the equity curve; (2) the end-of-run close at line 544 (`if cur_units > 0:`) closes
+      only longs — a short held to the last bar is silently abandoned (no Trade emitted, no
+      realized P&L booked, include_swap path never reached); (3) the long-only clamp at
+      line 331 (`clamped_signal = max(raw_signal, 0.0)`) means cur_units < 0 is UNREACHABLE
+      today, so the short accrual branch is dead code.
+    inference: >
+      (a) WHILE the long-only clamp stands, the short accrual `elif` is provably dead and
+      harmless — no short is ever opened, so no equity is ever accrued or abandoned. Shipping
+      a dead-but-correct branch is acceptable IN ISOLATION. (b) However, it is a LATENT TRAP:
+      the short accrual branch creates the appearance that shorts are handled end-to-end,
+      while mark-to-market and end-of-run close are NOT short-aware. The moment the clamp is
+      relaxed to enable shorts, a short held to run-end loses its entire mark-to-market and
+      realized P&L silently — equity would be overstated/understated with no error. The
+      accrual branch and the close/MTM branches are STRUCTURALLY INCONSISTENT. QD correctly
+      surfaced this (qd-engine-wiring.yaml remaining_concerns #3, engineer-mindset rule 4)
+      and DEFERRED it with a KNOWN GAP comment rather than burying it — the deferral is
+      correct (touching close/clamp logic is outside the frozen KG-QD-3 spec and would risk
+      the equivalence gate).
+    evidence: "engine.py:331 (clamp), :536 (MTM long-only), :544 (close long-only); new elif short accrual block; qd-engine-wiring.yaml lines 176-192."
+    recommended_action_class: escalate-to-owning-role   # track as a hard precondition, do NOT fix in KG-QD-3
+    owning_role: cto
+    disposition: >
+      ACCEPTABLE for KG-QD-3 as shipped (dead code, correctly deferred, gap is tracked not
+      buried). Becomes BLOCKING the instant any short-capable strategy is enabled. Must be
+      registered as a named precondition on short-intraday work, not left only as a code
+      comment. See condition C-1.
+
+  - id: F-002
+    severity: major
+    category: spec-drift   # research-blocking precondition, surfaced per firewall + engineer-mindset rule 4
+    location: "Long-only clamp engine.py:331 vs. any directional/short-entry hypothesis (e.g. H1 session-open momentum)"
+    observation: >
+      _run_continuous unconditionally flattens every short: clamped_signal = max(raw_signal, 0.0).
+      A strategy whose spec emits short entries (e.g. H1 directional session-open momentum, which
+      by construction takes both long and short session-open breaks) has its short legs forced to
+      flat by the engine before sizing.
+    inference: >
+      H1 (and any directional intraday hypothesis with short entries) CANNOT be faithfully
+      backtested on this engine today. Its short TradeIntents are silently converted to flat —
+      a textbook execution-firewall drift (the implemented strategy is a long-only subset of the
+      specified strategy). The rollover SHORT accrual branch shipped here is necessary plumbing
+      for that future work but is NOT sufficient: the clamp, mark-to-market, and end-of-run close
+      (F-001) must ALL be made short-aware first. This is a RESEARCH-BLOCKING PRECONDITION: H1
+      must not be run for a go/no-go decision under the long-only clamp, or its results will be a
+      faithfulness-violating long-only artifact, not a test of H1.
+    evidence: "engine.py:331; engine.py:536; engine.py:544; execution-firewall-review Section A (silent signal transformation / strategy-altering implementation)."
+    recommended_action_class: escalate-to-owning-role
+    owning_role: head-of-quant-research   # research precondition; CTO co-owns the engine enablement
+    disposition: >
+      Not a defect in THIS diff (the clamp pre-exists; KG-QD-3 did not introduce it). Raised as a
+      firm-level precondition the orchestrator must resolve before scheduling any H1 / short-capable
+      intraday backtest. See condition C-2.
+
+  - id: F-003
+    severity: minor
+    category: test-coverage-gap
+    location: "tests/backtest/test_rollover_engine_accrual.py — SHORT accrual branch has NO test; test names 2/3/4/6 mix model-level and engine-level assertions"
+    observation: >
+      The 7 tests do NOT exercise the new `elif cur_units < 0` SHORT accrual branch through the
+      engine — they cannot, because the long-only clamp makes cur_units < 0 unreachable, and none
+      of the tests calls _run_continuous with a contrived short, nor unit-calls the accrual
+      arithmetic for a short. The short branch ships with ZERO coverage of any kind (neither
+      engine-path nor a direct model-call proxy that mirrors the engine's negation+abs chain for a
+      SHORT). The model method rollover_cost_for_bar IS exercised for SHORT-relevant config only via
+      swap_short presence in PairInfo, but no test asserts the engine's short equity-accrual sign or
+      its abs(cur_units) magnitude handling.
+    inference: >
+      The sign/abs correctness of the SHORT branch (per_bar_swap_pips = -rollover_cost_for_bar(...,
+      SHORT, ts); equity += pips * pip_value * abs(cur_units)) is verified ONLY by inspection (this
+      review traced it: positive-carry SHORT correctly credits equity). When shorts are enabled, a
+      future regression in this branch (e.g. dropping the abs, or dropping the negation) would pass
+      the entire current suite. This is the textbook 'we'll add a test for this later' gap — the QD
+      handoff acknowledges it (remaining_concerns #2). Acceptable for a dead branch, but the missing
+      test MUST land in the same change that relaxes the clamp.
+    evidence: >
+      test file has no run_backtest call producing cur_units < 0; tests 3/5/6 assert on
+      rollover_cost_for_bar directly (model level, Direction.LONG only). qd-engine-wiring.yaml:166-174.
+    recommended_action_class: add-test
+    owning_role: quant-developer
+    disposition: "Acceptable for KG-QD-3 (dead branch). Becomes a merge-blocking obligation co-bundled with clamp-relaxation. See condition C-1."
+
+  - id: F-004
+    severity: observation   # NOT a defect — recording test-quality verdict so the approval is evidence-backed
+    category: test-coverage-gap
+    location: "tests/backtest/test_rollover_engine_accrual.py — test 1 (daily equivalence) reinterpretation"
+    observation: >
+      The spec's literal 'bit-identical between plain and rollover model on daily data' is
+      mathematically impossible (plain pro-rates every bar; rollover model accrues 0 on 00:00 UTC
+      bars). QD reinterpreted test 1 to assert: (a/b) isinstance gate truth values, (c) plain-model
+      run is reproducible/bit-identical across two identical runs (regression anchor), (d) rollover
+      model accrues 0 on every daily 00:00 bar, plus a sanity check that rollover>plain equity.
+    inference: >
+      The reinterpretation is CORRECT and arguably stronger than the literal spec text: it captures
+      the real invariant (existing daily callers use plain RealisticCostModel → isinstance False →
+      pro-rata path verbatim → unchanged) and adds an explicit assertion that the rollover model
+      zeroes daily bars. HOWEVER, part (c) is a weak regression anchor: 'two identical runs are
+      identical' is nearly tautological (determinism), NOT 'the rollover-aware engine change did not
+      perturb the plain-model path vs. the pre-change engine.' The TRUE equivalence guarantee is the
+      pre-commit equivalence gate (orchestrator-run, full suite 1576 passed) and the spec's
+      fm_3 anchor — not this test. The test name overpromises ('equivalence') relative to what it
+      asserts ('determinism + zero-daily-accrual'). Not blocking; the real gate exists elsewhere.
+    evidence: "test_rollover_engine_accrual.py:139-203; qd-engine-wiring.yaml remaining_concerns #1."
+    recommended_action_class: clarify-spec
+    owning_role: quant-developer
+    disposition: "Non-blocking. The genuine equivalence assurance is the pre-commit gate + the orchestrator-verified full suite, which I rely on per my prompt (I do not re-run the suite)."
+
+  - id: F-005
+    severity: observation
+    category: test-coverage-gap
+    location: "tests/backtest/test_rollover_engine_accrual.py tests 3 & 6 — engine-path Wednesday-3x and sign tests depend on bar-2 layout"
+    observation: >
+      The engine-side checks in test 3 (_equity_drop_on_rollover) and test 6 rely on a precise
+      bar layout (signal at bar 0, entry at bar 1 via entry_delay_bars=1, rollover at bar 2) with an
+      inline comment explaining the ordering (accrual runs before entry each bar). Several assertions
+      are guarded by `if rollover_ts in ec.index:` / `if final_ts in ec.index:`.
+    inference: >
+      The guarded assertions could SILENTLY no-op if the layout assumption breaks (e.g., if entry
+      timing shifted so the rollover bar were not yet in-position): the `if ... in ec.index` guard
+      would skip the assertion rather than fail. Test 3 mitigates this with hard asserts on
+      mon_drop<0 and wed_drop<0 BEFORE the ratio check, and the model-level 3x assert (mon_cost,
+      wed_cost) is unguarded and authoritative — so the Wednesday-3x invariant is genuinely tested at
+      the model level and corroborated at the engine level. Test 6's core asserts (raw_return==+1.2,
+      engine_pips<0) are unguarded. So the load-bearing assertions are NOT tautological; only the
+      end-to-end equity guards are conditionally skippable. Low risk; noting for completeness.
+    evidence: "test 3 lines 286-334 (unguarded mon_cost/wed_cost 3x assert + guarded engine ratio); test 6 lines 440-487 (unguarded model+negation asserts, guarded e2e)."
+    recommended_action_class: add-test
+    owning_role: quant-developer
+    disposition: "Non-blocking. Rollover-crossing, Wed-3x, intra-session-zero, weekend-zero, and sign are all genuinely exercised (not tautological); the no-double-count test (7) makes hard unguarded-enough asserts on bars 3/4 staying flat. Coverage of the SPECIFIED long-path obligations is adequate."
+
+# =========================================================================
+# TEST-QUALITY SUMMARY (test-inversion verdict per obligation)
+# =========================================================================
+test_quality:
+  obligation_1_daily_equivalence: "PRESENT but reinterpreted (F-004). Asserts isinstance gate + determinism + zero-daily-accrual. Real equivalence guaranteed by the pre-commit gate, not this test."
+  obligation_2_single_crossing: "STRONG. Asserts exactly 1 non-zero equity change, at the 21:00 bar, and that it is negative. Would catch a misfire on a wrong hour or a double-fire. Not tautological."
+  obligation_3_wednesday_3x: "STRONG at model level (unguarded ratio==3.0), corroborated at engine level (guarded). Would catch a missing/wrong multiplier."
+  obligation_4_intra_session_zero: "STRONG. Flat price + no crossing → asserts max |equity change| < 1e-9. Would catch any spurious accrual on a non-crossing bar."
+  obligation_5_weekend_zero: "STRONG. Asserts Fri/Sat/Sun 21:00 == 0.0 with Monday positive control. Would catch a missing weekend guard."
+  obligation_6_sign: "STRONG. Unguarded model-sign (+1.2) and post-negation (-1.2) asserts; guarded e2e equity<initial. Would catch a dropped or doubled negation on the LONG path."
+  obligation_7_no_double_count: "STRONG. Asserts bars after rollover and the close bar stay flat, and equity is constant from rollover bar to close — directly proves _close_position(include_swap=False) adds no lump sum. Would catch a double-count."
+  short_branch_coverage: "ABSENT (F-003). The new SHORT accrual branch has no engine-path or direct-call test of any kind. Verified by inspection only in this review."
+  verdict: "The 7 LONG-path obligations are genuinely exercised and not tautological. The single material gap is zero coverage of the new (dead) SHORT branch."
+
+# =========================================================================
+# EXECUTION-FIREWALL-REVIEW VERDICT
+# =========================================================================
+firewall_review:
+  section_A_research_in_impl: "PASS. No hardcoded thresholds, no silent fillna/clip/winsorize, no regime branching, no signal transform introduced. The accrual reads swap values from PairInfo/config; the 21:00-UTC / Wednesday-3x / weekend logic lives in the cost MODEL (CRO CM-2), not the engine — correct firewall placement. Note: the pre-existing long-only clamp (engine.py:331) IS a strategy-altering transform relative to a directional spec — flagged as F-002, but it pre-exists this diff."
+  section_C_parameter_sourcing: "PASS. The only literals in the diff are Direction.LONG/SHORT (enum, not magic). Swap magnitudes sourced from PairInfo. Rollover hours/multipliers sourced from the model, not the engine."
+  section_D_observability: "ADEQUATE. Decision-boundary log at engine.py:351 already emits signal/clamped/units/equity per bar. The model emits a debug log on each rollover_cost_for_bar fire (model.py:322). The accrual sub-branch itself emits no log, but it is a derived arithmetic step under an already-logged decision; not a finding."
+  section_E_integration_tests: "PASS for the long path (entry-condition crossing test, non-entry intra-session test, no-double-count test all present). Short-path integration test absent (F-003), acceptable while dead."
+  decision: approve-with-conditions   # firewall sense: no spec drift; conditions are forward-looking preconditions, not fixes to THIS diff.
+
+# =========================================================================
+# DECISION
+# =========================================================================
+decision_rationale: >
+  The diff is spec-faithful with ZERO drift: isinstance computed once, LONG/SHORT both negate
+  rollover_cost_for_bar, abs(cur_units) on the short side, no else on the short side, daily/pro-rata
+  else-branch verbatim, _run_discrete and _close_position untouched, runtime import present, fm_6
+  comment present. The sign convention is independently traced CORRECT for both negative-carry LONG
+  (equity decreases) and positive-carry SHORT (equity increases). No lookahead is introduced
+  (rollover decision is a pure function of the current bar's own event-time timestamp). The 7
+  LONG-path tests genuinely exercise crossing / Wed-3x / intra-session-zero / weekend-zero / sign /
+  no-double-count and are not tautological. I rely on the orchestrator's independent full-suite run
+  (1576 passed / 3 skipped / 0 failed) and the pre-commit equivalence gate for the daily-bit-identity
+  guarantee, per my prompt scope.
+  Two MAJOR forward-looking issues (F-001 short-close/MTM inconsistency, F-002 H1 long-only-clamp
+  faithfulness block) are NOT defects in this diff — they are correctly-deferred latent traps and a
+  pre-existing research-blocking precondition. QD surfaced them honestly rather than burying them.
+  I approve THIS change with conditions that bind the deferral so it cannot be lost.
+
+conditions:
+  - id: C-1
+    binds: [F-001, F-003]
+    text: >
+      Before any short-capable intraday strategy is enabled (clamp at engine.py:331 relaxed),
+      the SAME change MUST: (a) make the end-of-run close (engine.py:544) and mark-to-market
+      (engine.py:536) short-aware so a held short is closed and marked, not silently abandoned;
+      and (b) add an engine-path test exercising the SHORT accrual branch (sign + abs(cur_units)).
+      This precondition MUST be registered in a tracked location (orchestrator backlog / spec
+      precondition), not solely as the in-code KNOWN GAP comment.
+    owning_role: cto
+  - id: C-2
+    binds: [F-002]
+    text: >
+      H1 (directional session-open momentum) and any short-emitting intraday hypothesis MUST NOT be
+      run for a go/no-go decision until the long-only clamp is resolved per C-1. Running H1 under the
+      current clamp produces a long-only artifact, not a faithful test of H1 — an execution-firewall
+      faithfulness violation. The orchestrator/HoQR must gate H1 scheduling on this precondition.
+    owning_role: head-of-quant-research
+
+# =========================================================================
+# COVERAGE STATEMENT
+# =========================================================================
+coverage_statement: >
+  I reviewed 2 of 2 code artifacts in scope (engine.py diff vs base 6c6cb99; the new test file),
+  the CTO source spec, and the QD handoff. I traced the full per-bar accrual execution path
+  end-to-end (clamp → sizer → accrual branch → mark-to-market → end-of-run close) and the sign
+  chain through model.py:190/271/326. I did NOT re-run the test suite — per my prompt, I rely on
+  the orchestrator's independent run (7 accrual PASS, test_no_lookahead 12 PASS, full suite 1576
+  passed / 3 skipped / 0 failed) and the pre-commit equivalence gate. Nothing in scope was skipped.
+
+time_spent_reasoning: "~25 minutes (spec read, full diff trace, model sign trace, 4 code-site reads, 7-test inversion)."

@@ -1,0 +1,413 @@
+---
+# CTO Engine-Wiring Spec: RolloverAwareRealisticCostModel into the Backtest Engine
+# KG-QD-3 — CEO-authorized follow-on
+# =========================================================================
+role: cto
+artifact_type: methodology-design
+decision: approve
+rubric_applied:
+  - clock-and-ordering
+  - execution-firewall-review
+no_capital_instruction: true
+claimed_domains:
+  - architecture-decisions
+  - cross-system-blast-radius
+  - logging-and-observability-standards
+  - firewall-enforcement-between-research-and-execution
+timestamp: "2026-06-17T20:07:24Z"
+authored_by: CTO (KG-QD-3)
+
+# =========================================================================
+# GROUND TRUTH VERIFIED FROM SOURCE (citations per CTO narrow-carve-out)
+# =========================================================================
+ground_truth_citations:
+  - "engine.py:366 — per-bar swap: `if cur_units > 0:` — LONG ONLY; short path absent"
+  - "engine.py:369 — `per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)`"
+  - "engine.py:560 — `_close_position`: `swap_cost_pips = cost_model.holding_cost(...) if include_swap else 0.0`"
+  - "engine.py:654 — `_infer_bar_duration_days`: median timedelta, computed once outside the loop"
+  - "model.py:273 — `rollover_cost_for_bar(pair, direction, bar_ts)`: returns non-zero ONLY when bar_ts.hour==21 UTC AND weekday not in {4,5,6}"
+  - "model.py:227 — `RolloverAwareRealisticCostModel.holding_cost(pair, direction, days, *, entry_ts=None, exit_ts=None)` — keyword-only extension, ABC-compatible"
+  - "model.py:245 — fallback path: if entry_ts/exit_ts absent → super().holding_cost (pro-rata)"
+  - "interfaces.py:109 — ABC `CostModel.holding_cost(pair, direction, days)` — 3-arg positional signature"
+  - "engine.py:125-250 — discrete loop: NO per-bar swap accrual; swap entirely via _close_position"
+  - "engine.py:430-442, 499-519 — continuous mode: all _close_position calls use include_swap=False"
+
+# =========================================================================
+# SECTION 1: SELECTION POLICY
+# =========================================================================
+selection_policy:
+  mechanism: isinstance_check_at_loop_entry
+  chosen_over_alternatives:
+    - rejected__bar_duration_threshold:
+        reason: >
+          `bar_duration_days < 1.0` would fire on any sub-daily data including 4h bars
+          that might be combined with a plain RealisticCostModel. The check does not
+          distinguish "caller supplied a rollover-aware model" from "caller supplied a
+          plain model on sub-daily data." It would silently route a plain model through a
+          code path that calls rollover_cost_for_bar() — an AttributeError at runtime.
+          Fragile and wrong for the general case.
+    - rejected__explicit_config_flag:
+        reason: >
+          A boolean in config (e.g., `backtest.cost_model_mode: rollover_aware`) creates
+          a second axis of configuration that can disagree with the injected cost_model
+          instance. Two sources of truth → drift. If the flag says "rollover_aware" but
+          the caller passed a plain RealisticCostModel, the engine crashes or silently
+          misbehaves. Config flags require enforcement coupling; isinstance avoids the
+          problem entirely.
+
+  chosen__isinstance:
+    rationale: >
+      The cost model instance IS the declaration of intent. If the caller injected a
+      RolloverAwareRealisticCostModel, the engine uses the rollover path. If the caller
+      injected a plain RealisticCostModel (all daily-bar validated trials), the engine
+      uses the pro-rata path unchanged. No config coupling, no second source of truth,
+      no hidden flag that can diverge from the object. Backward-compat is structural, not
+      guarded by convention.
+
+  check_site: beginning of the `_run_continuous` function, after `bar_duration_days` is computed
+  check_expression: "use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)"
+  import_required: "from forex_system.costs.model import RolloverAwareRealisticCostModel"
+  daily_bar_guarantee: >
+    Any caller that passes a plain `RealisticCostModel` — which is ALL existing validated
+    daily-bar trials — will never set `use_rollover_accrual = True`, so the per-bar logic
+    is identical to the current code. Bit-identical results; equivalence gate stays green.
+
+  discrete_mode_note: >
+    _run_discrete has no per-bar swap accrual at all (swap is lump-sum at _close_position
+    via include_swap=True). No change required in _run_discrete. Rollover-aware discrete
+    mode is a separate future concern; this spec is scoped to continuous mode only.
+
+# =========================================================================
+# SECTION 2: PER-BAR ACCRUAL REWRITE — INTRADAY PATH
+# =========================================================================
+per_bar_accrual:
+  scope: _run_continuous, inside the per-bar loop, replacing lines 366-370
+
+  current_code_pattern: |
+    # Lines 366-370 (continuous mode, LONG only)
+    if cur_units > 0:
+        per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+        equity += per_bar_swap_pips * pip_value * cur_units
+
+  replacement_spec:
+    step_1_pre_loop: >
+      Compute `use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)`
+      once, before the loop. This is O(1) and avoids an isinstance call on every bar.
+
+    step_2_in_loop_long_side: |
+      # Replace lines 366-370 with:
+      if cur_units > 0:
+          if use_rollover_accrual:
+              # Intraday rollover-aware path: charge only on 22:00 UTC crossing bars.
+              # rollover_cost_for_bar returns 0.0 on all non-crossing bars; no net
+              # change to equity on those bars.
+              per_bar_swap_pips = cost_model.rollover_cost_for_bar(
+                  pair, Direction.LONG, ts
+              )
+          else:
+              # Daily/pro-rata path (unchanged — preserves validated daily results).
+              per_bar_swap_pips = -cost_model.holding_cost(
+                  pair, Direction.LONG, bar_duration_days
+              )
+          equity += per_bar_swap_pips * pip_value * cur_units
+
+    step_3_short_side:
+      current_gap: >
+        The existing code (line 366: `if cur_units > 0`) accrues swap for LONG positions only.
+        Short positions are NOT currently accrued per-bar in continuous mode. The engine
+        is long-only in current strategies (clamped_signal = max(raw_signal, 0.0) at line 324),
+        so this gap has been dormant. It is NOT introduced by this change; it pre-exists.
+      this_specs_mandate: >
+        This spec does NOT add short-side per-bar accrual for the daily/pro-rata path
+        (that would alter validated results and is out of scope for KG-QD-3). For the
+        rollover-aware intraday path, however, the correct pattern MUST mirror the long
+        side for short positions when/if intraday strategies go short. QD MUST add:
+      short_side_spec: |
+        # Add IMMEDIATELY after the long-side block (still within the per-bar loop):
+        elif cur_units < 0:
+            if use_rollover_accrual:
+                # Short-side rollover accrual: swap_short_pips_per_day applies.
+                per_bar_swap_pips = cost_model.rollover_cost_for_bar(
+                    pair, Direction.SHORT, ts
+                )
+            # NOTE: no else branch here — the existing daily pro-rata path
+            # never accrued per-bar swap for shorts; do not add it silently.
+            # If pro-rata short swap accrual is needed, that is a separate
+            # arch decision.
+            equity += per_bar_swap_pips * pip_value * abs(cur_units)
+      short_side_rationale: >
+        rollover_cost_for_bar already accepts a Direction argument and uses
+        swap_short_pips_per_day when Direction.SHORT is passed (model.py:310-315).
+        The logic is symmetric. Adding it here closes the gap for intraday short
+        strategies without touching the daily-bar path.
+
+  sign_convention_reminder: >
+    rollover_cost_for_bar returns `-daily_swap * multiplier` (model.py:326).
+    For a negative carry position (LONG on a negative-carry pair: daily_swap < 0,
+    so -daily_swap > 0 → positive cost → equity -= ...). QD must verify the sign
+    chain: `equity += per_bar_swap_pips * pip_value * cur_units` where pip_value > 0
+    and cur_units > 0. The sign of rollover_cost_for_bar must match the sign convention
+    of -cost_model.holding_cost() (both return positive = cost to trader, negative = income).
+    This is consistent with the existing pattern (line 369 negate via `-cost_model.holding_cost`).
+    The rollover model already encodes the negation inside the return value; do NOT
+    double-negate. QD MUST verify with a unit test before merge.
+
+# =========================================================================
+# SECTION 3: NO-LOOKAHEAD GUARANTEE
+# =========================================================================
+no_lookahead:
+  claim: PRESERVED. The rollover-aware path does not introduce any lookahead.
+  argument:
+    - >
+      `rollover_cost_for_bar(pair, direction, bar_ts)` inspects only `bar_ts.hour`
+      and `bar_ts.weekday()` (model.py:300-320). These are properties of the bar's
+      OWN timestamp — the moment the bar OPENS at that UTC hour. No future bar's
+      timestamp is read.
+    - >
+      The `ts` variable in the engine loop (line 314: `for i, (ts, row) in enumerate(data.iterrows())`)
+      is the index value of the current bar. It is assigned before the per-bar accrual
+      block. It does not reference `data.index[i+1]` or any future bar.
+    - >
+      The decision "does this bar cross a 22:00 UTC rollover?" is purely a function of
+      the bar's own open timestamp: a bar at hour==21 UTC closes at hour==22 UTC.
+      No knowledge of prices, signals, or future bars is required.
+    - >
+      `test_no_lookahead` in `tests/backtest/test_engine.py` tests the signal-delay
+      mechanism (entry_delay_bars), not the cost accrual path. The rollover accrual
+      change is in the cost path, which runs AFTER the signal/position decision.
+      The sacred test is unaffected in its test semantics.
+  clock_and_ordering_rubric_item: >
+    Rubric item 5 (no lookahead): the `bar_ts` passed to rollover_cost_for_bar is
+    the CURRENT bar's exchange-time timestamp. It does not index into future bars.
+    Rubric item 2 (source correct for use): `bar_ts` is the bar's event-time
+    (exchange time), which is the correct clock for determining rollover-crossing
+    status. This is NOT a wall-clock or monotonic call.
+  verdict: PASS — clock-and-ordering items 2 and 5 satisfied.
+
+# =========================================================================
+# SECTION 4: _close_position DOUBLE-COUNT GUARD
+# =========================================================================
+close_position:
+  current_behavior: >
+    All continuous-mode _close_position calls pass `include_swap=False`
+    (verified at engine.py:441, 515). When include_swap=False, line 560 evaluates to
+    `swap_cost_pips = 0.0` regardless of cost_model type. There is NO swap charge
+    at close for continuous mode.
+  rollover_aware_impact: >
+    Because continuous mode already uses include_swap=False universally, introducing
+    a RolloverAwareRealisticCostModel in continuous mode does NOT change _close_position
+    behavior at all. The per-bar accrual (Section 2) fully accounts for all rollover
+    swap. There is zero double-count risk.
+  no_change_required_in_close_position: true
+  discrete_mode_caveat: >
+    In discrete mode, _close_position IS called with include_swap=True (default).
+    If a future spec ever wires rollover-aware costs into discrete mode, _close_position
+    must be updated to pass entry_ts and exit_ts to holding_cost. That is NOT in scope
+    for KG-QD-3. QD must NOT implement rollover-aware discrete mode as a side-effect
+    of this change.
+
+# =========================================================================
+# SECTION 5: BACKWARD COMPATIBILITY
+# =========================================================================
+backward_compat:
+  guarantee: >
+    The change is strictly additive. The `use_rollover_accrual` flag gates an
+    entirely new code branch. The existing `else` branch is the current code,
+    verbatim. Callers passing `RealisticCostModel` (all daily-bar validated trials:
+    run_trial.py:203 and equivalents) will set `use_rollover_accrual = False`
+    and execute the IDENTICAL logic as today. Equivalence gate will be green.
+  no_interface_change: >
+    The ABC `CostModel.holding_cost` signature (interfaces.py:109) is NOT changed.
+    `RolloverAwareRealisticCostModel.holding_cost` already extends it with keyword-only
+    arguments — this is a legal Python subtype (Liskov satisfied for positional callers).
+    No existing call site needs to change.
+  model_construction_callers: >
+    Cost models are caller-constructed (run_trial.py:203 pattern). Callers that want
+    rollover-aware behavior must construct and inject `RolloverAwareRealisticCostModel`.
+    Callers that do not change their construction code get the old behavior. No central
+    factory change required.
+
+# =========================================================================
+# SECTION 6: TEST OBLIGATIONS FOR QD
+# =========================================================================
+test_obligations:
+  must_pass_existing:
+    - test: "tests/backtest/test_engine.py::test_no_lookahead"
+      why: "Sacred invariant — signal delay mechanism. Must remain green."
+    - test: "all existing daily-bar tests"
+      why: "Equivalence gate. Any failure = regression in the UNCHANGED path."
+
+  must_add_new:
+
+    - test_id: "test_daily_equivalence_under_rollover_model"
+      description: >
+        Run the same daily-bar backtest (e.g., EURUSD 2020-2022) with
+        RealisticCostModel and with RolloverAwareRealisticCostModel (no timestamps
+        passed to holding_cost → pro-rata fallback fires). Assert that equity curves
+        are bit-identical. This validates that the fallback path + the isinstance gate
+        together preserve daily results.
+
+    - test_id: "test_intraday_single_rollover_crossing"
+      description: >
+        Construct a synthetic 1h EURUSD dataset with a position held open
+        across ONE 22:00 UTC bar (bar_ts.hour==21, weekday=Monday).
+        Assert that swap accrual fires exactly once on that bar.
+        Assert that all other bars in the position have zero swap accrual.
+      assertion: "sum of rollover charges == 1 × swap_long_pips_per_day for EURUSD"
+
+    - test_id: "test_intraday_wednesday_triple_charge"
+      description: >
+        Synthetic 1h dataset: position held across Wednesday 21:00 UTC bar only.
+        Assert swap charge == 3 × swap_long_pips_per_day (triple rollover).
+      assertion: "Wednesday bar accrues 3× a standard bar"
+
+    - test_id: "test_intraday_intra_session_no_charge"
+      description: >
+        Synthetic 1h dataset: position opened at Monday 08:00 UTC and closed at
+        Monday 20:00 UTC (before the 21:00 bar). No 22:00 crossing occurs.
+        Assert total swap accrual == 0.
+      assertion: "equity unchanged by swap when no rollover crossed"
+
+    - test_id: "test_intraday_weekend_boundary_no_charge"
+      description: >
+        Synthetic 1h dataset: verify that Friday 21:00 UTC, Saturday 21:00 UTC,
+        and Sunday 21:00 UTC bars do NOT trigger swap accrual (WEEKEND RULE).
+        Assert swap == 0 on all three.
+      assertion: "rollover_cost_for_bar returns 0.0 for Fri/Sat/Sun 21:00 bars"
+
+    - test_id: "test_sign_convention_long_negative_carry"
+      description: >
+        Use EURUSD (swap_long_pips_per_day=-1.2, negative carry for LONG).
+        Assert that equity DECREASES by abs(swap_long_pips_per_day) * pip_value * units
+        on a standard rollover bar (not Wednesday). This verifies the sign chain:
+        rollover_cost_for_bar returns positive value → equity += positive × pip_value × units
+        is WRONG; the return must be negative cost → equity decreases.
+        QD must trace the sign through model.py:326 (`return -daily_swap * multiplier`
+        where daily_swap=-1.2 → return +1.2) and the engine accrual
+        (`equity += per_bar_swap_pips * pip_value * cur_units` where per_bar_swap_pips=+1.2
+        → equity += positive → LONG on negative-carry LOSES money: this IS correct,
+        because -(-1.2)=+1.2 and adding positive pips means income... WAIT: see note below).
+      critical_note: >
+        QD MUST carefully verify: EURUSD swap_long_pips_per_day = -1.2 means holding
+        LONG COSTS 1.2 pips/day (negative carry). model.py:326 returns `-daily_swap * multiplier`
+        = -(-1.2)*1 = +1.2. The current daily-path negates: `per_bar_swap_pips = -cost_model.holding_cost(...)`,
+        but rollover_cost_for_bar is called directly WITHOUT negation (per Section 2 spec above).
+        If rollover_cost_for_bar returns +1.2 and `equity += +1.2 * pip_value * cur_units`,
+        that is INCOME — WRONG for negative-carry LONG.
+        Resolution: check whether rollover_cost_for_bar's sign convention matches
+        `-holding_cost(...)` (the current per-bar sign convention) or `+holding_cost(...)`.
+        model.py:189-190 shows `holding_cost` returns `-daily_swap * days`.
+        For EURUSD LONG: daily_swap=-1.2 → holding_cost returns +1.2 → `-holding_cost` = -1.2
+        → engine does `equity += -1.2 * pip * units` → equity DECREASES. CORRECT.
+        rollover_cost_for_bar returns `-daily_swap * mult` = -(-1.2)*1 = +1.2.
+        If engine does `equity += +1.2 * pip * units` → equity INCREASES. WRONG.
+        THEREFORE: the engine MUST negate rollover_cost_for_bar's return the same way
+        it negates holding_cost: `per_bar_swap_pips = -cost_model.rollover_cost_for_bar(...)`.
+        QD MUST apply the negation in the intraday branch, consistent with line 369's pattern.
+
+    - test_id: "test_no_double_count_at_close"
+      description: >
+        Run an intraday continuous backtest. Confirm that _close_position is
+        called with include_swap=False (existing behavior). Assert that total
+        swap charged equals only the sum of per-bar accruals, not per-bar + lump-sum.
+
+  firewall_note: >
+    These test specifications are ARCHITECTURE obligations — QD implements them.
+    The test logic (synthetic data construction, assertion values) is QD's domain.
+    CTO does not write the test code.
+
+# =========================================================================
+# SIGN CONVENTION CORRECTION (addendum to Section 2)
+# =========================================================================
+sign_convention_correction:
+  finding: >
+    During spec authoring, a sign error was detected in the initial Section 2 draft.
+    The corrected per-bar intraday accrual call is:
+
+      per_bar_swap_pips = -cost_model.rollover_cost_for_bar(pair, Direction.LONG, ts)
+
+    NOT the un-negated form. This mirrors line 369 exactly:
+
+      per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+
+    Rationale: holding_cost and rollover_cost_for_bar both return a cost expressed as
+    `-daily_swap * N` (model.py:190, model.py:326). The engine's accrual convention is
+    `equity += per_bar_swap_pips * pip_value * cur_units`, where per_bar_swap_pips must
+    be NEGATIVE to subtract from equity (cost) or POSITIVE to add (income). The negation
+    via `-cost_model.*` converts the cost-convention return into the engine's sign.
+    QD MUST apply this negation consistently on both the long and short intraday branches.
+
+# =========================================================================
+# FAILURE MODES CONSIDERED
+# =========================================================================
+failure_modes_considered:
+  - fm_1_sign_error_on_rollover_return:
+      description: >
+        Calling rollover_cost_for_bar without negation produces inverse carry:
+        negative-carry longs appear profitable, positive-carry longs appear costly.
+      mitigation: "test_sign_convention_long_negative_carry catches this before merge."
+
+  - fm_2_isinstance_import_missing:
+      description: >
+        If QD forgets to import RolloverAwareRealisticCostModel into engine.py,
+        the isinstance check throws NameError at runtime only when the rollover
+        model is used.
+      mitigation: >
+        QD adds the import. The equivalence gate (daily tests) would not catch this
+        because daily tests use plain RealisticCostModel. The new intraday tests catch it.
+
+  - fm_3_daily_bar_drift:
+      description: >
+        A future refactor moves the accrual block and accidentally changes the else-branch,
+        breaking equivalence for daily bars.
+      mitigation: >
+        test_daily_equivalence_under_rollover_model provides a regression anchor.
+        The equivalence gate in pre-commit provides a second layer.
+
+  - fm_4_short_accrual_wrong_abs:
+      description: >
+        Short positions have cur_units < 0. The equity accrual must use abs(cur_units)
+        or the sign produces double-negative (income becomes cost and vice versa).
+      mitigation: >
+        Section 2 short-side spec specifies `pip_value * abs(cur_units)`.
+        The test suite must include a short-position accrual test if short strategies
+        are introduced.
+
+  - fm_5_discrete_mode_contamination:
+      description: >
+        QD accidentally wires rollover accrual into _run_discrete as a side-effect,
+        breaking discrete daily results.
+      mitigation: >
+        The isinstance check is ONLY in _run_continuous. Discrete mode is untouched.
+        Section 4 caveat is explicit. Code review must verify _run_discrete is clean.
+
+  - fm_6_bar_duration_days_still_computed_but_unused_in_rollover_path:
+      description: >
+        bar_duration_days is still computed (line 299) even when use_rollover_accrual=True.
+        This is harmless (the variable is not used in the rollover branch) but could
+        mislead future maintainers.
+      mitigation: >
+        QD adds a comment near line 299: "bar_duration_days used only in the
+        pro-rata (non-rollover-aware) path."
+
+# =========================================================================
+# WHAT CTO REFUSED TO DO
+# =========================================================================
+what_cto_refused_to_do:
+  - "Write the Python implementation code for the engine change (QD domain)"
+  - "Write the test code bodies (QD domain)"
+  - "Determine the exact numeric swap values for assertion in tests (QD + config domain)"
+  - "Modify the ABC CostModel interface signature (would require QR/CRO sign-off; not needed here)"
+  - "Implement rollover-aware discrete mode (out of scope for KG-QD-3)"
+  - "Add short-side pro-rata daily accrual (would alter validated daily results; separate decision required)"
+
+# =========================================================================
+# ROUTED TO
+# =========================================================================
+routed_to: quant-developer
+conditions:
+  - "QD must apply negation (-cost_model.rollover_cost_for_bar) not raw return; see sign_convention_correction"
+  - "QD must add all 7 test_obligations before PR is mergeable"
+  - "QD must NOT touch _run_discrete or the else-branch of the new rollover gate"
+  - "QD must NOT wire rollover accrual into _close_position (include_swap=False already guards this)"
+  - "The import of RolloverAwareRealisticCostModel into engine.py must be guarded as TYPE_CHECKING if desired, but must be a real runtime import for isinstance to function"

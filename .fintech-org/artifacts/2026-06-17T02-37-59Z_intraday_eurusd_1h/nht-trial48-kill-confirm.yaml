@@ -1,0 +1,128 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: survives
+timestamp: 2026-06-17T06:40:00Z
+subtask_ref: trial-48-kill-confirmation
+subtask_id: nht-trial48-kill-confirm
+claim-tested: "Trial 48 (pre-registered A2′ overnight mean-reversion, EURUSD 1h, IS 2021-01..2024-05) is a CLEAN falsification: it fires KILL-1 (Deflated Sharpe = 0.0000 at org-wide N=48; IS net Sharpe = -5.108; CPCV Sharpe = -4.933 over 15 folds) and KILL-2 (avg net trade = -4.09 pips), while KILL-3 does NOT fire (reversion hit-rate = 0.5517 > 0.50) and KILL-4 does NOT fire (N_oos_expected = 83.5 >= 48). The OOS holdout was never touched."
+kill_is_clean: true
+artifact_or_bug: "clean-falsification"
+tests-requested:
+  - "WIN/LOSS MAGNITUDE DECOMPOSITION (primary discriminator): on the 232 IS trades, partition by GROSS sign (gross_pips = pnl_pips + cost_pips). Report: n_gross_win, n_gross_loss; mean GROSS-win pips, mean GROSS-loss pips, median of each; the 5 largest gross losses (pips + UTC timestamp); and the gross-loss tail share = (sum of worst 5 gross losses) / (sum of all gross losses). PREDICTION under (a) clean falsification: ~128 wins of small magnitude (mean gross-win a few pips, capped near the single-bar reversion range ~5-10 pips) vs ~104 losses dominated by a handful of large continuation tails (mean |gross-loss| materially larger; the skew -8.16 / excess-kurtosis 571 must be sourced from <=5 catastrophic trades). If instead magnitudes are SYMMETRIC with a 55% win rate yet net is deeply negative, that is the signature of a mis-scaled/mis-signed PnL and must be escalated."
+  - "SIGN-FLIP CONTROL (continuation strategy): re-run the IDENTICAL harness (same session filter, same 2σ gate, same 232 entry bars, same 7.5-pip cost, same single-bar hold, entry_delay_bars=1) but EMIT THE OPPOSITE SIGN (signal = +1.0 on r_t>=+2σ, -1.0 on r_t<=-2σ — momentum/continuation instead of fade). Report: net Sharpe, avg net trade pips, gross avg pips, hit-rate. INTERPRETATION: if the continuation variant is GROSS-positive and the fade is GROSS-positive too they cannot both be — confirm the gross averages are sign-mirrored (fade gross +X => continuation gross -X) which PROVES the engine sign is wired correctly and the fade direction is the genuine economic choice. If the continuation variant were STRONGLY net-positive it would mean MR is simply the wrong direction for this window (still a valid H0 falsification, characterize as 'sign-of-edge wrong-for-window'); given fade gross is mildly +3.41 pips/trade we EXPECT continuation to be gross-negative and also a net KILL — i.e. cost dominates BOTH and the 7.5-pip drag is the binding constraint."
+  - "MATCHED-RANDOM BENCHMARK (cost-floor control): generate K=1000 random-entry strategies that each pick 232 entry bars uniformly from the IS session-hours universe (UTC {02,03,04,05}, post-gap-removal), random long/short, single-bar hold, same 7.5-pip cost. Report the distribution of avg net trade pips and net Sharpe (mean, 5th/95th pct). INTERPRETATION: this isolates how much of the -4.09 net / -5.1 Sharpe is just the mechanical 7.5-pip cost drag any single-bar EURUSD overnight strategy pays on ~14-pip ranges. If random-entry avg net is ~ -7.5 pips (full cost, ~0 gross edge) and trial-48 fade is -4.09 (i.e. ~3.4 pips BETTER than random), that CONFIRMS the fade has a real but cost-insufficient gross edge — a clean, well-characterized falsification, not a bug. If trial-48 fade were WORSE than matched-random, the fade direction would be actively harmful and warrant a sign re-audit."
+hit_rate_vs_sharpe_reconciliation: >
+  No contradiction; the two numbers are arithmetically consistent and jointly DIAGNOSTIC of a
+  clean falsification. Decompose the net-per-trade identity from the code:
+  pnl_pips = price_diff_pips - 7.5 (cost), and gross = pnl_pips + cost = price_diff_pips
+  (trial_48_is_eval.py:188). Given avg net = -4.09 pips, the avg GROSS fade capture is
+  -4.09 + 7.5 = +3.41 pips/trade. So the fade IS gross-positive (+3.41 pips) and directionally
+  correct 55.2% of the time — BOTH true — yet +3.41 gross is less than half the 7.5-pip
+  round-trip cost, so every trade nets -4.09 on average. A 55% hit-rate with a small positive
+  gross mean is exactly the "win-small" leg of the predicted asymmetry; the deeply negative
+  -5.1 Sharpe is driven by the OTHER leg: skew -8.16 and excess-kurtosis 571 mean a tiny number
+  of 2σ moves were INFORMATION-DRIVEN CONTINUATION that ran far against the fade (the
+  "occasionally crushed" tail the pre-registration explicitly forecast). Sharpe is computed on
+  21,209 per-bar equity returns annualized at ppy=6240 (engine equity_curve, NOT per-trade), so
+  a per-trade mean of -4.09 pips on a tiny ~0.25-sized book, combined with fat left-tail
+  variance, annualizes to a large-magnitude negative ratio. This is the canonical signature of
+  case (a) — fade captures many small reversions, loses big on the rare real-information move —
+  NOT case (b). A sign error would manifest as gross-NEGATIVE average with hit-rate BELOW 0.50;
+  here gross is +3.41 and hit-rate is 0.5517, so the sign is right and the kill is on ECONOMICS.
+dsr-assessment: >
+  DSR = 0.0000 is the CORRECT deflation verdict and is, if anything, over-determined.
+  compute_dsr() canonically returns 0.0 for any non-positive Sharpe (a negative observed Sharpe
+  cannot certify against ANY benchmark, let alone an N=48 multiple-testing-inflated one), and the
+  CPCV input Sharpe is -4.93 — strongly negative — so DSR pins at 0.0 BEFORE skew/kurtosis even
+  matter. Note the skew -8.16 / excess-kurtosis 571 would only PENALIZE the Sharpe further under
+  the Lopez de Prado adjustment (heavy left tail inflates the Sharpe estimator's standard error,
+  lowering DSR), so they reinforce rather than rescue. There is no scenario at N=48 where a
+  -4.93 CPCV Sharpe clears 0.95. The N=48 count is independently corroborated (trials.jsonl =
+  47 lines + this trial; frozen-DoF singular structure keeps effective-N at the trial count, no
+  grid inflation). KILL-1 firing is mathematically forced and correct.
+null_hypothesis_verdict: H0-stands-MR-falsified
+dissent-statement: ""
+contamination-check: "clean"
+evidence:
+  - "overnight_mr.py:161-165 — sign convention VERIFIED CORRECT: r_t>=+2σ → signal=-1.0 (fade short an up-move); r_t<=-2σ → signal=+1.0 (fade long a down-move). Fade direction is wired correctly."
+  - "engine.py:142 positions=np.sign(delayed_signals); engine.py:563 price_diff_pips=(exit_price-entry_price)/pip_value*position — short (position=-1) profits when exit<entry. PnL sign correct."
+  - "engine.py:139 delayed_signals=signals.shift(entry_delay_bars).fillna(0.0) with entry_delay_bars=1 — no-lookahead preserved; signal at t executes at t+1."
+  - "static_roundtrip.py:49-59 — entry 3.75 + exit 3.75 = 7.5 round-trip; holding_cost=0.0 (single-bar swap-inert). Cost charged to every trade as frozen constant."
+  - "trial_48_is_eval.py:188 gross_pips = pnl_pips + cost_pips → avg gross = -4.09 + 7.5 = +3.41 pips/trade (fade gross-POSITIVE; rules out sign error)."
+  - "trial_48_is_eval.py:215 — STRUCTURED-FACT CORRECTION: 'gross_sharpe' and 'net_sharpe' both log metrics.sharpe_ratio (the SAME net number). grep confirms NO independent gross-Sharpe computation exists. The structured fact 'GROSS Sharpe ≈ NET Sharpe ≈ -5.108, loses money before cost' is a REPORTING ARTIFACT (net printed twice), not a real gross result. Trade-level gross is +3.41 pips/trade POSITIVE. Kill does not depend on this; corrected for accuracy."
+  - "trial_48_is_eval.py:411-418 compute_dsr fed cpcv_sharpe=-4.93, n_trials=48 → DSR pins at 0.0 (non-positive Sharpe). KILL-1 forced and correct."
+  - "qd-trial48-is-eval.yaml gate_results — reproduces exactly on re-run per orchestrator; oos_touched:false; IS slice df.index<='2024-05-31 23:59:59' (engine.py / load_is_data, OOS never read)."
+  - "qr-prereg-v2.yaml falsification-criteria — KILL-1..4 thresholds and PASS-requires-ALL gate pre-committed before any look; modal-KILL forecast explicit in alpha-source/honest-verdict."
+assumptions:
+  - "compute_dsr() returns 0.0 for non-positive Sharpe (per qd-trial48-is-eval.yaml:150-151 note and harness/dsr.py contract; not independently re-read here, but the verdict is robust because a -4.93 CPCV Sharpe cannot clear 0.95 under ANY non-degenerate deflation)."
+  - "The 3 routed tests are CONFIRMATORY, not gating: the kill ALREADY stands on verified-correct sign logic + net economics (avg net -4.09 <= 0 fires KILL-2; DSR=0 fires KILL-1). The tests upgrade the characterization from 'clean by code-inspection' to 'clean by behavioral control' and definitively close the (a)-vs-(b) question."
+  - "Sharpe is computed on per-bar equity returns (21,209 obs) annualized at ppy=6240, not per-trade — so the -5.1 magnitude reflects bar-level variance with the fat left tail, consistent with 232 small-net-negative trades plus rare continuation blowups."
+confidence: high
+body: |
+  ## Verdict: SURVIVES the null test — the KILL is a CLEAN falsification, not a bug.
+
+  My prior was that the negative result could be a sign/scaling artifact (a spurious
+  negative is as wrong as a spurious positive). I read the strategy, the engine PnL math,
+  the cost model, and the eval driver. The sign convention is VERIFIED CORRECT at every
+  hop (fade direction in overnight_mr.py:161-165; np.sign + (exit-entry)*position in
+  engine.py:142,563; entry_delay_bars=1 no-lookahead at engine.py:139). The kill rests on
+  net economics that the code computes correctly.
+
+  ## The central tension is resolved arithmetically, in favor of (a).
+  55% hit-rate AND -5.1 Sharpe are consistent, not contradictory:
+    avg GROSS fade capture = avg_net + cost = -4.09 + 7.5 = +3.41 pips/trade.
+  The fade is gross-POSITIVE and directionally right 55% of the time (the "win-small"
+  leg) — but +3.41 gross is under half the 7.5-pip cost, so net is -4.09/trade. The deeply
+  negative Sharpe comes from skew -8.16 / excess-kurtosis 571: a handful of 2σ moves were
+  information-driven CONTINUATION that ran far against the fade (the "lose-big" tail the
+  pre-registration explicitly predicted). This is precisely case (a): a fade that captures
+  many small reversions and is occasionally crushed by the real-information tail. A sign
+  error would show gross-NEGATIVE average with hit-rate < 0.50 — the opposite of what we see.
+
+  ## One structured-fact correction (does NOT change the verdict).
+  The structured fact "GROSS Sharpe ≈ NET Sharpe ≈ -5.108 — loses money BEFORE cost" is a
+  REPORTING ARTIFACT. trial_48_is_eval.py:215 logs metrics.sharpe_ratio into BOTH the
+  gross_sharpe and net_sharpe slots; grep confirms there is no independent gross-Sharpe
+  computation. The true trade-level gross is +3.41 pips/trade POSITIVE. So the claim that
+  the strategy "loses money even before the 7.5-pip cost" is FALSE at the trade level — it
+  has a small gross edge that the conservative cost eats. The kill is unaffected: KILL-2
+  fires on avg NET <= 0 (true: -4.09), KILL-1 fires on DSR=0 from the negative net/CPCV
+  Sharpe (true). Both gates are net-economic and correctly computed. I am flagging this only
+  so the firm's narrative ("cost-dominated", not "no gross edge") is accurate.
+
+  ## Three confirmatory tests routed to quant-developer (ROUTE_TO: quant-developer).
+  These are not required to uphold the kill — they upgrade it from "clean by inspection"
+  to "clean by behavioral control" and nail the (a)/(b) discrimination:
+    1. WIN/LOSS MAGNITUDE DECOMPOSITION — must show small symmetric-ish gross wins vs a few
+       catastrophic gross-loss tails sourcing the skew/kurtosis. (Discriminates a from b.)
+    2. SIGN-FLIP (continuation) CONTROL — must mirror the gross sign, proving engine wiring;
+       expected to ALSO net-KILL (cost dominates both directions).
+    3. MATCHED-RANDOM BENCHMARK — fade (-4.09 net) should beat random-entry (~-7.5 net) by
+       ~3.4 pips, confirming a real-but-insufficient gross edge above the pure cost floor.
+  If test 1 returned SYMMETRIC magnitudes, or test 2 showed the continuation variant
+  strongly net-POSITIVE while fade is net-negative-with-positive-gross (an inconsistency), or
+  test 3 showed fade WORSE than random — any of those would force me to RE-OPEN and
+  escalate a possible sign/scaling bug. I assess all three as low-probability given the
+  verified-correct code path, but the firm should run them before archiving, because a
+  negative result accepted without a sign-flip control is exactly how a falsification-machine
+  fools itself.
+
+  ## Bottom line.
+  H0 STANDS: net-of-7.5-pip-cost expected overnight 2σ reversion <= 0. The MR hypothesis is
+  FALSIFIED in-sample, the falsification is CLEAN (sign verified, economics correctly
+  computed, OOS untouched, DSR deflation correct), and it is the modal outcome the
+  pre-registration honestly forecast. Trial 48 is a legitimate, well-disciplined KILL entry.
+  The OOS holdout is preserved (oos_touched:false) and must NOT be burned — KILL-1/KILL-2
+  firing pre-OOS means the one-shot holdout is correctly never read.
+knowledge_gaps:
+  - "Win/loss gross-magnitude decomposition not yet computed (routed test 1) — needed to positively source the skew -8.16 from a small number of continuation tails."
+  - "Sign-flip continuation control not yet run (routed test 2) — confirmatory proof of correct engine wiring beyond code inspection."
+  - "Matched-random cost-floor benchmark not yet run (routed test 3) — to quantify the +3.4-pip gross edge above the pure 7.5-pip cost drag."
+  - "harness/dsr.py compute_dsr() not independently re-read this session; verdict robust regardless because -4.93 Sharpe cannot clear 0.95 under any non-degenerate deflation."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+trial_id: "15923fe1"

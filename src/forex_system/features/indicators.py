@@ -27,11 +27,14 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
     # When avg_loss is 0, RSI = 100 (all gains). When avg_gain is 0, RSI = 0.
-    rsi_values = pd.Series(np.where(
-        avg_loss == 0,
-        np.where(avg_gain == 0, 50.0, 100.0),
-        100.0 - (100.0 / (1.0 + avg_gain / avg_loss)),
-    ), index=series.index)
+    rsi_values = pd.Series(
+        np.where(
+            avg_loss == 0,
+            np.where(avg_gain == 0, 50.0, 100.0),
+            100.0 - (100.0 / (1.0 + avg_gain / avg_loss)),
+        ),
+        index=series.index,
+    )
     # Preserve NaN from warmup period
     rsi_values[avg_gain.isna()] = np.nan
     return rsi_values
@@ -48,19 +51,45 @@ def bollinger_bands(
     return upper, middle, lower
 
 
-def atr(
-    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
-) -> pd.Series:
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
     """Average True Range."""
     prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     return tr.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
 
 def momentum(series: pd.Series, period: int = 20) -> pd.Series:
     """Simple price momentum — percentage return over lookback period."""
     return series.pct_change(periods=period)
+
+
+def macd(
+    series: pd.Series,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """MACD — Moving Average Convergence Divergence.
+
+    Returns (macd_line, signal_line, histogram) where:
+      macd_line  = EMA(fast) − EMA(slow)
+      signal_line = EMA(signal) of macd_line
+      histogram  = macd_line − signal_line
+
+    Pure function, causal (backward-looking EMA only). No lookahead:
+    value at bar t depends solely on series[0..t].
+    """
+    fast_ema = ema(series, fast)
+    slow_ema = ema(series, slow)
+    macd_line = fast_ema - slow_ema
+    # Signal line: EMA of the MACD line; NaN warmup propagated automatically
+    signal_line = macd_line.ewm(span=signal, adjust=False, min_periods=signal).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram

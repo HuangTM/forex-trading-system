@@ -1,0 +1,216 @@
+# Head of Quant Research — Next-Cycle Hypothesis Slate (Confirmability Screen)
+# Methodology screen against the FROZEN intraday_confirmability_screening_rubric.md.
+# This is the PRE-DATA screen that decides what is worth authoring as a pre-registration.
+# It is NOT a backtest and does NOT increment the trial counter.
+
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — hypothesis screen"
+timestamp: 2026-06-18T18:23:21Z
+author: head-of-quant-research
+no-capital-instruction: true
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - research-capacity-allocation
+  - falsification-archive-curation
+
+inputs:
+  field_survey: references/field-survey-2026-06-18.md
+  frozen_rubric: references/intraday_confirmability_screening_rubric.md
+  incumbent_lead: references/pre-registrations/h1_session_open_momentum_pooled.md   # H1, frozen
+  cost_calibration: CRO realistic round-trip ~1.4 pip (true per-bar spread ~0.4 pip EURUSD), vs old 7.5
+
+rubric_math_used:
+  N_required: "6.18 / IR_per_event^2   (alpha=0.05 1-sided, power=0.80)"
+  years_to_validate: "N_required / events_per_year_EFFECTIVE"
+  pooling_haircut_G5: "N_eff = N_raw / (1 + (k-1)*rho_bar)"
+  continuous_form: "years = (z/SR_ann)^2  with z=2.486; SR_ann = sqrt(events/yr)*IR_per_event"
+  honesty_default: "LOW end of plausible IR, events counted AFTER quality/freq caps, ALWAYS apply G5 haircut"
+
+# =====================================================================================
+# THE LOAD-BEARING FINDING
+# =====================================================================================
+headline: >
+  NONE of the four survey candidates clears the <=2yr confirmability bar. The binding
+  constraint is NOT mechanism quality — it is EVENT RATE x effective-N. The rubric's
+  worked anchor (IR=0.10 -> 618 events -> needs ~350 events/yr to hit ~1.8yr) is the
+  whole game. Month-end (~12 ev/yr/pair) and the two momentum factors (one effectively
+  continuous but LOW Sharpe ~0.4) all fall orders of magnitude short. The incumbent
+  frozen H1 (pooled 8-major session-open momentum, ~350 ev/yr at IR>=0.10, ~1.8yr)
+  remains the ONLY structure in the firm's reach that mathematically clears the bar.
+  Recommendation: AUTHOR NO NEW PRE-REGISTRATION this cycle. H1 already occupies the
+  one confirmable slot; spending a second DSR denominator burn (N=30) on a structurally
+  un-confirmable candidate is negative-EV. Per the frozen rubric scoring table, all four
+  candidates are FAIL on G1 (none lands in the STRETCH band (2.0,3.0]yr); the two least-
+  hopeless are PARKED with named resurrection conditions, not granted a slot.
+
+survey_framing_correction: >
+  The survey flagged month-end as the "most confirmability-friendly NEW candidate."
+  This conflates DATABLE/HAS-A-MECHANISM with CONFIRMABLE-IN-<=2yr. Under the frozen
+  rubric the two are different gates. Month-end is highly datable (G4 strong, G7 easy)
+  but its ~12 events/yr/pair event rate makes G1 fail by ~5x even before the pooling
+  haircut — and its pooling haircut is WORSE than H1's, not better (see candidate 1).
+  The confirmability-friendly property the firm actually needs is HIGH EVENT RATE with
+  IDIOSYNCRATIC (low-rho) pooling — which is H1, not month-end.
+
+# =====================================================================================
+# CANDIDATE SCREEN (ranked best -> worst on years_to_validate under honest estimates)
+# =====================================================================================
+candidates:
+
+  - id: C1_month_end_calendar_flow
+    rank: 2
+    mechanism: >
+      Real and documented (Melvin-Prins, JFE): month-end equity-portfolio FX hedge
+      rebalancing creates predictable, datable USD flow concentrated in the last
+      trading day(s) of the month. Strongest economics of the new candidates.
+    events_per_year:
+      raw_per_pair: 12          # one rebalance window per month
+      pooled_pairs_k: 8         # USD majors
+      rho_bar: 0.40             # ASSUMED (not measured): all majors driven by the SAME global equity-hedge USD flow on the SAME calendar day -> near-synchronous, plausibly HIGHER than H1's idiosyncratic impulses. NOTE: the haircut is NOT load-bearing for the disposition — even at rho=0 (raw 96 ev/yr), IR=0.10 gives 618/96 = 6.4yr, still a clean FAIL.
+      N_eff_per_year: 25        # 96 raw / (1 + 7*0.40)
+      note: "pooling 8 pairs buys only ~2x effective events, not 8x IF rho~0.40 — month-end is plausibly the WORST case for G5 because the events are calendar-synchronous. Disposition does not depend on the exact rho (see rho_bar note)."
+    per_event_IR_honest: 0.10   # LOW end; a ~1-day-hold calendar effect. literature effect size is a few-to-low-tens of bp, low IR per single event
+    years_to_validate: 24.5     # at IR=0.10, 25 eff ev/yr.  Even optimistic IR=0.15 -> 10.9yr; IR=0.20 -> 6.1yr. Needs IR~0.35 to reach 2.0yr (implausible). FAILS G1 (>>3.0yr).
+    data_adequate: "1h adequate for the DAY effect (G2 ok); the intraday FIX-WINDOW variant needs sub-hour data the firm LACKS (out of scope)"
+    top_failure_mode: "G1 FAIL by ~12x. Event rate is the killer: a once-a-month effect cannot be confirmed in <=2yr at any plausible per-event IR. G5 haircut compounds it (synchronous calendar events are highly correlated)."
+    verdict: FAIL                # per the frozen rubric scoring table: STRETCH is strictly (2.0,3.0]yr; 24.5yr is FAIL on G1
+    parking_note: "PARK (do not resurrect without new evidence per FAIL discipline). The mechanism (G4) and likely net-positive post-1.4pip-cost edge (G3) are genuine and it is the firm's cleanest datable effect — but G1 fails by ~12x. The only future path is a regime where the firm accepts a LONGER validation clock for a low-freq structural tilt; the <=2yr rubric does not grant a slot for it."
+    verdict_rationale: >
+      FAIL on G1 (24.5yr >> 3.0yr STRETCH ceiling). Recorded with the failing gate (G1).
+      Not archived as worthless — parked with a named resurrection condition (longer
+      validation clock / a higher-frequency variant), per FAIL discipline.
+
+  - id: C2_TS_trend_momentum
+    rank: 3
+    mechanism: >
+      Time-series trend/momentum. Century-plus evidence across 67 markets incl 12 FX
+      (Moskowitz-Ooi-Pedersen lineage). Genuine, persistent, but SR~0.4 annualized and
+      DEMONSTRABLY WEAKER post-2008 (survey: decay).
+    events_per_year:
+      note: "effectively continuous (daily/weekly rebalance) — so the per-event identity collapses to the continuous form: years = (z/SR_ann)^2. Event-rate is NOT the binding constraint here; the LOW Sharpe is."
+      SR_ann_honest: 0.40
+      pooled_pairs_k: 12
+      rho_bar: 0.40
+      note2: "pooling 12 pairs into one trend portfolio does NOT multiply SR by sqrt(12) — shared USD/dollar factor means effective breadth ~2-3 independent series (Grinold breadth IS the G5 haircut in another guise)"
+    per_event_IR_honest: "n/a (continuous) — annualized SR 0.40 is the honest figure"
+    years_to_validate: 38.8     # (2.486/0.40)^2. At an optimistic SR=0.5 -> 24.8yr; SR=0.6 -> 17.2yr. All FAIL.
+    data_adequate: "Yes — daily/1h price-only fully sufficient. Data is NOT the problem."
+    top_failure_mode: "G1 FAIL by ~19x. SR~0.4 is below MinBTL-relevant detectability: t=SR*sqrt(T) needs ~6.5x more years than the window. Post-2008 decay (G6) means even the 0.4 may not hold forward."
+    verdict: FAIL                # 38.8yr >> 3.0yr STRETCH ceiling -> FAIL on G1 per the rubric scoring table
+    parking_note: "PARK as a possible low-conviction STRUCTURAL TILT (not a confirmable hypothesis). It is the best-evidenced FX price-only effect, but at SR~0.4 it CANNOT be confirmed on the firm's <=2yr clock and must not consume a DSR burn. Resurrection condition: a materially higher honest SR estimate or a regime accepting a long validation clock."
+    verdict_rationale: >
+      FAIL on G1 (38.8yr at the survey's own honest SR~0.4; even optimistic SR=0.6 -> 17.2yr).
+      Recorded with failing gate G1. Parked as a structural-tilt candidate, not archived.
+
+  - id: C3_XS_cross_sectional_momentum
+    rank: 4
+    mechanism: >
+      Cross-sectional momentum: rank the 12 pairs, long winners / short losers. Real
+      spread in the literature. The newly-recovered true spread (~0.4 pip) and CRO
+      realistic RT cost (~1.4 pip) make it TESTABLE for the first time.
+    events_per_year:
+      note: "continuous rebalanced portfolio; one return stream. years = (z/SR_ann)^2"
+      SR_ann_honest: "~0.40 gross (comparable-or-lower vs TS-trend; XS is a DIFFERENT return stream, not asserted equal — even an optimistic gross 0.55 -> (2.486/0.55)^2 ~ 20.5yr, still FAIL)"
+      SR_ann_post_cost: "<gross" # XS is HIGH-TURNOVER; turnover * 1.4pip RT erodes it materially
+    per_event_IR_honest: "n/a (continuous) — net SR_ann honest <=~0.40 and falling with cost"
+    years_to_validate: ">38.8"  # at net SR_ann<=0.40 -> >=38.8yr; even an optimistic gross 0.55 -> ~20.5yr; FAIL on G1 across the plausible range
+    data_adequate: "Yes for price; cost model now adequate (G3 finally checkable). But G3 is the THREAT here, not the enabler."
+    top_failure_mode: "G3 + G1. High turnover means the 1.4pip RT cost is repeatedly paid; net SR sits below gross. Confirmation horizon is decades regardless of the exact SR within the plausible 0.3-0.55 gross band."
+    verdict: FAIL                # G1 + G3; >38yr horizon. (Stronger than C2's parking case because the cost mechanism actively erodes the edge.)
+    verdict_rationale: >
+      FAIL on G1 across the plausible gross-SR band (0.3-0.55 -> 38.8 to 20.5yr), with G3
+      cost-drag making it the weaker of the two momentum candidates. NOT claimed strictly
+      dominated by C2 (different exposures) — but it offers no confirmability advantage and
+      a worse cost profile, so it is parked BEHIND C2 with no separate resurrection path.
+      Archive against G1/G3; resurrect only with new evidence of a cost-surviving XS edge.
+
+  - id: C4_meta_labeling_overlay
+    rank: "n/a — not a standalone candidate"
+    mechanism: >
+      Lopez de Prado meta-labeling: gradient-boosted trees (NOT deep nets) on top of an
+      ALREADY-VALIDATED primary signal, learning when to size-up/veto. Bounded DoF, no
+      data-volume requirement.
+    data_adequate: "n/a"
+    top_failure_mode: "PREMATURE. Requires a validated primary signal as input. Firm has ZERO validated primaries (0/49). A meta-label on an unvalidated primary is multiple-testing laundering, not alpha."
+    verdict: DROP
+    verdict_rationale: >
+      Correctly noted by the survey as premature. It is an OVERLAY, not a hypothesis.
+      Re-open ONLY if/when H1 (or any primary) validates OOS. Recorded as a deferred
+      tooling note, not a screen entry.
+
+# =====================================================================================
+# COMPARISON TO INCUMBENT H1 (already frozen — the bar to beat)
+# =====================================================================================
+incumbent_H1_benchmark:
+  id: h1_session_open_momentum_pooled
+  status: FROZEN, awaiting majors data
+  events_per_year: ">=350 (8 majors pooled, session-open impulse, ~ daily per pair)"
+  per_event_IR: ">=0.10 (low end 0.08 -> 3.2yr STRETCH; 0.10 -> ~1.8yr PASS)"
+  rho_bar_breakeven: "<=0.41 (load-bearing, MEASURED on data, KILL above it)"
+  years_to_validate: "~1.8yr -> PASSES G1"
+  why_H1_wins: >
+    H1 is the only structure that combines a HIGH event rate (~350/yr, because the impulse
+    fires every session per pair) with IDIOSYNCRATIC pooling (pair-specific impulses ->
+    rho_bar plausibly <=0.41). That is the exact combination the rubric anchor rewards.
+    Every survey candidate fails ONE of those two: month-end has the right mechanism but
+    1/30th the event rate AND synchronous (high-rho) pooling; the momentum factors are
+    continuous but LOW-Sharpe (~0.4) so their effective t-stat grows too slowly.
+  comparison_table:
+    H1:        {events_per_year: 350, per_event_IR: 0.10, years: 1.8,  data: "1h majors (pending)", verdict: "FROZEN/PASS"}
+    C1_monthend: {events_per_year: 25, per_event_IR: 0.10, years: 24.5, data: "1h ok (day-effect)", verdict: "FAIL (G1) — PARK"}
+    C2_TS_trend: {events_per_year: "continuous", SR_ann: 0.40, years: 38.8, data: "daily ok",        verdict: "FAIL (G1) — PARK as tilt"}
+    C3_XS_mom:   {events_per_year: "continuous", SR_ann: "<0.40", years: ">38.8", data: "ok",        verdict: "FAIL (G1+G3) — DROP"}
+
+# =====================================================================================
+# DECISION
+# =====================================================================================
+recommendation:
+  author_new_pre_registration: false
+  recommended_next: >
+    NONE clear <=2yr. Author NO new pre-registration this cycle. H1 already holds the one
+    confirmable slot the firm's data supports; do not burn a second DSR denominator (N=30)
+    on a structurally un-confirmable candidate — that is negative-EV multiple testing.
+    Run H1 the moment clean 1h majors land. ALL FOUR candidates are rubric-FAIL on G1
+    (none is in the STRETCH band (2.0,3.0]yr — the nearest, month-end, is 24.5yr). PARK
+    C1 (month-end) and C2 (TS-trend) with named resurrection conditions for a future
+    regime that acquires either (a) willingness for a longer validation clock on low-freq
+    tilts, or (b) higher-frequency data that lifts event rate. DROP C3 (no confirmability
+    edge + worse cost) and C4 (premature overlay) to the falsification log.
+  this_is_an_honest_acceptable_outcome: true
+  precedent: "Consistent with kickoff-2 NO-SPEND and the dataset-wall lesson — the firm has correctly spent nothing before when the math did not clear."
+
+disposition:   # rubric scoring: PASS=all gates / STRETCH=(2.0,3.0]yr / FAIL=else. No candidate is in the STRETCH band.
+  C1_month_end: FAIL-PARK       # G1 fail (24.5yr); mechanism real; resurrect only with longer clock / higher-freq variant
+  C2_TS_trend:  FAIL-PARK       # G1 fail (38.8yr); data-adequate; structural tilt at best, not confirmable on the clock
+  C3_XS_mom:    FAIL-DROP       # G1+G3 fail; no confirmability edge over C2 + active cost drag; archive vs G1/G3
+  C4_meta_label: DROP           # premature overlay; re-open only on a validated primary
+
+knowledge_gaps:
+  - id: KG1
+    gap: >
+      Month-end TRUE per-event IR is un-pinned. I used the honest LOW end (0.10). Even the
+      optimistic 0.20 gives 6.1yr — so the FAIL verdict is robust to this gap (it stays
+      well outside the STRETCH band). The EXACT decay-day window (last 1 vs last 2-3 days,
+      and which UTC hour) affects events/yr modestly. Does not change disposition.
+  - id: KG2
+    gap: >
+      H1's rho_bar (<=0.41 break-even) is ASSUMED, MEASURED-ON-DATA, not yet observed
+      (majors pending). If measured rho_bar > 0.41, H1 itself slips past 2yr and the firm
+      would then have ZERO confirmable structures — at which point the STRETCH queue and a
+      data-capability acquisition become the only paths. This is the single biggest risk to
+      the whole slate and is already a frozen KILL trigger in H1's pre-registration.
+  - id: KG3
+    gap: >
+      The survey's methodology upgrades (effective-N-haircut INTO the DSR denominator; Lo
+      autocorrelation-corrected annualization) are NOT part of this screen but would make
+      the firm's gate STRICTER (the 1h transition increases serial correlation -> naive
+      annualization overstates Sharpe). If adopted, they raise every candidate's bar,
+      reinforcing this NO-SPEND verdict. Routed to NHT/PR as a separate methodology track.
+
+reviewers_to_route:
+  - null-hypothesis-tester: "confirm event-rate / pooling-haircut arithmetic; confirm NO-SPEND is the honest call"
+  - principal-reviewer: "verify no candidate duplicates a falsified archive entry; verify H1 comparison is faithful"

@@ -42,6 +42,7 @@ from forex_system.costs.model import RealisticCostModel
 from forex_system.data.storage import load_parquet
 from forex_system.features.registry import compute_indicators
 from forex_system.harness.dsr import compute_dsr
+from forex_system.harness.honest_n import honest_n_deflation_denominator
 from forex_system.sizing.vol_target import VolTargetSizer
 from forex_system.strategies.registry import create_strategy
 
@@ -95,12 +96,19 @@ def _git_hash() -> str:
         return "untracked"
 
 
-def _count_prior_trials() -> int:
-    """Count lines in trials.jsonl — used as n_trials for DSR."""
-    if not _TRIALS_REGISTRY.exists():
-        return 0
-    with open(_TRIALS_REGISTRY) as f:
-        return sum(1 for _ in f)
+def _count_prior_trials() -> int:  # pragma: no cover
+    """DEPRECATED — raw line count is wrong (IC-9 violation).
+
+    Use honest_n_deflation_denominator(_TRIALS_REGISTRY) instead.
+    This function is retained ONLY so existing test patches that mock
+    it do not immediately break; it raises at runtime to prevent any
+    live call from silently using the wrong denominator.
+    """
+    raise NotImplementedError(
+        "_count_prior_trials() has been retired (IC-9/IC-14d fix). "
+        "Use honest_n_deflation_denominator(_TRIALS_REGISTRY) from "
+        "forex_system.harness.honest_n instead."
+    )
 
 
 def _append_trial(entry: dict) -> None:
@@ -284,8 +292,9 @@ def run_trial(
     config_path_obj = Path(config_path)
     pre_reg_path_obj = Path(pre_reg_path)
 
-    # Count prior trials BEFORE appending (so N includes this trial)
-    n_prior = _count_prior_trials()
+    # Compute prior-attempt count mechanically (IC-9/IC-14d fix).
+    # honest_n_deflation_denominator returns the PRIOR count; +1 includes this trial.
+    n_prior = honest_n_deflation_denominator(_TRIALS_REGISTRY)
     n_trials_total = n_prior + 1  # This trial included
 
     git_hash = _git_hash()

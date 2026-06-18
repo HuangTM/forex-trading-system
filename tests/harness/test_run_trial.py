@@ -26,9 +26,36 @@ from forex_system.harness.run_trial import _parse_pre_reg_threshold, run_trial
 
 @pytest.fixture
 def tmp_registry(tmp_path, monkeypatch):
-    """Override the trials registry and results dir to tmp_path."""
+    """Override the trials registry and results dir to tmp_path.
+
+    Writes a minimal honest-n-classification record so honest_n_deflation_denominator
+    works against the tmp registry without raising (0 legacy counted ids: fresh env
+    starts at 0 prior attempts, not the real 30).
+
+    NOTE: The old fixture wrote an 'honest-n-reconciliation' record (retired integer-
+    offset approach). Updated to 'honest-n-classification' per the 2026-06-18 rebuild.
+    """
+    import json
     import forex_system.harness.run_trial as rt_mod
-    monkeypatch.setattr(rt_mod, "_TRIALS_REGISTRY", tmp_path / "trials.jsonl")
+
+    registry_path = tmp_path / "trials.jsonl"
+    # Write the classification record so honest_n_deflation_denominator doesn't raise.
+    # counted_trial_ids=[] means the test env starts fresh (no prior attempts).
+    classification = {
+        "event": "honest-n-classification",
+        "version": 1,
+        "ratified_n": 0,
+        "ratified_by": ["test-fixture"],
+        "counted_trial_ids": [],
+        "excluded_trial_ids": [],
+        "n_legacy_classified": 0,
+        "forward_classification": "all new trials classify mechanically",
+        "ts": "2026-06-18T00:00:00Z",
+    }
+    with open(registry_path, "w") as f:
+        f.write(json.dumps(classification) + "\n")
+
+    monkeypatch.setattr(rt_mod, "_TRIALS_REGISTRY", registry_path)
     monkeypatch.setattr(rt_mod, "_RESULTS_DIR", tmp_path / "results")
     return tmp_path
 
@@ -150,11 +177,14 @@ class TestRunTrialErrors:
         except ConfigError:
             pass
 
-        # Skeleton must have been written before the error
+        # Skeleton must have been written before the error.
+        # Note: lines[0] is the reconciliation baseline record written by the fixture;
+        # the spawned skeleton is the FIRST trial record (skip non-trial lines).
         assert registry_path.exists(), "Registry should exist after spawn"
-        lines = registry_path.read_text().strip().split("\n")
-        assert len(lines) >= 1
-        entry = json.loads(lines[0])
+        all_records = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
+        trial_records = [r for r in all_records if "trial_id" in r]
+        assert len(trial_records) >= 1, "At least one trial record must exist"
+        entry = trial_records[0]
         assert entry["status"] == "spawned"
         assert entry["pair"] == "EURUSD"
 
@@ -194,14 +224,16 @@ class TestRunTrialIntegration:
         report_path = Path(report["report_path"])
         assert report_path.exists()
 
-        # Check registry was updated
+        # Check registry was updated.
+        # Filter out non-trial records (e.g. the baseline reconciliation record).
         registry_path = rt_mod._TRIALS_REGISTRY
-        lines = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
-        trial_ids = [l["trial_id"] for l in lines]
+        all_records = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
+        trial_records = [r for r in all_records if "trial_id" in r]
+        trial_ids = [r["trial_id"] for r in trial_records]
         assert report["trial_id"] in trial_ids
 
         # Check complete entry
-        complete_entries = [l for l in lines if l.get("status") == "complete"]
+        complete_entries = [r for r in trial_records if r.get("status") == "complete"]
         assert len(complete_entries) >= 1
 
     def test_run_trial_registry_grows(self, tmp_registry, minimal_config, minimal_pre_reg):

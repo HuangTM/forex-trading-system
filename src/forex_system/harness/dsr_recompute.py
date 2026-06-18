@@ -25,7 +25,11 @@ from scipy import stats as scipy_stats
 
 from forex_system.backtest.metrics import infer_periods_per_year
 from forex_system.harness.dsr import compute_dsr
-from forex_system.harness.honest_n import RETAIN_STATUSES, compute_honest_n
+from forex_system.harness.honest_n import (
+    RETAIN_STATUSES,
+    compute_honest_n,
+    honest_n_deflation_denominator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +99,22 @@ def recompute_all(
         List of per-trial result dicts.
     """
     # --- Step 1: Honest-N ---
-    n_honest, retained_keys, excluded_counts = compute_honest_n(trials_path)
+    # CRITICAL FIX (CTO spec 2026-06-18): use the DSR-deflation denominator (N=30),
+    # NOT the research-portfolio de-dup view from compute_honest_n (~11).
+    # compute_honest_n answers "distinct hypothesis families" (portfolio view only);
+    # passing it to compute_dsr UNDER-deflates and manufactures false passes.
+    # For a recompute of an ALREADY-LEDGERED trial, use the denominator directly
+    # with NO +1 (the trial is already counted in the 30, so n_deflation_denominator
+    # is the correct n_trials).  This mirrors trial_48_is_eval.py's semantics.
+    n_deflation_denominator = honest_n_deflation_denominator(trials_path)
+    # compute_honest_n is still called for the portfolio-view summary fields only.
+    n_honest_portfolio, retained_keys, excluded_counts = compute_honest_n(trials_path)
     logger.info(
-        '{"event": "dsr_recompute.n_honest", "n_honest": %d, '
-        '"excluded_counts": %s, "retained_keys": %s}',
-        n_honest,
+        '{"event": "dsr_recompute.denominators",'
+        ' "n_deflation_denominator": %d, "n_honest_portfolio": %d,'
+        ' "excluded_counts": %s, "retained_keys": %s}',
+        n_deflation_denominator,
+        n_honest_portfolio,
         excluded_counts,
         sorted(retained_keys),
     )
@@ -112,7 +127,12 @@ def recompute_all(
             if not raw:
                 continue
             record = json.loads(raw)
-            by_id[record["trial_id"]] = record  # last row wins
+            trial_id = record.get("trial_id")
+            if trial_id is None:
+                # Non-trial metadata record (e.g. the honest-n-classification record,
+                # or future event-only lines). Skip — they carry no trial to recompute.
+                continue
+            by_id[trial_id] = record  # last row wins
 
     retained = [r for r in by_id.values() if r.get("status") in RETAIN_STATUSES]
 
@@ -138,7 +158,7 @@ def recompute_all(
                 "n_obs_source": "no-sharpe-recorded",
                 "skew": None,
                 "excess_kurt": None,
-                "n_honest": n_honest,
+                "n_deflation_denominator": n_deflation_denominator,
                 "recompute_status": "blocked-no-sharpe",
             }
             results.append(row)
@@ -164,7 +184,7 @@ def recompute_all(
                 "n_obs_source": n_obs_source,
                 "skew": None,
                 "excess_kurt": None,
-                "n_honest": n_honest,
+                "n_deflation_denominator": n_deflation_denominator,
                 "recompute_status": "blocked-no-equity-series",
             }
             results.append(row)
@@ -182,12 +202,15 @@ def recompute_all(
         excess_kurt = float(scipy_stats.kurtosis(returns, fisher=True))
 
         try:
+            # CRITICAL: pass n_deflation_denominator (ratified 30), NOT n_honest_portfolio
+            # (~11 de-dup view).  For an already-ledgered trial recompute, NO +1 is added
+            # (the trial is already counted in the denominator, mirroring trial_48_is_eval).
             new_dsr = compute_dsr(
                 sharpe_ratio=float(sharpe),
                 n_observations=n_obs,
                 skewness=skew,
                 excess_kurtosis=excess_kurt,
-                n_trials=n_honest,
+                n_trials=n_deflation_denominator,
                 periods_per_year=infer_periods_per_year(returns.index),
             )
             recompute_status = "ok"
@@ -211,7 +234,7 @@ def recompute_all(
             "n_obs_source": n_obs_source,
             "skew": round(skew, 6),
             "excess_kurt": round(excess_kurt, 6),
-            "n_honest": n_honest,
+            "n_deflation_denominator": n_deflation_denominator,
             "recompute_status": recompute_status,
         }
         results.append(row)
@@ -241,14 +264,15 @@ def recompute_all(
             fh.write(json.dumps(row) + "\n")
 
     # --- Step 4: Print summary ---
-    _print_summary(results, n_honest, retained_keys, excluded_counts)
+    _print_summary(results, n_deflation_denominator, n_honest_portfolio, retained_keys, excluded_counts)
 
     return results
 
 
 def _print_summary(
     results: list[dict],
-    n_honest: int,
+    n_deflation_denominator: int,
+    n_honest_portfolio: int,
     retained_keys: set[str],
     excluded_counts: dict[str, int],
 ) -> None:
@@ -274,7 +298,8 @@ def _print_summary(
     print("\n" + "=" * 70)
     print("DSR RECOMPUTE SUMMARY — 2026-06-01")
     print("=" * 70)
-    print(f"N_honest (distinct hypotheses): {n_honest}")
+    print(f"N_deflation_denominator (DSR n_trials, ratified 30): {n_deflation_denominator}")
+    print(f"N_honest_portfolio (distinct hypotheses, de-dup view): {n_honest_portfolio}")
     print(f"Retained hypothesis keys: {sorted(retained_keys)}")
     print(f"Excluded: {excluded_counts}")
     print()

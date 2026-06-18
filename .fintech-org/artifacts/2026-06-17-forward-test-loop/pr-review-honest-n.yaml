@@ -1,0 +1,304 @@
+# =============================================================================
+# PRINCIPAL REVIEWER — Independent review of honest_n_deflation_denominator (P0)
+# The DSR multiplicity denominator. Most statistically load-bearing code in the firm.
+# Review-only artifact. No fixes authored (role forbidden from writing fixes).
+# =============================================================================
+role: principal-reviewer
+artifact_type: review
+decision: approve-with-conditions
+timestamp_utc: "2026-06-18T03:09:01Z"
+git_sha_at_review: 96f6f84
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: principal-reviewer
+no-capital-instruction: true
+
+claimed_domains:
+  - independent-code-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection
+  - hidden-bug-and-edge-case-surfacing
+  - test-coverage-and-test-quality-review
+
+contamination-check: >
+  clean. The dispatch contained the ratification semantic (HoQR + NHT jointly chose
+  N=48, reject 11, over-deflate on ambiguity) and the QD handoff describing what was
+  built — these are the SPEC I review against, not another role's approval STANCE on
+  the code under review. No principal-reviewer-targeted approve/reject of this
+  implementation was present in my context. Every count below was produced by my own
+  parse of .fintech-org/trials.jsonl and execution of the code, not asserted.
+
+artifact-under-review:
+  - src/forex_system/harness/honest_n.py  (honest_n_deflation_denominator, ic9_dsr_denominator, sticky exclusion, fail-closed)
+  - src/forex_system/harness/run_trial.py  (call site 1 + _count_prior_trials deprecation)
+  - scripts/run_falsification_trial.py:737  (call site 2)
+  - scripts/trial_48_is_eval.py:81  (N_ORG_TRIALS literal removed)
+  - tests/harness/test_honest_n_deflation.py  (22 acceptance tests)
+  - .fintech-org/honest_n_offset.json  (offset documentation file)
+
+rubrics-applied:
+  - spec-to-implementation-trace: applied
+  - execution-firewall-review: applied (research-class N-semantic vs mechanical implementation)
+  - log-as-decision-trace: applied (honest_n.computed structured event)
+  - edge-case-enumeration: applied (empty ledger, no record, sticky, ambiguous, new append)
+  - invariant-search: applied (monotonic, over-count-safe, +1 convention)
+  - test-inversion: applied
+  - numerical-statistical-correctness: applied (dsr.py monotonicity in N verified)
+  - failure-mode-reasoning: applied (fail-closed on absent offset record)
+
+# =============================================================================
+# INDEPENDENT VERIFICATION (every number is my own parse / execution, not asserted)
+# =============================================================================
+independently_verified:
+  ledger_lines: 49
+  reconciliation_record_present_in_ledger: false   # grep -c honest-n-reconciliation == 0
+  distinct_trial_ids: 34
+  excluded_distinct: 1                              # 53981a4a (status=withdrawn-pre-freeze, flag=false)
+  countable_True_classified: 33                     # matches QD's claim of 33 EXACTLY
+  offset_plus_count: 48                             # 15 + 33 = 48  CONFIRMED
+  dsr_expected_max_sr_monotone_increasing_in_N: true   # n=1->0.0, 11->0.073, 33->0.095, 48->0.101, 49->0.102, 100->0.113
+
+# -----------------------------------------------------------------------------
+# Q1 — DISJOINTNESS (highest stakes): did 15 + 33 = 48 hold with NO double-count?
+# -----------------------------------------------------------------------------
+disjointness_finding:
+  verdict: CONFIRMED — 15 offset + 33 ledger-countable = 48, with no double-count of the 33.
+  my_independent_evidence: >
+    Parsed the ledger directly. 34 distinct trial_ids; exactly 1 (53981a4a) is excluded
+    (withdrawn-pre-freeze, explicit flag=false), leaving 33 countable — identical to QD's
+    claim. The offset record's 15 is NOT a set of trial_ids present in the ledger; it is a
+    counter-advancement quantity. I traced the n_trials_at_spawn field trail: 18 distinct
+    trial_ids carry the field at slots {1,3,4,5,7,9,11,13,15-22,24,37}; 16 distinct trial_ids
+    carry NO spawn field (the 12-trial falsification batch + trial-48 15923fe1 + QRB-6 fa0f982a
+    + f2fb41fd frozen-pending + 53981a4a withdrawn). The phantom counter slots {2,6,8,10,12}
+    and the 24->37 batch advancement and the prose moves 37->38->42->48 are exactly the kind of
+    counter motion that did NOT mint a distinct countable trial_id. So the 15 are structurally
+    disjoint from the 33 countable trial_ids: the offset adds counter-history that has no
+    physical trial_id in the ledger, and the 33 are the physical trial_ids. They do not overlap.
+  residual_uncertainty: >
+    The internal decomposition of the 15 (5 phantom + ~7 batch + 3 cross-session) is prose/
+    MEMORY-dependent and NOT fully field-recoverable — HoQR and NHT both state this explicitly.
+    I could not independently reconstruct the EXACT internal split of the 15 from ledger bytes
+    alone (the 24->37 batch carries no spawn field, and 38/42/48 live only in CONSENSUS/MEMORY).
+    BUT: (a) the binding arithmetic 33+15=48 is exact and disjoint as a SET operation; (b) the
+    direction is the safe one — if the 15 were over-stated, N would be too LARGE, which is the
+    conservative (false-negative) direction per SD2, never the pass-manufacturing direction.
+    I therefore confirm disjointness of the SETS and accept 48 as the conservative floor, while
+    recording that the 15's internal provenance rests on the HoQR/NHT ratification, not on a
+    byte-level reconstruction I could reproduce.
+
+# -----------------------------------------------------------------------------
+# Q2 — "appended AFTER this record" ambiguity: does the CODE return 48 or 15 now?
+# -----------------------------------------------------------------------------
+after_this_record_ambiguity:
+  resolution: >
+    The CODE returns 48 on the (record-appended) real ledger — it counts ALL True-classified
+    distinct trial_ids regardless of their position relative to the reconciliation record, then
+    adds the offset. honest_n_deflation_denominator (honest_n.py:323-351) iterates the full
+    records_by_id map with no position/after-record filter. I confirmed by EXECUTION: copied the
+    real ledger, appended the reconciliation record, called the function -> 48 (NOT 15).
+  the_prose_is_misleading_but_the_code_is_correct: >
+    The offset record's detail string says "count(distinct ... trial_ids appended AFTER this
+    record)" — taken literally that would give 15 (no trial appended after the record yet). The
+    CODE does NOT implement "after this record"; it implements "offset + count(ALL existing True
+    trial_ids)", which is what yields 48. The prose is wrong/misleading; the implementation is
+    right. This is a documentation defect, not a logic defect (finding F-002), because the test
+    that pins ==48 (test_returns_48_on_reconciled_ledger) exercises the REAL ledger via the real
+    function — but it is SKIPPED today because the reconciliation record is not yet in the ledger.
+  test_that_asserts_48_exercises_real_ledger: >
+    test_returns_48_on_reconciled_ledger reads Path('.fintech-org/trials.jsonl') (the real ledger,
+    not a fixture) and asserts ==48 — but it SKIPS when the reconciliation record is absent, which
+    is the case RIGHT NOW. So the ==48-on-real-ledger assertion is currently UNEXERCISED. I closed
+    that gap myself by executing the function against a record-appended copy of the real ledger and
+    confirming 48. The synthetic fixtures (test_offset_only_no_new_records, test_offset_adds_to_count)
+    DO exercise the arithmetic and pass.
+
+# -----------------------------------------------------------------------------
+# Q3 — Sticky exclusion (monotonic, over-count-safe)
+# -----------------------------------------------------------------------------
+sticky_exclusion:
+  verdict: CONFIRMED.
+  evidence: >
+    honest_n.py:268-308 tracks ever_excluded as a separate set populated on ANY record (not just
+    last-wins) where flag is False OR status==withdrawn-pre-freeze. Classification (line 331) ORs
+    `trial_id in ever_excluded` with the last-wins flag/status, so a trial flagged false early stays
+    excluded even if a later record drops the flag. Two synthetic tests pin this
+    (test_sticky_exclusion_first_false_later_omits_flag, test_sticky_exclusion_first_withdrawn_later_complete)
+    and both pass. On the real ledger, 53981a4a (QRB-6 withdrawn) is correctly excluded. This is the
+    over-count-safe direction (a resurrected exclusion would UNDER-count = unsafe; sticky prevents it).
+
+# -----------------------------------------------------------------------------
+# Q4 — Fail-closed
+# -----------------------------------------------------------------------------
+fail_closed:
+  verdict: CONFIRMED.
+  evidence: >
+    baseline_offset initialised to None (line 267); if no honest-n-reconciliation record is seen,
+    line 314 raises RuntimeError (never returns the smaller mechanical-only count). I executed the
+    function against the REAL current ledger (which lacks the record) and it RAISED, as designed.
+    Two tests pin it (test_missing_offset_record_raises, test_empty_ledger_without_offset_raises),
+    both passing. This is the over-deflation safety direction: absence of the offset never silently
+    yields 33.
+
+# -----------------------------------------------------------------------------
+# Q5 — New-append increments by exactly 1, offset frozen/disjoint going forward
+# -----------------------------------------------------------------------------
+incremental_append:
+  verdict: CONFIRMED.
+  evidence: >
+    Executed: real ledger + reconciliation record = 48; + one new counts_toward:true trial = 49
+    (exactly +1, no double-count with the offset); + one withdrawn-pre-freeze trial = still 49
+    (no increment). The offset is read once from the metadata record and is frozen; new attempts
+    append real counts_toward:true trial_ids that the count picks up mechanically. No double-count
+    path exists because the offset record itself carries no trial_id and is skipped at line 283-291.
+
+# -----------------------------------------------------------------------------
+# Q6 — Call-site faithfulness
+# -----------------------------------------------------------------------------
+call_site_faithfulness:
+  verdict: CONFIRMED.
+  run_trial_py: "line 297 n_prior = honest_n_deflation_denominator(_TRIALS_REGISTRY); n_prior+1 preserved. _count_prior_trials() body now raises NotImplementedError."
+  run_falsification_trial_py: "line 737 n_prior = honest_n_deflation_denominator(_DEFAULT_REGISTRY); n_prior+1 preserved."
+  trial_48_is_eval_py: "line 81 N_ORG_TRIALS = honest_n_deflation_denominator(_TRIALS_REGISTRY_PATH); no +1 (correct — trial-48 15923fe1 is itself in the ledger as counts_toward:true, so the function returns 48 INCLUDING it; I verified 15923fe1 is True-classified, never flagged false)."
+  no_magic_literal_survives: "grep confirms no n_trials=48 / N_ORG_TRIALS=48 literal remains (only POWER_FLOOR=48, an unrelated min-trades floor, and a comment)."
+  compute_honest_n_absent_from_both_dsr_sites: "grep -c compute_honest_n == 0 at both call sites; regression tests in TestNoDeduplicateFeedsDSR pass."
+  dsr_py_math_unchanged: "git diff HEAD -- dsr.py is empty. compute_dsr / expected_max_sr untouched."
+
+# =============================================================================
+# FINDINGS
+# =============================================================================
+findings:
+  - id: F-001
+    severity: blocking
+    location: ".fintech-org/trials.jsonl (the reconciliation record is ABSENT) + tests/harness/test_honest_n_deflation.py:67 (sacred test skips)"
+    category: correctness
+    observation: >
+      The 'honest-n-reconciliation' record is NOT present in the live ledger (grep -c == 0; 49 lines,
+      0 reconciliation records). Consequently: (a) honest_n_deflation_denominator() RAISES RuntimeError
+      on the real ledger today — I executed it and it raised; (b) the sacred acceptance test
+      test_returns_48_on_reconciled_ledger SKIPS rather than asserting ==48 (this is the 1 skipped test);
+      (c) all three live DSR call sites (run_trial.py:297, run_falsification_trial.py:737,
+      trial_48_is_eval.py:81) will RAISE if invoked against the real ledger right now.
+    inference: >
+      The COUNTING LOGIC is correct (I confirmed 48 on a record-appended copy), but the system is in a
+      fail-closed RAISING state until the record is appended. The code is correct; the deployment is
+      incomplete. Per the QD handoff (qd-p0-honest-n.yaml OA-1), the append was BLOCKED-BY-SANDBOX and
+      is an open CEO action. This is correctly fail-closed (no false validation can occur), but the P0
+      is not DONE — no DSR can be scored until the record lands, and the ==48 assertion is unexercised.
+    evidence: "grep -c honest-n-reconciliation .fintech-org/trials.jsonl -> 0; pytest -> 22 passed, 1 skipped; my exec of honest_n_deflation_denominator(real) -> RuntimeError."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: ceo  # append the QD-specified reconciliation line to the ledger, then confirm sacred test goes green
+    note: "Not a code defect — a pending deploy step. Conditions[1] below."
+
+  - id: F-002
+    severity: major
+    location: ".fintech-org/honest_n_offset.json (field names) + offset record detail string ('appended AFTER this record')"
+    category: maintainability
+    observation: >
+      Two documentation/data traps that do not affect the current run path but are latent footguns:
+      (1) honest_n_offset.json uses event='honest-n-offset-record' and key 'prose_only_attempts_offset',
+      but the CODE recognises event=='honest-n-reconciliation' and reads key 'prose_only_attempts'. The
+      file is referenced ONLY inside an error string and a test skip message — never parsed — so if anyone
+      ever appended THIS file's contents to the ledger verbatim as the record, the code would NOT find a
+      reconciliation record and would RAISE (fail-closed, but confusingly). The CANONICAL record to append
+      is the one in qd-p0-honest-n.yaml OA-1, which uses the correct field names.
+      (2) The reconciliation record's detail string says future count = offset + trial_ids "appended AFTER
+      this record". The code does NOT implement 'after this record' — it counts ALL existing True
+      trial_ids. The prose contradicts the (correct) implementation; a future maintainer trusting the prose
+      could 'fix' the code to filter by position, which would silently return 15 and manufacture false passes.
+    inference: >
+      Fail-closed protects (1) from producing a wrong NUMBER, but both items are correctness traps for the
+      next maintainer of the single most load-bearing statistical constant in the firm. The prose in (2) is
+      the more dangerous one because 'correcting' the code to match it inverts the safety direction.
+    evidence: "honest_n.py:283 reads event=='honest-n-reconciliation'; offset file event=='honest-n-offset-record'; offset file key prose_only_attempts_offset; code reads record['prose_only_attempts']. My exec confirmed code returns 48 by counting ALL existing True ids, not post-record ids."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer  # align the offset-file field names with the canonical record AND fix the 'after this record' prose to 'all countable trial_ids in the ledger'
+
+  - id: F-003
+    severity: minor
+    location: "tests/harness/test_honest_n_deflation.py — no test executes ==48 against the real ledger WITH the record appended"
+    category: test-coverage-gap
+    observation: >
+      The only test that asserts ==48 on the real ledger SKIPS when the record is absent (its current
+      state), so the real-ledger ==48 path is unexercised in CI today. The synthetic offset-arithmetic
+      tests cover the mechanism, and I manually confirmed 48 on a record-appended copy, but no automated
+      test pins the real-ledger 48 in the BLOCKED state.
+    inference: >
+      Once F-001 is resolved (record appended), the existing sacred test will activate and close this gap
+      automatically. Until then there is a window where the load-bearing value is asserted only on fixtures.
+      A test that constructs a record-appended COPY of the real ledger in a tmpdir and asserts ==48 would
+      pin it independent of the live append state (I verified such a check passes).
+    evidence: "test_returns_48_on_reconciled_ledger:86-90 pytest.skip when no reconciliation record; pytest output shows 1 skipped."
+    recommended-action-class: add-test
+    owning-role: quant-developer
+
+  - id: F-004
+    severity: observation
+    location: "src/forex_system/harness/honest_n.py:284 baseline_offset = int(record['prose_only_attempts'])"
+    category: correctness
+    observation: >
+      The offset is read with record['prose_only_attempts'] (hard key access, no .get default). If a
+      reconciliation record is appended with the WRONG key name (the exact mismatch in F-002 item 1), this
+      line raises KeyError rather than the descriptive RuntimeError. Observed, not inferred: it is a hard
+      subscript inside the parse loop.
+    inference: >
+      A KeyError here is still fail-closed (no silent under-count), so safety holds, but the error would be
+      less diagnostic than the curated RuntimeError. Low severity because the canonical record has the right key.
+    evidence: "honest_n.py:284 record['prose_only_attempts'] — subscript, not .get."
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+
+# =============================================================================
+# COVERAGE + DECISION
+# =============================================================================
+coverage-statement: >
+  I reviewed all 6 artifacts in scope (honest_n.py, the 3 call sites, the test file, the offset file)
+  plus both ratifications and the QD handoff, and independently parsed the real 49-line ledger. I did
+  NOT re-run the full 514-test harness (orchestrator already confirmed green and that was out of scope);
+  I executed the targeted honest_n suite (22 pass / 1 skip), test_no_lookahead (12 pass), the regression
+  guards (3 pass), and my own real-ledger simulations (raise-when-absent, 48-when-appended, +1-on-append,
+  sticky, monotonicity). Counting logic and spec-faithfulness reviewed in full.
+
+decision_detail:
+  counting_logic_correctness: APPROVED — disjointness holds (15+33=48, sets disjoint, no double-count), fail-closed correct, sticky correct, +1 convention correct, ambiguity-defaults-to-count correct, dsr.py monotonicity makes over-deflation the safe direction (verified).
+  spec_faithfulness: APPROVED — all three call sites mechanical, no magic literal survives, compute_honest_n (the 11-view) absent from both DSR sites, dsr.py math unchanged, matches HoQR+NHT ratified semantic.
+  why_not_plain_approve: >
+    One BLOCKING finding (F-001): the reconciliation record is NOT in the live ledger, so the P0 is not
+    DONE — every live DSR call raises and the ==48 assertion is unexercised in CI. This is correctly
+    fail-closed (no false validation is possible in this state) and is a pending deploy/ledger step rather
+    than a code-logic defect, which is why the decision is approve-with-conditions rather than reject: the
+    counting logic I was asked to certify is correct; the deployment is incomplete.
+
+conditions:
+  - id: C1   # clears F-001
+    must_fix_before: "any live DSR scoring run / before this P0 is marked DONE"
+    condition: >
+      Append the canonical 'honest-n-reconciliation' record (the line in qd-p0-honest-n.yaml OA-1, with
+      event=='honest-n-reconciliation' and key 'prose_only_attempts':15) to .fintech-org/trials.jsonl, then
+      confirm test_returns_48_on_reconciled_ledger goes from SKIP to PASS and honest_n_deflation_denominator
+      on the real ledger returns 48 (no longer raises). Owning role: ceo (append was sandbox-blocked for QD).
+  - id: C2   # clears F-002
+    must_fix_before: "merge"
+    condition: >
+      Reconcile honest_n_offset.json field names with the canonical record (event/prose_only_attempts), AND
+      correct the reconciliation record's detail prose from 'trial_ids appended AFTER this record' to 'all
+      countable distinct trial_ids in the ledger' so the documentation matches the (correct) implementation
+      and no future maintainer inverts the safety direction. Owning role: quant-developer.
+  - id: C3   # clears F-003 (recommended, not strictly blocking once C1 lands)
+    must_fix_before: "next CI cycle"
+    condition: >
+      Either rely on the now-activated sacred test (after C1) or add a tmpdir-copy test that pins ==48 on a
+      record-appended copy of the real ledger so the load-bearing value is asserted regardless of live append state.
+
+verdict: approve-with-conditions
+summary_one_line: >
+  Counting logic is CORRECT and spec-faithful (15+33=48 confirmed disjoint, no double-count; code returns
+  48 by counting ALL existing True trial_ids — the 'after this record' prose is misleading but the code is
+  right; sticky + fail-closed + +1 all confirmed by execution; dsr.py monotonicity makes over-deflation the
+  safe direction). BLOCKING: the reconciliation record is not yet in the live ledger, so every live DSR call
+  fail-closed RAISES and the ==48 assertion is currently unexercised — append the record (C1) before the P0
+  is DONE; fix the offset-file field mismatch + misleading 'after this record' prose (C2).
+
+ROUTE_TO: [ceo, quant-developer]
+notify: [ceo, cto, head-of-quant-research, null-hypothesis-tester, quant-developer]

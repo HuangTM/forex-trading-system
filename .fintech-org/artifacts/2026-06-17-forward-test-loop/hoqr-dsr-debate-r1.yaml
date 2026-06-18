@@ -1,0 +1,260 @@
+# =============================================================================
+# HoQR — BOUNDED DSR-DENOMINATOR DEBATE, ROUND 1 (of max 3)
+# Co-owned reconciliation with NHT. This artifact RESOLVES BY LEDGER EVIDENCE the
+# single concrete disagreement that survived the reconciliation pass:
+#   HoQR proposed N=48 ; NHT proposed N=22 (band [17,27]).
+# Both AGREE: retire N=11 (under-deflates / launders the VTC param search), exclude
+# pure re-runs, method = count genuine selection draws + param-variants.
+# NHT's central CONCRETE accusation: "48 DOUBLE-COUNTS the falsification batch."
+# I trace it directly in the ledger below. VERDICT: NHT IS RIGHT. I CONCEDE.
+# I revise N down and CONVERGE with NHT.
+# =============================================================================
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — DSR-N debate round 1"
+timestamp_utc: "2026-06-18T03:33:47Z"
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: head-of-quant-research
+no-capital-instruction: true
+debate_round: 1
+debate_max_rounds: 3
+co_owner: null-hypothesis-tester
+reconciles: "N=48 (my prior) vs N=22 [17,27] (NHT prior) — resolved by direct ledger trace"
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - falsification-archive-curation
+  - strategy-kill-decisions
+  - research-to-prod-pipeline-design
+  - multiple-comparisons-multiplicity-counting
+
+inputs_re_read:
+  - .fintech-org/trials.jsonl                 # 49 lines, 34 distinct trial_ids — re-parsed, counter trail extracted
+  - .fintech-org/honest_n_offset.json         # the 15-attempt prose offset, provenance_detail buckets (i)(ii)(iii)
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-reconciliation.yaml  # NHT's N=22 [17,27]
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-reconciliation.yaml # my prior N=48
+
+# =============================================================================
+# TASK 1 — TRACE THE DOUBLE-COUNT DIRECTLY IN THE LEDGER. VERDICT: CONCEDED.
+# =============================================================================
+task1_double_count_trace:
+  method: >
+    The ledger's n_trials_at_spawn field IS the firm's monotonic counter, written at
+    spawn time. I extracted (counter -> trial_id) for every record that carries it.
+    This is the ground truth for "what advanced the counter", which is exactly what the
+    prose offset claims to capture. If the counter advances are 1:1 with distinct ledger
+    trial_ids, then any prose offset that ALSO charges those advances is a double count.
+  counter_trail_verified:   # from `n_trials_at_spawn`, my own parse at 679e8c7
+    early_vtc_sweep: "counters {1,3,4,5,7,9,11,13} over 8 distinct ids (43c9b481,3c9e952a,d18063d4,7dde9154,a9bc0d21,a9c0902d,f66dd64c,d572999d). Even slots {2,6,8,10,12} are the counter advancing BY 2 per spawn+complete write — they are NOT separate ids. 13 counter units, 8 real ids."
+    backfill: "counters 15-22 over 8 distinct backfill ids — clean 1:1."
+    falsification_batch: "87fa1d23's COMPLETE record carries counter=24 (its spawn row has no counter field); 576746aa's COMPLETE record carries counter=37 (its spawn row line 37 also lacks the field). PRECISION (critic): the counter is read from complete records — the only place it is written for this batch; the trace is internally consistent on complete-record counters. The batch between them (lines 23-35) is EXACTLY 13 distinct trial_ids: c530be91, 87fa1d23, ade58943, 5d18776d, 6a56df9c, b7d1a65a, ab6f4167, cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f, 9017fadb. So the 24->37 advance = 13 counter units = the 13 distinct batch ids. 1:1. NO hidden attempts in that span."
+  the_two_questions_answered:
+    q1_are_batch_trials_distinct_ids_in_my_29: >
+      YES. All 13 falsification-batch trial_ids (c530be91..9017fadb) are distinct
+      trial_ids in the ledger and ALL 13 are inside my 29-countable (my
+      twelve_trial_falsification_batch block: counted_draws=13). They are counted ONCE
+      as real draws — correctly.
+    q2_is_24to37_the_same_batch_or_a_different_set: >
+      It is the SAME batch. The counter moved 24->37 = 13 advances, and there are exactly
+      13 distinct batch trial_ids occupying that span (87fa1d23 at 24, 576746aa at 37).
+      There is NO second, untracked set of attempts inside 24->37. The offset's bucket
+      (ii) — "~7 attempts in the 12-trial batch ... advanced the counter roughly 24->37"
+      — is describing the SAME 13 ids I already counted. The "~7" is a phantom: it
+      re-charges counter advances that are already 1:1 with distinct ids I counted.
+  verdict: CONCEDED — THE DOUBLE-COUNT IS REAL.
+  verdict_detail: >
+    NHT is correct. My 48 = 29 countable ledger draws + 19 prose residual. But the 13
+    falsification-batch ids are IN the 29, AND offset bucket (ii) charges "~7" of those
+    same batch attempts AGAIN as prose-only. The counter-trail proves 24->37 contains
+    exactly the 13 ids I already counted and nothing else — so every unit of bucket (ii)
+    is a re-charge of an already-counted draw. That is a double count, not conservatism.
+    My own reconciliation artifact even admitted the 19-residual was "BACK-SOLVED against
+    the 48 anchor, NOT independently derived line-by-line" — i.e. I never had ledger
+    evidence for it; I reverse-engineered it to make the arithmetic hit 48. Circular.
+  magnitude_of_inflation: >
+    Bucket (ii) ~7 + the falsification-batch portion of the back-solved residual are pure
+    re-charge. Combined with bucket (i) and (iii) artifacts (Task 2), the prose residual
+    collapses from 19 to ~0. 48 is inflated by ~16-19 relative to the true selection family.
+
+# =============================================================================
+# TASK 2 — DISPOSITION OF THE 19-ATTEMPT PROSE RESIDUAL (the unauditable bucket)
+# =============================================================================
+task2_prose_residual_disposition:
+  bucket_i_phantom_slots_2_6_8_10_12:
+    claim: "5 phantom slots from the early VTC sweep, taken as a block."
+    ledger_evidence: >
+      The even counter slots {2,6,8,10,12} do NOT correspond to any distinct trial_id.
+      They are the counter incrementing by 2 on each spawn+complete write over the 8 real
+      VTC ids (slots 1,3,4,5,7,9,11,13). Verified: every VTC id's spawn and complete share
+      the SAME n_trials_at_spawn (e.g. 7dde9154 spawn=5 complete=5; a9bc0d21 spawn=7
+      complete=7). The +2 stride is a WRITE PATTERN, not 5 extra configurations.
+    disposition: DROP. These are artifacts, not selection draws. Counting them over-deflates on a write quirk. NHT is right.
+  bucket_ii_falsification_batch_7:
+    claim: "~7 attempts in the 12-trial batch advanced counter 24->37."
+    ledger_evidence: "24->37 = 13 advances = the 13 distinct batch ids, ALL already counted in my 29 (Task 1)."
+    disposition: DROP. Pure double count of already-counted ledger draws.
+  bucket_iii_cross_session_37_38_42_48:
+    claim: "3 cross-session counter moves 37->38->42->48 (576746aa=38, kickoff-2=42, trial-48=48)."
+    ledger_evidence: >
+      576746aa is a distinct ledger trial (counter 37/38) — ALREADY in my 29 (late_trials).
+      trial-48 (15923fe1) is a distinct ledger trial — ALREADY in my 29. So 2 of the 3
+      moves re-charge ids I already counted. "kickoff-2 close=42" has NO ledger trial_id at
+      all — it is MEMORY/CONSENSUS prose for a hypothesis-generation cycle that SPENT NOTHING
+      (per MEMORY: "NEW-ALPHA KICKOFF-2 = NO-SPEND ... ZERO clear ... the firm ran a full
+      cycle and correctly SPENT NOTHING"). A no-spend generation cycle selected no
+      configuration to test — it is not a draw.
+    disposition: DROP all 3. Two are double counts of counted ids; one (kickoff-2) is a no-spend cycle with no selection draw.
+  residual_verdict: >
+    The 19-attempt prose residual is UNAUDITABLE and, on inspection, EMPTY of genuine
+    independent selection draws. Every component is either (a) a write-pattern artifact
+    (bucket i), (b) a double count of a distinct ledger id I already counted (buckets ii
+    and most of iii), or (c) a no-spend generation cycle that selected nothing (kickoff-2).
+    I CONCEDE: I cannot show ledger evidence that ANY of the 19 were real independent
+    configurations selected among. They cannot be counted as selection draws.
+    Honest residual = 0 (I will not even claim NHT's charitable <=3, because the counter
+    trail shows the early-VTC span is fully accounted for by 8 ids + the +2 write stride —
+    there is no untracked early-VTC attempt left to charge).
+
+# =============================================================================
+# TASK 3 — APPLY THE SHARED DIRECTIONAL RULE HONESTLY
+# =============================================================================
+task3_directional_rule_applied:
+  shared_rule: "Over-deflate when AMBIGUOUS = count a draw whose status is UNKNOWN."
+  the_distinction_i_now_honor:
+    ambiguous_count_once: >
+      A draw whose category cannot be determined gets COUNTED — ONCE. Example: f2fb41fd
+      (R5 confirmatory, frozen, never reached a look date). Reserved attempt or non-draw?
+      Genuinely unknown -> COUNT it once. This is legitimate over-deflation.
+    artifact_dont_count: >
+      An item PROVABLY a non-draw is not "ambiguous" — it is determinable-as-excludable.
+      Spawns that never ran (3c9e952a, d18063d4), write-pattern phantom slots {2,6,8,10,12},
+      byte-identical re-runs (a9bc0d21, a9c0902d), withdrawn-pre-freeze (53981a4a), and a
+      no-spend generation cycle (kickoff-2) are all DETERMINABLE non-draws. The rule does
+      NOT license counting them, and it NEVER licenses counting the SAME draw twice.
+    my_prior_error: >
+      My 48 abused "over-deflate when ambiguous" as a blanket "count everything, and when
+      in doubt about the split, charge it again toward the anchor." That converted a
+      tie-breaker for genuinely-unclassifiable trials into a double-counting license. NHT
+      named this exactly: "Double-counting is not conservatism; it is an arithmetic error
+      wearing SD2's coat." I accept the correction.
+  conclusion: "SD2 fires ONCE per genuinely-ambiguous draw (-> f2fb41fd counts). It does not resurrect artifacts or re-charge counted draws."
+
+# =============================================================================
+# TASK 4 — UPDATED N + MECHANICAL RULE
+# =============================================================================
+updated_N:
+  honest_selection_family_construction:
+    early_vtc_real_completes: {ids: [43c9b481, 7dde9154, f66dd64c, d572999d], count: 4, note: "param-variants; max climbed 0.065->0.598->0.759. COUNT."}
+    early_vtc_rerun_equivalent: {ids: [a9bc0d21, a9c0902d], count: 0, note: "both git ea7ee13, identical -0.0756 sharpe, no new max. DROP. Both roles agree."}
+    early_vtc_spawned_only: {ids: [3c9e952a, d18063d4], count: 0, note: "never ran. DROP. Both roles agree."}
+    falsification_batch: {ids: [c530be91, 87fa1d23, ade58943, 5d18776d, 6a56df9c, b7d1a65a, ab6f4167, cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f, 9017fadb], count: 13, note: "distinct configs that RAN + produced verdicts; rejected draws are still draws. COUNT. NOTE on the W5R2 second-pass (git ded1356): it has SIX members, not five — cef3c48d(W5R2-1), 15aa7521(W5R2-2), fdddc2b0(W5R2-3), 65041055(W5R2-4), 9c9f545f(W5R2-5), AND 9017fadb(W5R2-6, vol_target_carry_no_vol_scaling). NHT's D8 named only the first 5 as 'disputed RERUN'; 9017fadb is unambiguously a distinct PARAM variant (a NEW strategy variant, not a family-repeat) and was never disputed. ALL SIX RAN and produced verdicts and correctly COUNT. They are NOT byte-identical re-runs. The disposition is identical (COUNT) whether one frames them as 5+1 or 6 — no member of this batch is dropped by either role."}
+    r5_family: {ids: [576746aa], count: 1, note: "ONE org-wide slot; its internal 36-cell selection charged separately as N_sel=3 in its own DSR."}
+    r5_confirmatory_frozen: {ids: [f2fb41fd], count: 1, note: "AMBIGUOUS (reserved attempt vs non-draw) -> COUNT ONCE per SD2."}
+    qrb6: {ids: [fa0f982a], count: 1, note: "VOID-then-remediated-rerun = ONE slot."}
+    trial_48: {ids: [15923fe1], count: 1, note: "most recent real falsification; flag counts_toward=true."}
+    withdrawn: {ids: [53981a4a], count: 0, note: "withdrawn-pre-freeze. DROP. Both roles agree."}
+    prose_residual: {count: 0, note: "Task 2 — empty of genuine draws; back-solved 19 was circular."}
+
+  arithmetic_correction_post_critic: >
+    My draft prose said '30' and '29-30' loosely. The clean sum is EXACT, no band:
+    core = 4 VTC + 13 batch + 1 R5(576746aa) + 1 R5-conf(f2fb41fd) + 1 QRB6(fa0f982a)
+    + 1 trial48(15923fe1) = 21. WITH the 8 backfills = 29. WITHOUT them = 21. f2fb41fd is
+    counted (ambiguous->count once) and is inside the 21 core, so there is no 29-vs-30
+    ambiguity. The earlier '30' was an off-by-one; the correct point value is 29.
+  point_value_with_8_backfill_counted: 29   # 21 core (incl. f2fb41fd) + 8 backfill + 0 residual = 29
+  point_value_with_backfill_excluded: 21    # 21 core + 0 backfill (NHT's exclusion of diagnostics)
+  the_one_remaining_disagreement_with_NHT:
+    item: "the 8 exploratory backfill looks (backfill-954ba311 .. backfill-95a4d7d9)."
+    hoqr_position: >
+      I COUNT them (8). Each was a DISTINCT look at the data (different strategy/script)
+      Bonferroni-backfilled precisely BECAUSE each could have surfaced a 'finding' worth
+      reporting. Under BLdP, a look that COULD have been picked as the result is a draw.
+    nht_position: >
+      NHT EXCLUDES them: status=exploratory, no falsification criterion, never a
+      candidate-to-validate, cannot inflate a REPORTED max-Sharpe. compute_honest_n also
+      excludes them.
+    resolution_for_this_round: >
+      This is a genuine, narrow, well-posed disagreement (8 ids), NOT the double-count.
+      Applying our SHARED directional rule: an exploratory look's status as a 'selection
+      draw' is ARGUABLE (it produced no falsification verdict, but it WAS a look that could
+      have surfaced a finding). Genuine ambiguity -> COUNT per SD2. I therefore hold the 8,
+      but I flag this as the SOLE residual delta and defer to a measured resolution: if the
+      firm wants them out, that is a -8 move that is SAFE only as a DECREASE under fresh
+      joint ratification. My binding point value COUNTS them.
+  UPDATED_N_point: 29
+  UPDATED_N_band: "[21, 29]"
+  band_lower_bound: "21 = exclude the 8 exploratory backfills (NHT's view) = the undisputed core (incl. f2fb41fd)."
+  band_upper_bound: "29 = include the 8 exploratory backfills as ambiguous-count draws (my view)."
+  plus_one_convention: "compute_dsr receives n_trials INCLUDING the scored trial: a NEW forward trial uses n_trials = N + 1."
+  what_changed_from_my_prior_48: >
+    DOWN from 48 to 29 (point) / band [21,29]. The entire ~19-point drop is the conceded
+    double-count + emptied prose residual: 48 = 29 countable + 19 prose(phantom). The 19
+    prose residual was pure inflation (Task 2 -> 0). The honest answer is just the 29 real
+    countable ledger draws (4 VTC + 13 batch + 8 backfill + 4 late), with NO prose offset.
+    Without the 8 backfills it is 21. NOT 48. (Coincidence worth flagging: my prior
+    '29 countable' was the RIGHT number all along; the error was bolting a phantom 19 onto it.)
+
+mechanical_rule:
+  statement: >
+    N_DSR = count of DISTINCT ledger trial_ids (collapse by trial_id, last-wins) whose
+    category is a SELECTION DRAW, where:
+      COUNT:  distinct config that RAN and produced a Sharpe/verdict (incl. rejects);
+              param/window variants; ONE slot per VOID-then-rerun; genuinely-ambiguous
+              reserved attempts (frozen confirmatory) counted ONCE.
+      DROP:   spawned-only-never-scored; byte-identical re-runs (same git+config+sharpe,
+              no new max); withdrawn-pre-freeze; write-pattern phantom counter slots;
+              no-spend generation cycles with no selected configuration.
+    Plus a prose offset ONLY for attempts that left NO ledger trial_id AND are individually
+    evidenced as real independent configurations. Current evidenced prose offset = 0.
+  no_prose_back_solving: >
+    BINDING: the offset may NOT be back-solved against a target anchor. Every offset unit
+    must point to a specific evidenced attempt with no ledger trial_id. The 15/19 prose
+    offset is RETIRED (it double-charged the 24->37 batch and {2,6,8,10,12} write artifact).
+  ambiguity_default: "COUNT IT — ONCE. SD2/IC-9 binding. 'Once' is the load-bearing word added this round: ambiguity licenses counting a draw, never re-counting it."
+  call_site_discipline: "compute_honest_n (11, de-dup portfolio view) MUST NOT feed compute_dsr. The DSR-N source counts selection DRAWS per above. Regression test required."
+
+# =============================================================================
+# CONVERGENCE
+# =============================================================================
+convergence:
+  do_i_converge_with_NHT: PARTIAL-CONVERGENCE — large move toward NHT; one narrow item open.
+  agreement_now:
+    - "CONCEDED: the double-count is real (Task 1, counter trail 24->37 = the same 13 batch ids)."
+    - "CONCEDED: the 19-attempt prose residual is empty of genuine draws (Task 2); honest residual = 0."
+    - "AGREED: SD2 counts an ambiguous draw ONCE; never licenses double-counting or counting artifacts (Task 3)."
+    - "AGREED: retire 11 from DSR; drop spawns(2), re-runs(2), withdrawn(1)."
+    - "AGREED: the W5R2 second-pass ids RAN -> they COUNT (resolves NHT's D8 open item: ledger shows distinct verdicts, not identical re-runs; NHT's count-when-ambiguous default lands on COUNT too). Note: that batch has SIX ded1356 members, not five — 9017fadb is a 6th, an undisputed distinct PARAM variant. Both roles COUNT all of them."
+  remaining_delta:
+    item: "the 8 exploratory backfills — HoQR counts (->29), NHT excludes (->21)."
+    size: "8 trials = the entire gap between my 29 and NHT's view; my floor 21 sits below NHT's 22."
+    note: >
+      My new band [21,29] OVERLAPS NHT's [17,27]. The overlap is [21,27]. We are no longer
+      at 48-vs-22; we are arguing 8 exploratory looks at the margin. This is convergence.
+  proposed_convergence_value_if_round_2_needed: >
+    If the firm wants a single number now: 29 (count the 8 backfills, SD2-conservative).
+    If NHT holds the exclusion, the principled value is in the OVERLAP [21,27] — I would
+    accept 27 (count backfills under correlation-aware partial credit) or escalate the lone
+    backfill question to round 2. Either way the double-count is dead and 48 is withdrawn.
+
+dissent_acknowledgement: >
+  NHT's reconciliation was right on the load-bearing point and I was wrong. My 48 rested on
+  a back-solved residual I admitted was not line-derived; the counter trail proves it
+  double-charged the falsification batch and the +2 write stride. I withdraw 48. This is a
+  calibration correction, not a defensive maximalism — over-deflation I cannot derive from
+  the selection family is not rigor.
+
+ratification:
+  hoqr_signature: approve
+  counter_incremented: false      # METHODOLOGY debate round — NO trial spawned, honest-N UNCHANGED
+  binding_outputs:
+    - "DSR-N revised from 48 to point=29, band [21,29] (overlaps NHT [17,27] at [21,27])."
+    - "Prose offset RETIRED (was double-counting); evidenced offset = 0; no back-solving permitted."
+    - "Sole remaining disagreement = the 8 exploratory backfills (count vs exclude)."
+    - "compute_honest_n (11) FORBIDDEN at any compute_dsr call site (regression test)."
+  ROUTE_TO: null-hypothesis-tester    # round-1 response; converge or open round 2 on the 8-backfill item
+  notify: [ceo, cto, null-hypothesis-tester, quant-developer, principal-reviewer]

@@ -77,6 +77,9 @@ def test_intraday_walkforward_is_rejected(tmp_path, monkeypatch):
     """walkforward windows are bar-counts assuming daily bars; enabling it on an
     intraday timeframe must fail loud rather than silently produce ~3-week windows."""
     monkeypatch.setattr(rt, "_TRIALS_REGISTRY", tmp_path / "trials.jsonl")
+    # Patch the denominator so the empty tmp registry doesn't raise before the
+    # ConfigError we're testing has a chance to fire.
+    monkeypatch.setattr(rt, "honest_n_deflation_denominator", lambda _path: 0)
     cfg = tmp_path / "c.yaml"
     cfg.write_text(_MIN_CONFIG)
     prereg = tmp_path / "prereg.md"

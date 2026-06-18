@@ -1,0 +1,202 @@
+# =============================================================================
+# PRINCIPAL REVIEWER (independent) — REVIEW of the honest_n DSR-denominator rebuild
+# to the ratified N=30. Structurally independent: prompt carried the orchestrator's
+# verification facts but NO other role's approve/reject stance on this code. Review
+# only; no fixes written.
+# =============================================================================
+role: principal-reviewer
+artifact_type: review
+decision: approve-with-conditions
+trial_id: REVIEW-HONEST-N-REBUILD
+pre-registration-ref: "N/A — methodology/infra review (DSR deflation denominator rebuild)"
+timestamp_utc: "2026-06-18T04:11:05Z"
+git_sha_at_review: 679e8c7bb117838546a0a782f78485d884b6e8b4   # rebuild lives in working tree (unstaged) atop this base
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: principal-reviewer
+no-capital-instruction: true
+
+claimed_domains:
+  - independent-code-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review
+  - hidden-bug-and-edge-case-surfacing
+
+artifact-under-review:
+  - src/forex_system/harness/honest_n.py
+  - src/forex_system/harness/dsr_recompute.py
+  - src/forex_system/harness/run_trial.py
+  - scripts/run_falsification_trial.py
+  - scripts/trial_48_is_eval.py
+  - tests/harness/test_honest_n.py
+  - .fintech-org/trials.jsonl (honest-n-classification record, line 50)
+  spec_traced_against:
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/cto-honest-n-rebuild-spec.yaml
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-debate-r1.yaml
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-debate-r1.yaml
+
+contamination-check: "clean"   # prompt carried orchestrator-verified FACTS (honest_n()==30, tests pass) but NO other role's decision/body/self-review on this code under review.
+
+rubrics-applied:
+  - "Spec-to-implementation trace — APPLIED. Each CTO-spec clause (counting rule, classification-record consumption, no-offset, 4 call sites, sacred tests) traced to code."
+  - "execution-firewall-review (Section C parameter-sourcing + Section D observability + Section A no-research-logic-in-impl) — APPLIED. Denominator 30 sources to a signed review-gated record, not a default; the dsr_recompute live under-deflation is the Section-C violation the rebuild fixes."
+  - "log-as-decision-trace — APPLIED. honest_n.computed event emits classification_record_ref + counted_legacy + counted_new + git_sha; DSR is reconstructable from logs."
+  - "Edge-case enumeration — APPLIED. Empty ledger, missing record (fail-closed), spawned-only, re-run-equivalent, sticky-exclusion, ambiguous-null, double-line, legacy+new-line all examined and tested."
+  - "Invariant search — APPLIED. Monotonicity (sticky exclusion), no-double-count, over-deflate-when-ambiguous, fail-closed verified in code AND tests."
+  - "Test inversion — APPLIED. Asked of each test 'what bug slips past'; one coverage gap surfaced (F-003)."
+  - "Failure-mode reasoning — APPLIED to the file-read / missing-record / multiple-record paths."
+  - "Numerical/statistical correctness — APPLIED (light): dsr.py math confirmed UNCHANGED since base (empty diff); this rebuild only changes the n_trials FED to it. Statistical adjudication of 29-vs-30 is HoQR/NHT's instrument, not re-litigated here."
+
+# =============================================================================
+# LOAD-BEARING CHECK 1 — Is 30 GENUINELY DERIVED + AUDITABLE, or hard-coded?
+# =============================================================================
+check_1_thirty_is_derived_not_hardcoded:
+  verdict: GENUINELY-DERIVED-AND-AUDITABLE (not a hard-coded integer, not a phantom-offset in new clothes)
+  evidence:
+    - "Executed honest_n_deflation_denominator(Path('.fintech-org/trials.jsonl')) on the LIVE ledger -> returned 30. Not a literal in the function; it is len(legacy_counted) + len(new_counted)."
+    - "The classification record (trials.jsonl line 50, event=honest-n-classification, ratified_n=30, ratified_by=[head-of-quant-research, null-hypothesis-tester]) lists 30 counted_trial_ids EACH WITH A PER-TRIAL REASON and 4 excluded_trial_ids each with a reason. Parsed: 30 counted + 4 excluded = 34 distinct ledger ids. This is an explicit auditable list, NOT a dressed-up integer — every countable id is named with a justification traceable to the HoQR/NHT debate."
+    - "Cross-checked the 34 distinct trial_ids in the ledger against the record's two lists: ZERO ids fall outside both lists (no id silently classified mechanically), and ZERO overlap between counted and excluded. So 30 = len(counted_legacy) + 0 new = 30, fully reproduced from the record."
+    - "This is the OPPOSITE of the retired phantom-15-offset: the offset back-solved an integer against the 48 anchor (HoQR conceded it was 'not line-derived'); the new record is a census of named draws with reasons. The replacement strictly improves parameter sourcing (firewall Section C)."
+  why_a_record_and_not_pure_mechanical_is_CORRECT_here:
+    - "CTO spec ledger_facts_verified.the_load_bearing_field_finding (A)(B)(C) proves the legacy 34 CANNOT be classified to 30 from fields alone with one mechanical pass: (A) current field rule drops only 53981a4a; (B) a naive 'no terminal record => drop' wrongly sweeps the 8 backfills + f2fb41fd + QRB6 + trial-48 (all COUNTED); (C) a naive 'same sharpe => re-run' wrongly drops a9c0902d. A frozen ratified record for the legacy ids is the honest choice; NEW trials classify mechanically. The code implements exactly this split (legacy via record lists, new via the field rule)."
+
+# =============================================================================
+# LOAD-BEARING CHECK 2 — Exclusions correct (spot-checks against the ledger)
+# =============================================================================
+check_2_exclusions:
+  verdict: CORRECT
+  spot_checks_against_ledger:   # parsed directly from trials.jsonl this round
+    a9bc0d21_DROP_rerun: "VERIFIED. Ledger: status=complete, config_hash=48acc248c1db, sharpe=-0.07562743726375627 — IDENTICAL config_hash AND sharpe to 7dde9154 (48acc248c1db / -0.0756). Correct re-run-equivalent drop. In record excluded list with matching reason."
+    a9c0902d_COUNT_distinct_config: "VERIFIED (the load-bearing distinction). Ledger: config_hash=7b4607069a6b (DIFFERS from a9bc0d21's 48ac), same sharpe -0.0756. Counted — identity-as-rerun unprovable, SD2 over-deflate. config_hash+sharpe (not sharpe alone) is the load-bearing key; the same/different-config test pair (test_rerun_equivalent_* / test_same_sharpe_different_config_hash_counts) pins both directions."
+    spawned_only_3c9e952a_d18063d4_DROP: "VERIFIED. Both: single spawned record, sharpe=null, NO terminal record. Correct spawned-only drops."
+    withdrawn_53981a4a_DROP: "VERIFIED. Ledger last-wins: status=withdrawn-pre-freeze, counts_toward_deflation_denominator=False. Correct withdrawn drop; sticky-exclusion logic (ever_excluded set) makes it monotonic across last-wins (tested by test_sticky_exclusion_survives_last_wins)."
+  spawned_only_no_double_count: "VERIFIED. Double-count guard tested for (a) same trial_id on multiple lines, (b) legacy-counted id reappearing as a new ledger line — both count once (continue at honest_n.py:395 skips legacy ids from the mechanical pass)."
+  new_trial_field_rule_correctness: "VERIFIED narrowness. spawned-only drop is gated on status=='spawned' AND sharpe is None (line 412) — deliberately narrow so ambiguous null-sharpe draws (exploratory/frozen-pending-receipt) fall through to the SD2 COUNT default. test_new_exploratory_null_sharpe_counts_not_dropped_as_spawned pins this against the CTO-spec finding (B) over-drop trap."
+
+# =============================================================================
+# LOAD-BEARING CHECK 3 — dsr_recompute.py live under-deflation FIXED
+# =============================================================================
+check_3_dsr_recompute_fix:
+  verdict: FIXED-AND-CONFIRMED
+  evidence:
+    - "dsr_recompute.py:109 now computes n_deflation_denominator = honest_n_deflation_denominator(trials_path) (=30)."
+    - "dsr_recompute.py:208-214 compute_dsr(... n_trials=n_deflation_denominator ...). The OLD code (git diff 679e8c7) passed n_trials=n_honest (the ~11 de-dup view from compute_honest_n) — a LIVE under-deflation that manufactured false passes (firewall Section C, the unacceptable error direction). The diff confirms the exact line changed from n_trials=n_honest to n_trials=n_deflation_denominator."
+    - "compute_honest_n is STILL imported/called in dsr_recompute.py but ONLY for the portfolio-view SUMMARY fields (n_honest_portfolio, retained_keys, excluded_counts) — never fed to compute_dsr. All emitted JSONL/print fields renamed n_honest -> n_deflation_denominator so the name can no longer cause the leak."
+    - "+1 semantics: documented as a recompute of an ALREADY-LEDGERED trial, NO +1 (denominator used directly, mirroring trial_48_is_eval). Correct for the recompute use-case."
+
+# =============================================================================
+# CHECK 4 — Forbiddance test covers all 4 sites; N=11 re-scoped + absent from DSR sites
+# =============================================================================
+check_4_forbiddance:
+  verdict: ADEQUATE (with one strength-of-assertion caveat, F-002)
+  evidence:
+    - "Ran TestForbiddance — 4/4 parametrized sites PASS (run_trial.py, run_falsification_trial.py, trial_48_is_eval.py, dsr_recompute.py)."
+    - "For the 3 non-recompute sites: AST import check + textual call check assert compute_honest_n is neither imported nor called. Confirmed independently via grep — none import it."
+    - "For dsr_recompute.py (which legitimately imports compute_honest_n for the summary): the test asserts 'n_trials=n_deflation_denominator' appears literally. PASSES."
+    - "compute_honest_n re-scoped: docstring + module header now state it is FORBIDDEN at any compute_dsr site; test_sacred_n_honest_value keeps N=11 as the de-dup/portfolio view and documents the forbiddance. Executed compute_honest_n on live ledger -> 11 (research view preserved)."
+
+# =============================================================================
+# CHECK 5 — Fail-closed + new-trial increment
+# =============================================================================
+check_5_fail_closed_and_increment:
+  verdict: CORRECT
+  evidence:
+    - "Fail-closed: honest_n.py:363-370 raises RuntimeError if classification_record is None. test_fail_closed_no_classification_record asserts the raise. Confirmed the function does NOT fall back to a silently-smaller count."
+    - "Increment-by-1: executed live — copied the real ledger, appended ONE genuine new complete trial (distinct config_hash) -> denominator returned 31 (exactly +1 from 30). Matches test_increment_by_one_for_new_draw."
+    - "Exactly ONE honest-n-classification record present in the ledger (grep -c = 1); no risk of a second record silently overwriting via last-wins on the classification_record variable for the CURRENT ledger. See F-003 for the latent-multi-record observation."
+
+# =============================================================================
+# CHECK 6 — No phantom residue; dsr.py math unchanged
+# =============================================================================
+check_6_no_phantom_residue:
+  verdict: CLEAN
+  evidence:
+    - "grep over honest_n.py: ZERO occurrences of _RECONCILIATION_EVENT, prose_only_attempts, baseline_offset. Line 92 is a COMMENT only ('replaces the retired honest-n-reconciliation / integer-offset approach'); the live constant on line 93 is _CLASSIFICATION_EVENT = 'honest-n-classification'. No dormant offset branch executes. test_no_reconciliation_event_in_source + test_honest_n_offset_json_not_read_by_function pin this."
+    - "dsr.py and deflated_sharpe.py: git diff 679e8c7 EMPTY — DSR math untouched. The rebuild changes only the n_trials value fed in. deflated_sharpe.py:72 is a thin shim (n_trials caller-supplied, no embedded denominator) — correctly NOT an org-N source site."
+    - "Enumerated all compute_dsr( invocation sites: exactly the 4 org-N sites + the deflated_sharpe shim. No missed 5th org-N site."
+
+# =============================================================================
+# CHECK 7 — trial_48 historical note not silently restated
+# =============================================================================
+check_7_trial48_historical_note:
+  verdict: CORRECT
+  evidence:
+    - "trial_48_is_eval.py: N_ORG_TRIALS now = honest_n_deflation_denominator(...) (mechanical, =30), NO +1 (documented: already-ledgered trial). POWER_FLOOR stays 48 with an explicit comment that it is a DIFFERENT constant (min OOS qualifying trades) — correctly NOT changed."
+    - "Labels DSR_at_N48 -> DSR_at_N30 in the result dict and print. The HISTORICAL 'DSR=0.00 at N=48' is NOT silently re-graded: a HISTORICAL NOTE block flags that N=48 over-deflated (DSR monotone decreasing in N, so the prior kill was too-strict), the recompute-at-30 is a TRACKED FOLLOW-ON for HoQR/NHT, and the comment explicitly says 'Do NOT assume the kill stands; do NOT silently re-grade without HoQR/NHT ratification.' Matches CTO spec decision-5 historical_result_flag."
+
+# =============================================================================
+# FINDINGS
+# =============================================================================
+findings:
+  - id: F-001
+    severity: minor
+    location: ".fintech-org/honest_n_offset.json (file still present on disk)"
+    category: maintainability
+    observation: "The retired phantom-offset file .fintech-org/honest_n_offset.json STILL EXISTS on disk (2.5K, last modified Jun 17). The CTO spec retires-clause says 'DELETE (or move to an archive/ dir with a RETIRED header)'. The code no longer reads it (grep over src/ and scripts/ confirms zero readers; only the test references it by name to assert non-use), so this is NOT a correctness defect today."
+    inference: "INFERENCE: a live, un-headered offset file invites a future regression where someone re-wires a reader against it (the exact failure mode the rebuild exists to kill). It is dead-but-loaded landmine, not active harm."
+    evidence: "ls -la .fintech-org/honest_n_offset.json -> present. grep -rn honest_n_offset src/ scripts/ (excl. tests) -> no readers. CTO spec retires[0].action = DELETE-or-archive."
+    recommended-action-class: other   # delete-or-archive-with-RETIRED-header per the spec's own retires clause
+    owning-role: quant-developer
+
+  - id: F-002
+    severity: minor
+    location: "tests/harness/test_honest_n.py:761-773 (TestForbiddance, dsr_recompute branch)"
+    category: test-coverage-gap
+    observation: "The forbiddance assertion for dsr_recompute.py is TEXTUAL: it asserts the literal substring 'n_trials=n_deflation_denominator' is present. It does NOT assert (via AST) that compute_honest_n's RESULT is absent from the compute_dsr call's n_trials argument."
+    inference: "INFERENCE: a future edit could reintroduce a second compute_dsr call inside dsr_recompute that passes the de-dup value while the original 'n_trials=n_deflation_denominator' string still exists elsewhere in the file — the substring assertion would still pass. The other 3 sites get the stronger AST import/call check; dsr_recompute (the historically CRITICAL site) gets the weaker textual one. Low likelihood, but this is the site that already had the live bug."
+    evidence: "test body lines 761-773 use 'in source' string membership, not ast over the compute_dsr Call node's n_trials keyword."
+    recommended-action-class: add-test
+    owning-role: quant-developer
+
+  - id: F-003
+    severity: minor
+    location: "src/forex_system/harness/honest_n.py:332-340 (classification-record location loop)"
+    category: edge-case
+    observation: "The loop assigns classification_record on EVERY matching honest-n-classification line (last-wins). For the current ledger there is exactly one such record, so behavior is correct today. There is no guard that asserts exactly one record, and no validation that ratified_n equals len(counted_trial_ids)."
+    inference: "INFERENCE: if a second honest-n-classification record were ever appended (e.g. a future re-ratification), the LAST one silently wins with no log warning, and a record whose self-declared ratified_n disagrees with its own counted list length would pass undetected. Both are latent integrity gaps in the auditability the rebuild depends on; neither is triggered by the current ledger."
+    evidence: "Loop at 332-340 overwrites classification_record unconditionally; no count-of-records check; no ratified_n vs len(counted_trial_ids) cross-check. grep -c honest-n-classification = 1 today (so not live)."
+    recommended-action-class: tighten-invariant
+    owning-role: quant-developer
+
+# =============================================================================
+# COVERAGE + DECISION
+# =============================================================================
+coverage-statement: >
+  I reviewed 6 of 6 artifacts in scope (honest_n.py, dsr_recompute.py, run_trial.py,
+  run_falsification_trial.py, trial_48_is_eval.py, test_honest_n.py) plus the classification
+  record in trials.jsonl and the 3 ratification artifacts. Nothing skipped. I executed:
+  honest_n_deflation_denominator on the live ledger (=30), compute_honest_n on the live ledger
+  (=11), the full test suite (41 passed), the forbiddance + no-dead-path subsets (6 passed),
+  a live increment test (30->31), and a ledger spot-check of 6 trial_ids.
+
+time-spent-reasoning: "~30 minutes (read spec + 3 ratifications + 6 code artifacts; executed denominators, tests, increment, and ledger spot-checks)"
+
+decision: approve-with-conditions
+conditions:
+  - "F-001: delete .fintech-org/honest_n_offset.json or move it to an archive/ dir with a RETIRED header, per the CTO spec's own retires clause. (Non-blocking; the code does not read it, but the spec mandated its retirement and a live un-headered offset file is a regression landmine.)"
+  - "F-002 (recommended, non-blocking): strengthen the dsr_recompute forbiddance assertion from a textual substring to an AST check that compute_honest_n's result is not the n_trials argument to any compute_dsr Call — bringing the CRITICAL site to parity with the other three."
+  - "F-003 (recommended, non-blocking): add a guard that exactly one honest-n-classification record exists (warn/raise on >1) and that ratified_n == len(counted_trial_ids), protecting the auditability the denominator relies on."
+
+blocking_findings: NONE   # all 3 findings are minor; correctness of the live N=30 path is verified end-to-end.
+
+summary_for_orchestrator: >
+  APPROVE-WITH-CONDITIONS (no blocking findings). The rebuild is correct on every load-bearing
+  axis: N=30 is GENUINELY DERIVED and AUDITABLE (len(counted_legacy)+len(new)=30, executed live;
+  the record names all 30 countable ids with per-trial reasons and all 4 drops — NOT a phantom
+  integer). Exclusion spot-checks all pass against the ledger (a9bc0d21 re-run DROP, a9c0902d
+  distinct-config COUNT, 2 spawned-only DROP, 53981a4a withdrawn DROP). The CRITICAL
+  dsr_recompute.py:190 live under-deflation is FIXED (now feeds 30, not ~11). Forbiddance covers
+  all 4 sites and passes; the N=11 de-dup view is re-scoped and provably absent from compute_dsr.
+  Fail-closed raises on a missing record; appending a genuine new trial increments 30->31. No
+  phantom residue (line 92 comment only; dsr.py math empty-diff). The trial-48 N=48->N=30 recompute
+  is flagged as a tracked HoQR/NHT follow-on, not silently re-graded. Three MINOR conditions:
+  (F-001) the retired offset JSON still sits on disk un-deleted; (F-002) the dsr_recompute
+  forbiddance check is textual not AST at the very site that had the bug; (F-003) no guard against
+  a future second classification record or a ratified_n/list-length mismatch. None block.
+
+ratification:
+  principal_reviewer_signature: approve-with-conditions
+  counter_incremented: false   # review artifact — NO trial spawned, honest-N UNCHANGED
+  notify: [ceo, cto, head-of-quant-research, null-hypothesis-tester, quant-developer]

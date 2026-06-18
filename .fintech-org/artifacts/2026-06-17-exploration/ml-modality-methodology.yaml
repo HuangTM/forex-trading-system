@@ -1,0 +1,325 @@
+# ML Researcher — Strategic Exploration: Data Modalities & Methodology
+# "Does any data modality or methodology change the confirmability equation?"
+# Divergent exploration. NOT a decision. Honest methodology voice.
+
+role: ml-researcher
+artifact_type: methodology-design
+decision: approve   # approve = the exploration artifact itself is admissible; NOT an approval of any strategy
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — strategic exploration"
+timestamp: 2026-06-18T01:49:57Z
+no-capital-instruction: true
+
+claimed_domains:
+  - cross-validation-design-CPCV-purged-embargoed
+  - deflated-sharpe-and-multiple-testing-correction
+  - regime-stratified-evaluation
+  - feature-engineering-and-leakage-detection
+  - hyperparameter-search-and-trial-budget
+
+# ---------------------------------------------------------------------------
+# FRAMING — the confirmability equation I am stress-testing
+# ---------------------------------------------------------------------------
+confirmability_equation:
+  identity: "years_to_validate = N_required / events_per_year,  N_required ≈ 6.18 / IR²"
+  load_bearing_truth: >
+    There are exactly TWO levers. Either (a) RAISE IR (the numerator shrinks
+    quadratically — a 2x IR is a 4x reduction in N_required), or (b) RAISE
+    events_per_year (the denominator). EVERY proposal below must be scored on
+    which lever it actually moves, and whether the move survives the honest-N
+    deflation and autocorrelation claw-back. A proposal that raises raw event
+    count but also raises N_trials or injects autocorrelation can be NET-NEGATIVE.
+  the_sacred_constraint: >
+    Better methodology REDUCES false positives. It does NOT manufacture alpha.
+    DSR deflates against CHANCE, not against alpha (financial-ml-methodology
+    SKILL.md line 156). Any path that "validates faster" by weakening a gate is
+    a regression to the broken-DSR reset, not progress. I will flag those as TRAPS.
+  current_state:
+    honest_N: 48                      # verified: .fintech-org/trials.jsonl, last archived trial
+    validated_alpha: 0
+    data_on_hand:
+      - "12 FX pairs daily OHLCV"
+      - "3 pairs 4h (EURUSD, GBPUSD per data/spreads); EURUSD 1h ingested"
+      - "rate differentials + CB-decision dates (data/rates) — non-price modality ALREADY in use (carry, QRB-6)"
+      - "per-bar bid/ask spread (recently recovered, commit 96f6f84)"
+      - "ZERO true volume, ZERO order-flow, ZERO options-implied"
+    structural_finding_inherited: >
+      The DATASET-WALL finding (memory: 2 cycles / 18 ideas floored at ~3-5yr).
+      The wall is data, not ideas: 12 daily pairs with no volume cap
+      events/yr × per-event-Sharpe. This exploration asks whether ANY modality
+      or method genuinely lifts that ceiling.
+
+# ===========================================================================
+# ITEM 1 — NEW MODALITIES THAT ADD IR
+# ===========================================================================
+item_1_new_modalities:
+
+  vpin_kyles_lambda_order_flow_imbalance:
+    description: >
+      Microstructure flow-toxicity measures. VPIN (volume-synchronized prob. of
+      informed trading), Kyle's lambda (price impact per unit signed flow), OFI
+      (order-flow imbalance). These are among the few features with documented
+      ORTHOGONAL, non-decaying IR in equities/futures because they measure the
+      mechanical price-impact channel rather than a crowded price pattern.
+    hard_blocker_for_this_firm: >
+      ALL THREE REQUIRE TRUE VOLUME AND/OR SIGNED ORDER FLOW. Spot FX is a
+      decentralized OTC market: there is NO consolidated tape, NO true volume.
+      Tick-COUNT is a known-poor proxy (it correlates with volatility, not flow
+      toxicity) and would FAIL a leakage/validity audit if dressed up as "volume."
+      Recovering per-bar spread (commit 96f6f84) is NOT order flow — spread is a
+      cost/liquidity proxy, not signed informed-trader pressure.
+    only_available_if: "the firm CHANGES ASSET CLASS to crypto (CEX order books, free L2/trades) or futures (CME FX futures have real volume + tape)."
+    realistic_orthogonal_IR_if_asset_class_changed: "MODERATE-to-HIGH and genuinely orthogonal to price-pattern alpha — this is the single biggest IR lever on the table, but it is GATED behind a new asset class, not a new feature."
+    verdict: REAL-CONFIRMABILITY-UNLOCK *conditional on asset-class change*; FALSE-HOPE on spot FX as-is
+    why: >
+      On the current asset class it is impossible (no volume). As a reason to
+      acquire CME-FX-futures or crypto data it is the strongest case in this
+      document, because it moves the IR numerator with a feature whose edge is
+      mechanical and slow-decaying — exactly the kind that survives DSR.
+
+  cot_positioning:
+    description: "CFTC Commitments-of-Traders — weekly net positioning of commercials/non-commercials. Available FREE for FX futures, no asset-class change to TRADE spot needed (use as a feature)."
+    confirmability_problem: >
+      WEEKLY release, ~3-day publication lag. That is ~52 events/year MAX and
+      the signal is slow (positioning mean-reverts over weeks-to-months). Low
+      events/year is the SAME wall QRB-6 hit. Plausibly real but small IR; it
+      does little to the denominator.
+    leakage_note: "publication lag MUST be modeled (Tuesday data, Friday release) or it is a lookahead trap — standard clock-and-ordering finding."
+    verdict: MARGINAL
+    why: "Real, free, orthogonal-ish to price — but low event count keeps years_to_validate high. A diversifier, not a ceiling unlock."
+
+  options_implied_risk_reversals_vol_skew:
+    description: "FX options 25-delta risk-reversals (directional skew) and vol-skew / butterfly. Priced sentiment + tail-risk pricing. Orthogonal to spot price action."
+    availability: >
+      NOT free and NOT on hand. Requires a vendor feed (Bloomberg/Refinitiv-class)
+      for the major-pair vol surface. KNOWLEDGE_GAP on cost/licensing in this env
+      (no web access this dispatch).
+    realistic_IR: >
+      MODERATE and genuinely orthogonal — risk-reversals lead spot at turning
+      points in some regimes. But it is daily/low-frequency (same denominator
+      ceiling) and the documented edge is regime-conditional, so it must be
+      regime-stratified or it over-claims.
+    verdict: MARGINAL-to-UNLOCK *if affordable*; gated on a paid feed
+    why: "Best ORTHOGONAL daily feature available without changing asset class — but daily cadence means it lifts IR, not event count, and acquisition cost is unknown."
+
+  item_1_synthesis:
+    ranking_by_honest_IR_unlock:
+      1: "crypto/futures order-flow (VPIN/Kyle/OFI) — highest orthogonal IR, GATED on asset-class change"
+      2: "options-implied risk-reversals — moderate orthogonal IR, gated on paid feed, daily cadence"
+      3: "COT — free, real, but low-event/slow → marginal"
+    blunt_truth: >
+      The modalities with the LARGEST orthogonal IR (order-flow) are exactly the
+      ones spot FX structurally cannot have. The firm has ALREADY mined the cheap
+      non-price modalities it can reach (rates, CB dates). The remaining real
+      unlocks require either a new asset class (order-flow) or money (options).
+
+# ===========================================================================
+# ITEM 2 — PORTFOLIO-OF-WEAK-EDGES / ENSEMBLE PATH
+# ===========================================================================
+item_2_ensemble_of_weak_edges:
+  the_seductive_math: >
+    Portfolio Sharpe of k uncorrelated equal-Sharpe legs ≈ SR_leg × √k. Ten
+    legs at SR 0.3 → portfolio ~0.95 IF perfectly uncorrelated. This is the
+    pitch: "combine marginal-but-real edges, validate the portfolio even though
+    no leg clears standalone DSR."
+  why_it_is_mostly_a_trap_here:
+    correlation_kills_the_sqrt_k: >
+      The √k gain assumes ρ≈0. FX legs are NOT independent — they share USD beta,
+      risk-on/off beta, carry beta, and vol-regime beta. With mean pairwise ρ=0.3,
+      effective k collapses: the first-order uniform-ρ approximation
+      effective_k ≈ k / (1 + (k-1)ρ) gives 10 / (1 + 9×0.3) ≈ 2.7 for k=10, so
+      portfolio SR ≈ SR_leg × √2.7 ≈ 0.49, not 0.95. (HEDGE: this is the
+      equal-correlation first-order approximation, NOT the exact Bailey–López de
+      Prado result; a non-uniform correlation matrix shifts the number — but the
+      direction is robust.) The diversification the pitch sells is mostly already
+      spent on shared betas.
+    the_honest_N_explosion: >
+      THE DECISIVE OBJECTION. Every leg you searched to find is a TRIAL. If you
+      fished 10 "real-ish" edges out of 40 candidates, N does not stay 48 — it
+      grows by the SEARCH count, not the SURVIVOR count. The org-wide deflation
+      denominator must include every leg evaluated. Selecting the best-k legs and
+      then deflating only against k (not against the search space) is the
+      textbook multiple-comparisons fraud this firm reset over once already.
+    does_DSR_even_apply_to_an_ensemble: >
+      DSR as formulated (Bailey & López de Prado) deflates a SINGLE strategy's
+      Sharpe against N noise draws. An ensemble's Sharpe must be deflated against
+      the COMBINATORIAL search that produced the weights AND the leg selection —
+      a strictly larger N than the leg count. Naively applying single-strategy DSR
+      to a post-hoc-assembled ensemble UNDER-deflates. This is the trap dressed up.
+  where_a_NARROW_version_is_legitimate:
+    condition: >
+      It is NOT a trap IFF: (a) the legs are PRE-REGISTERED as a fixed basket
+      before evaluation (no post-hoc leg selection), (b) each leg is independently
+      motivated (different modality/horizon, e.g. carry + CB-event + risk-reversal
+      — decorrelated by CONSTRUCTION not by data-mining), (c) the basket is
+      evaluated ONCE as a single committed structure, and (d) DSR is computed
+      against the full org-wide N INCLUDING every leg's own trial.
+    note: "Under those conditions it is just 'one strategy that happens to have multiple sources' — which is fine and is what diversified-by-construction means. The fraud is in the SEARCH-then-SELECT, not in the combining."
+  verdict: FALSE-HOPE-TRAP *as a search-and-combine path*; MARGINAL *only* as a pre-committed, construction-decorrelated, fully-deflated basket
+  why: >
+    The ensemble does not escape multiple-comparisons — it CONCENTRATES it. The
+    √k gain is eaten by FX shared-beta correlation, and the honest-N explosion
+    raises the bar faster than the portfolio Sharpe rises. This is the most
+    statistically dangerous direction in the document precisely because the math
+    LOOKS like a free lunch.
+
+# ===========================================================================
+# ITEM 3 — ML / FEATURE APPROACHES
+# ===========================================================================
+item_3_ml_feature_approaches:
+  the_overfitting_baseline: >
+    With 12 pairs and short history (effective independent samples in the low
+    hundreds-to-thousands after autocorrelation correction), flexible ML
+    (gradient-boosted trees, deep nets, RL agents) has FAR more degrees of
+    freedom than the data can constrain. The frozen-single-structure linear
+    approach the firm uses is not primitive — it is a deliberate, correct
+    response to a low-signal / high-multiplicity regime. Adding model capacity
+    here primarily inflates effective-N and manufactures in-sample Sharpe that
+    DSR then correctly destroys. DEFAULT EXPECTATION: ML OVERFITS HERE.
+  where_ML_genuinely_helps_not_hype:
+    regime_classification:
+      use: "unsupervised/low-capacity regime labeling (vol-percentile, HMM on vol+correlation) to STRATIFY evaluation and condition sizing — NOT to predict returns."
+      why_safe: "it is a covariate model, not an alpha model; it reduces false positives by exposing regime-conditional performance (rubric 4). This is methodology, not alpha — exactly the legitimate use."
+      verdict: MARGINAL-to-USEFUL (defensive, not alpha-generating)
+    cross_sectional_pooling:
+      use: "pool the 12 pairs into ONE model with pair fixed-effects rather than 12 separate fits. Multiplies effective sample size and is the single best ML-adjacent lever for the small-data problem."
+      why: "shares statistical strength across pairs; ONE pooled trial instead of 12 reduces multiplicity vs per-pair search. This genuinely helps the N_required side IF the cross-pair signal is shared (a real assumption to test, not assume)."
+      caveat: "leakage: pooling must purge/embargo ACROSS pairs on shared event dates (e.g. FOMC hits all USD pairs same bar) or it leaks."
+      verdict: REAL-but-MODEST-UNLOCK (raises effective N, not IR; biggest ML-adjacent win)
+    meta_labeling:
+      use: "secondary model on an ALREADY-VALIDATED primary signal to decide trade/no-trade, improving precision."
+      hard_precondition: "primary must be real first. Meta-labeling on an overfit/unvalidated primary stacks overfitting (SKILL.md anti-pattern #4). The firm has ZERO validated primaries → meta-labeling has NOTHING to sit on top of TODAY."
+      verdict: NOT-APPLICABLE-YET (premature; revisit only after a primary validates)
+  verdict_overall: >
+    Predictive/return-forecasting ML = FALSE-HOPE-TRAP at current data scale
+    (overfits, inflates effective-N). Cross-sectional POOLING and regime
+    classification = MARGINAL-to-USEFUL because they raise effective sample size
+    / reduce false positives rather than chase capacity. The honest framing: ML
+    here should SHRINK degrees of freedom (pooling) or serve EVALUATION (regime
+    strata), never expand model capacity to forecast returns.
+
+# ===========================================================================
+# ITEM 4 — DOES A HIGHER-EVENT-COUNT REGIME (INTRADAY / CRYPTO) FIX THE DSR MATH?
+# ===========================================================================
+item_4_does_more_events_fix_DSR:
+  the_naive_hope: "intraday/crypto gives 10-100x more bars → events_per_year explodes → years_to_validate collapses → everything validates."
+  the_three_claw_backs:
+    autocorrelation_claw_back:
+      mechanism: >
+        More BARS is not more INDEPENDENT events. Intraday returns are heavily
+        autocorrelated and vol-clustered. Honest effective-N (the firm's
+        autocorrelation-corrected count) grows FAR slower than raw bar count.
+        Going from 1h to 1m is ~60x bars but often only a few-x effective-N once
+        you correct for serial dependence + the embargo widening required to
+        kill intraday leakage. The √-of-effective-N in DSR means even the
+        reduced gain is further square-rooted.
+      magnitude_intuition: "raw 60x bars → maybe 3-8x effective independent events after autocorrelation correction; DSR benefits from √ of THAT."
+    cost_claw_back:
+      mechanism: >
+        ALREADY DEMONSTRATED by trial 48 (15923fe1, archived today): overnight
+        MR on EURUSD 1h had a REAL directional edge (reversion hit-rate 0.55 > 0.50,
+        gross +3.41 pips/trade) but was COST-DOMINATED (net −4.09 pips). Higher
+        frequency means MORE crossings of the spread/slippage. Per-event gross IR
+        shrinks toward the cost floor as frequency rises. The denominator grows
+        but the numerator (net IR) collapses — the equation can move the WRONG way.
+      this_is_evidence_not_speculation: >
+        trial 48 is a clean falsification of cost-dominance FOR THAT SPECIFIC
+        STRUCTURE (overnight MR on EURUSD 1h) — a concrete, on-this-firm's-data
+        DATAPOINT that the cost claw-back is real and bites first, NOT a proof
+        that all intraday strategies are cost-dominated. Scope it as one
+        existence-proof of the claw-back, not a universal falsification.
+    multiplicity_claw_back:
+      mechanism: >
+        A higher-frequency regime opens a vastly larger strategy SPACE (more
+        horizons, more intrabar structures, more parameterizations). If the firm
+        explores that space, N (the deflation denominator) explodes commensurately.
+        More events per strategy is partly cancelled by more strategies searched.
+        Discipline (frozen single structure, pre-registration) is what prevents
+        this — but the temptation scales with the opportunity.
+  crypto_distinction:
+    important: >
+      Crypto is DIFFERENT from FX-intraday and should not be lumped in. Crypto
+      brings TRUE VOLUME + ORDER FLOW (Item 1's highest-IR modality) — so it can
+      move the IR NUMERATOR, not just the event denominator. That is a
+      qualitatively stronger case than FX-intraday, which only adds (claw-backed)
+      events. The cost claw-back still applies (crypto spreads/fees are real), but
+      the orthogonal-flow IR is the genuine differentiator.
+  verdict:
+    fx_intraday: MARGINAL-to-FALSE-HOPE — "autocorrelation + cost + multiplicity claw back most of the apparent event gain; trial 48 is direct evidence the cost claw-back bites first."
+    crypto: REAL-CONFIRMABILITY-UNLOCK-CANDIDATE — "not because of event count (claw-backed) but because it carries true order-flow → the only path that moves the IR numerator with a slow-decaying orthogonal signal."
+  quantified_intuition: >
+    Net DSR gain from a frequency jump ≈ √(effective_N_multiplier) × (net_IR_ratio).
+    For FX 1h→1m: √(~4) × (net_IR shrinking toward 0 from cost) ≈ often ≤ 1.0
+    (no net gain, can be < 1). For crypto: the order-flow IR term can lift
+    net_IR_ratio > 1 even after costs — that is where the real unlock lives.
+
+# ===========================================================================
+# CONSOLIDATED VERDICTS
+# ===========================================================================
+consolidated:
+  per_item:
+    item_1_modalities: "order-flow(crypto/futures)=UNLOCK[gated on asset class]; options-RR=MARGINAL/UNLOCK[gated on paid feed]; COT=MARGINAL"
+    item_2_ensemble: "FALSE-HOPE-TRAP as search-and-combine; MARGINAL only as pre-committed construction-decorrelated fully-deflated basket"
+    item_3_ml: "return-forecasting ML=TRAP(overfits); cross-sectional pooling=MODEST-UNLOCK(raises effective N); regime-classification=USEFUL(defensive); meta-labeling=PREMATURE"
+    item_4_more_events: "FX-intraday=MARGINAL/FALSE-HOPE(claw-backs + trial-48 evidence); crypto=UNLOCK-CANDIDATE(carries order-flow → moves IR numerator)"
+
+  single_most_likely_to_raise_CONFIRMABLE_IR:
+    pick: "TRUE ORDER FLOW via an asset-class move to crypto (or CME FX futures) — VPIN / Kyle's-λ / OFI."
+    why: >
+      It is the ONLY direction that moves the IR NUMERATOR with a feature whose
+      edge is MECHANICAL (price impact) and therefore slow-decaying and orthogonal
+      to crowded price patterns. Every FX-bound path either lifts events (claw-backed
+      to ~zero net by autocorrelation + cost, per trial 48) or lifts daily IR only
+      marginally. Quadratic sensitivity of N_required to IR means a genuine
+      orthogonal-IR feature is worth more than any plausible event-count gain.
+    honest_caveat: "It is GATED on an asset-class decision (new data, new costs, new microstructure, partial loss of the firm's accumulated FX discipline). It is the biggest unlock AND the biggest commitment. This is a CEO strategic fork, not an ML tweak."
+    runner_up: "Cross-sectional pooling across the 12 existing pairs — the best lever that requires NO new data or asset class; raises effective sample size and cuts multiplicity vs per-pair search. Cheap, reversible, do-it-now."
+
+  most_dangerous_false_hope_direction:
+    pick: "The PORTFOLIO-OF-WEAK-EDGES / ensemble path (Item 2), run as search-and-combine."
+    why: >
+      It is the only direction whose math LOOKS like a free lunch (SR×√k) while
+      actually CONCENTRATING the multiple-comparisons problem the firm reset over
+      once. Two compounding errors: FX shared-beta correlation eats the √k, and
+      the honest-N explosion (every searched leg is a trial) raises the DSR bar
+      faster than the portfolio Sharpe rises. Worse, naive single-strategy DSR
+      UNDER-deflates an assembled ensemble. If anyone proposes "combine our near-
+      miss strategies into a portfolio to get over the line," that is the broken-
+      DSR failure mode wearing a diversification costume. VETO-WATCH.
+    runner_up_danger: "Adding model capacity (deep nets / RL) to forecast returns on 12 pairs of short history — overfits, inflates effective-N, manufactures in-sample Sharpe DSR then correctly destroys."
+
+  methodology_voice_summary: >
+    Better methodology cannot manufacture alpha — it can only stop us from
+    fooling ourselves. Of everything explored, exactly ONE path moves the real
+    lever (orthogonal IR via order flow) and it is gated behind an asset-class
+    decision. Everything FX-bound is marginal because the dataset wall is real:
+    more events get clawed back by autocorrelation and costs (trial 48 proves it),
+    and combining weak edges concentrates multiplicity rather than escaping it.
+    The cheapest legitimate win on hand is cross-sectional pooling. The single
+    most dangerous temptation is the ensemble free-lunch. Hold the gates.
+
+# ===========================================================================
+# KNOWLEDGE GAPS (no web access this dispatch → RESEARCH_REQUEST candidates)
+# ===========================================================================
+knowledge_gaps:
+  - id: KG-1
+    gap: "Cost / licensing of an FX options vol-surface feed (25Δ risk-reversals, butterflies) for the major pairs."
+    why_it_matters: "Determines whether options-implied (Item 1) is a real cheap-ish unlock or a money-gated one."
+    routing: RESEARCH_REQUEST
+  - id: KG-2
+    gap: "Empirical effective-N multiplier for FX 1h→1m on THIS firm's data after autocorrelation + embargo correction (Item 4 claw-back is reasoned, not measured here)."
+    why_it_matters: "Quantifies exactly how much of the intraday event gain survives; would convert Item 4's intuition into a number. quant-developer can measure on the ingested EURUSD 1h/tick."
+    routing: ROUTE_TO quant-developer
+  - id: KG-3
+    gap: "Realistic all-in cost + data-availability profile for CME FX futures vs a crypto venue (microstructure, true volume granularity, historical depth) — needed to size Item 1's order-flow unlock."
+    why_it_matters: "The single most-likely unlock (order flow) is asset-class-gated; this gap is the precondition to evaluating that fork."
+    routing: RESEARCH_REQUEST
+
+# ---------------------------------------------------------------------------
+# FIREWALL COMPLIANCE
+# ---------------------------------------------------------------------------
+firewall_compliance:
+  no_executable_code_blocks: true
+  declarative_only: true
+  trial_counter_incremented: false   # methodology-design per spawn-agent.md step 3; honest-N stays 48
+  note: "This is a divergent exploration artifact, NOT an eval and NOT a strategy proposal. No backtest run. No capital. No DSR computed on any specific strategy (none exists to deflate)."

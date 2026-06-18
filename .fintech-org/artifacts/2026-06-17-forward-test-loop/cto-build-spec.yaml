@@ -1,0 +1,493 @@
+# =============================================================================
+# CTO BUILD SPEC — Forward-Test Loop + Honest-N Fix + Cross-Sectional Pooling
+# The CTO scopes (this artifact). The Quant Developer implements. PR reviews.
+# This artifact contains NO executable trading code (execution-firewall held).
+# =============================================================================
+role: cto
+artifact_type: methodology-design        # build-scoping; QD implements, PR reviews
+decision: approve                          # approve the build, with the conditions below binding on QD
+rubric-applied: [execution-firewall-review, log-as-decision-trace]
+timestamp_utc: "2026-06-18T02:34:48Z"
+authored_by: cto
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+claimed_domains:
+  - architecture-decisions
+  - cross-system-blast-radius
+  - logging-and-observability-standards
+  - firewall-enforcement-between-research-and-execution
+  - tech-debt-tracking
+no-capital-instruction: true               # no live capital; M2 is paper-forward only
+
+ceo_decision_context:
+  stay_in_forex: true
+  build: "(a) forward-test loop + cross-sectional pooling"
+  phase_0_no_live_capital: true
+  inputs_read:
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/ml-forward-test-and-pooling.yaml
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-integrity-controls.yaml
+    - src/forex_system/harness/run_trial.py
+    - src/forex_system/harness/preregistration.py
+    - src/forex_system/harness/dsr.py
+    - src/forex_system/harness/honest_n.py        # PRE-EXISTING — ML did not account for it
+    - scripts/run_falsification_trial.py          # SECOND live DSR call site — ML missed it
+    - .fintech-org/trials.jsonl                    # the real mixed-format ledger (49 lines)
+
+# =============================================================================
+# 0. WHAT I VERIFIED AGAINST THE REAL LEDGER (ground truth, not ML's assertions)
+# =============================================================================
+# Every number below was produced by parsing .fintech-org/trials.jsonl at git
+# 679e8c7. These are the facts the build MUST handle; several CONTRADICT the ML spec.
+verified_ledger_facts:
+  raw_line_count: 49                  # what _count_prior_trials() returns today
+  distinct_trial_ids: 34
+  countable_trial_ids_distinct: 33    # 34 minus 53981a4a (withdrawn-pre-freeze, flag=false)
+  lines_with_event_field: 7           # event ∈ {trial-status-update×3, trial-retired×1, strategy-archived×2, trial-spawned×1}
+  lines_with_counts_toward_flag: 3    # 2 true (both on trial-48 15923fe1), 1 false (53981a4a)
+  authoritative_honest_N: 48          # a MONOTONIC PROSE COUNTER, not a record count
+  authoritative_N_source: >
+    Line 49 (15923fe1 strategy-archived): "DSR=0.00 at N=48"; line 48
+    (15923fe1 trial-spawned): "Trial 48. Counter burned at spawn per honest-N."
+    NHT's artifact independently certifies honest-N=48. MEMORY.md shows the same
+    counter at "38" and "42" in earlier sessions — it is a running integer maintained
+    in CONSENSUS/event PROSE, decoupled from the physical record count.
+
+  # ---- THE THREE-WAY DISAGREEMENT (the actual P0 problem) ----
+  three_incompatible_N_today:
+    - name: _count_prior_trials() (run_trial.py:98)
+      returns: 49
+      semantic: raw JSONL line count
+      status: SHIPPED and WRONG (IC-9 violation; over-counts via spawn/archive event lines)
+    - name: compute_honest_n() (honest_n.py:84, PRE-EXISTING)
+      returns: 11
+      semantic: distinct DE-DUPLICATED hypothesis FAMILIES (pre_reg_path else stripped strategy name)
+      status: NOT the DSR multiplicity denominator; also silently drops 4 rows it tags 'unknown_status'
+              (incl. trial-48 itself and 53981a4a) via an else-branch warning — those rows are NEVER counted.
+    - name: authoritative counter (prose)
+      returns: 48
+      semantic: every attempt burns one slot, monotonic, maintained by hand in prose
+      status: the number the firm actually treats as honest-N; not derivable from any current parse rule
+  ml_claims_corrected:
+    - claim: "honest_n() returns 48 by counting records where counts_toward==true"
+      reality: "Counting records-where-flag==true returns 2, NOT 48 (only trial-48 carries the flag, twice).
+               The flag was added to only 3 of 49 lines. ML's rule is unimplementable on the current ledger."
+    - claim: "Blast radius is ONLY run_trial.py:288"
+      reality: >
+        FALSE. A SECOND live DSR denominator call site exists: scripts/run_falsification_trial.py
+        imports _count_prior_trials at line 115 and calls it at line 736 (n_prior = _count_prior_trials()),
+        feeding compute_dsr at line 739. The fix MUST propagate to BOTH. (A third path,
+        scripts/trial_48_is_eval.py:411, calls compute_dsr directly with a hand-passed n_trials=48 —
+        evidence the firm has been HAND-ENTERING N because no function returns 48. IC-14(d) forbids this.)
+    - claim: "honest_n() must be INTRODUCED"
+      reality: "honest_n.py ALREADY EXISTS with a DIFFERENT (de-dup) semantic. QD must NOT create a
+               second clashing honest_n; either repurpose it or add a clearly-named sibling and reconcile."
+
+# =============================================================================
+# P0 — THE HONEST-N FIX  (IC-9; URGENT — taints every DSR; blocks H1 IS eval)
+# =============================================================================
+# This is the single most important deliverable. It is ALSO a genuine
+# KNOWLEDGE_GAP (KG-CTO-1): the firm has THREE Ns (49 / 11 / 48) and no
+# mechanical rule reproduces the authoritative 48. The CTO does NOT pick the
+# denominator semantics (that is HoQR + NHT's call — see KG-CTO-1). The CTO
+# scopes the MECHANISM that makes whichever rule they pick reproducible and
+# fail-closed. Below is the build, structured so the semantic choice is a
+# one-line policy, not a rewrite.
+p0_honest_n_fix:
+
+  # ---- RATIFICATION GATE (closes critic finding #4) ----
+  # HONEST DISCLOSURE: the concrete P0 artifacts below (ledger v2 format, the
+  # baseline-offset record, the acceptance test pinned to ==48) all presuppose
+  # Option A (multiplicity reading: every attempt = one slot = 48). That is the
+  # CTO's RECOMMENDED architecture, and recommending an architecture is in scope.
+  # But the choice between Option A (48) and Option B (de-dup families, 11) is a
+  # STATISTICS-DOMAIN semantic that is NOT mine to ratify (forbidden_skills).
+  # Therefore: NO line of P0 ships until HoQR+NHT ratify the denominator semantic
+  # (KG-CTO-1). If they pick Option B, the offset record, the ==48 pin, and the
+  # acceptance value all change — the build is a TEMPLATE keyed to the recommended
+  # Option A, not a fait accompli. QD MUST treat KG-CTO-1 ratification as a hard
+  # precondition on starting P0, not a parallel formality.
+  ratification_precondition: "HoQR + NHT must ratify Option A (48) vs Option B (11) BEFORE any P0 code/ledger change. The artifacts below are written for the recommended Option A and are void if Option B is ratified."
+
+  problem_statement: >
+    _count_prior_trials() returns the raw line count (49), used directly as the DSR
+    deflation denominator. The ledger is mixed-format: trial-records (status) AND
+    event-records (event), 34 distinct trial_ids, only 3 carrying the deflation flag.
+    Neither raw-line-count (49), nor distinct-trial-id (33), nor the existing de-dup
+    compute_honest_n (11) equals the authoritative honest-N the firm uses (48). The
+    48 lives only in prose. DSR is therefore deflated against a number that is wrong
+    in BOTH directions depending on which function you call.
+
+  # ---- STEP P0.1: NORMALIZE THE LEDGER (ledger v2) — REQUIRED ----
+  # You cannot derive 48 from the current bytes by any honest rule, because some
+  # of the 48 attempts were never written as individual records (early script
+  # runs, prose counter increments). The honest fix is a ONE-TIME normalization
+  # that makes the flag explicit on every record, reconciled to 48, then forever
+  # after computed mechanically. This is the NHT IC-14(d) requirement: "honest-N
+  # recomputed mechanically from the ledger at score time, never typed."
+  ledger_v2_normalization:
+    deliverable: ".fintech-org/trials.jsonl normalized so EVERY record carries an explicit counts_toward_deflation_denominator boolean."
+    rule_to_apply_per_record (DEFAULT-COUNTS for trial-defining records):
+      counts_toward_TRUE_when:
+        - "record has a real trial status ∈ {complete, COMPLETE, rejected, exploratory, pre-registered-frozen, pre-registered-frozen-pending-receipt, VOIDED-contaminated-run} on the trial_id's COLLAPSED (last-wins) state"
+        - "OR record already carries counts_toward_deflation_denominator: true (trial-48)"
+      counts_toward_FALSE_when:
+        - "status == withdrawn-pre-freeze (53981a4a — never frozen, never tested; NHT-ratified non-counting)"
+        - "OR record already carries counts_toward_deflation_denominator: false"
+      one_slot_per_trial_id: >
+        Deflation counts DISTINCT trial_ids, not lines. A spawn line + a complete line
+        for the same trial_id is ONE slot. Collapse by trial_id (last-wins, mirroring the
+        existing compute_honest_n collapse at honest_n.py:106-113) BEFORE counting.
+    reconciliation_to_48:
+      observed_from_records: >
+        Distinct countable trial_ids in the physical ledger = 33 (34 minus the one
+        withdrawn-pre-freeze). The authoritative counter is 48. The 15-trial gap is
+        attempts attested only in prose/counter increments (pre-registry script runs,
+        cross-session counter moves) that were never individually recorded.
+      offset_must_be_independently_reconstructed (BINDING — closes critic finding #2): >
+        The 15 is a PERMANENT, undisprovable addend in EVERY future DSR once baked in. HoQR+NHT
+        may NOT merely "sign off on the number" — they MUST independently reconstruct the 15 from
+        the counter trail BEFORE ratifying: MEMORY.md records the counter at "38" and "42" in prior
+        sessions; the reconciliation must show the monotonic counter path (… -> 38 -> 42 -> 48)
+        is consistent with 33 physical countable records + 15 prose-only attempts, and enumerate
+        (as far as recoverable) WHICH 15 attempts are prose-only. If the 15 cannot be reconstructed
+        to within a stated tolerance, the SAFE direction is the LARGER offset (over-deflate, never
+        under-deflate — SD2/IC-9). A bad offset silently miscalibrates every future DSR; this gate
+        exists so the offset is auditable, not asserted.
+      required_action (QD, only AFTER the independent reconstruction above): >
+        Append a SINGLE explicit reconciliation record to trials.jsonl:
+        {"event":"honest-n-reconciliation","counts_toward_deflation_denominator":false,
+         "reconciled_honest_n":48,"records_countable":33,"prose_only_attempts":15,
+         "basis":"trial-48 archive 'N=48' + NHT certification + MEMORY counter trail",
+         "ratified_by":["head-of-quant-research","null-hypothesis-tester"],
+         "ts":"<date -u>","detail":"one-time baseline; honest_n() = prose_only_attempts + countable records-after-this"}.
+        This record itself does NOT count (flag=false) — it is a baseline offset, not a trial.
+        AFTER this record, honest_n() = reconciled_baseline_offset(15) + count(distinct countable trial_ids).
+        Every NEW trial/forward-attempt appends a real record and increments mechanically. The prose
+        counter is RETIRED; the ledger becomes authoritative (IC-14(d) satisfied going forward).
+    why_not_just_count_33: >
+      Counting 33 would silently DROP 15 real prior attempts → UNDER-deflate DSR → exactly the
+      SD2/IC-9 cheat NHT warns of (minimizing the denominator to clear the bar). The reconciliation
+      offset preserves the 48 the firm has already paid for. UNDER-counting is the dangerous direction.
+
+  # ---- STEP P0.2: THE honest_n() FUNCTION ----
+  honest_n_function:
+    decision: >
+      Do NOT reuse the existing compute_honest_n() AS-IS for the DSR denominator —
+      it computes de-duplicated FAMILIES (11), a different quantity. Two clean options;
+      QD picks with PR, but the SEMANTIC (multiplicity = every attempt) is fixed by NHT IC-9:
+    option_A_preferred: >
+      Add a new function honest_n_deflation_denominator(trials_path) -> int in honest_n.py
+      (same module, sibling to compute_honest_n) that returns the MULTIPLICITY count:
+      baseline_offset (read from the reconciliation record) + count(distinct trial_ids whose
+      collapsed record is counts_toward==true). Returns 48 on the current+reconciled ledger.
+      Keep compute_honest_n for the HoQR de-dup view (different consumer); name the two
+      distinctly so no one confuses 11 with 48 again.
+    option_B: >
+      If HoQR rules the de-dup view IS the correct DSR denominator (a research-domain call,
+      NOT mine — see KG-CTO-1), then fix compute_honest_n's else-branch bug first: it currently
+      tags pre-registered-frozen / withdrawn / event-only as 'unknown_status' and DROPS them
+      (honest_n.py:129-134), which is a silent under-count. That bug must die regardless of which
+      option ships.
+    must_replace:
+      - "src/forex_system/harness/run_trial.py:288  n_prior = _count_prior_trials()  -> honest_n_deflation_denominator(_TRIALS_REGISTRY) (and n_prior+1 logic preserved: the new fn returns prior count; this trial's +1 stays)"
+      - "scripts/run_falsification_trial.py:736  n_prior = _count_prior_trials()  -> same replacement (SECOND site ML missed)"
+    must_not_break:
+      - "scripts/trial_48_is_eval.py:411 hand-passes n_trials=48 — once honest_n() returns 48, replace the literal with the call so it is no longer typed (IC-14(d))."
+    deprecate: "_count_prior_trials() — delete or make it raise NotImplementedError pointing to honest_n_deflation_denominator, so no future caller reintroduces the line-count bug (fix-the-class)."
+
+  blast_radius_VERIFIED:
+    dsr_denominator_call_sites_live:
+      - "src/forex_system/harness/run_trial.py:288 (via _count_prior_trials -> compute_dsr:482)"
+      - "scripts/run_falsification_trial.py:736 (via _count_prior_trials import:115 -> compute_dsr:739)"
+    dsr_pure_function: "dsr.py::compute_dsr RECEIVES n_trials as a parameter; counts nothing. Correct N propagates automatically once both call sites are fixed."
+    hand_entered_N: "scripts/trial_48_is_eval.py:411 (n_trials=48 literal) — replace with the call."
+    test_only: "tests/scripts/test_run_falsification_trial.py patches _count_prior_trials at 9 sites — those test stubs must be repointed to the new fn name (mechanical)."
+    decision_diff_from_ML: "ML asserted ONE call site. VERIFIED: TWO live + ONE hand-entered. Not localized as ML claimed."
+
+  acceptance_tests (QD obligations, P0):
+    - "test_honest_n_value: honest_n_deflation_denominator('.fintech-org/trials.jsonl') == 48 on the reconciled ledger. PIN THE EXACT VALUE. This is the IC-9 acceptance test."
+    - "test_honest_n_excludes_withdrawn: a synthetic ledger with a withdrawn-pre-freeze / flag=false trial does NOT increment the count."
+    - "test_honest_n_collapses_trial_id: spawn-line + complete-line for the SAME trial_id counts as ONE, not two (the 49-vs-distinct bug)."
+    - "test_honest_n_event_lines_not_counted: pure event-only lines (trial-status-update with no new trial_id slot) do not each add a slot."
+    - "test_no_raw_line_count_remains: grep/AST assert _count_prior_trials() is gone from both live call sites (regression guard against the class)."
+
+  logging (log-as-decision-trace, applied):
+    - "honest_n() emits ONE structured event honest_n.computed with fields: n=48, baseline_offset=15, countable_distinct=33, source='.fintech-org/trials.jsonl', git_sha, ts. Item 2/3 (inputs + source named) so any DSR is reconstructable from logs alone."
+    - "The reconciliation append emits honest_n.reconciliation.baseline_set with the full basis + ratifiers (item 1/2/3/9)."
+
+# =============================================================================
+# P1 — THE FORWARD-TEST HARNESS  (freeze.py + forward_eval.py + forward_registry)
+# =============================================================================
+p1_forward_test_harness:
+
+  files_to_create:
+    - path: src/forex_system/harness/freeze.py
+      responsibility: >
+        freeze_structure(prereg_ref, config_path, mechanism, [holdout_window]) -> FreezeRecord.
+        Records the integrity-anchor tuple and appends ONE 'freeze' record to forward_registry.jsonl
+        with open_count=0, burned=false, custody=<party>. Idempotent on the freeze tuple.
+      records_at_freeze:
+        - "prereg_content_hash = sha256(prereg.md bytes || prereg.triggers.yaml bytes)  [FULL sha256]"
+        - "code_config_hash = FULL sha256 of the frozen config (WIDEN run_trial._config_hash from [:12] to full — see widen_note)"
+        - "git_sha = FULL HEAD SHA (WIDEN run_trial._git_hash from --short to full)"
+        - "freeze_utc = date -u +%Y-%m-%dT%H:%M:%SZ"
+        - "mechanism ∈ {M1, M2}"
+        - "(M1 only) holdout_window [start,end] + holdout_content_hash = sha256 of sealed bar bytes"
+        - "custody = named party (NHT or PR), MUST differ from developer (separation of duties, KG-1 residual)"
+      M1_hard_block_gate:
+        rule: >
+          freeze.py REFUSES to seal an M1 holdout unless a development_start_attestation for the
+          hypothesis FAMILY exists AND seal_utc <= development_start_utc. For families already
+          explored against full history (H1 and ALL prior firm work), NO such attestation exists →
+          M1 is UNAVAILABLE → hard-block → route to M2-only. This makes KG-4 an ENFORCED gate, not disclosure.
+        H1_consequence: "H1 (full-history pooled-8) CANNOT use M1. freeze.py MUST refuse M1 for H1 and emit a route-to-M2 decision-trace event. Acceptance test below pins this."
+      widen_note: >
+        run_trial._config_hash returns sha256[:12]; run_trial._git_hash returns --short. The ANCHOR needs
+        FULL hashes (collision resistance over a permanent integrity record). QD adds full-width variants;
+        does NOT change the existing short-hash registry-label use (that stays — narrow change, no blast radius).
+
+    - path: src/forex_system/harness/forward_eval.py
+      responsibility: >
+        forward_evaluate(freeze_id, window_source) -> ForwardResult + Verdict. Recompute-and-assert
+        integrity, then score the FROZEN structure (NO re-fit) net-of-conservative-cost, evaluate the
+        PRE-DECLARED .triggers.yaml gates, emit a verdict, and burn the window atomically.
+      ordered_steps:
+        - "1. load FreezeRecord; assert burned==false AND open_count==0 else REFUSE (hard abort, non-zero exit)."
+        - "2. INTEGRITY: recompute prereg_content_hash, code_config_hash, git_sha (and M1 holdout_content_hash); assert == frozen values else VOID. Machine-printed 'hash-match: OK' line REQUIRED (IC-3/IC-14a)."
+        - "3. (M2) assert EVERY scored bar bar_timestamp > freeze_utc; a single pre-freeze bar -> VOID."
+        - "4. score via REUSED backtest.engine.run_backtest + RealisticCostModel (net-of-TCA, conservative). entry_delay_bars shift preserved (no-lookahead). NO new scoring code."
+        - "5. compute net Sharpe, DSR at honest_n_deflation_denominator()+1, avg net pips/trade, per-pair & per-quarter PnL fractions, realized N."
+        - "6. evaluate the frozen .triggers.yaml gates (logical AND of NOT-fired) -> VALIDATED | FALSIFIED | INCONCLUSIVE_UNDERPOWERED | VOID. NO gate invented post-open."
+        - "7. ATOMIC burn: set open_count=1, burned=true; append a trial to trials.jsonl (counts_toward_deflation_denominator: true) AND a 'forward-result' record to forward_registry.jsonl."
+      verdict_states_pre_declared: [VALIDATED, FALSIFIED, INCONCLUSIVE_UNDERPOWERED, VOID]
+      verdict_rules:
+        VALIDATED: "opened once; ALL frozen gates passed on net-of-TCA returns at org-wide N."
+        FALSIFIED: "any frozen KILL gate fired. Counts toward honest-N (flag=true)."
+        INCONCLUSIVE_UNDERPOWERED: "M2 only; realized N < pre-declared power floor. NOT a pass, NOT a free retry. Only sanctioned continuation = pre-declared extension of the SAME frozen window."
+        VOID: "integrity/timestamp failure. Discarded; not pass/fail. STILL appends a counts_toward=true trial IF any forward data was seen (IC-7: VOID-after-seeing-forward-data burns N)."
+
+    - path: .fintech-org/forward_registry.jsonl
+      responsibility: "Append-only ledger. Two record kinds: 'freeze' (anchor tuple, open_count, burned, custody) and 'forward-result' (verdict, net Sharpe, DSR, gate-by-gate fired/not-fired, realized N). The one-shot + provably-post-freeze audit trail."
+
+  files_to_modify:
+    - "src/forex_system/harness/run_trial.py — honest_n call-site swap (P0); add full-width hash helpers (P1 widen)."
+    - "scripts/run_falsification_trial.py — honest_n call-site swap (P0)."
+
+  reuse_mandatory (firewall: implementation sources from existing, no re-implementation):
+    - "src/forex_system/backtest/engine.py::run_backtest (short-capable + rollover-aware) — DO NOT reimplement scoring."
+    - "src/forex_system/costs/model.py::RealisticCostModel — net-of-TCA cost."
+    - "src/forex_system/harness/preregistration.py::parse_pre_registration + FalsificationTrigger — the .triggers.yaml IS the machine-checkable gate contract; evaluate gates from it, do NOT hardcode thresholds (firewall Section A1)."
+    - "src/forex_system/harness/dsr.py::compute_dsr — DSR at org-wide N."
+    - "src/forex_system/harness/honest_n.py — the P0 denominator fn."
+    - "run_trial._append_trial, _log_event — append + decision-trace primitives."
+
+  # ---- IC-1..IC-14 -> CONCRETE ENFORCEMENT MAPPING ----
+  # Per NHT IC-14: an UNENFORCED control is UNMET. Each row states the mechanized
+  # enforcement point OR is explicitly flagged procedural-residual.
+  ic_enforcement_mapping:
+    IC-1_cryptographic-freeze:
+      enforcement: >
+        freeze.py writes the full anchor tuple (incl. is_data_hash for M1) to forward_registry.jsonl;
+        forward_eval.py REFUSES if no prior freeze record EXISTS. The EXISTENCE check is FAIL-CLOSED
+        IN CODE. PARTIAL-PROCEDURAL (corrected to match IC-8): the 'pushed before any forward bar'
+        requirement CANNOT be verified by Python reading a local .jsonl — pushed-ness needs git/CI
+        plumbing. A local-only freeze is rewritable. The pushed-before ordering is enforced by the
+        same CI hook as IC-8; until that hook ships, the pushed-ness half of IC-1 is procedural (IC-14)."
+    IC-2_forward-postdates-freeze:
+      enforcement: "forward_eval.py step 3 asserts every M2 bar_timestamp > freeze_utc -> VOID on violation. FAIL-CLOSED IN CODE. PARTIAL-PROCEDURAL: the commit-timestamp-ordering check (freeze pushed before data ingest commit) needs git plumbing — see KG-CTO-2 (ingest_time provenance, KG-5)."
+    IC-3_result-cites-frozen-sha:
+      enforcement: "forward_eval.py step 2 recomputes sha256(code+config)+is_data_hash, compares to frozen values, ABORTS non-zero + prints 'hash-match: OK' on success. A result without that printed line is INADMISSIBLE. FAIL-CLOSED IN CODE. (HIGHLIGHT: this is the IC NHT names as most-likely-to-be-faked-by-human-assertion; it MUST be the harness, not a person.)"
+    IC-4_physically-sequestered-holdout:
+      enforcement: "Reuses the existing in-tree guard: load_parquet non-oos path RAISES on holdout-crossing rows (run_trial.py:361-385 _apply_holdout_filter / oos_mode). Inter-trial analogue of the sacred test_no_lookahead. FAIL-CLOSED IN CODE for the loader path."
+    IC-5_holdout-access-enforced-not-just-logged:
+      enforcement: >
+        PARTIAL — needs OS/CI, NOT pure code. True OS gating (file unreadable by the dev user) is the
+        target; if infeasible in this single-machine env, the FALLBACK is a pre-commit/CI hook that greps
+        the codebase + notebooks for any direct read of the forward/holdout path and BLOCKS it. Per IC-14:
+        absent that hook, IC-5 is UNMET, not 'mostly met'. FLAGGED: this is the ONE control that cannot be
+        satisfied by harness code alone — see procedural_residuals. CTO owns standing up the CI hook."
+    IC-6_one-score-per-candidate:
+      enforcement: "forward_eval.py step 1 asserts open_count==0 & burned==false; step 7 sets them atomically. Second open -> REFUSE. FAIL-CLOSED IN CODE."
+    IC-7_every-attempt-burns-N:
+      enforcement: "forward_eval.py step 7 appends counts_toward_deflation_denominator:true on PASS, FAIL, AND VOID-after-seeing-forward-data. honest_n() (P0) then counts it for the NEXT DSR. FAIL-CLOSED IN CODE."
+    IC-8_no-quiet-attempts:
+      enforcement: "forward_eval.py REFUSES to score a freeze_id with no prior pushed 'freeze' record in forward_registry.jsonl. PARTIAL-PROCEDURAL on the 'pushed' part: a CI hook must verify the freeze record exists in pushed origin history before the eval CI job runs (a local-only freeze is rewritable). CTO owns the CI gate."
+    IC-9_full-deflation-denominator:
+      enforcement: >
+        THE P0 DELIVERABLE. honest_n_deflation_denominator() = baseline_offset(15) + distinct countable
+        trial_ids, returning 48 today, recomputed mechanically at score time, NEVER typed. Replaces the
+        line-count at BOTH live call sites. HIGHLIGHT: NHT's IC-9 also requires +this candidate's IS search
+        family +the pre-declared attempt budget. The MECHANICAL ledger count covers org-wide N; the IS-search-
+        family and attempt-budget addends are RESEARCH-PROVENANCE inputs that must be ledgered as counts_toward
+        records by HoQR/the researcher BEFORE the forward open (else IC-13 worst-cases the budget). See KG-CTO-1."
+    IC-10_net-of-conservative-cost:
+      enforcement: "forward_eval.py step 4 uses RealisticCostModel with conservative event-time spread; EXCLUDE-not-impute for uncovered pairs (pre-freeze cost-coverage gate). Cost config is part of code_config_hash -> loosening it post-freeze changes the hash -> VOID (IC-3). FAIL-CLOSED IN CODE."
+    IC-11_pre-declared-gates-and-power:
+      enforcement: "Gates read from the frozen .triggers.yaml via parse_pre_registration; forward_eval.py evaluates ONLY those. A min-events power floor (KILL-0) is a trigger; realized N < floor -> INCONCLUSIVE_UNDERPOWERED. FAIL-CLOSED IN CODE for the gates present. PROCEDURAL-RESIDUAL: that the floor came from an 80%-power calc is a research input (NHT verifies at freeze)."
+    IC-12_forward-data-immutable-post-freeze:
+      enforcement: "is_data_hash (IS snapshot) + holdout_content_hash recomputed at open; a restatement that touched the window changes the hash -> VOID -> forces a NEW trial/N. FAIL-CLOSED IN CODE. Corollary (IS-window restatement -> re-select, not re-point) is enforced by asserting the IS-portion content-hash == frozen is_data_hash."
+    IC-13_attempt-budget-pre-frozen:
+      enforcement: >
+        PARTIAL-PROCEDURAL. The attempt budget must be a pushed trials.jsonl record timestamped BEFORE the
+        first candidate freeze. forward_eval.py CAN assert a budget-declaration record exists with ts <
+        earliest freeze_utc; if absent, honest_n's deflation worst-cases (all candidates spawned). The
+        DISCIPLINE of declaring it up front is procedural; the PRESENCE check is mechanical."
+    IC-14_mechanized-not-human-enforcement:
+      enforcement: >
+        The META-CONTROL, satisfied piecewise: (a) hash-mismatch abort = forward_eval.py step 2 [code];
+        (b) reject forward result lacking a prior pushed freeze + reject hand-entered DSR denominator =
+        CI hook + honest_n() mechanical recompute [CI + code]; (c) forward file OS-gated or CI-grep-blocked
+        = IC-5 CI hook [CI]; (d) honest-N recomputed from ledger, never typed = P0 honest_n() [code].
+        Any of these absent -> the dependent IC is UNMET. CTO tracks (b)(c) CI hooks as the procedural residual."
+
+  procedural_residuals_FLAGGED (cannot be fail-closed in harness code alone — CTO owns):
+    - "IC-5 holdout-unreadable-during-dev: needs OS filesystem perms OR a pre-commit/CI grep-block hook. Single-machine env likely forces the CI-hook fallback. UNTIL the hook ships, IC-5 is UNMET (IC-14)."
+    - "IC-8 / IC-13 'pushed before' ordering: needs a CI job asserting the freeze/budget record is in pushed origin history before the eval runs. Harness can check existence; only CI can check pushed-ness."
+    - "IC-1 / KG-1 custody: on a single-developer sim firm, 'NHT/PR holds the bytes' is procedural trust, not cryptographic. Honest ceiling stated; M2 (causality) remains the only zero-leak path."
+
+  acceptance_tests (QD obligations, P1):
+    - "test_freeze_immutability: edit prereg/config/code after freeze -> forward_eval integrity check VOID (hash mismatch)."
+    - "test_one_shot: second open of a burned window -> REFUSE (non-zero exit), no silent re-run."
+    - "test_post_freeze_only_M2: a single scored bar with timestamp <= freeze_utc -> VOID."
+    - "test_M1_blocked_for_H1: freeze.py with mechanism=M1 on a family lacking a development_start_attestation (H1) -> REFUSE + route-to-M2 event. PINS the KG-4 enforcement."
+    - "test_hash_mismatch_voids: tamper one byte of config between freeze and eval -> VOID + non-zero exit + NO 'hash-match: OK' line."
+    - "test_forward_attempt_counts_N: opening a window appends a counts_toward=true trial; honest_n() increments by 1; next DSR denominator reflects it."
+    - "test_no_lookahead STILL GREEN (the sacred test) — forward_eval shifts signals by entry_delay_bars exactly as the engine does. NON-NEGOTIABLE per CLAUDE.md."
+    - "test_void_after_seeing_data_burns_N: a VOID that occurred after forward bars were loaded still appends counts_toward=true (IC-7)."
+
+  logging (log-as-decision-trace, REQUIRED at every boundary):
+    - "freeze.py: freeze.sealed event — prereg_content_hash, code_config_hash, git_sha, freeze_utc, mechanism, custody, holdout_window (item 1/2/3/9, dotted enumerable name)."
+    - "freeze.py: freeze.m1_blocked event when M1 refused for an attested-too-late/unattested family — family_id, reason='no_development_start_attestation', routed_to='M2' (item 6: skipped path logged)."
+    - "forward_eval.py: forward.integrity.ok / forward.integrity.void — both branches, with recomputed vs frozen hashes (item 6 skipped/failed path; item 2 inputs)."
+    - "forward_eval.py: forward.verdict — verdict, net_sharpe, dsr, honest_n, realized_n, per-gate fired-bool map, freeze_id correlation id (item 5 correlation; item 1 outcome named)."
+    - "forward_eval.py: forward.burned — open_count, burned, atomic. No prose; structured only (item 8)."
+
+# =============================================================================
+# P2 — CROSS-SECTIONAL POOLING (the measured-rho-bar effective-N haircut)
+# =============================================================================
+p2_cross_sectional_pooling:
+  scope: "A REUSABLE computation, NOT a new strategy. H1 is already a pooled-8 instance; this standardizes the haircut so every pooled hypothesis measures N_eff the SAME honest way."
+  files_to_create:
+    - path: src/forex_system/harness/effective_n.py   # name at QD/PR discretion
+      responsibility: >
+        effective_n(per_pair_signal_returns, min_overlap) -> (N_eff, rho_bar, rho_bar_ci).
+        N_eff = N_raw / (1 + (k-1)*rho_bar). rho_bar = mean off-diagonal pairwise Pearson
+        correlation of the per-pair SIGNAL-return series (NOT raw price returns), aligned on
+        overlapping event timestamps, estimated IN-SAMPLE / dev-window ONLY (never holdout).
+      honesty_rules (firewall: these are research-emitted; QD implements the formula, does not choose params):
+        - "Use the UPPER end of a 95% block-bootstrap CI on rho_bar when uncertain (pessimistic -> smaller N_eff)."
+        - "min-overlap threshold (KG-3): below it, rho_bar is UNMEASURABLE -> default fully-correlated, N_eff = N_raw/k."
+        - "Substitute N_eff (not N_raw) into years_to_validate / the confirmability gate."
+        - "rho_bar is MEASURED per hypothesis, never assumed. Synchronized signals (London 07:00 firing on all pairs) legitimately produce high rho_bar -> that is the measurement working, not an artifact to correct away."
+  relationship_to_h1: "H1 already declares a measured-rho_bar haircut (h1-KILL-4, break-even rho_bar<=0.41 at k=8). This factors H1's bespoke logic into the reusable module so future pooled hypotheses inherit it."
+  firewall_note: "rho_bar estimator design (block size, USD-factor cross-check) is RESEARCH (ML/Math). QD implements the declared formula. If QD finds a param underspecified, reject-spec to ml-researcher — do NOT default it (firewall Section B)."
+  acceptance_tests:
+    - "test_effective_n_zero_corr: rho_bar=0 -> N_eff == N_raw."
+    - "test_effective_n_full_corr: rho_bar=1 -> N_eff == N_raw/k (no independent breadth)."
+    - "test_effective_n_below_overlap: overlap < min threshold -> rho_bar declared unmeasurable -> N_eff = N_raw/k (conservative default)."
+    - "test_uses_signal_not_price_returns: a fixture where price-return corr and signal-return corr differ confirms the signal-return series is the one used."
+  logging:
+    - "effective_n.computed event — n_raw, k, rho_bar, rho_bar_ci_upper, n_eff, overlap_n, estimator='block_bootstrap', applied_ci_end='upper' (item 2/3: every input + which CI end, named)."
+
+# =============================================================================
+# FIREWALL + DECISION-TRACE SELF-REVIEW (the two rubrics I ran)
+# =============================================================================
+execution_firewall_review:
+  decision: approve-with-conditions
+  findings:
+    - section: B
+      file: ml-forward-test-and-pooling.yaml
+      severity: low
+      description: "ML spec is correctly DECLARATIVE (no executable trading code) — firewall held. The .triggers.yaml is a complete, machine-checkable gate contract (parse_pre_registration). Spec passes Section B completeness for the harness build."
+    - section: A1
+      file: src/forex_system/harness/forward_eval.py (to-be-built)
+      severity: high
+      description: "CONDITION on QD: gate thresholds MUST be read from the frozen .triggers.yaml, NEVER hardcoded. Any literal threshold in forward_eval.py is a firewall violation -> reject-implementation."
+    - section: A2
+      file: src/forex_system/harness/forward_eval.py (to-be-built)
+      severity: high
+      description: "CONDITION on QD: NO silent data cleaning (no fillna/clip/dropna on the scored returns) inside forward_eval. EXCLUDE-not-impute for uncovered pairs is the ONLY sanctioned handling, and it is research-declared (IC-10)."
+    - section: C
+      file: src/forex_system/harness/effective_n.py (to-be-built)
+      severity: medium
+      description: "CONDITION: rho_bar estimator params (block size, min-overlap, CI end) are research-sourced. If underspecified at build time -> reject-spec to ml-researcher, do NOT default."
+  conditions:
+    - "Gate thresholds sourced from .triggers.yaml only (A1)."
+    - "No silent data cleaning in forward_eval (A2)."
+    - "effective_n params research-sourced or reject-spec (C)."
+
+log_as_decision_trace_review:
+  decision: approve-with-conditions
+  decision-boundaries-identified: 9
+  decision-boundaries-instrumented-adequately: "all 9 specified above (freeze.sealed, freeze.m1_blocked, forward.integrity.ok/void, forward.verdict, forward.burned, honest_n.computed, honest_n.reconciliation.baseline_set, effective_n.computed)"
+  conditions:
+    - "Every verdict/integrity/burn boundary emits ONE structured event with freeze_id correlation (items 1,2,5,6,8,9). Prose log lines are a reject."
+    - "honest_n() emits its inputs+source so any DSR is reconstructable from logs alone (item 3 — source named)."
+
+# =============================================================================
+# KNOWLEDGE GAPS (require non-CTO adjudication BEFORE the build freezes)
+# =============================================================================
+knowledge_gaps:
+  - id: KG-CTO-1
+    severity: high
+    gap: >
+      WHICH N is the DSR deflation denominator? The firm has THREE incompatible answers today:
+      49 (line count, shipped+wrong), 11 (compute_honest_n de-dup families), 48 (authoritative prose
+      counter). NHT IC-9 says it is org-wide-honest-N + IS-search-family + attempt-budget. The MULTIPLICITY
+      reading (every attempt burns one = 48) is what the firm's prose and NHT both use, and is what the P0
+      build targets. But the EXISTENCE of compute_honest_n (returning 11) means HoQR may intend a de-dup
+      denominator. These differ by 4x and change every DSR gate outcome. This is a RESEARCH-DOMAIN semantic
+      choice, NOT a CTO call (forbidden_skills: probability-statistics). ROUTE_TO HoQR + NHT to RATIFY the
+      denominator definition before honest_n() ships. The P0 build is structured so the choice is a one-line
+      policy (Option A vs B), not a rewrite.
+    owner: head-of-quant-research + null-hypothesis-tester
+  - id: KG-CTO-2
+    severity: medium
+    gap: >
+      IC-2/IC-12 'forward data provably post-freeze' partly rests on ingest_time provenance in the data
+      manifest (ML KG-5). If the ingest pipeline does NOT stamp ingest_time, the post-freeze proof rests on
+      bar_timestamp alone (weaker — a backfilled bar could carry a pre-freeze label). A manifest audit is
+      needed; on this very branch (ingest-spread-column) a spread-column RESTATEMENT is in flight (SD8/IC-12)
+      — confirm it does not touch any frozen window.
+    owner: cto + quant-developer (data manifest audit)
+  - id: KG-CTO-3
+    severity: medium
+    gap: >
+      IC-5 (holdout unreadable during dev) and IC-8/IC-13 (pushed-before ordering) CANNOT be satisfied by
+      harness code on a single-machine env. They need OS filesystem gating OR a pre-commit/CI hook. Per IC-14
+      these controls are UNMET until that hook exists. The CI/pre-commit hook is itself a build deliverable
+      the CTO must scope separately (a charter/infra touch -> defers to CEO queue under --no-ceo).
+    owner: cto (CI/pre-commit hook scoping)
+
+# =============================================================================
+# DECISION + ROUTING
+# =============================================================================
+decision_summary: >
+  APPROVE the build with conditions. P0 (honest-N fix) is URGENT and is BOTH a build and a KNOWLEDGE_GAP:
+  the firm has three contradictory Ns (49/11/48) and no current rule reproduces the authoritative 48.
+  The fix is a one-time ledger normalization + reconciliation record (33 countable + 15 prose-only = 48)
+  + a mechanical honest_n_deflation_denominator() that replaces the raw line-count at BOTH live call sites
+  (run_trial.py:288 AND run_falsification_trial.py:736 — ML missed the second) + retires the prose counter.
+  P1 (freeze.py + forward_eval.py + forward_registry.jsonl) maps all 14 ICs to mechanized enforcement, with
+  IC-5/IC-8/IC-13 explicitly flagged procedural-residual (need CI/OS, not code) and M1 hard-blocked for H1
+  (M2-only). P2 factors H1's measured-rho_bar haircut into a reusable effective_n module. The denominator
+  SEMANTIC (KG-CTO-1) must be ratified by HoQR+NHT before honest_n() ships — it is a research call, not mine.
+
+what-you-refused-to-do:
+  - "Did NOT pick the DSR denominator semantics (49 vs 11 vs 48) — that is HoQR/NHT statistics turf (forbidden_skills). Routed as KG-CTO-1."
+  - "Did NOT write any honest_n / freeze / forward_eval / effective_n CODE — scoped only. ROUTE_TO quant-developer."
+  - "Did NOT design the rho_bar estimator or the power calc — research (ML/Math). Scoped the formula's enforcement points only."
+  - "Did NOT author the H1 .triggers.yaml gates — quant-researcher's instrument."
+
+failure-modes-considered:
+  - "honest_n() ships counting 33 (under-count) -> DSR under-deflated -> false-positive validation (the SD2/IC-9 cheat). Mitigated by the reconciliation offset preserving 48."
+  - "QD reuses the existing compute_honest_n (returns 11) for the DSR denominator by mistake -> 4x under-deflation. Mitigated by distinct naming + KG-CTO-1 ratification gate."
+  - "Fix applied only to run_trial.py:288, run_falsification_trial.py:736 left on the old line-count -> two DSRs disagree. Mitigated by VERIFIED two-site blast radius + a regression test asserting _count_prior_trials is gone."
+  - "M1 sealed retroactively on already-explored history (H1) -> fake OOS. Mitigated by the development_start_attestation hard-block + M1-blocked-for-H1 acceptance test."
+  - "Gate thresholds hardcoded in forward_eval -> implementation drift (firewall A1). Mitigated by the .triggers.yaml-only condition + reject-implementation."
+  - "IC-5 left as honor-system logging -> a notebook read_parquet bypasses it (IC-14 UNMET). Flagged as procedural-residual requiring a CI hook, not waved through."
+
+ROUTE_TO: quant-developer
+notify: [ceo, cro, nht, head-of-quant-research, principal-reviewer, ml-researcher]

@@ -107,12 +107,12 @@ from forex_system.features.registry import compute_indicators
 from forex_system.core.constants import TRADING_DAYS_PER_YEAR
 from forex_system.harness.dsr import compute_dsr
 from forex_system.harness.falsification_evaluator import NhtRubric, evaluate
+from forex_system.harness.honest_n import honest_n_deflation_denominator
 from forex_system.harness.preregistration import parse_pre_registration
 from forex_system.harness.run_trial import (
     _append_trial,
     _build_cost_model,
     _build_sizer,
-    _count_prior_trials,
     _git_hash,
     _json_default,
     record_trial_rejection,
@@ -732,8 +732,9 @@ def run_falsification_trial(
     })
 
     # --- Step 4: Compute DSR ---
-    # n_trials = current count + 1 (this trial at write-time, per fintech-org rule 5).
-    n_prior = _count_prior_trials()
+    # n_trials = org-wide prior count + 1 (this trial), per IC-9/IC-14d fix.
+    # honest_n_deflation_denominator returns the PRIOR count mechanically.
+    n_prior = honest_n_deflation_denominator(_DEFAULT_REGISTRY)
     n_trials_total = n_prior + 1
 
     dsr = compute_dsr(

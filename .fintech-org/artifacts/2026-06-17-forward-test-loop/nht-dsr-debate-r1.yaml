@@ -1,0 +1,306 @@
+# =============================================================================
+# NHT — BOUNDED DEBATE ROUND 1 (of max 3) on the DSR deflation denominator N.
+# Co-owned with HoQR. This round resolves by EVIDENCE the 22-vs-48 disagreement.
+# Mandate: PROVE or WITHDRAW the double-count accusation; stress-test my own ~22
+# against my OWN "over-deflate when ambiguous" rule; dispose the 5 ded1356 RERUNs;
+# emit an UPDATED N + band; converge with HoQR where the ledger forces it.
+# Append-only dissent preserved. May not be paraphrased or softened by any role.
+# =============================================================================
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: approve-with-dissent
+trial_id: METHODOLOGY-DEBATE-R1
+pre-registration-ref: "N/A — DSR-N bounded-debate round 1"
+timestamp: 2026-06-18T03:35:11Z
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: null-hypothesis-tester
+co_owner: head-of-quant-research
+no-capital-instruction: true
+debate_round: 1
+debate_max_rounds: 3
+supersedes_numeric_conclusion_of: ".fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-reconciliation.yaml (its point estimate 22; band revised below)"
+
+claimed_domains:
+  - deflated-sharpe-under-org-wide-N
+  - p-hacking-and-data-snooping-detection
+  - multiple-comparisons-multiplicity-counting
+  - null-hypothesis-construction
+  - structural-skepticism-on-any-claim
+
+inputs_read:
+  - .fintech-org/trials.jsonl                                                   # 49 lines, 34 distinct trial_ids, re-parsed at 679e8c7
+  - .fintech-org/honest_n_offset.json                                          # offset record: prose_only_attempts=15, provenance text
+  - src/forex_system/harness/honest_n.py                                       # honest_n_deflation_denominator() ACTUAL counting algorithm
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-reconciliation.yaml  # HoQR's 29-draw + 19-residual = 48
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-reconciliation.yaml   # my own prior (22, band [17,27])
+
+mechanically_verified_this_round:   # every number from my own parse/execution at 679e8c7
+  distinct_trial_ids: 34
+  code_countable_True: 33                  # reproduced the honest_n.py algorithm by hand: 34 ids - 53981a4a(withdrawn) = 33
+  code_excluded: ["53981a4a"]
+  baseline_offset_in_ledger: ABSENT        # offset record NOT in trials.jsonl -> function RAISES RuntimeError today (D1 still live)
+  code_arithmetic_to_48: "33 countable + 15 offset = 48 (the offset is read from honest_n_offset.json, NOT yet in ledger)"
+  falsification_batch_ids: [c530be91, 87fa1d23, ade58943, 5d18776d, 6a56df9c, b7d1a65a, ab6f4167, cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f, 9017fadb]   # 13 ids
+  falsification_batch_with_n_trials_at_spawn: 1     # ONLY 87fa1d23 (=24); the other 12 carry NO n_trials_at_spawn field
+  ded1356_resolvable_in_this_worktree: false        # git cat-file -t ded1356 -> not a resolvable object; CANNOT disambiguate reruns from the ledger/repo here
+
+# =============================================================================
+# TASK 1 — THE DOUBLE-COUNT ACCUSATION: **PROVEN** (not withdrawn).
+# =============================================================================
+double_count_verdict:
+  status: PROVEN-IN-DIRECTION / MAGNITUDE-PROBABLE
+  status_note: >
+    POST-CRITIC CALIBRATION. The DIRECTION of the double-count is PROVEN: the falsification
+    batch is counted both as distinct trial_ids AND re-priced in offset bucket (ii). The EXACT
+    magnitude (~7) is PROBABLE not proven, because of a seam the critic caught: the offset's own
+    text says "~7 attempts in the 12-trial batch" but the ledger census is 13 distinct ids
+    (7 at git 54df16a + 1 at afaae9c + 5 at ded1356; 9017fadb is the 6th ded1356 id — see
+    correction below). There is an off-by-one between the offset's self-description ("12-trial",
+    "~7") and the 13-id census, so the "24+13=37" arithmetic is consistent with the counter
+    landing at 37 but does NOT pin the offset's bucket-(ii) figure to exactly 7. I downgrade the
+    magnitude label to "~5-8, probable" and keep the direction PROVEN.
+  the_two_counting_paths_collide_on_the_SAME_13_ids:
+    path_A_distinct_trial_id_count: >
+      The code (honest_n_deflation_denominator) collapses by trial_id and counts distinct
+      True-classified ids. I reproduced its algorithm by hand: the 33 countable ids INCLUDE
+      all 13 falsification-batch ids (c530be91, 87fa1d23, ade58943, 5d18776d, 6a56df9c,
+      b7d1a65a, ab6f4167, cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f, 9017fadb) —
+      every one appears in the COUNTABLE set I enumerated. So the batch is counted ONCE here.
+    path_B_the_plus_15_offset_re_counts_the_same_batch: >
+      honest_n_offset.json's OWN provenance text (field 'provenance_detail') attributes bucket
+      (ii) of its 15 as: "~7 attempts in the 12-trial falsification batch (c530be91..9017fadb:
+      ma/boll/mom/carry/cm/tas rejects) that ... advanced the counter roughly 24->37 but were
+      written compactly rather than as one ledger slot per attempt." This NAMES the identical
+      trial_id range (c530be91..9017fadb) already counted in path_A and adds 7 MORE slots for it.
+  the_counter_advance_IS_the_same_set_proof: >
+    The mandate asked me to prove the "24->37 counter advance" is the SAME 13 trials, not a
+    separate population. PROOF FROM THE LEDGER: exactly ONE batch id carries n_trials_at_spawn
+    (87fa1d23 = 24); the other 12 batch ids carry NO n_trials_at_spawn field. The batch is 13
+    distinct ids; 24 + 13 = 37. The "24->37" advance is precisely the 13 distinct batch
+    trial_ids walking the org counter from 24 to 37 — there is no second, untracked population
+    of batch attempts. They are ONE set of 13. The offset's bucket (ii) therefore re-prices
+    those SAME ids that path_A already counted. That is a literal double count (magnitude ~5-8).
+  magnitude: >
+    ~5-8 of the 15-offset is phantom (PROBABLE, not pinned): the same batch trial_ids counted
+    once as distinct ids (in the 33) and a second time inside the offset's bucket (ii). The
+    offset's own text says "~7 in the 12-trial batch"; my census is 13 ids — so the exact figure
+    is bounded ~5-8, not exactly 7. I do NOT claim all 15 are phantom — bucket (i) (~5 phantom
+    spawn/complete write-pattern lines) is a separate write-artifact over-count, and bucket (iii)
+    contains trial-48 (15923fe1) which is ALSO already a distinct ledger id (a third self-overlap).
+    The PROVEN-in-direction double count is bucket (ii): ~5-8 slots.
+  why_this_is_not_SD2_conservatism: >
+    SD2/IC-9 says over-deflate when AMBIGUOUS — count an attempt whose status you cannot
+    determine. It does NOT license counting the SAME determinate attempt twice. Counting the 13
+    batch ids once (as ids) and again (as offset) is not conservatism; it is an arithmetic error
+    wearing SD2's coat. The honest conservative move is to count each of the 13 ONCE and keep them.
+  i_did_NOT_withdraw: >
+    I held myself to the disconfirmation test the mandate demanded: IF the counter-advance were a
+    DIFFERENT population from the distinct ids, the offset would be additive and my claim false. I
+    checked — n_trials_at_spawn is absent on 12/13, 24+13=37, the range matches byte-for-byte.
+    They are the same set in DIRECTION. The claim survives the disconfirmation test for the
+    direction of the double-count. The EXACT count of re-priced ids is PROBABLE (~5-8), bounded
+    by the offset's own "~7 in the 12-trial batch" text vs my 13-id census — an off-by-one I do
+    not paper over. PROVEN that bucket (ii) re-counts already-distinct ids; PROBABLE that it is
+    exactly 7. Not withdrawn.
+
+# =============================================================================
+# TASK 2 — STRESS-TEST MY OWN ~22 AGAINST "over-deflate when ambiguous".
+# Distinguish PROVABLY-non-draw (drop) from UNAUDITABLE-but-possible-draw (COUNT).
+# =============================================================================
+self_stress_test:
+  rule_applied: "When status/category is UNKNOWN or unprovable-either-way, COUNT IT (over-deflate). Only DROP when the non-draw is PROVABLE from the ledger."
+
+  provably_non_draws_DROP:
+    - {id: "3c9e952a", evidence: "status=spawned, sharpe=null, NO complete record — never executed; no result could be selected as a max", disposition: DROP}
+    - {id: "d18063d4", evidence: "status=spawned, sharpe=null, NO complete record — same", disposition: DROP}
+    - {id: "a9bc0d21", evidence: "config_hash=48acc248c1db == 7dde9154's config_hash; sharpe=-0.0756 IDENTICAL to 7dde9154 -> byte-equivalent re-run, produced NO new max. PROVABLE re-run (same cfg + same sharpe).", disposition: DROP}
+    - {id: "53981a4a", evidence: "status=withdrawn-pre-freeze, flag=false, never frozen/tested", disposition: DROP}
+    provable_drops_total: 4
+
+  unauditable_but_possible_draws_COUNT_per_my_own_rule:
+    - {id: "a9c0902d", evidence: "config_hash=7b4607069a6b (DIFFERS from a9bc0d21's 48ac); git ea7ee13; sharpe -0.0756. THE LOAD-BEARING DISTINCTION (post-critic, narrowed): a9bc0d21 shares config_hash 48ac AND identical sharpe with 7dde9154 -> byte-equivalent re-run, PROVABLE non-draw. a9c0902d has a DIFFERENT config_hash (7b46) than a9bc0d21, so it is NOT a re-run OF a9bc0d21 and is not byte-identical to any single prior 7b46 result at its own (config,git) -> identity-as-rerun is UNPROVABLE. That config_hash difference ALONE is the valid basis to count it; the observation that 7b46 later produced maxima under OTHER trial_ids (f66dd64c/d572999d) is NOT load-bearing and is dropped to avoid misleading. AMBIGUOUS -> COUNT (over-deflate). I cannot prove it a non-draw the way I can a9bc0d21."}
+    - {ids: "[cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f]", evidence: "the 5 ded1356 disputed reruns; NO config_hash, git=ded1356 (NOT resolvable in this worktree), differs from NEW batch git 54df16a. Identity UNPROVABLE either way -> COUNT all 5 (over-deflate). See Task 3."}
+    - {id: "f2fb41fd", evidence: "R5 confirmatory, status=pre-registered-frozen-pending-receipt, never run. A RESERVED attempt. AMBIGUOUS (reserved-draw or non-draw?) -> COUNT (over-deflate). My prior reconciliation excluded it as PREREG; I REVISE to count it here, consistent with my own rule and with HoQR."}
+    unauditable_counted_total: 7    # a9c0902d(1) + 5 ded1356 + f2fb41fd(1)
+
+  the_genuinely_unauditable_RESIDUAL_my_rule_forces_me_toward:
+    EXPLORE_8:
+      ids: [backfill-954ba311, backfill-cef5dd2e, backfill-762bddca, backfill-0e02f2dd, backfill-84be82e4, backfill-135e546b, backfill-018110b3, backfill-95a4d7d9]
+      honest_reassessment: >
+        My prior artifact EXCLUDED these 8 as "diagnostics, never candidate-to-validate, 0
+        multiplicity." On reflection under my OWN rule this is too confident. The firm
+        Bonferroni-BACKFILLED them precisely because each was "a look at the data that could
+        have surfaced a finding" (backfill_reason field). Whether a diagnostic look is a
+        selection-opportunity is exactly the kind of question my "count-when-ambiguous" rule says
+        resolve toward COUNT. Their status is determinably 'exploratory', but the SELECTION
+        argument is live, not settled. I therefore move them from "provably-excluded" to
+        "ambiguous-leaning-count" — they belong in the UPPER band, not excluded outright.
+      disposition: "ambiguous -> included in UPPER band (HoQR counts all 8; I concede the argument is live)"
+    untracked_early_VTC_sweep:
+      honest_reassessment: >
+        Whether there were genuinely-untracked early-sweep attempts BEYOND the 8 ledgered VTC ids
+        is UNAUDITABLE — I cannot prove they existed, I cannot prove they did not. Per my own
+        rule, UNKNOWN -> count. I bound this at ~0-3 (the prose's '5 phantom slots' are a
+        spawn+complete WRITE pattern over the 8 ids, so most are not new attempts), but the honest
+        floor is not 0.
+
+  recomputation:
+    strict_ledger_selectable_draws: 22
+    strict_construction: "NEW(10) + clean-PARAM(4: 43c9b481,7dde9154,f66dd64c,d572999d) + unauditable-counted(8: a9c0902d + 5 ded1356[cef3c48d,15aa7521,fdddc2b0,65041055,9c9f545f] + 9017fadb + f2fb41fd) = 22. Drops 4 provable non-draws (2 spawn + a9bc0d21 + 53981a4a)."
+    POST_CRITIC_LABEL_FIX: >
+      The critic correctly caught that 9017fadb carries git_hash=ded1356 — the SAME unresolvable
+      provenance as the 5 disputed ded1356 reruns — so I cannot call it 'clean-PARAM' while
+      holding the other 5 ded1356 ids as unauditable. CORRECTED: clean-PARAM is 4 (not 5);
+      9017fadb moves into the unauditable-counted bucket (8, not 7). The TOTAL 22 is invariant
+      (5+7 -> 4+8); only the category label was wrong. 9017fadb still COUNTS (over-deflate on
+      unprovable identity), so the number does not move — only its honest provenance label."
+    honest_admission: >
+      My OWN over-deflate rule, applied to the genuinely-UNAUDITABLE residual (the 8 EXPLORE
+      looks whose selection-status I cannot settle, plus ~0-3 untracked early-sweep attempts),
+      pushes my number UP from 22. I cannot honestly exclude the 8 EXPLORE as "0 multiplicity"
+      while also invoking count-when-ambiguous — that is selective application of my own rule.
+      Counting them moves me to 22 + 8 = 30, plus ~0-3 untracked = ~30-33. This is MATERIALLY
+      toward HoQR's 48, and I say so plainly. The mandate was right to press this.
+    where_i_STILL_do_not_reach_48: >
+      The gap from ~30-33 to 48 is the ~5-8 double-count (bucket ii, direction-proven) + the ~5 write-pattern
+      phantom (bucket i) + the trial-48 self-overlap (bucket iii). Those are NOT unauditable
+      draws I am declining to count — they are the SAME attempts counted twice. Over-deflation
+      does not license double-counting determinate attempts. So my UPPER bound lands BELOW 48 by
+      roughly the proven double-count, not by skepticism about real draws.
+
+# =============================================================================
+# TASK 3 — THE 5 DISPUTED ded1356 RERUNs. Disposition: HOLD (default-count).
+# =============================================================================
+ded1356_disposition:
+  ids: [cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f]
+  ledger_facts: "git_hash=ded1356 (differs from NEW batch 54df16a); NO config_hash on any; same 5 strategy FAMILY names as the NEW batch."
+  disambiguation_attempted_this_round: >
+    I ran `git cat-file -t ded1356` at 679e8c7 — it is NOT a resolvable object in this worktree,
+    and `git log` for it returns nothing. The ledger alone cannot establish whether ded1356
+    re-ran the SAME config over the SAME window (=re-run, exclude) or a DIFFERENT window /
+    walk-forward fold (=new comparison, count). The disambiguation the prior artifact flagged as
+    "requires inspecting code at ded1356" is NOT available in this environment.
+  disposition: HOLD (default-count all 5)
+  why_hold: >
+    Identity is UNPROVABLE either way. By my own count-when-ambiguous rule, the honest disposition
+    is COUNT. I do NOT revise to exclude (that would require proving identity, which I cannot) and
+    I do NOT inflate beyond default-count. They sit in the unauditable-COUNT bucket above. This is
+    the SAME disposition my prior artifact (D8) reached; I reaffirm it with the failed
+    disambiguation now on record.
+
+# =============================================================================
+# TASK 4 — UPDATED N + BAND, AND CONVERGENCE WITH HoQR.
+# =============================================================================
+updated_N:
+  point_estimate: 30
+  band: "[22, 33]"
+  revision_trail: >
+    Prior NHT: point 22, band [17,27]. This round, applying my OWN over-deflate rule honestly to
+    the unauditable residual (8 EXPLORE looks I can no longer exclude with confidence, + f2fb41fd
+    reserved attempt, + ~0-3 untracked) moves my point from 22 to ~30 and my band to [22, 33].
+    Lower bound 22 = strict ledger selectable draws (drop only PROVABLE non-draws). Upper bound 33
+    = + the 8 unauditable EXPLORE looks + ~2-3 untracked early-sweep. I moved UP, materially.
+  why_not_48_still: >
+    48 remains an over-count by the ~5-8 double-count (direction-proven; falsification batch counted as ids AND
+    re-counted in offset bucket ii) plus the ~5 write-pattern phantom (bucket i) + trial-48
+    self-overlap (bucket iii). Those are duplicate counts of determinate attempts, not unauditable
+    draws. Strip the proven duplication and HoQR's 48 lands at ~33-36 — inside or just above my
+    upper band. The residual disagreement is now ~12 slots, ALL of it the double/phantom-count,
+    NOT a disagreement about which real draws exist.
+  why_not_11_still: "Unchanged: 11 de-dups the 5+ clean VTC param-variants and silently drops trial-48/QRB-6/f2fb41fd. Under-deflation. Retired from compute_dsr (I concur with HoQR's re-scoping)."
+
+convergence_with_hoqr:
+  converge: PARTIAL
+  agreed_this_round:
+    - "Retire N=11 from compute_dsr; keep compute_honest_n as the research-portfolio view (sacred test pins the de-dup function, NOT the deflation function — D6 preserved)."
+    - "Param-variants COUNT; pure byte-identical re-runs do NOT; spawned-only do NOT; withdrawn-pre-freeze does NOT."
+    - "a9bc0d21 is a PROVABLE re-run (same config_hash 48ac + identical -0.0756 sharpe as 7dde9154) and does NOT count — HoQR and I now AGREE on this specific id."
+    - "f2fb41fd COUNTS (reserved attempt) — I REVISE toward HoQR here."
+    - "The 5 ded1356 reruns default-COUNT pending unavailable disambiguation."
+    - "DSR monotone increasing in N — under-count is the dangerous (false-positive) error; this is load-bearing."
+  remaining_disagreement:
+    magnitude: "~12-15 slots (my point 30 vs HoQR 48; my upper 33 vs HoQR 48)."
+    sole_cause: >
+      The PROVEN double-count. HoQR's own artifact CONCEDES (its 'honesty_note' and 'key_finding')
+      that the 29/19 split is "BACK-SOLVED against the 48 anchor, NOT independently derived
+      line-by-line" and that "the 5 phantom sweep slots cannot be individually reconstructed." That
+      is HoQR stating, in its own words, that ~19 of the 48 is a residual asserted against an
+      anchor, not a census of distinct draws. My double-count proof shows ~7 of that residual is
+      the falsification batch re-counted, and ~5 is the write-pattern phantom. So the gap is NOT a
+      dispute over real draws — both of us enumerate the same ~22-33 real selectable draws — it is
+      whether the back-solved residual is admissible. I say ~12 of it is duplicate-counting and
+      must be removed; HoQR keeps it under SD2. That is the live R1 disagreement to resolve in R2.
+  proposed_path_to_close_in_R2:
+    - "HoQR: produce a LINE-BY-LINE census of the 19-residual (not a back-solve) showing each is a distinct attempt NOT already in the 33 distinct ids. If you cannot, the residual reduces to the ~5 genuinely-untracked-early-sweep attempts + the f2fb41fd-class reserved attempts, landing the anchor near ~33-36."
+    - "Both: agree that bucket (ii) (the falsification-batch 7) and the trial-48 entry in bucket (iii) are SELF-OVERLAPS with the 33 distinct ids and must be removed from the offset to avoid double-counting."
+    - "If HoQR demonstrates the residual is NOT self-overlapping, I will converge upward toward 48. The burden is a census, not an anchor."
+
+# =============================================================================
+# APPEND-ONLY DISSENT (verbatim; may not be paraphrased or softened)
+# =============================================================================
+dissent_statement: |
+  DR1-1 (DOUBLE-COUNT PROVEN-IN-DIRECTION, magnitude probable, not withdrawn). The mandate demanded I prove the same 13
+  falsification-batch trial_ids are counted both as distinct ids and as offset bucket (ii), or
+  withdraw. PROOF: all 13 batch ids (c530be91..9017fadb) appear in the code's 33-countable
+  distinct-id set; 12 of the 13 carry NO n_trials_at_spawn field; 24 + 13 = 37, exactly the
+  "24->37 counter advance" the offset attributes to bucket (ii). There is no second untracked
+  batch population — the counter advance IS the 13 distinct ids. The offset re-prices ~5-8 of them
+  in bucket (ii) (the offset says "~7 in the 12-trial batch"; my census is 13 ids, so the exact
+  figure is bounded ~5-8, not pinned to 7). Double count direction: PROVEN; magnitude: ~5-8,
+  probable. SD2 does not license counting a determinate attempt twice.
+
+  DR1-2 (I moved my own number UP, honestly). The mandate stress-tested my ~22 against my own
+  over-deflate rule. Applying it consistently to the genuinely-UNAUDITABLE residual — the 8 EXPLORE
+  diagnostic looks I had excluded as "0 multiplicity" but which the firm itself backfilled as
+  looks-that-could-surface-a-finding, plus f2fb41fd, plus ~0-3 untracked early-sweep — forces my
+  point estimate from 22 to ~30 and my band from [17,27] to [22,33]. I cannot invoke
+  count-when-ambiguous selectively. This is a calibration concession; I was over-confident
+  excluding the EXPLORE bucket.
+
+  DR1-3 (the residual disagreement is duplication, not draws). After R1, HoQR and I ENUMERATE THE
+  SAME real selectable draws (~22-33). The gap to 48 is entirely the direction-proven ~5-8 batch double-count +
+  ~5 write-pattern phantom + the trial-48 self-overlap. HoQR's own artifact concedes the 19-residual
+  is "back-solved against the 48 anchor, not derived line-by-line" and the phantom slots "cannot be
+  individually reconstructed." A number that cannot be reconstructed as distinct attempts, and that
+  provably overlaps the distinct-id count, is not conservatism — it is unaudited residual. My UPPER
+  bound (33) sits below 48 by exactly that duplication, not by skepticism about real edges.
+
+  DR1-4 (provable vs unprovable, held cleanly). I DROP only what I can PROVE is a non-draw:
+  3c9e952a/d18063d4 (spawn-only, sharpe=null), a9bc0d21 (same config_hash + identical sharpe as
+  7dde9154 = byte-equivalent re-run), 53981a4a (withdrawn). I COUNT everything unprovable-either-way:
+  a9c0902d (distinct config from a9bc0d21), the 5 ded1356 reruns (identity unprovable — git not
+  resolvable here), f2fb41fd, and the EXPLORE looks in the upper band. This is the discipline that
+  separates principled over-deflation from defensive maximalism.
+
+  DR1-5 (D1 STILL LIVE). The 48 machinery remains non-functional: honest_n_deflation_denominator()
+  raises RuntimeError because the offset record is ABSENT from trials.jsonl (verified again this
+  round — it lives only in honest_n_offset.json). Whatever N R2 converges on, the offset record must
+  be appended OR the function re-pointed before ANY DSR is deflated by it. Until then production can
+  only run compute_honest_n (11), the wrong and dangerous one.
+
+  DR1-6 (convergence offer, binding). I will converge UPWARD toward 48 in R2 IF HoQR produces a
+  line-by-line census of the 19-residual demonstrating each entry is a distinct attempt NOT already
+  among the 33 distinct trial_ids. If the census cannot be produced (HoQR's own artifact says the
+  phantom slots "cannot be individually reconstructed"), then the residual reduces to the
+  genuinely-untracked attempts and the anchor falls to ~33-36 — at which point my band [22,33] and
+  the corrected anchor OVERLAP and we converge near ~33. The burden in R2 is a census, not an anchor.
+
+# =============================================================================
+# RECOMMENDATION (this round)
+# =============================================================================
+recommendation:
+  - "ADOPT (interim, pending R2): DSR prior denominator in [22, 33], point 30 — derived from the selection family with proven double-counting removed."
+  - "FIX D1 first: append the offset record to trials.jsonl (the function crashes today regardless of which N wins)."
+  - "R2 task for HoQR: line-by-line census of the 19-residual, OR concede the ~7 batch double-count + trial-48 self-overlap and re-anchor to ~33-36."
+  - "Keep compute_honest_n (11) as portfolio view ONLY; regression test that it never feeds compute_dsr (I concur with HoQR)."
+  - "Remove bucket (ii) and the trial-48 entry of bucket (iii) from the offset (self-overlaps with the distinct-id count)."
+
+ratification:
+  nht_signature: approve-with-dissent
+  counter_incremented: false          # DEBATE round — NO trial spawned, honest-N UNCHANGED
+  converges_with_hoqr: PARTIAL        # agreed on method + specific ids; ~12-slot gap remains, all of it the proven double/phantom-count
+ROUTE_TO: head-of-quant-research      # R2: produce the residual census or concede the double-count
+notify: [ceo, head-of-quant-research, cto, principal-reviewer]

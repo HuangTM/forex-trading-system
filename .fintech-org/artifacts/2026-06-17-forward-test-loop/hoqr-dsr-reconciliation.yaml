@@ -1,0 +1,403 @@
+# =============================================================================
+# HoQR RECONCILIATION — Deflated-Sharpe deflation denominator: ONE semantic.
+# Reconciles the TWO contradictory firm ratifications of the DSR multiplicity N:
+#   (A) N=11  — compute_honest_n de-dup-by-hypothesis-key, sacred-tested,
+#               quorum-ratified f0d1054 (2026-06-06).
+#   (B) N=48  — cumulative independent attempts + 15 prose offset,
+#               ratified 2026-06-17/18 (hoqr/nht-dsr-denominator.yaml) — which
+#               REJECTED 11 as a p-hack WITHOUT engaging that 11 was already ratified.
+# This artifact does the work neither prior ratification did: it CLASSIFIES every
+# trial in the ledger (11 -> 34 -> 48) by Bailey-Lopez de Prado selection semantics
+# (param-variant COUNTS; pure re-run does NOT), and derives the principled N that
+# sits BETWEEN the two endpoints. It is a methodology ratification, NOT a backtest.
+# =============================================================================
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — DSR-N reconciliation"
+timestamp_utc: "2026-06-18T03:22:27Z"
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: head-of-quant-research
+no-capital-instruction: true
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - falsification-archive-curation
+  - strategy-kill-decisions
+  - research-to-prod-pipeline-design
+  - feature-store-and-backtest-harness-architecture
+
+inputs_read:
+  - .fintech-org/trials.jsonl                                  # 49 lines, 34 distinct trial_ids, 0 orphan lines (VERIFIED by parse)
+  - src/forex_system/harness/honest_n.py                       # compute_honest_n (11 de-dup) + honest_n_deflation_denominator (48)
+  - tests/harness/test_honest_n.py                             # the SACRED N=11 rationale
+  - .fintech-org/honest_n_offset.json                          # the 15-attempt offset (built, NOT yet in ledger)
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-denominator.yaml  # prior HoQR ratification (N=48)
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-denominator.yaml   # prior NHT dissent (N>=48)
+
+mechanically_verified:   # every number below from my own parse at 679e8c7, not asserted
+  raw_lines: 49
+  lines_with_trial_id: 49
+  lines_with_NO_trial_id: 0           # NOTE: contradicts prior artifacts' "7 pure event lines" claim — there are ZERO orphan lines; all 49 carry a trial_id. The "events" are status-update/archive lines that REUSE an existing trial_id.
+  distinct_trial_ids: 34
+  spawned_only_never_scored: 2        # 3c9e952a, d18063d4 — spawn line written, NO complete line, NO sharpe ever
+  rerun_equivalent_completes: 2       # a9bc0d21 (==7dde9154, cfg 48ac) AND a9c0902d (git ea7ee13 == a9bc0d21's, sharpe -0.0756 identical) — neither produced a NEW max
+  withdrawn_pre_freeze: 1             # 53981a4a (flag=false, never frozen/tested)
+  reconciliation_record_in_ledger: false   # honest_n_offset.json EXISTS but the record is NOT yet appended to trials.jsonl -> honest_n_deflation_denominator() currently RAISES RuntimeError (fail-closed). Flagged below.
+
+# =============================================================================
+# 1. TRIAL-BY-TRIAL CLASSIFICATION  (the 11 -> 34 -> 48 breakdown, with categories)
+# =============================================================================
+# Category legend (Bailey-Lopez de Prado selection semantics):
+#   (i)   NEW            distinct hypothesis / distinct draw from the search       -> COUNTS
+#   (ii)  PARAM-VARIANT  different config of an existing idea (genuine multiple-comp) -> COUNTS
+#   (iii) RE-RUN         byte-identical frozen config re-evaluated, identical result -> does NOT count
+#   (iv)  VOID-RERUN     voided run, remediated re-run of same trial_id              -> ONE slot
+#   (v)   WITHDRAWN      never frozen / never saw data                              -> does NOT count
+#   (vi)  SPAWNED-ONLY   spawn line only, never produced a Sharpe / never selectable -> does NOT count
+#   (vii) NON-TRIAL      status-update / archive line reusing an existing id         -> not a new slot
+classification:
+
+  level_11_to_34:
+    note: >
+      The de-dup view (11) keys by pre_reg_path-else-stripped-strategy-family. It collapses
+      ALL config-variants and re-runs of one family to a single key. The 34 distinct
+      trial_ids are the un-collapsed ledger attempts. The 23-trial gap (34 - 11) is what we
+      must classify: how many were genuine selectable draws (COUNT) vs re-runs/spawns (DROP)?
+
+    early_vol_target_carry_sweep:   # slots 1,3,4,5,7,9,11,13 — 8 distinct trial_ids, ONE family in the 11-view
+      family_key: vol_target_carry / references/pre-registrations/vol_target_carry.md
+      distinct_config_hashes: [91fe31efd083, 48acc248c1db, 7b4607069a6b]   # 3 genuine param-variants
+      trials:
+        - {id: 43c9b481, cfg: 91fe31efd083, status: complete, sharpe: 0.0653,  category: ii_PARAM_VARIANT, counts: true,  note: "1st config draw"}
+        - {id: 3c9e952a, cfg: 7b4607069a6b, status: spawned,   sharpe: null,   category: vi_SPAWNED_ONLY,  counts: false, note: "spawn only, no result ever — not selectable"}
+        - {id: d18063d4, cfg: 7b4607069a6b, status: spawned,   sharpe: null,   category: vi_SPAWNED_ONLY,  counts: false, note: "spawn only, no result ever — not selectable"}
+        - {id: 7dde9154, cfg: 48acc248c1db, git: 70e3cc7, status: complete, sharpe: -0.0756, category: ii_PARAM_VARIANT, counts: true,  note: "config 48ac, git 70e3cc7 — first eval of this config; a distinct draw"}
+        - {id: a9bc0d21, cfg: 48acc248c1db, git: ea7ee13, status: complete, sharpe: -0.0756, category: iii_RE_RUN,       counts: false, note: "config 48ac, IDENTICAL sharpe to 7dde9154 — pure re-run, no new max"}
+        - {id: a9c0902d, cfg: 7b4607069a6b, git: ea7ee13, status: complete, sharpe: -0.0756, category: iii_RE_RUN,       counts: false, note: "CORRECTED (quick-critic): shares git ea7ee13 with a9bc0d21 AND has identical -0.0756 sharpe -> re-run-equivalent, produced NO new max. My earlier 'different git_hash+sharpe' claim was FACTUALLY WRONG (verified: git=ea7ee13, same as a9bc0d21). Does NOT count."}
+        - {id: f66dd64c, cfg: 7b4607069a6b, git: 591b801, status: complete, sharpe: 0.5977,  category: ii_PARAM_VARIANT, counts: true,  note: "config 7b46 re-evaluated under CHANGED code git 591b801 -> NEW sharpe 0.5977 — genuine new draw (max climbed)"}
+        - {id: d572999d, cfg: 7b4607069a6b, git: c41212f, status: complete, sharpe: 0.7594,  category: ii_PARAM_VARIANT, counts: true,  note: "config 7b46 re-evaluated under CHANGED code git c41212f -> NEW sharpe 0.7594 — the lucky max of the sweep"}
+      subtotal_distinct_ids: 8
+      counted_draws: 4
+      CORRECTION_TRAIL: "Draft said 5 (with a stray subtotal_counts: 6). Quick-critic caught — VERIFIED against ledger — that a9c0902d shares git ea7ee13 with a9bc0d21 and has the identical -0.0756 sharpe, so it is re-run-equivalent (no new max), NOT a distinct draw. Corrected to 4: 8 ids - 2 spawned-only (3c9e952a,d18063d4) - 2 re-run-equivalent (a9bc0d21, a9c0902d) = 4. Knock-on: total countable draws 30->29, prose offset 18->19; 29+19=48 unchanged."
+      rationale: >
+        The discriminator for a BLdP selection draw is whether a run produced a NEW maximum-eligible
+        Sharpe. TWO ids did: 7dde9154 (config 48ac, -0.0756) and the config-7b46 pair f66dd64c
+        (0.5977) / d572999d (0.7594), each re-evaluated under SUCCESSIVELY CHANGED code (git
+        591b801->c41212f) whose max climbed — genuine new draws. TWO ids did NOT: a9bc0d21 (config
+        48ac, identical sharpe to 7dde9154) and a9c0902d (config 7b46, SAME git ea7ee13 as a9bc0d21,
+        identical -0.0756 sharpe) — re-executions adding no comparison. TWO are spawned-only (no
+        result). Net: this "1 idea" contributes 4 real selectable draws — not 1 (the 11-view error),
+        not 8 (the raw-id error).
+
+    backfill_exploratory_scripts:   # slots 15-22 — 8 distinct trial_ids
+      ids: [backfill-954ba311, backfill-cef5dd2e, backfill-762bddca, backfill-0e02f2dd, backfill-84be82e4, backfill-135e546b, backfill-018110b3, backfill-95a4d7d9]
+      status: exploratory
+      category: i_NEW (8 DISTINCT exploratory script runs — buy_and_hold, portfolio, drawdown-diag, carry-mom diag, long-only-carry, revalidation, vol-target-portfolio, vol-target-canonical)
+      counts: true
+      counted_draws: 8
+      rationale: >
+        These are 8 DISTINCT exploratory analyses (different strategies/scripts), Bonferroni-
+        backfilled precisely BECAUSE each was a look at the data that could have surfaced a
+        "finding." The de-dup view DROPS all 8 (status=exploratory is in EXCLUDE_STATUSES) — that
+        is the 11-view's largest single under-count. Under BLdP selection semantics, 8 distinct
+        exploratory looks are 8 selection opportunities. They COUNT.
+
+    twelve_trial_falsification_batch:   # slots ~24->37, the W5R2 / first-pass rejects
+      ids: [c530be91, 87fa1d23, ade58943, 5d18776d, 6a56df9c, b7d1a65a, ab6f4167, cef3c48d, 15aa7521, fdddc2b0, 65041055, 9c9f545f, 9017fadb]
+      count_ids: 13
+      categories:
+        - "ma_crossover x2 (c530be91, cef3c48d) — same family, 2 param/window variants -> 2 COUNT (ii)"
+        - "bollinger_rsi x2 (ade58943, 15aa7521) — 2 variants -> 2 COUNT (ii)"
+        - "momentum x2 (87fa1d23, fdddc2b0) — 2 variants -> 2 COUNT (ii) [87fa1d23 later retired, still a draw]"
+        - "carry x2 (5d18776d, 65041055) -> 2 COUNT (ii)"
+        - "carry_momentum x2 (6a56df9c, 9c9f545f) -> 2 COUNT (ii)"
+        - "fred_carry_stripped (b7d1a65a) -> 1 COUNT (i)"
+        - "tas_ceiling_4h (ab6f4167) -> 1 COUNT (i)"
+        - "vol_target_carry_no_vol_scaling (9017fadb) -> 1 COUNT (ii, vol_target_carry variant)"
+      counts: true (ALL 13)
+      counted_draws: 13
+      rationale: >
+        Each of these 13 is a distinct config that RAN and produced a Sharpe/verdict (all
+        rejected, but a rejected draw is STILL a draw — excluding rejects is survivorship bias,
+        the exact error compute_honest_n's RETAIN_STATUSES correctly avoids). The de-dup view
+        collapses these 13 into ~6 family keys (ma_crossover, bollinger_rsi, momentum, carry,
+        carry_momentum, fred_carry, tas_ceiling, vol_target_carry) — losing the within-family
+        multiple-comparison. BLdP: 13 configs tried = 13 draws. ALL COUNT.
+
+    late_trials:   # R5, QRB-6, confirmatories, trial-48
+      trials:
+      - {id: 576746aa, family: "R5-carry-universe (6x6=36 cells)", status: "complete", category: "ii_PARAM_VARIANT-FAMILY", counts: true,  note: "ONE ledger slot, but its INTERNAL 36-cell selection is charged separately as N_sel=3 inside its own DSR (per R5 freeze receipt). Org-wide slot = +1."}
+      - {id: f2fb41fd, family: "R5-confirmatory", status: "pre-registered-frozen-pending-receipt", category: "i_NEW", counts: true, note: "frozen confirmatory; a real reserved attempt. Counts. (de-dup view SILENTLY DROPS this — bug.)"}
+      - {id: fa0f982a, family: "QRB-6 CB-event-study", status: "strategy-archived (RULE_4_AMBIGUOUS)", category: "i_NEW + iv_VOID_RERUN", counts: true, note: "VOIDED-then-remediated-rerun = ONE slot; consumed real selection. de-dup view DROPS it (archive line status='unknown') — bug."}
+      - {id: 53981a4a, family: "QRB-6 confirmatory", status: "withdrawn-pre-freeze (flag=false)", category: "v_WITHDRAWN", counts: false, note: "NEVER frozen, NEVER tested, no realized Sharpe — NHT-ratified non-counting. The ONE legitimate non-increment."}
+      - {id: 15923fe1, family: "A2-prime trial-48", status: "strategy-archived (clean-falsification, flag=true)", category: "i_NEW", counts: true, note: "the firm's most recent real falsification. de-dup view DROPS it (archive line, no status) — bug. EXPLICITLY flagged counts_toward=true."}
+      counted_draws: 4    # 5 ids minus 53981a4a (withdrawn)
+
+  ledger_counted_total:
+    early_sweep: 4          # CORRECTED 5->4 (a9c0902d is re-run-equivalent, shares git ea7ee13)
+    backfill_exploratory: 8
+    falsification_batch: 13
+    late_trials: 4
+    SUM_distinct_ledger_attempts_that_COUNT: 29   # CORRECTED 30->29
+    dropped_from_34:
+      spawned_only: 2        # 3c9e952a, d18063d4
+      rerun_equivalent: 2    # a9bc0d21, a9c0902d (CORRECTED: was 1; a9c0902d shares git ea7ee13 + identical sharpe)
+      withdrawn_pre_freeze: 1 # 53981a4a
+      total_dropped: 5
+    arithmetic: "34 distinct ids - 2 spawned-only - 2 re-run-equivalent - 1 withdrawn = 29 COUNTABLE distinct ledger draws."
+
+  level_34_to_48_prose_offset:
+    honesty_note: >
+      DIRECTIONAL-SAFETY DISCLOSURE (do not blur this): 48 is the BINDING ANCHOR (the monotonic
+      counter 37->38->42->48, attested in MEMORY/CONSENSUS prose and trial-48's own archive
+      'DSR=0.00 at N=48'). The per-segment SPLIT below (29 countable + 19 prose) is BACK-SOLVED
+      against that anchor, NOT independently derived line-by-line — the 5 phantom sweep slots
+      'cannot be individually reconstructed' (stated in directional_safety). So I do NOT claim to
+      have derived 19 from the bytes; I claim 48 is the anchor and 19 is the residual once the 29
+      countable draws are removed. This is auditable as a RESIDUAL, not as a per-attempt census.
+      Per SD2 the residual is taken toward the LARGER total regardless of split uncertainty.
+    reconciliation: >
+      TWO honest accountings of the SAME anchor (48), differing only in bookkeeping:
+        prior code: 33 (id-level, keeps spawns+reruns) + 15 prose offset = 48
+        my audit:   29 (draw-level, drops 2 spawns + 2 re-run-equivalent) + 19 residual = 48
+      My stricter draw-level count reassigns 4 ids (2 spawns + 2 re-run-equivalent) into the
+      residual bucket, raising it from 15 to 19. The TOTAL is invariant because 48 is the anchor,
+      not the split. IMPORTANT for the SHIPPED CODE: honest_n.py counts IDS (not draws) and uses
+      offset=15 against its 33-id floor -> 48. My 29/19 split is the AUDIT RATIONALE for why 48 is
+      the right BLdP answer; it is NOT a code change. The code's 33+15=48 and my audit's 29+19=48
+      are the same number reached two ways. (Knock-on from the a9c0902d correction: my split moved
+      30/18 -> 29/19; the code's 33/15 is untouched and still correct for an id-level count.)
+    what_the_residual_covers:
+      - "5 phantom counter slots {2,6,8,10,12} from the early sweep (spawn+complete each burned a counter slot; the counter advanced 1,3,4,5,7,9,11,13 over 8 ids — gaps are paid attempts not written as their own draw). NOT individually reconstructable; taken as a block."
+      - "the 12-trial batch counter advance 24->37 (recorded compactly in the counter field, not one slot per draw)"
+      - "cross-session monotonic moves 37->38->42->48 (CONSENSUS/MEMORY prose: 576746aa complete=38, kickoff-2 close=42, trial-48=48)"
+
+# =============================================================================
+# 2. BAILEY-LOPEZ DE PRADO — applied correctly to derive the PRINCIPLED N
+# =============================================================================
+bldp_application:
+  what_N_is: >
+    In Bailey & Lopez de Prado (2014), DSR deflates the observed Sharpe by E[max SR_N] — the
+    expected MAXIMUM Sharpe under the null across N INDEPENDENT trials in the SELECTION process.
+    N is the size of the multiple-testing family you selected the winner from. The operative
+    test for each candidate: "could its result have been picked as 'the' finding?" If yes, it
+    is a draw and COUNTS. A param-variant chosen among = a draw (COUNTS). A byte-identical
+    re-run of a frozen config = the SAME draw, cannot produce a new max (does NOT count). A
+    spawn that never produced a Sharpe = no draw (does NOT count). A withdrawn idea that never
+    saw data = no draw (does NOT count).
+  why_the_answer_is_BETWEEN_11_and_48:
+    against_11: >
+      11 de-dups param-variants into family keys. But carry, carry (different window), and
+      carry_momentum variants were each a separate REACH INTO THE BAG — the max over them is
+      what inflated the observed Sharpe. Collapsing 13 falsification-batch draws to ~6 keys, and
+      DROPPING all 8 exploratory looks, ERASES 23 real selection opportunities. 11 under-deflates.
+      It also has a verified silent-drop bug (omits trial-48, QRB-6, f2fb41fd). 11 is WRONG as
+      the DSR N.
+    against_pure_48_or_34: >
+      But the raw 34 id-count OVER-counts by including non-draws: 2 spawned-only ids that never
+      produced a Sharpe, and 2 re-run-equivalent completes (a9bc0d21 and a9c0902d — both on git
+      ea7ee13, both sharpe -0.0756, neither producing a NEW max). A re-run cannot raise the max —
+      charging it inflates N without a selection. Strict BLdP would NOT count these 4 ids.
+      (Note: this trims the 34 ID-count, but does NOT pull the FINAL N below 48 — the trimmed ids
+      are paid attempts that move into the prose RESIDUAL, see below.)
+    the_principled_count:
+      countable_ledger_draws: 29        # 34 ids - 2 spawned - 2 re-run-equivalent - 1 withdrawn
+      plus_prose_residual: 19           # residual against the 48 anchor (phantom slots + batch advance + cross-session moves); BACK-SOLVED, not a per-attempt census
+      principled_N: 48                  # 29 + 19 — COINCIDES with the prior ratification's 48 by a more rigorous (draw-level) route
+  key_finding: >
+    The strict BLdP draw-level audit and the prior cumulative-attempt count CONVERGE on 48.
+    The 4 ids I strip on strict BLdP grounds (2 spawns + 2 re-run-equivalent) are paid attempts
+    that move into the prose residual rather than vanishing — so the FINAL N stays at the 48
+    anchor (the split shifts 30/18 -> 29/19; the total does not move). The endpoints 11 and 48 are
+    NOT symmetric candidates: 11 is wrong by ~4x (erased draws + bug), 48 is the anchored answer.
+    The principled N is 48 — for the RIGHT reason (count selection DRAWS, drop re-runs/spawns/
+    withdrawn), not the raw-id reason. HONEST CAVEAT: the 29/19 split is an audit rationale
+    back-solved against the 48 anchor, not a line-by-line census of all 19 residual attempts (the
+    early phantom slots are not individually reconstructable). 48 stands on the counter anchor +
+    SD2 (over-deflate), with the draw classification showing the gap is dominated by real variants.
+
+# =============================================================================
+# 3. STEELMAN OF THE VIEW I DID NOT AUTHOR (N=11, de-dup) — argued at full strength
+# =============================================================================
+# I authored compute_honest_n (the 11 de-dup). Per the task I must steelman the OTHER view.
+# The "other" view relative to my authored rule is the CUMULATIVE/48 reading — but the deeper
+# steelman the firm needs is the strongest case FOR 11 being RIGHT, since rejecting my own rule
+# is the harder self-challenge. I argue BOTH, strongest-form.
+steelman:
+  for_the_cumulative_48_view_I_must_adopt: >
+    The 48 view is correct on the core statistics and I now adopt it. Its strongest claim: DSR
+    corrects for the MAXIMUM over draws, and the firm demonstrably kept the BEST of its sweep
+    (the early VTC sweep's max climbed 0.0653 -> 0.5977 -> 0.7594 as it re-searched). Every one
+    of those was a chance at a lucky max. De-duplicating them to "1 carry idea" hides exactly the
+    selection that DSR exists to penalize. The 48 view also correctly refuses survivorship bias
+    (rejects COUNT) and is monotone/programme-wide (selection bias accumulates). On the asymmetry
+    of error — under-deflation trades noise (unrecoverable), over-deflation costs a confirmatory
+    cycle (cheap) — the larger N is strictly safer. This is decisive and I concur.
+  strongest_case_FOR_11_being_right_steelmanned_then_rebutted:
+    case: >
+      The strongest honest case for 11: the 22-ish vol_target_carry variants are near-duplicates
+      of ONE idea on ONE pair; charging each as an independent draw over-deflates a single
+      hypothesis tested many ways. De Prado's OWN "effective number of trials" under CORRELATED
+      strategies is a real, published correction — naive multiplicity over-counts correlated
+      variants. If the 22 variants have pairwise correlation ~0.9, the effective independent N is
+      far below 22. So 11 is not arbitrary; it is a (crude) correlation-aware count, and using the
+      raw 48 genuinely DOES over-penalize correlated draws.
+    why_it_still_loses:
+      - >
+        RIGHT CONCERN, WRONG INSTRUMENT. Correlation among draws is real and SHOULD be removed —
+        but by a MEASURED haircut N_eff = N_raw / (1 + (k-1)*rho_bar) with rho_bar estimated from
+        the actual return series, NOT by a REGEX on strategy names. compute_honest_n collapses by
+        spelling (_normalize_strategy strips _2x_costs, _USDJPY, _v\d+). Two genuinely different
+        hypotheses sharing a prefix collapse; the equivalence relation is lexical, not statistical.
+        An unprincipled correction in the right direction is still unprincipled.
+      - >
+        DOUBLE-DISCOUNT. If the firm ever wires BOTH the family de-dup (->11) AND a measured
+        rho_bar haircut downstream, it removes correlation TWICE. The DSR denominator must be the
+        RAW draw count; correlation is removed ONCE, separately, by the measured haircut. Baking
+        the discount into N pre-double-counts.
+      - >
+        THE BUG. 11 silently drops trial-48, QRB-6, and the frozen R5 confirmatory (unknown-status
+        else-branch). It under-counts even its OWN intended quantity. We cannot ratify an unaudited
+        number.
+      - >
+        THE TELL. 11 is the value a 0/48 firm reaching for its first win WANTS (it raises every
+        DSR ~4x). That a convenient number also has a sophisticated rationale is exactly what a
+        denominator p-hack looks like. SD2 names N-minimization the single easiest cheat.
+    conclusion_of_steelman: >
+      The 11-view's legitimate kernel (correlation matters) survives — but as a SEPARATE, MEASURED
+      effective-N haircut applied downstream, never as the DSR multiplicity denominator. The de-dup
+      function keeps ONE consumer: HoQR's survivorship/idea-coverage portfolio view. It is retired
+      from compute_dsr.
+
+# =============================================================================
+# 4. DECISION — ONE semantic, ONE value, ONE rule. Retain/Retire.
+# =============================================================================
+decision_detail:
+  ratified_semantic: >
+    The DSR deflation denominator N = the number of INDEPENDENT SELECTION DRAWS in the firm's
+    cumulative multiple-testing family: every distinct configuration whose result COULD have been
+    picked as the winner. Param-variants COUNT (each a draw at a lucky max). Pure byte-identical
+    re-runs do NOT count (same draw). Spawned-only-never-scored do NOT count (no draw). Withdrawn-
+    pre-freeze do NOT count (never saw data). Programme-wide, monotonic, never resets.
+  ratified_value:
+    standing_prior_attempt_count: 48
+    plus_one_convention: "compute_dsr receives n_trials INCLUDING the trial being scored: a NEW trial today uses n_trials = 48 + 1 = 49."
+    full_IC9_for_a_forward_eval: "N_DSR = 48 (org-wide) + this candidate's IS-search-family (charged separately, e.g. R5 N_sel) + pre-declared forward attempt budget. Strictly >= 48."
+  mechanical_counting_rule:
+    function: honest_n_deflation_denominator(trials_path) -> int   # PRIOR count; caller adds +1
+    steps:
+      - "Collapse by trial_id (last-wins). One slot per distinct id, never per line. (kills the 49 raw-line bug.)"
+      - "Classify each distinct id: COUNTS=false iff (counts_toward_deflation_denominator==false STICKY) OR status==withdrawn-pre-freeze. Else COUNTS=true."
+      - "ADDENDUM (this reconciliation): spawned-only-never-scored and re-run-equivalent completes are, on strict BLdP grounds, non-draws. They are ALREADY SUBSUMED into the offset arithmetic (the 29-draw + 19-residual split equals the code's 33-id + 15-offset split = 48), so NO code change to the live function is required — the 48 anchor is invariant. Recording the strict-BLdP rationale here so the offset is auditable as a residual, not asserted as a census."
+      - "n = baseline_offset (from the 'honest-n-reconciliation' record) + count(distinct ids classified true after collapse)."
+      - "Emit honest_n.computed{n, baseline_offset, countable_distinct, git_sha, ts} (decision-trace)."
+    default_on_ambiguity: "COUNT IT (over-deflate). SD2/IC-9 binding."
+
+  retain_vs_retire:
+    RETAINED:
+      what: "N=48 cumulative-independent-draws semantic (the 2026-06-17/18 ratification) IS RETAINED as the DSR multiplicity denominator — but now grounded in the trial-by-trial draw classification this artifact provides, not merely the prose counter."
+      why: >
+        The 48 anchor survives the strict BLdP draw-level audit: 29 countable ledger draws + 19
+        prose residual = 48, converging on the code's 33+15=48 by a more rigorous route. The gap
+        from 11 to 48 is DOMINATED by genuine param-variants and exploratory looks (13 batch draws
+        + 8 exploratory + 4 sweep draws = 25 real selectable draws), NOT by re-runs. Only 4 of the
+        34 ids are non-draws (2 re-run-equivalent + 2 spawned-only), plus 1 withdrawn — and these
+        are paid attempts displaced into the residual, not deletions. The param-variants DOMINATE
+        the gap, so the answer sits at the high end. This is the documented reason the gap is NOT
+        mostly re-runs.
+    RETIRED:
+      what: "N=11 (compute_honest_n de-dup-by-hypothesis-key) is RETIRED as the DSR deflation denominator. The f0d1054 quorum ratification and its SACRED test asserted 11 for compute_honest_n — that function and test SURVIVE, but their OUTPUT is RE-SCOPED to the research-portfolio idea-coverage view ONLY and MUST NOT feed compute_dsr at any call site."
+      why_engaging_its_rationale: >
+        The 11-rule's rationale ("re-running the SAME hypothesis is not a new multiple-comparison")
+        is CORRECT for pure re-runs — and I HONOR it: a9bc0d21 and a9c0902d (the two re-run-
+        equivalent completes, both on git ea7ee13 with identical -0.0756 sharpe) are correctly NOT
+        counted as new draws under my rule too. But the 11-rule OVER-APPLIES that valid principle:
+        it treats distinct param-variants and distinct exploratory looks as "the same hypothesis"
+        via a lexical regex, collapsing ~23 genuine draws. The rationale is right about re-runs
+        (2 ids) and wrong about variants. So 11 is not overturned blindly — its kernel is preserved
+        (re-runs don't count) and its over-reach is corrected (variants do).
+      reconciliation_of_the_two_ratifications: >
+        Both ratifications were partly right. f0d1054 was right that re-runs aren't new comparisons
+        (preserved). The 2026-06-17 ratification was right that the DSR N is cumulative independent
+        attempts (adopted). The 2026-06-17 ratification's ERROR — rejecting 11 without recognizing
+        11 was already quorum-ratified — is corrected HERE by explicitly engaging the 11 rationale,
+        preserving its valid kernel, and re-scoping (not deleting) compute_honest_n. Two functions,
+        two purposes, never confused: honest_n_deflation_denominator (48, -> DSR) and
+        compute_honest_n (11, -> portfolio view, NEVER -> DSR).
+
+# =============================================================================
+# 5. DIRECTIONAL SAFETY (SD2/IC-9) — binding
+# =============================================================================
+directional_safety:
+  rule: "When a trial's category is genuinely ambiguous, COUNT IT (over-deflate). Larger N raises E[max SR], lowers DSR, is the strictly conservative direction (verified: dsr.py::expected_max_sr monotone increasing in N)."
+  applied_here_explicitly:
+    - "f2fb41fd (frozen confirmatory, never reached a look date): AMBIGUOUS — reserved attempt or non-draw? I COUNT it. Over-deflate. (de-dup view wrongly drops it.)"
+    - "The 5 phantom sweep slots {2,6,8,10,12} and the rest of the 19-residual: cannot be individually reconstructed; I take the residual toward the LARGER total (48 anchor). Over-deflate."
+    - "fa0f982a (QRB-6, VOID-then-rerun): I COUNT the remediated re-run as ONE slot (it consumed real selection). Over-deflate vs treating the void as zero."
+  where_I_did_NOT_inflate_gratuitously:
+    - "a9bc0d21 and a9c0902d (both git ea7ee13, both sharpe -0.0756 identical): NOT ambiguous — verified re-run-equivalents producing no new max. I do NOT count them as new draws (the two honest non-counts among completes). Counting them would be gratuitous; they are paid attempts already absorbed into the residual so the 48 anchor is unchanged."
+    - "53981a4a (withdrawn-pre-freeze): NOT counted — never saw data. NHT-ratified non-counting. Counting it would inflate without a draw."
+
+# =============================================================================
+# 6. KNOWLEDGE GAPS — surfaced, not buried
+# =============================================================================
+knowledge_gaps:
+  - id: KG-1
+    severity: HIGH
+    gap: >
+      The 'honest-n-reconciliation' record is NOT yet appended to .fintech-org/trials.jsonl
+      (verified: grep returns 0). honest_n_offset.json EXISTS as documentation but honest_n.py
+      reads the record from the LEDGER (record['prose_only_attempts']) and RAISES RuntimeError if
+      absent (fail-closed). So honest_n_deflation_denominator() currently CANNOT RETURN — every
+      live DSR call site would crash, not silently mis-score. ACTION: quant-developer must append
+      the canonical record (fields event='honest-n-reconciliation', prose_only_attempts=15) to the
+      ledger. This reconciliation RATIFIES that append. The offset stays 15 (against the 33-id floor
+      the code uses) — my 29-draw/19-residual split is the AUDIT rationale, not a code change; both
+      yield 48 and the code counts ids not draws, so 15 is the correct offset for the SHIPPED code.
+  - id: KG-2
+    severity: MEDIUM
+    gap: >
+      NHT's double-discount argument assumes a downstream MEASURED effective-N haircut (P2
+      effective_n.py, N_eff = N_raw/(1+(k-1)*rho_bar)). VERIFIED: no standalone effective_n.py
+      module exists yet (find returned only unrelated files). So the correlation correction the
+      11-view's kernel actually needs is NOT BUILT. Until it is, the firm has NO measured-correlation
+      haircut — it relies on raw 48. This is CONSERVATIVE (over-deflates correlated draws) and
+      therefore SAFE per SD2, but it means a genuine correlated-variant family (e.g. the VTC sweep)
+      is charged at full draw count. ACTION (non-blocking): HoQR may later commission a measured
+      effective-N haircut as a SEPARATE downstream step; it must NEVER be implemented as a name-regex
+      collapse and never re-introduce the de-dup into DSR.
+  - id: KG-3
+    severity: LOW
+    gap: >
+      Prior artifacts claimed '7 pure event-only lines with no trial_id.' My parse shows ZERO
+      orphan lines — all 49 carry a trial_id; the status-update/archive lines REUSE existing ids.
+      This does not change any value (last-wins collapse handles reused ids identically) but the
+      prior reconstruction's line-level provenance was imprecise. Recorded for audit honesty.
+
+# =============================================================================
+# RATIFICATION STATUS
+# =============================================================================
+ratification:
+  hoqr_signature: approve
+  counter_incremented: false          # METHODOLOGY ratification — NO trial spawned, honest-N UNCHANGED at 48
+  supersedes: >
+    Reconciles (does not delete) BOTH prior ratifications: f0d1054 (N=11, re-scoped to portfolio
+    view) and 2026-06-17/18 hoqr/nht-dsr-denominator.yaml (N=48, retained + re-grounded). The 11-vs-48
+    contradiction is resolved: 48 is the DSR denominator; 11 is the portfolio view; the two functions
+    are permanently distinct and a regression test must assert compute_honest_n never feeds compute_dsr.
+  binding_outputs:
+    - "DSR multiplicity denominator = honest_n_deflation_denominator() = 48 (prior), +1 for the scored trial."
+    - "compute_honest_n (11) RE-SCOPED to research-portfolio idea-coverage; FORBIDDEN at any compute_dsr call site (regression test required)."
+    - "Append the honest-n-reconciliation record to the ledger (KG-1) — fail-closed until done."
+    - "compute_honest_n silent-drop else-branch bug must be fixed (drops trial-48, QRB-6, f2fb41fd) — already noted in prior NHT D5; reaffirmed."
+  retirement_criteria_for_this_rule:
+    - "If a future audit revises the offset, the ONLY sanctioned direction without fresh CEO+NHT+HoQR ratification is LARGER (SD2)."
+    - "compute_honest_n must NEVER be wired into compute_dsr; regression test asserts honest_n_deflation_denominator is the sole DSR-N source at both live call sites (run_trial.py:288, run_falsification_trial.py:736) and the trial_48_is_eval literal."
+
+ROUTE_TO: null-hypothesis-tester     # co-sign the reconciliation (this re-grounds the joint 48 ratification with the draw-level classification)
+notify: [ceo, cto, null-hypothesis-tester, quant-developer, principal-reviewer]

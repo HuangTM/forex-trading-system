@@ -243,7 +243,7 @@ def test_pre_reg_and_rubric_loaded(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
     ):
         _setup_mocks(mock_load, mock_ind, mock_strat, mock_cfg, mock_cm)
         from scripts.run_falsification_trial import run_falsification_trial
@@ -340,7 +340,7 @@ def test_passing_verdict_writes_complete_entry(
       - SR_ann = 1.0  (modest, realistic)
       - n_obs  ≈ 1043 (dominant lever: OOS window 2020-01-01 to 2023-12-31 over
                        2500-row mock, filtered to business days in that range)
-      - N = 2         (_count_prior_trials=1, so n_trials_total=2)
+      - N = 2         (honest_n_deflation_denominator=1, so n_trials_total=2)
       → DSR ≈ 0.93 >> 0.50 threshold — genuinely strong, not fudged.
 
     Other gates: max_dd=0.10 < 0.25 (R3 pass); n_trades=60 >= 30 (R6 pass).
@@ -364,7 +364,7 @@ def test_passing_verdict_writes_complete_entry(
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
         # N=2: 1 prior trial + this trial → minimal multiple-comparisons penalty
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=1),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=1),
         patch("scripts.run_falsification_trial._append_trial") as mock_append,
         patch("scripts.run_falsification_trial.record_trial_rejection") as mock_reject,
     ):
@@ -418,7 +418,7 @@ def test_failing_verdict_writes_rejected_entry(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial") as mock_append,
         patch("scripts.run_falsification_trial.record_trial_rejection") as mock_reject,
     ):
@@ -469,7 +469,7 @@ def test_dry_run_does_not_write(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial") as mock_append,
         patch("scripts.run_falsification_trial.record_trial_rejection") as mock_reject,
     ):
@@ -522,7 +522,7 @@ def test_dominance_cache_hit(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial"),
         patch("scripts.run_falsification_trial.record_trial_rejection"),
     ):
@@ -589,7 +589,7 @@ def test_dominance_cache_miss_computes_benchmark(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_cm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial"),
         patch("scripts.run_falsification_trial.record_trial_rejection"),
     ):
@@ -801,7 +801,7 @@ def test_cost_multiplier_hook_passes_override_to_engine(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model", return_value=base_model) as mock_bcm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial"),
         patch("scripts.run_falsification_trial.record_trial_rejection"),
     ):
@@ -845,7 +845,7 @@ def test_cost_multiplier_1x_does_not_invoke_scaled_model(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_bcm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial"),
         patch("scripts.run_falsification_trial.record_trial_rejection"),
         patch("scripts.run_falsification_trial._build_scaled_cost_model") as mock_scaled,
@@ -925,7 +925,7 @@ def test_pair_restrict_valid_subset_accepted(
         patch("scripts.run_falsification_trial.load_config") as mock_cfg,
         patch("scripts.run_falsification_trial._build_cost_model") as mock_bcm,
         patch("scripts.run_falsification_trial._build_sizer", return_value=None),
-        patch("scripts.run_falsification_trial._count_prior_trials", return_value=5),
+        patch("scripts.run_falsification_trial.honest_n_deflation_denominator", return_value=5),
         patch("scripts.run_falsification_trial._append_trial"),
         patch("scripts.run_falsification_trial.record_trial_rejection"),
     ):

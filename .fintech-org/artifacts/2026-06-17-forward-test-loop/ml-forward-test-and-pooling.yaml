@@ -1,0 +1,497 @@
+# =============================================================================
+# ML-Researcher methodology design: TRUE FORWARD-TEST LOOP + CROSS-SECTIONAL POOLING
+# =============================================================================
+role: ml-researcher
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN          # planning-stage spec; NOT a backtest
+pre-registration-ref: "N/A — methodology design"
+counter_burned: false                 # org-wide trial counter NOT incremented (spawn-agent.md step 3)
+no-capital-instruction: true          # no live capital; paper-forward only (O2 references a paper P&L curve)
+timestamp_utc: "2026-06-18T02:25:45Z"
+authored_by: ml-researcher
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+
+ceo_decision_context:
+  stay_in_forex: true                 # no crypto, no asset-class pivot
+  build_a: "true forward-test loop"
+  build_b: "cross-sectional pooling across the existing 12 FX pairs"
+  step_type: "methodology DESIGN (a CTO->QD build follows). NOT a backtest, NOT a pre-registration."
+
+# -----------------------------------------------------------------------------
+# THE HONEST FRAMING (read this first)
+# -----------------------------------------------------------------------------
+what_this_is:
+  one_line: >
+    This loop does NOT create alpha. It makes a 'win' CREDIBLE (tested on data that could
+    not have informed the strategy) and makes effective-N HONEST (one frozen structure pooled
+    across pairs with a MEASURED correlation haircut, never a per-pair search dressed up as breadth).
+  the_problem_it_solves: >
+    NHT's challenge: CPCV/OOS-within-backtest still scores on data that EXISTED at development
+    time. Researcher degrees-of-freedom (DoF) leak through it — every time we look at IS,
+    re-spec, re-CPCV, the 'holdout' is contaminated by the choices that looking induced.
+    A genuinely-validating test must score on data that could not, even in principle, have
+    informed the strategy. That requires the data to be SEALED before development, or to
+    POST-DATE the freeze. This artifact designs exactly that.
+
+# =============================================================================
+# DESIGN PART A — THE FORWARD-TEST LOOP
+# =============================================================================
+part_a_forward_test_loop:
+
+  # ---------------------------------------------------------------------------
+  # A.1  TWO CREDIBLE FORWARD MECHANISMS
+  # ---------------------------------------------------------------------------
+  mechanisms:
+
+    - id: M1
+      name: sequestered-holdout
+      definition: >
+        A data window cryptographically/temporally SEALED before any development on the
+        hypothesis begins, opened exactly ONCE for the final verdict, then permanently retired.
+      how_it_works:
+        - "At firm setup (or hypothesis-family setup), carve a holdout window from the existing data."
+        - "Compute a content hash of the sealed bars and commit ONLY the hash (not the bars to the researcher's working set)."
+        - "The researcher develops on the development window; the holdout bytes are access-controlled (held by NHT/PR, not the developer)."
+        - "Opened once at verdict time; the content hash proves the bars were not altered after sealing."
+      when_it_applies: >
+        Use when you have a finite historical dataset and cannot afford to wait calendar time
+        for new bars (our case for the 12-pair daily/1h history). The sequestering is what makes
+        already-existing data behave like genuinely-unseen data — IF the seal predates development.
+      resists_leakage_because: >
+        The researcher never inspected, CPCV'd, plotted, or re-spec'd against the holdout bytes.
+        No DoF could condition on them. The only attack is re-opening it for a second hypothesis,
+        which the honest-N rule (A.4) forbids and the access-control + ledger enforce.
+      vs_cpcv_oos: >
+        CPCV-OOS holds out FOLDS the researcher can re-run after each re-spec (and typically does,
+        because the whole dataset is in hand). The sequestered holdout is held by a different party,
+        opened ONCE, and burned. The difference is custody + one-shot, not the split arithmetic.
+      weakness_disclosed: >
+        It is still HISTORICAL data. If the hypothesis was (even subconsciously) informed by
+        macro knowledge of that period ('I know 2025 was a cut cycle'), a subtle leak survives.
+        M2 (paper-forward) is the only mechanism with ZERO such residue.
+
+    - id: M2
+      name: paper-forward
+      definition: >
+        The frozen candidate scored on bars whose timestamp is STRICTLY AFTER the freeze UTC
+        timestamp — genuinely unseen because they did not exist (or were not yet ingested) when
+        the structure was frozen.
+      how_it_works:
+        - "Freeze the structure (A.2 anchoring) at freeze_utc."
+        - "Let calendar time pass; ingest bars with bar_timestamp > freeze_utc."
+        - "Score the frozen structure on those post-freeze bars only. No re-spec permitted."
+        - "Paper/simulated P&L only (O2's success measure references a paper-traded P&L curve). NO live capital."
+      when_it_applies: >
+        Use as the GOLD-STANDARD confirmation after a sequestered-holdout PASS, or directly when
+        the hypothesis is high-frequency enough that meaningful N accrues in acceptable calendar
+        time. For our 1h pooled signals (H1: ~350 pooled events/yr target), a 6-12 month paper-forward
+        accrues real N; for daily-only it is too slow (the DATASET-WALL again) and M1 dominates.
+      resists_leakage_because: >
+        The bars post-date the freeze. No researcher DoF — conscious or not — could have conditioned
+        on data that did not exist at freeze. This is the only mechanism with a HARD physical guarantee
+        against leakage: causality. You cannot fit to the future.
+      vs_cpcv_oos: >
+        CPCV-OOS reuses existing data; paper-forward consumes NEW data. CPCV measures in-sample
+        generalization across folds of a known distribution; paper-forward measures survival into
+        an unknown future distribution (the actual question for a deployable edge).
+      weakness_disclosed: >
+        Slow (calendar-bound) and low-N for infrequent signals. A regime-quiet forward window can
+        give an underpowered NULL result that is neither PASS nor FALSIFY (handled in A.3 as
+        INCONCLUSIVE — explicitly NOT a free retry).
+
+  mechanism_selection_rule: >
+    M1 (sequestered holdout) is the primary near-term mechanism given our finite history and the
+    DATASET-WALL. M2 (paper-forward) is the confirmation layer and the only zero-leak guarantee.
+    Preferred full chain: develop on dev-window -> M1 one-shot verdict -> if PASS, M2 paper-forward
+    confirmation before any (future, out-of-Phase-0) capital. H1 already declares an M1-style
+    one-shot OOS (2024-07..2025-12); this design generalizes and HARDENS it (custody + integrity
+    anchoring + honest-N ledger), and adds M2 as the post-PASS confirmation layer.
+
+  # ---------------------------------------------------------------------------
+  # A.2  INTEGRITY ANCHORING (freeze = provably-immutable, provably-pre-window)
+  # ---------------------------------------------------------------------------
+  integrity_anchoring:
+    freeze_tuple_recorded_at_freeze:
+      - field: pre_registration_ref
+        what: "path to the frozen PreRegistration YAML (e.g. h1_session_open_momentum_pooled.md + .triggers.yaml)"
+        why: "the immutable structure + pre-declared KILL gates"
+      - field: prereg_content_hash
+        what: "sha256 of (prereg.md bytes || prereg.triggers.yaml bytes)"
+        why: "proves the structure/gates were not edited after freeze — the .triggers.yaml is the machine-checkable contract"
+      - field: code_config_hash
+        what: "sha256 of the frozen config file (reuse existing run_trial._config_hash, sha256[:12] -> widen to full sha256 for the anchor)"
+        why: "proves the parameter set is immutable; any param edit changes the hash and voids the freeze"
+      - field: git_sha
+        what: "full git HEAD commit SHA at freeze (reuse run_trial._git_hash, widen --short -> full)"
+        why: "pins the exact engine + cost-model + strategy code that will score the window"
+      - field: freeze_utc
+        what: "UTC timestamp of the freeze (date -u +%Y-%m-%dT%H:%M:%SZ)"
+        why: "THE causal boundary — for M2, every scored bar MUST have bar_timestamp > freeze_utc"
+      - field: holdout_window_spec
+        what: "for M1: [start,end] of sealed window + sha256 of the sealed bar bytes (holdout_content_hash)"
+        why: "proves the holdout bars existed and were unaltered between seal and open"
+      - field: custody
+        what: "named party holding the sealed bytes (NHT or PR), distinct from the developer"
+        why: "separation of duties — the developer cannot silently peek"
+    anchor_record_location: ".fintech-org/forward_registry.jsonl (append-only; see A.5)"
+    immutability_check_at_open: >
+      Before scoring, the harness RECOMPUTES prereg_content_hash, code_config_hash, git_sha and
+      (M1) holdout_content_hash and asserts equality with the freeze record. Any mismatch ->
+      VOID (the structure or the data changed since freeze; the forward result is meaningless).
+    post_freeze_proof_M2: >
+      For paper-forward, the harness asserts EVERY scored bar has bar_timestamp > freeze_utc and
+      that the bar's ingest record (data manifest) shows ingest_time >= freeze_utc where available.
+      A single pre-freeze bar in the scored set -> VOID (leakage; the window is not provably post-freeze).
+    M1_seal_predates_development_ENFORCEMENT:
+      problem: >
+        holdout_content_hash proves the sealed bars were not ALTERED after sealing, but it does NOT
+        prove the seal PRE-DATED development. A researcher who already inspected the full history
+        could retroactively call freeze.py and seal a window that already informed the hypothesis —
+        defeating M1 entirely. Disclosure (KG-4) is necessary but NOT sufficient; this needs a gate.
+      enforcement_gate (machine-checkable, recorded at seal):
+        - "seal.py records a development_start_attestation: the git SHA + UTC at which work on the hypothesis FAMILY began, signed by HoQR/PR, BEFORE any seal."
+        - "freeze.py REFUSES to seal a window unless a development_start_attestation for the family already exists AND seal_utc <= development_start_utc (seal must predate dev) — else REFUSE (not VOID; the seal is illegitimate by construction)."
+        - "For families with NO pre-development attestation on file (every hypothesis already explored against full history, e.g. H1), M1 is UNAVAILABLE — the harness hard-blocks M1 freeze and routes to M2-only. This makes KG-4 an ENFORCED gate, not a disclosure."
+      residual_risk: >
+        On a single-developer firm the development_start_attestation is procedural trust (PR/HoQR
+        signs it), not a cryptographic proof that no peeking happened before signing (KG-1). The
+        gate raises the cost of retroactive sealing to 'forge a signed attestation', which is the
+        honest ceiling for this firm structure. M2 remains the only causal zero-leak path.
+
+  # ---------------------------------------------------------------------------
+  # A.3  PRE-DECLARED VERDICT (gates declared BEFORE the window is opened)
+  # ---------------------------------------------------------------------------
+  pre_declared_verdict:
+    principle: >
+      The forward window's pass/kill gates are declared in the frozen pre-registration BEFORE the
+      window is opened. The forward result IS the validation verdict. There is no post-hoc gate
+      adjustment — that would re-introduce the DoF the loop exists to kill.
+    gates_net_of_TCA:
+      - "Net-of-TCA forward Sharpe >= floor (H1: OOS net Sharpe > 0.30, KILL-5)."
+      - "Deflated Sharpe Ratio >= 0.95 at org-wide N (DSR; the primary multiplicity-corrected gate)."
+      - "min-events: realized forward N >= pre-declared power floor (H1 KILL-0: N_oos_expected >= 48)."
+      - "cost-domination KILL: avg net pips/trade > 0 at the conservative p90 round-trip cost (H1 KILL-2)."
+      - "sign-concordance: forward Sharpe sign == development sign (H1 KILL-6)."
+      - "concentration: no single pair > 50% and no single quarter > 40% of pooled net PnL (H1 KILL-7a/7b). MEASUREMENT-WINDOW (disambiguated — the H1 prereg/triggers leave it as 'TRIAL-level' without naming IS vs OOS): concentration is evaluated on the FORWARD (holdout/OOS) PnL only, because the verdict is about whether the FORWARD edge was breadth-driven or a single-name/single-quarter artifact. An IS-only concentration is a development diagnostic, not a verdict gate. Recommend amending h1.triggers.yaml KILL-7a/7b to state metric window = forward/OOS explicitly so the verdict is unambiguous."
+    verdict_states:
+      VALIDATED: >
+        Forward window opened ONCE; ALL pre-declared gates passed (logical AND) on net-of-TCA
+        forward returns at org-wide N. This is the firm's FIRST credible 'validated OOS alpha'
+        claim — it means an edge survived data that provably could not have informed it.
+      FALSIFIED: >
+        Any single pre-declared KILL gate fired. The hypothesis is rejected. It counts toward
+        honest-N as a run-and-falsified trial (counts_toward_deflation_denominator: true).
+      INCONCLUSIVE_UNDERPOWERED: >
+        Only valid for M2 paper-forward: realized forward N < the pre-declared power floor because
+        the calendar window was too short / regime-quiet. This is NOT a PASS and NOT a clean
+        FALSIFY. It does NOT grant a free retry on the SAME structure (see A.4). The honest move
+        is to EXTEND the same frozen paper-forward (pre-declared extension only) or retire it as
+        un-confirmable on a tradeable horizon (the QRB-6 lesson: power-infeasible -> wind down).
+      VOID: >
+        Integrity check failed (hash mismatch, or a pre-freeze bar in an M2 scored set). The result
+        is discarded as meaningless; does NOT count as PASS or FALSIFY. The freeze must be redone
+        cleanly. (This mirrors the QRB-6 first-run VOID for cost-config corruption.)
+    no_gate_softening: >
+      VOID and INCONCLUSIVE are the ONLY escapes from a hard verdict, and BOTH are pre-defined and
+      adversarially narrow. Neither is a path to 'try until it passes'. There is no discretionary
+      'the edge is real, the test was unlucky' override — that sentence is the sound of a problem
+      being buried.
+
+  # ---------------------------------------------------------------------------
+  # A.4  HONEST-N FOR FORWARD TESTS (the anti-p-hacking spine)
+  # ---------------------------------------------------------------------------
+  honest_n_forward:
+    rule_1_one_attempt_per_freeze: >
+      Each (structure, holdout-window) pair may be opened EXACTLY ONCE. The first open burns it.
+      You cannot re-run the same structure on the same holdout after a FALSIFY and report the
+      retry. The forward_registry records open_count; open_count must be 0 at open and is set to 1
+      atomically on open.
+    rule_2_each_forward_attempt_is_a_trial: >
+      Opening a forward window appends a trial to .fintech-org/trials.jsonl with
+      counts_toward_deflation_denominator: true (it consumes a multiplicity slot exactly like a
+      backtest). The DSR deflation denominator at the NEXT trial includes it. You cannot dodge the
+      multiplicity tax by calling it 'just a forward check'.
+    rule_2a_denominator_must_FILTER_not_line_count:
+      BUG_FOUND: >
+        The existing src/forex_system/harness/run_trial.py::_count_prior_trials does
+        `sum(1 for _ in f)` — it counts EVERY line in trials.jsonl. But the ledger contains
+        NON-counting records: 'trial-retired' / 'strategy-archived' event lines, and at least one
+        trial with explicit counts_toward_deflation_denominator: false (the QRB-6 withdrawn-pre-freeze
+        53981a4a). VERIFIED: 49 raw lines but honest-N = 48. Raw line-count OVER-COUNTS the
+        deflation denominator -> DSR would be deflated against a fictitious N.
+      required_fix (QD): >
+        forward_eval.py MUST NOT reuse _count_prior_trials as-is. Introduce
+        honest_n() that parses each JSONL record and counts ONLY records where
+        counts_toward_deflation_denominator == true (treating absent-key legacy trial-spawned
+        records as true, but event-only lines [trial-retired, strategy-archived] and explicit
+        false as NOT counted). This honest_n() should ALSO replace the call site in run_trial.py
+        (fix-the-class, not the instance) so every DSR in the firm deflates against the true N.
+      acceptance: "honest_n() returns 48 on the current ledger (verified by hand); a test asserts this exact value."
+    rule_3_re_spec_consumes_a_fresh_holdout: >
+      If a hypothesis is re-specified after a FALSIFY (new structure), it needs a DIFFERENT,
+      still-sealed holdout — the burned one is retired forever. For M1 on finite history this means
+      holdout windows are a SCARCE, depleting resource: every re-spec costs one. This is the
+      intended friction — it prices the researcher-DoF that CPCV-OOS gave away for free.
+    rule_4_holdout_reuse_protection:
+      - "Custody: sealed bytes held by NHT/PR, not the developer."
+      - "Ledger: forward_registry.jsonl is append-only; open_count and burned: true are written on first open."
+      - "Hash: holdout_content_hash detects any re-seal of the same bytes under a new id (same hash -> same data -> REUSE; blocked)."
+      - "Harness refuses to score a window whose id is already burned: true in the registry."
+    rule_5_INCONCLUSIVE_is_not_a_retry: >
+      An underpowered M2 result does not reset open_count. The only sanctioned continuation is a
+      PRE-DECLARED extension of the SAME frozen window (same structure, more calendar bars), logged
+      as a continuation of the same trial, not a new attempt. Choosing to extend vs retire is a
+      power decision made on the pre-declared floor, never on the realized (peeked) return.
+
+  # ---------------------------------------------------------------------------
+  # A.5  WHAT THE QD BUILDS (forward-evaluation harness + ledger)
+  # ---------------------------------------------------------------------------
+  qd_build_spec:
+    firewall_note: >
+      ML-Researcher emits this declaratively. NO executable training/eval code in this artifact.
+      ROUTE_TO: quant-developer for implementation. The CTO scopes; QD builds and tests.
+    reuse_existing:
+      - "src/forex_system/backtest/engine.py (now short-capable + rollover-aware) — DO NOT reimplement scoring."
+      - "src/forex_system/costs/model.py RealisticCostModel — the net-of-TCA cost (p90, rollover-aware swap)."
+      - "src/forex_system/harness/run_trial.py — _git_hash, _config_hash, _count_prior_trials, _append_trial, _log_event (REUSE; widen short->full sha for the anchor)."
+      - "src/forex_system/harness/preregistration.py — PreRegistrationSpec, FalsificationTrigger, parse_pre_registration (the .triggers.yaml is already the machine-checkable gate contract)."
+      - "src/forex_system/harness/dsr.py compute_dsr — DSR at org-wide N."
+    new_files:
+      - path: "src/forex_system/harness/freeze.py"
+        shape: >
+          freeze_structure(prereg_ref, config_path) -> FreezeRecord. Computes prereg_content_hash,
+          code_config_hash (full sha256), git_sha (full), freeze_utc, and (M1) seals the holdout
+          window + holdout_content_hash. Appends ONE record to .fintech-org/forward_registry.jsonl
+          with open_count=0, burned=false, custody=<party>. Idempotent on the freeze tuple.
+      - path: "src/forex_system/harness/forward_eval.py"
+        shape: >
+          forward_evaluate(freeze_id, window_source) -> ForwardResult + Verdict. Steps:
+          (1) load FreezeRecord; assert burned==false and open_count==0 else REFUSE.
+          (2) integrity check: recompute all hashes == freeze record else VOID.
+          (3) load the post-freeze / sealed bars; for M2 assert every bar_timestamp > freeze_utc else VOID.
+          (4) score the FROZEN structure via backtest.engine + RealisticCostModel (net-of-TCA). NO re-fit.
+          (5) compute net Sharpe, DSR at org-wide N (_count_prior_trials), avg net pips/trade,
+              hit-rate, per-pair & per-quarter PnL fractions, realized N.
+          (6) evaluate the PRE-DECLARED .triggers.yaml gates (logical AND of NOT-fired) ->
+              VALIDATED | FALSIFIED | INCONCLUSIVE_UNDERPOWERED | VOID.
+          (7) atomically set open_count=1, burned=true; append a trial to trials.jsonl
+              (counts_toward_deflation_denominator: true) and a result to forward_registry.jsonl.
+          Append-only; never overwrites; emits log-as-decision-trace events at each boundary.
+      - path: ".fintech-org/forward_registry.jsonl"
+        shape: >
+          Append-only ledger. Two event kinds: 'freeze' (the freeze tuple, open_count, burned) and
+          'forward-result' (verdict, net Sharpe, DSR, gate-by-gate fired/not-fired, realized N).
+          The audit trail that proves one-shot and provably-post-freeze.
+    cli:
+      - "python -m forex_system.harness.freeze --pre-reg <ref> --config <cfg> [--seal-holdout START END]"
+      - "python -m forward_eval --freeze-id <id> --window {holdout|paper-forward}"
+    tests_required:
+      - "test_freeze_immutability: editing prereg/config/code after freeze -> integrity check VOID."
+      - "test_one_shot: second open of a burned window -> REFUSE (not a silent re-run)."
+      - "test_post_freeze_only (M2): a single bar with timestamp <= freeze_utc in the scored set -> VOID."
+      - "test_no_lookahead still green (the sacred test) — forward_eval must shift signals by entry_delay_bars exactly as the backtest engine does."
+      - "test_forward_attempt_counts_N: opening a window appends a counts_toward_deflation trial; next DSR denominator increments."
+
+# =============================================================================
+# DESIGN PART B — CROSS-SECTIONAL POOLING (the free effective-N lift)
+# =============================================================================
+part_b_cross_sectional_pooling:
+
+  # ---------------------------------------------------------------------------
+  # B.1  POOLED CROSS-SECTIONAL EVALUATION
+  # ---------------------------------------------------------------------------
+  pooled_evaluation:
+    definition: >
+      ONE frozen structure (one entry rule, one exit rule, ONE parameter set) applied IDENTICALLY
+      to all k pairs; the per-trade returns are concatenated into a SINGLE pooled return stream on
+      which Sharpe/DSR are computed. No per-pair parameter, no per-pair drop/weight by in-sample
+      performance (that is selection).
+    raises_confirmability_via_events: >
+      years_to_validate = N_required / events_per_year and N_required ~= 6.18 / IR_per_event^2.
+      Pooling k pairs multiplies the event rate (more pooled events per year) WITHOUT re-using the
+      same per-event edge — independent events across pairs ADD to N. This is the lever the prior
+      EURUSD-only cycles lacked; it is what moves a real edge from STRETCH (~3-5yr) into the <=2yr
+      confirmable region. Worked anchor (from the rubric): IR=0.10 at 150 ev/yr on one pair = 4.1yr
+      FAIL; pooled to 350 ev/yr across ~8 pairs = 1.77yr PASS. The pooling does the work.
+    cuts_the_deflation_penalty: >
+      Per-pair SEARCH ('which of 12 pairs works?') is 12 trials -> 12x multiplicity -> the DSR bar
+      rises and effective-N is fiction. ONE pooled structure is ONE trial -> ONE multiplicity slot.
+      Pooling is therefore BOTH more powerful (more events) AND less deflated (one trial) than the
+      per-pair search it replaces. The per-pair search is the multiplicity-inflating anti-pattern;
+      the single pooled structure is its honest dual.
+    selection_guard: >
+      A pair may be excluded ONLY for pre-declared MECHANICAL reasons (data-quality gate fail,
+      cost-coverage EXCLUDE) decided BEFORE any return look — never for poor in-sample return.
+      EXCLUDE-NOT-IMPUTE: a failing pair is dropped from the universe; its bars are never
+      zero/neighbour-imputed (the QRB-6 cost-void remediation). Mechanical exclusion is not selection.
+
+  # ---------------------------------------------------------------------------
+  # B.2  THE HONEST CORRELATION HAIRCUT (measured rho_bar, never assumed)
+  # ---------------------------------------------------------------------------
+  correlation_haircut:
+    formula: "N_eff = N_raw / (1 + (k - 1) * rho_bar)"
+    why_needed: >
+      EM and major USD-pairs are USD-driven and correlated (CTO + NHT both flagged this). A pooled
+      USD-bloc signal across EURUSD+GBPUSD+AUDUSD is NOT 3 independent events — they share the USD
+      leg. Raw pair-count over-counts effective-N. Claiming N_raw effective-N when rho_bar>0 is the
+      easiest way to FAKE confirmability (rubric G5). The haircut prices the shared risk factor.
+    how_rho_bar_is_estimated:
+      step_1: >
+        Compute, per pair, the realized per-trade SIGNAL return series (the structure's own
+        net-of-cost returns on that pair, on the SAME event clock), NOT the raw price-return series —
+        the relevant correlation is between the things being pooled (the signal's pair-level returns),
+        aligned on overlapping event timestamps.
+      step_2: >
+        rho_bar = mean of the off-diagonal pairwise Pearson correlations across the k pairs'
+        signal-return series (k*(k-1)/2 pairs). Estimated EXCLUSIVELY in-sample / on the development
+        window (never on the holdout — that would leak).
+      step_3: >
+        Report a 95% CI on rho_bar via stationary block-bootstrap (block ~= 24 bars for 1h) and use
+        the UPPER end of the CI in the haircut when uncertain (honesty default: pessimistic ->
+        smaller N_eff -> longer years_to_validate). Never the point estimate when it flatters.
+      step_4_robustness: >
+        Cross-check rho_bar against a factor view: regress each pair's signal returns on a USD factor;
+        if residual correlations collapse, the pooling independence is even weaker than pairwise
+        rho_bar suggests -> use the more conservative of the two.
+    how_applied:
+      - "Substitute N_eff (not N_raw) into years_to_validate for G1 / KILL-4."
+      - "H1 break-even is rho_bar <= 0.41 at k=8: above it, N_eff collapses and years_to_validate > 2.0yr (at rho_bar=0.50, N_eff~=89/yr -> ~6.9yr FAIL). MEASURED, machine-checked (h1-KILL-4)."
+    invariant: >
+      The firm NEVER claims an effective-N it has not measured. rho_bar is an observed quantity with
+      a CI, applied at its pessimistic end, recomputed per hypothesis. If rho_bar is high, the honest
+      conclusion is 'pooling did not buy independent events' -> the hypothesis stays STRETCH / is killed,
+      NOT 'assume independence and proceed'.
+    synchronization_note (two opposite failure modes — neither is silently assumed):
+      inflation_risk: >
+        For session-open signals, London 07:00 UTC fires SIMULTANEOUSLY on all 8 pairs by
+        construction. Synchronized event clocks mean the signal-return series are sampled at the
+        SAME timestamps, so measured rho_bar will tend toward the raw price-return correlation —
+        which for USD-bloc pairs is high. This OVER-penalizes N_eff. That is the CONSERVATIVE
+        direction (honest defaults favor it), but it must be recognized as a STRUCTURAL property of
+        synchronized signals, not an estimation artifact to be 'corrected away'. We do NOT adjust
+        rho_bar downward to recover N_eff — the synchronization is real shared exposure.
+      deflation_risk: "Conversely, sparse / non-overlapping events (KG-3) make rho_bar low-N and wide-CI -> default to fully-correlated (N_eff = N_raw/k) when overlap is below the min threshold."
+      resolution: >
+        Both modes resolve toward the SAME honest posture: when in doubt, MORE correlation / LESS
+        effective-N. A synchronized-and-correlated pooled signal is exactly the G5 pooling-fraud
+        case the haircut exists to price; high rho_bar is the measurement working, not failing.
+
+  # ---------------------------------------------------------------------------
+  # B.3  RELATIONSHIP TO H1 (already pooled-8) — generalize, don't duplicate
+  # ---------------------------------------------------------------------------
+  relationship_to_h1:
+    h1_is_an_instance: >
+      YES. H1 (h1_session_open_momentum_pooled) is already a single frozen structure pooled across
+      8 majors with a MEASURED-rho_bar haircut (h1-KILL-4, pass-condition h1-PASS-rho <= 0.41) and a
+      one-shot OOS holdout (M1-style). H1 is the first concrete instantiation of BOTH parts of this
+      design.
+    what_this_framework_adds_beyond_h1:
+      - "Generalizes H1's bespoke gates into a REUSABLE forward-eval harness (freeze.py + forward_eval.py + forward_registry.jsonl) any future hypothesis freezes into — H1 currently relies on prose + the run_trial path; this makes the freeze tuple + one-shot + integrity check FIRST-CLASS and machine-enforced."
+      - "Adds custody (separation of duties) — H1's OOS is currently 'one-shot by discipline'; this design makes it one-shot by CONSTRUCTION (burned flag + access-controlled bytes)."
+      - "Adds M2 paper-forward as the post-PASS, zero-leak confirmation layer H1 does not yet specify — the only mechanism with a causal guarantee against DoF leakage."
+      - "Standardizes the rho_bar estimator (signal-return correlation + block-bootstrap CI + USD-factor cross-check) so every pooled hypothesis measures it the SAME honest way, not ad-hoc per pre-reg."
+      - "Extends the universe lever: H1 pools 8 majors; the framework supports the full 12 pairs (the 4 JPY/cross minors as a SEPARATELY pre-registered extension, never mid-flight) — more pooled events, with the haircut keeping the effective-N honest."
+
+# =============================================================================
+# REQUIRED ML-RESEARCHER SCHEMA FIELDS
+# =============================================================================
+dsr:
+  role_in_loop: >
+    Deflated Sharpe at the org-wide trial count (visible at spawn; _count_prior_trials) is the
+    PRIMARY multiplicity-corrected gate in BOTH the development pre-OOS check AND the forward verdict.
+    Pass bar: DSR >= 0.95 at org-wide N. Each forward attempt is itself a trial and raises the
+    denominator for the next one. Raw Sharpe is never a valid report.
+  current_org_wide_N: 48
+  note: "DSR computed on the POOLED per-trade stream with realized skew/kurtosis (fat-tailed FX returns)."
+
+cpcv-config:
+  scope: "DEVELOPMENT window only (never the holdout / forward window — CPCV is in-sample machinery)."
+  n_groups: 6
+  k: 2
+  combinations: 15
+  purge: "= embargo = full feature window (~480 1h bars / ~20 trading days), sized to the FEATURE window not the label, on EACH side of every test fold."
+  embargo: "same horizon; the IS/OOS seam embargo carries the same span so no feature window crosses the seam."
+  rationale: >
+    CPCV measures in-sample generalization and freezes parameters; it is NOT the validation verdict.
+    The forward loop (M1/M2) is the validation verdict. This is the whole point: CPCV-OOS leaks
+    researcher-DoF because the data existed at development; the forward window does not.
+
+leakage-check:
+  paths_audited:
+    - path: "researcher-DoF leakage through CPCV-OOS (NHT's core challenge)"
+      finding: "REAL and unfixable within the existing-data paradigm. Mitigated ONLY by M1 (sealed-before-development custody) and eliminated ONLY by M2 (post-freeze bars cannot be fit to)."
+    - path: "holdout reuse / silent re-try after FALSIFY"
+      finding: "Blocked by one-shot burned-flag + append-only forward_registry + holdout_content_hash + NHT/PR custody (A.4)."
+    - path: "post-hoc gate softening"
+      finding: "Blocked — gates frozen in .triggers.yaml before open; VOID/INCONCLUSIVE are the only narrow, pre-defined escapes; no discretionary override."
+    - path: "structure / config mutation after freeze"
+      finding: "Blocked by recompute-and-assert of prereg_content_hash + code_config_hash + git_sha at open -> VOID on mismatch."
+    - path: "pre-freeze bar in an M2 scored set"
+      finding: "Blocked by bar_timestamp > freeze_utc assertion per scored bar -> VOID."
+    - path: "fake effective-N via assumed independence across correlated pairs"
+      finding: "Blocked by MEASURED rho_bar haircut (B.2), applied at pessimistic CI end, recomputed per hypothesis."
+    - path: "per-pair selection masquerading as pooled breadth"
+      finding: "Blocked — one frozen structure, mechanical-only exclusion (EXCLUDE-NOT-IMPUTE), concentration KILL (no pair >50%, no quarter >40%)."
+  no_lookahead_invariant: "forward_eval reuses the engine's entry_delay_bars shift; the sacred test_no_lookahead MUST stay green."
+
+claimed_domains:
+  - cross-validation-design-CPCV-purged-embargoed
+  - deflated-sharpe-and-multiple-testing-correction
+  - regime-stratified-evaluation
+  - feature-engineering-and-leakage-detection
+  - shadow-deployment-protocol      # M2 paper-forward is the shadow-eval analogue (no live capital)
+  - hyperparameter-search-and-trial-budget   # honest-N forward-attempt budgeting (A.4)
+
+# =============================================================================
+# WHAT THIS PROVES vs CANNOT PROVE (the honest methodology voice)
+# =============================================================================
+proves_vs_cannot_prove:
+  can_prove:
+    - "That a frozen edge survived data which provably could not have informed it (M1 custody / M2 causality)."
+    - "That a reported 'win' is credible — tested once, net-of-TCA, multiplicity-deflated, on unseen data."
+    - "That a claimed effective-N is honest — pooled events with a MEASURED correlation haircut, not assumed independence."
+    - "That a FALSIFY is clean — a pre-declared gate fired on genuinely-unseen data (the strongest possible kill)."
+  cannot_prove:
+    - "That alpha EXISTS. This loop creates no edge; it only makes a real one credible or kills a fake one honestly. Base rate stands: 0 validated / 48 honest trials; most hypotheses that reach the forward window will still FALSIFY."
+    - "That a VALIDATED edge will PERSIST. A forward PASS is evidence of survival THROUGH the forward window's regime, not a guarantee against future non-stationarity / arb-out. Continued paper-forward monitoring (M2) is required post-PASS."
+    - "Anything from an underpowered window. INCONCLUSIVE_UNDERPOWERED is not weak-PASS; it is 'not enough data to decide', and is never spun into a positive claim."
+    - "That M1 is leak-FREE. Sealed historical data still carries macro-period knowledge residue; only M2 (post-freeze bars) has a causal zero-leak guarantee."
+  blunt_summary: >
+    The forward-test loop converts 'we found a pattern in data we had' into 'an edge survived data
+    we could not have fit to'. That is the difference between a backtest and a validation. It does
+    not manufacture alpha; it raises the evidentiary bar so that IF we ever claim validated OOS alpha,
+    the claim is defensible. Given the firm's record (0/48), the most likely near-term outcome of
+    running this loop is an HONEST, CREDIBLE falsification — which is itself a real deliverable.
+
+# =============================================================================
+# KNOWLEDGE GAPS (flagged for CTO/QD/CRO/NHT resolution before the build freezes)
+# =============================================================================
+knowledge_gaps:
+  - id: KG-1
+    gap: "M1 holdout custody mechanism is unspecified for a single-developer simulated firm. Who actually holds the sealed bytes such that the developer 'cannot peek'? In a one-machine setup, custody is procedural (NHT/PR ledger + access discipline), NOT cryptographic — a residual integrity risk."
+    owner: "NHT / PR (separation-of-duties protocol)"
+  - id: KG-2
+    gap: "Paper-forward (M2) calendar horizon vs power for our event rates is unquantified. At H1's target ~350 pooled events/yr, a 6-12mo forward gives ~175-350 events — enough for KILL-0's N>=48 floor but the DSR>=0.95 power at that N is unverified. Daily-only signals are almost certainly too slow for M2 (DATASET-WALL recurs). Needs a power calc per hypothesis before committing to M2."
+    owner: "ml-researcher + NHT (power analysis on the pre-declared floor)"
+  - id: KG-3
+    gap: "The rho_bar estimator on the SIGNAL-return series requires overlapping events across pairs; for sparse session-open signals, cross-pair event overlap may be thin, making rho_bar itself low-N / wide-CI. Need a minimum-overlap threshold below which rho_bar is declared unmeasurable -> pooling independence cannot be claimed -> conservative default (treat as fully correlated, N_eff = N_raw/k)."
+    owner: "ml-researcher + quant-developer"
+  - id: KG-4
+    gap: "Sealing existing history for M1 is only valid if the seal genuinely PRE-DATES development. For hypotheses already developed against the full 12-pair history (most of the firm's prior work), NO untouched M1 holdout exists — those edges can ONLY be forward-validated via M2 (future bars). This must be stated honestly: M1 is available for NEW hypotheses sealed before development, not retroactively for already-explored data."
+    owner: "ml-researcher (disclosed); HoQR (which hypotheses qualify for M1 vs M2-only)"
+  - id: KG-5
+    gap: "ingest_time provenance for the M2 'bar provably post-freeze' check depends on the data manifest recording ingest timestamps. If the ingest pipeline does not stamp ingest_time, the post-freeze proof rests on bar_timestamp alone (weaker — a bar could be backfilled post-freeze with a pre-freeze label). Needs a manifest audit."
+    owner: "CTO / quant-developer (data manifest)"
+  - id: KG-6
+    gap: "h1_session_open_momentum_pooled.triggers.yaml KILL-7a/7b declare concentration as 'TRIAL-level' without naming the measurement window (IS vs OOS). This design fixes the window as FORWARD/OOS for the verdict; the H1 triggers file should be amended to match before H1 freezes, else the verdict is ambiguous on an IS-but-not-OOS concentration failure."
+    owner: "quant-researcher (H1 author) + NHT"
+  - id: KG-7
+    gap: "Existing run_trial.py::_count_prior_trials counts raw JSONL lines (49) including non-counting event records and an explicit counts_toward=false trial, while honest-N is 48. forward_eval.py must use a FILTERING honest_n() (rule_2a) and the fix should propagate to run_trial.py's call site (fix-the-class). Confirm no other DSR call site reuses the raw line-count."
+    owner: "quant-developer (harness)"
+    blast_radius_VERIFIED: "Only ONE call site: run_trial.py:288 `n_prior = _count_prior_trials()`. dsr.py is a pure function RECEIVING n_trials as a parameter (it counts nothing). So the fix is localized: replace the single counting function with a filtering honest_n(); all DSR consumers inherit the correct N automatically. Small, contained fix."
+
+# Routing
+ROUTE_TO: quant-developer    # for the freeze.py / forward_eval.py / forward_registry.jsonl build
+notify: [cto, cro, nht, head-of-quant-research, principal-reviewer]

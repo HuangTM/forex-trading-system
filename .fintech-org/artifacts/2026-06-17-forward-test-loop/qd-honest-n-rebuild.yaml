@@ -1,0 +1,375 @@
+# =============================================================================
+# QD — honest_n() DSR-DENOMINATOR REBUILD: IMPLEMENTATION HANDOFF
+# Implements the CTO spec (cto-honest-n-rebuild-spec.yaml) to N=30.
+# =============================================================================
+role: quant-developer
+artifact_type: implementation
+decision: implement
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — DSR-denominator rebuild"
+timestamp_utc: "2026-06-18T04:03:09Z"
+git_sha_at_authoring: "ingest-spread-column branch (HEAD at implementation time)"
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: quant-developer
+no-capital-instruction: true
+
+claimed_domains:
+  - python-implementation
+  - test-harness-design
+  - deflated-sharpe-denominator-mechanics
+
+inputs_read:
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/cto-honest-n-rebuild-spec.yaml
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-debate-r1.yaml
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-dsr-debate-r1.yaml
+  - src/forex_system/harness/honest_n.py     (old; rewritten)
+  - src/forex_system/harness/dsr_recompute.py (patched: critical call site)
+  - scripts/trial_48_is_eval.py              (patched: labels + comments)
+  - tests/harness/test_honest_n.py           (updated: re-scoped + new sacred tests)
+  - tests/harness/test_honest_n_deflation.py (rewritten: retired reconciliation tests)
+  - tests/harness/test_run_trial.py          (fixture updated: classification record)
+  - tests/harness/test_sweep.py              (fixture updated: classification record)
+
+# =============================================================================
+# WHAT WAS BUILT
+# =============================================================================
+
+counting_rule_implemented:
+  mechanism: >
+    honest_n_deflation_denominator() now reads a single 'honest-n-classification'
+    record from the ledger. The record's counted_trial_ids list is the LEGACY
+    classification (the ratified 30, signed by HoQR+NHT). For any trial_id present
+    in the ledger but NOT in either the counted or excluded legacy lists, the function
+    classifies mechanically (new trials appended after the record).
+  legacy_classification: "30 explicitly enumerated trial_ids with per-trial reasons"
+  forward_rule:
+    COUNT_if:
+      - "Distinct config that RAN and produced a sharpe/verdict (status ∈ {complete, passed, rejected})"
+      - "Param/window variant with distinct config_hash"
+      - "Ambiguous/unknown-status id whose non-draw is UNPROVABLE (SD2/IC-9 over-deflate)"
+    DROP_if:
+      - "spawned-only: status=spawned AND sharpe=null (never executed)"
+      - "re-run-equivalent: same config_hash AND same sharpe as a prior counted id (config_hash+sharpe is load-bearing)"
+      - "withdrawn-pre-freeze OR counts_toward_deflation_denominator==false (sticky)"
+  no_integer_offset: true
+  retired_path_deleted: true  # _RECONCILIATION_EVENT, prose_only_attempts fully removed
+
+classification_record:
+  mechanism: "Appended as a JSONL record (event: honest-n-classification) to .fintech-org/trials.jsonl"
+  location: ".fintech-org/trials.jsonl (line 50, the last line)"
+  format: "event, version, ratified_n, ratified_by, counted_trial_ids (30 entries with reasons), excluded_trial_ids (4 entries with reasons), n_legacy_classified, forward_classification, ts"
+  honest_n_returns_30_verified: true  # EXECUTED: python3 -c "... print(h(Path('.fintech-org/trials.jsonl')))" -> 30
+
+# =============================================================================
+# CALL SITES FIXED
+# =============================================================================
+
+call_sites:
+  - file: src/forex_system/harness/run_trial.py
+    line: "297-298 (n_prior = honest_n_deflation_denominator; n_prior + 1)"
+    change: "NONE — already correct shape; now picks up 30 automatically"
+    status: VERIFIED
+
+  - file: scripts/run_falsification_trial.py
+    line: "737 (n_prior = honest_n_deflation_denominator; n_prior + 1)"
+    change: "NONE — already correct shape; now picks up 30 automatically"
+    status: VERIFIED
+
+  - file: scripts/trial_48_is_eval.py
+    line: "81 (N_ORG_TRIALS = honest_n_deflation_denominator)"
+    change: >
+      Updated comments to document the N=48->N=30 change. Updated docstring label
+      from 'N=48' to 'N=30'. Updated DSR_at_N48 key to DSR_at_N30. Updated print
+      statement. Added HISTORICAL NOTE about the retired N=48 verdict and the
+      tracked follow-on for HoQR/NHT recompute. POWER_FLOOR=48 unchanged (different
+      constant from DSR denominator — it is the min OOS qualifying trades gate).
+    status: VERIFIED
+
+  - file: src/forex_system/harness/dsr_recompute.py
+    severity: CRITICAL
+    lines: "previously line 98 (n_honest = compute_honest_n), line 190 (n_trials=n_honest)"
+    change: >
+      FIXED: replaced compute_honest_n source with honest_n_deflation_denominator.
+      Added n_deflation_denominator = honest_n_deflation_denominator(trials_path) before
+      the trial loop. Changed n_trials=n_honest -> n_trials=n_deflation_denominator in
+      the compute_dsr call. Renamed output field n_honest -> n_deflation_denominator in
+      all three result dicts and in _print_summary. compute_honest_n is still called for
+      the portfolio-view summary fields (n_honest_portfolio) but its result is NOT passed
+      to compute_dsr. +1 convention: NOT added for already-ledgered trial recomputes
+      (same semantics as trial_48_is_eval).
+    status: FIXED-AND-VERIFIED
+
+# =============================================================================
+# SACRED TEST CHANGES
+# =============================================================================
+
+sacred_tests:
+  existing_n11_test:
+    name: "tests/harness/test_honest_n.py::TestComputeHonestN::test_sacred_n_honest_value"
+    change: >
+      KEPT at N=11 (unchanged assertion). Docstring RE-SCOPED to explicitly state:
+      this function is the HoQR research-portfolio de-dup view ONLY; N=11 must NEVER
+      be passed to compute_dsr as n_trials (it under-deflates); use
+      honest_n_deflation_denominator() at compute_dsr sites.
+
+  new_dsr_site_sacred_test:
+    name: "tests/harness/test_honest_n.py::TestDsrDenominator::test_sacred_dsr_denominator_value"
+    pins: "honest_n_deflation_denominator(Path('.fintech-org/trials.jsonl')) == 30"
+    status: ADDED-AND-GREEN
+
+  forbiddance_test:
+    name: "tests/harness/test_honest_n.py::TestForbiddance::test_compute_honest_n_not_used_at_dsr_sites"
+    covers_all_4_sites: true  # run_trial.py, run_falsification_trial.py, trial_48_is_eval.py, dsr_recompute.py
+    approach: >
+      AST/import-graph check for run_trial, run_falsification, trial_48_is_eval (must
+      not import or call compute_honest_n). For dsr_recompute.py: asserts
+      n_deflation_denominator appears and n_trials=n_deflation_denominator is the
+      compute_dsr argument.
+    status: ADDED-AND-GREEN
+
+  additional_test_obligations_fulfilled:
+    - "test_spawned_only_excluded: spawned-only trial (no terminal record, sharpe=null) not counted"
+    - "test_rerun_equivalent_excluded_same_config_hash_and_sharpe: same config_hash AND sharpe dropped"
+    - "test_same_sharpe_different_config_hash_counts: different config_hash same sharpe counts (a9c0902d case)"
+    - "test_withdrawn_excluded: withdrawn-pre-freeze and flag=false not counted"
+    - "test_sticky_exclusion_survives_last_wins: sticky exclusion monotonic"
+    - "test_ambiguous_status_counted_once: null-status counted once"
+    - "test_fail_closed_no_classification_record: RuntimeError on absent record"
+    - "test_increment_by_one_for_new_draw: N+1 on new genuine draw"
+    - "test_double_count_guard_same_id_multiple_lines: same trial_id counted once"
+    - "test_double_count_guard_legacy_and_new_line: legacy+new line counted once"
+    - "test_no_reconciliation_event_in_source: old offset path fully deleted"
+    - "test_honest_n_offset_json_not_read_by_function: retired file not referenced"
+
+# =============================================================================
+# VERIFICATION RESULTS (ACTUAL EXECUTED OUTPUT)
+# =============================================================================
+
+verification:
+  honest_n_returns_30:
+    command: "python3 -c \"from pathlib import Path; from forex_system.harness.honest_n import honest_n_deflation_denominator as h; print(h(Path('.fintech-org/trials.jsonl')))\""
+    output: "30"
+    status: PASS
+
+  harness_tests:
+    command: "python3 -m pytest tests/harness/ -q"
+    result: "532 passed, 3 skipped"
+    status: PASS
+
+  falsification_trial_tests:
+    command: "python3 -m pytest tests/scripts/test_run_falsification_trial.py -q"
+    result: "14 passed"
+    status: PASS
+
+  no_lookahead_sacred:
+    command: "python3 -m pytest -k 'test_no_lookahead' -q"
+    result: "12 passed, 1629 deselected"
+    status: PASS
+
+  honest_n_or_dsr_or_trial:
+    command: "python3 -m pytest -k 'honest_n or dsr or trial' -q"
+    result: "216 passed, 1425 deselected"
+    status: PASS
+
+  ruff_core_files:
+    command: "ruff check honest_n.py dsr_recompute.py trial_48_is_eval.py test_honest_n.py test_honest_n_deflation.py"
+    result: "All checks passed!"
+    status: PASS
+
+  ruff_fixture_files:
+    command: "ruff check test_run_trial.py test_sweep.py"
+    pre_existing_violations: >
+      E741 ambiguous var name `l` in test_run_trial.py:184,230,259,260 and
+      test_sweep.py:203; F841 unused var in test_sweep.py:194.
+      These are pre-existing violations (present before this rebuild). My changes
+      were limited to the fixture blocks only.
+    my_code_clean: true
+
+# =============================================================================
+# CONCERNS / FOLLOW-ONS
+# =============================================================================
+
+concerns:
+  - id: C1
+    item: "trial_48_is_eval historical verdict"
+    detail: >
+      The historical 'DSR=0.00 at N=48' verdict used the RETIRED denominator. N=48
+      over-deflated relative to N=30 (DSR is monotone decreasing in N, so N=48 was
+      too strict). The kill may change at N=30. This is documented in a comment in
+      trial_48_is_eval.py and flagged to HoQR/NHT as a tracked follow-on per the CTO
+      spec. The script now computes DSR at N=30 (the ratified value) — any re-run of
+      the script will produce the N=30 result. The historical record is not silently
+      re-graded.
+    status: DOCUMENTED-FOLLOW-ON
+
+  - id: C2
+    item: "dsr_recompute.py output files on disk"
+    detail: >
+      Any existing .fintech-org/dsr_recompute_2026-06-01.jsonl was produced at n=11.
+      A re-run will now produce results at n=30. The field in output rows was renamed
+      from 'n_honest' to 'n_deflation_denominator'. Old output files are stale.
+      Re-running dsr_recompute is HoQR/NHT's next step per existing CRO guidance.
+    status: DOCUMENTED
+
+  - id: C3
+    item: "honest_n_offset.json"
+    detail: >
+      The CTO spec says to DELETE or archive honest_n_offset.json. The function no
+      longer reads it (test verifies). The file itself has NOT been deleted from disk
+      as it is a historical artifact and the CTO spec says 'DELETE or move to archive/'.
+      This can be done by the CEO or CTO as a cleanup action.
+    status: NOT-DELETED-YET
+
+quick_critic_findings:
+  - id: F1
+    severity: high
+    finding: "dsr_recompute.py Step-2 load loop did record['trial_id'] unconditionally — KeyError on the honest-n-classification record (a real regression I introduced by adding that record to the ledger)."
+    resolution: "FIXED. Added trial_id = record.get('trial_id'); skip if None. Reproduced the KeyError, fixed it, re-ran recompute_all -> 20 rows OK, n_deflation_denominator=30."
+    status: FIXED-AND-VERIFIED
+  - id: F2
+    severity: medium
+    finding: "Docstring DROP rule said 'spawned/null-terminal' but code only drops status=='spawned'. exploratory+null-sharpe new trials fall through to COUNT."
+    resolution: >
+      Code behavior is CORRECT per CTO-spec finding (B): a broad 'null-sharpe => drop'
+      over-drops the ambiguous-but-possible draws (frozen-pending-receipt, exploratory
+      backfills) the firm COUNTS. Tightened the DOCSTRING to match the code. Added test
+      test_new_exploratory_null_sharpe_counts_not_dropped_as_spawned.
+    status: RESOLVED-DOC+TEST
+  - id: F3
+    severity: low
+    finding: "Re-run detection between two NEW trials is order-dependent (first counts, second drops) — undocumented, untested."
+    resolution: >
+      Behavior is INTENDED (byte-equivalent re-run = no new max = drop; deterministic
+      in ledger order). Documented in a code comment; added test
+      test_two_new_trials_same_signature_first_counts_second_drops.
+    status: RESOLVED-DOC+TEST
+  post_fix_verification:
+    honest_n: 30
+    harness_plus_falsification: "548 passed, 3 skipped"
+    no_lookahead: "12 passed"
+    honest_n_or_dsr_or_trial: "218 passed"
+    ruff: "All checks passed!"
+
+ratification:
+  qd_signature: implement
+  counter_incremented: false   # methodology rebuild — NO trial spawned, honest-N unchanged
+  routed-to: ceo
+  notify: [ceo, cto, head-of-quant-research, null-hypothesis-tester, principal-reviewer]
+
+# =============================================================================
+# PRINCIPAL REVIEWER CONDITIONS CLOSED — 2026-06-17
+# =============================================================================
+
+conditions_closed:
+  timestamp_utc: "2026-06-17"
+  closed_by: quant-developer
+  reviewer_conditions_source: "Principal Reviewer APPROVED with 3 minor non-blocking conditions"
+
+  F-001:
+    condition: "Delete the retired .fintech-org/honest_n_offset.json (phantom-15-offset file)"
+    resolution: DELETED
+    action: "rm .fintech-org/honest_n_offset.json — file was a regression landmine; code never
+      read it (test_honest_n_offset_json_not_read_by_function already asserted this);
+      honest_n.py docstring and counting logic unchanged."
+    verification: "File no longer exists. No archive convention found in repo — deleted outright."
+
+  F-003:
+    condition: "Add fail-closed guards in honest_n.py: (a) raise if >1 classification record;
+      (b) raise if ratified_n != len(counted_trial_ids)."
+    resolution: IMPLEMENTED-AND-TESTED
+    guards_added:
+      guard_a:
+        description: "classification_record_count > 1 → RuntimeError (duplicate classification record)"
+        location: "src/forex_system/harness/honest_n.py — in the JSONL parsing loop, immediately
+          on second encounter of event='honest-n-classification'"
+        test: "tests/harness/test_honest_n.py::TestDsrDenominator::test_guard_duplicate_classification_record_raises"
+      guard_b_mismatch:
+        description: "int(ratified_n) != len(counted_trial_ids) → RuntimeError"
+        location: "src/forex_system/harness/honest_n.py — after classification_record confirmed present,
+          before extracting legacy_counted set"
+        test: "tests/harness/test_honest_n.py::TestDsrDenominator::test_guard_ratified_n_mismatch_raises"
+      guard_b_missing:
+        description: "ratified_n absent (None) → RuntimeError (malformed record)"
+        location: "src/forex_system/harness/honest_n.py — same block as mismatch guard"
+        test: "tests/harness/test_honest_n.py::TestDsrDenominator::test_guard_ratified_n_missing_raises"
+    counting_logic_unchanged: true  # honest_n_deflation_denominator still returns 30
+    verified_output: "python3 -c \"from pathlib import Path; from forex_system.harness.honest_n
+      import honest_n_deflation_denominator as h; print(h(Path('.fintech-org/trials.jsonl')))\"
+      → 30"
+
+  F-002:
+    condition: "Strengthen dsr_recompute.py forbiddance assertion from substring check to AST-based"
+    resolution: IMPLEMENTED-AST
+    approach: >
+      Replaced the two substring assertions ('n_deflation_denominator' in source and
+      'n_trials=n_deflation_denominator' in source) with a full AST walk of dsr_recompute.py:
+        Step 1 — collect all variable names assigned from compute_honest_n() calls
+          (handles simple Name targets and tuple unpacking).
+        Step 2 — for every compute_dsr(...) Call node, verify the n_trials keyword:
+          (a) exists (mandatory argument);
+          (b) its value Name.id is NOT in the set from step 1 (compute_honest_n result forbidden);
+          (c) its value Name.id contains 'deflation_denominator' (required path).
+      Two module-level helpers (_is_compute_honest_n_call, _collect_assigned_names) support the walk.
+      This cannot be fooled by comments, string literals, or variable aliases that happen to
+      contain the forbidden text without actually wiring it through to compute_dsr.
+    rigor_parity_with_other_3_sites: >
+      The other 3 sites (run_trial, run_falsification_trial, trial_48_is_eval) use
+      _imports_compute_honest_n (AST import-graph walk) and _calls_compute_honest_n
+      (substring check on call syntax — weaker but sufficient since those sites must not
+      import or call compute_honest_n at all). For dsr_recompute.py, the check is
+      necessarily different: the file legitimately imports and calls compute_honest_n
+      for portfolio-view fields — the forbidden pattern is specifically wiring its result
+      to compute_dsr's n_trials. The AST call-graph walk is the correct rigor level;
+      substring parity is not applicable here (a 'n_trials=n_honest_portfolio' substring
+      check would require knowing the exact variable name, which is a weaker guarantee
+      than checking the AST assignment chain).
+    test: "tests/harness/test_honest_n.py::TestForbiddance::test_compute_honest_n_not_used_at_dsr_sites[site_path3]"
+    quick_critic_hardening:
+      trigger: "quick-critic flagged 2 completeness gaps in the first AST draft"
+      gap_1_attribute_access: >
+        Original _is_compute_honest_n_call only matched bare ast.Name calls, missing
+        attribute-access form (honest_n.compute_honest_n(...)). FIXED: helper now also
+        matches ast.Attribute with attr=='compute_honest_n'. Same for compute_dsr matching.
+      gap_2_non_name_n_trials: >
+        Original check skipped validation entirely when n_trials was a non-Name expression
+        (inline call, subscript, attribute). FIXED: now (2) walks the n_trials subtree to
+        forbid ANY compute_honest_n() call inline, and (4) uses ast.get_source_segment to
+        require 'deflation_denominator' in the expression source for ALL node types — a
+        non-Name n_trials is no longer silently accepted.
+      negative_control_executed: >
+        Proved the hardened check CATCHES all 4 forbidden patterns (variable alias, inline
+        bare call, inline attribute-access call, non-denominator subscript) and PASSES both
+        legitimate forms (variable + inline honest_n_deflation_denominator call). The test
+        has teeth, not just green-on-current-file.
+      guard_a_message_note: >
+        Critic also noted Guard (a)'s message says 'found 2 records' and fires on the 2nd
+        record rather than after a full scan. This is INTENTIONAL fail-fast — a 2nd
+        classification record is already a violation; no value in scanning a known-corrupt
+        ledger further. Not a safety gap (critic agreed). Left as-is.
+
+  verification_executed:
+    honest_n_still_30:
+      command: "python3 -c \"from pathlib import Path; from forex_system.harness.honest_n import
+        honest_n_deflation_denominator as h; print(h(Path('.fintech-org/trials.jsonl')))\""
+      output: "30"
+      status: PASS
+    harness_plus_falsification:
+      command: "python3 -m pytest tests/harness/ tests/scripts/test_run_falsification_trial.py -q"
+      result: "551 passed, 3 skipped"
+      status: PASS
+      new_tests_in_count:
+        - test_guard_duplicate_classification_record_raises
+        - test_guard_ratified_n_mismatch_raises
+        - test_guard_ratified_n_missing_raises
+    no_lookahead_sacred:
+      command: "python3 -m pytest -k 'test_no_lookahead' -q"
+      result: "12 passed, 1634 deselected"
+      status: PASS
+    ruff_changed_files:
+      command: "ruff check src/forex_system/harness/honest_n.py tests/harness/test_honest_n.py"
+      result: "All checks passed!"
+      status: PASS
+
+  concerns: []

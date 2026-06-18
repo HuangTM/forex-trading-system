@@ -1,0 +1,370 @@
+# ============================================================================
+# QD HANDOFF — Short-Engine Implementation
+# ============================================================================
+role: quant-developer
+artifact_type: implementation
+decision: implement
+timestamp_utc: 2026-06-17T23:48:32Z
+authored_by: quant-developer
+no-capital-instruction: true   # backtest-only; no live capital touched; no trial run
+
+spec_implemented: cto-short-engine-spec-2026-06-16
+implements_for: H1-directional-session-open-momentum
+
+claimed_domains:
+  - engine-implementation
+  - backtest-correctness
+  - test-coverage
+
+# ----------------------------------------------------------------------------
+# OPT-IN FLAG
+# ----------------------------------------------------------------------------
+opt_in_flag:
+  name: allow_shorts
+  type: bool
+  default: false
+  locations_implemented:
+    - layer: engine_param
+      file: src/forex_system/backtest/engine.py
+      function: run_backtest
+      status: DONE — added `allow_shorts: bool = False` after constant_capital_sizing
+    - layer: engine_internal
+      file: src/forex_system/backtest/engine.py
+      function: _run_continuous
+      status: DONE — added `allow_shorts: bool = False`; threaded from run_backtest
+    - layer: typed_config
+      file: src/forex_system/core/config.py
+      class: BacktestConfig
+      status: DONE — added `allow_shorts: bool = False` after rebalance_threshold
+    - layer: config_parser
+      file: src/forex_system/core/config.py
+      function: load_config
+      status: DONE — `allow_shorts=bool(exec_raw.get("allow_shorts", False))`
+    - layer: yaml_config
+      file: config/default.yaml
+      status: NOT ADDED (spec states OPTIONAL; parser default is False; omitting
+               preserves current behavior and keeps diff minimal)
+
+# ----------------------------------------------------------------------------
+# SITES IMPLEMENTED
+# ----------------------------------------------------------------------------
+sites:
+  Site-A-clamp:
+    status: DONE
+    change: >
+      clamped_signal = raw_signal if allow_shorts else max(raw_signal, 0.0)
+    bit_identical_when: allow_shorts=False ✓
+
+  Site-S-sizer-sign:
+    status: DONE
+    approach: >
+      signal_sign = 1.0 if clamped_signal >= 0.0 else -1.0
+      usd_nominal = signal_sign * sizer.calculate_size(abs(clamped_signal), ...)
+    VolTargetSizer_changed: false   # magnitude-only sizer untouched
+    bit_identical_when: allow_shorts=False → signal_sign=+1, abs()=identity ✓
+
+  Site-B-swap-accrual-long:
+    status: NO CHANGE (spec says correct as-is) ✓
+
+  Site-C-swap-accrual-short:
+    status: DONE
+    changes:
+      - removed KNOWN-GAP comment (branch is now REACHABLE)
+      - added `else: raise NotImplementedError(...)` for pro-rata short swap
+        when allow_shorts=True (fail-loud per spec §2 Site-C)
+    bit_identical_when: allow_shorts=False → cur_units never < 0 → branch unreachable ✓
+
+  Site-D-rebalance-denominator:
+    status: DONE
+    change: denominator = abs(cur_units) if cur_units != 0.0 else 1.0
+    bit_identical_when: cur_units>=0 → abs()=identity; cur_units==0 → 1.0 in both ✓
+
+  Site-E-rebalance-block:
+    status: DONE — FULL REPLACE of lines 422-533
+    implementation: >
+      Four-case magnitude+sign decision tree. Branch key = (cur_sign, tgt_sign),
+      NEVER sign(delta) or target_units<=0.0.
+      C1: tgt_sign==0  → _close_position(position=float(cur_sign), size=abs(cur_units))
+      C2: cur_sign==0, tgt_sign!=0  → fresh entry, either side
+      C3: tgt_sign==cur_sign  → same-side resize (increase or reduce)
+          - increase: magnitude weighted-avg entry_price (Critic finding #2 fixed)
+          - reduce: signed price_diff_pips = (price-entry)*cur_sign
+      C4: tgt_sign!=0, cur_sign!=0, tgt_sign!=cur_sign  → CLOSE-THEN-OPEN
+          close → entry_price=price; entry_time=ts reset → open
+          emits structured flip log: continuous.flip ts/from_units/to_units
+    critic_finding_1a_fixed: true  # flip no longer drops short leg
+    critic_finding_1b_fixed: true  # increase-a-short no longer flattens
+    critic_finding_2_fixed: true   # magnitude-form weighted-avg, no total_new>0 guard
+    critic_finding_3_fixed: true   # WARNING rail for threshold>=1.0
+    critic_finding_4_fixed: true   # entry_price explicitly reset before C4 open leg
+    bit_identical_when: >
+      allow_shorts=False → tgt_sign/cur_sign always >=0 → C4+short-C3 unreachable.
+      C2=old fresh-entry, C3-increase=old delta>0 arm, C3-reduce+C1=old else arm.
+      Equivalence gate confirmed green (3 tests, all PASSED). ✓
+
+  Site-F-close-position:
+    status: NO CHANGE to _close_position itself (already short-correct per spec)
+    callers_updated:
+      - C1 (to-flat): position=float(cur_sign), size=abs(cur_units)
+      - C4 (flip close): position=float(cur_sign), size=abs(cur_units)
+      - Site-H (end-of-run): end_position = 1.0 if cur_units>0 else -1.0, size=abs(cur_units)
+    include_swap: false on all continuous closes (no double-count) ✓
+
+  Site-G-mark-to-market:
+    status: DONE
+    change: "`if cur_units > 0:` → `if cur_units != 0.0:`"
+    formula_sign_correct: >
+      (price-entry_price)/pip * cur_units — with cur_units<0, gain when price
+      falls (price<entry → negative numerator × negative units = positive). ✓
+    bit_identical_when: cur_units>=0 → !=0 and >0 agree for all cur_units>0 ✓
+
+  Site-H-end-of-run-close:
+    status: DONE
+    change: "`if cur_units > 0:` → `if cur_units != 0.0:`"
+    args: "end_position = 1.0 if cur_units > 0.0 else -1.0; size = abs(cur_units)"
+    closes: KG-QD-3 known gap (held short silently abandoned at run end)
+    bit_identical_when: cur_units>=0 → position=1.0, size=abs=cur_units (unchanged) ✓
+
+# ----------------------------------------------------------------------------
+# TESTS WRITTEN (tests/backtest/test_short_engine.py — 16 tests, all PASSED)
+# ----------------------------------------------------------------------------
+tests:
+  file: tests/backtest/test_short_engine.py
+  count: 17
+  all_passed: true
+
+  coverage:
+    T-short-pnl-sign:
+      tests:
+        - test_short_pnl_profit_when_price_falls  # equity > initial on falling price ✓
+        - test_short_pnl_loss_when_price_rises    # equity < initial on rising price ✓
+
+    T-short-entry-exit-cost:
+      tests:
+        - test_short_entry_cost_is_positive_and_correct  # cost_dollars = cost_pips*pip*size ✓
+        - test_short_exit_cost_is_positive_and_correct   # same formula on exit ✓
+
+    T-short-swap-accrual-through-engine:
+      tests:
+        - test_short_swap_accrual_through_engine  # QUANTIFIED: +6.00 USD credit at 21:00 UTC bar ✓
+
+    T-long-to-short-flip-one-bar:
+      tests:
+        - test_long_to_short_flip_one_bar          # entry_price reset + costs ✓
+        - test_long_to_short_flip_two_trades_at_flip_bar  # exactly 2 trades at flip bar ✓
+
+    T-increase-a-short:
+      tests:
+        - test_increase_a_short_does_not_flatten         # no flatten between -0.5 and -1.0 ✓
+        - test_increase_a_short_weighted_avg_entry_price  # magnitude-form avg ✓
+        - test_reduce_a_short_does_not_flip              # -1.0 → -0.5 trims, stays SHORT ✓
+        - test_reduce_a_short_realized_pnl_is_quantitatively_correct  # QUANTIFIED: +1000 USD ✓
+
+    T-end-of-run-short-close:
+      tests:
+        - test_end_of_run_short_close_emits_short_trade  # Direction.SHORT at last bar ✓
+        - test_end_of_run_short_pnl_sign                 # pnl_dollars > 0 for falling price ✓
+
+    T-default-still-long-only:
+      tests:
+        - test_default_allow_shorts_false_negative_signal_stays_flat  # 0 trades ✓
+        - test_allow_shorts_false_is_default  # no-kwarg == explicit False bit-identical ✓
+
+    additional:
+      - test_defensive_warning_threshold_ge_1_with_shorts  # WARNING logged ✓
+      - test_short_with_plain_cost_model_raises  # NotImplementedError fail-loud ✓
+
+# ----------------------------------------------------------------------------
+# VERIFICATION RESULTS (executed, not claimed)
+# ----------------------------------------------------------------------------
+verification:
+  equivalence_gate:
+    command: "python3 -m pytest tests/equivalence/ -v"
+    result: "3 passed"
+    status: PASS
+
+  no_lookahead_sacred:
+    command: "python3 -m pytest -k 'test_no_lookahead' -q"
+    result: "12 passed"
+    status: PASS
+
+  backtest_suite:
+    command: "python3 -m pytest tests/backtest/ -q"
+    result: "77 passed"
+    status: PASS
+
+  short_tests:
+    command: "python3 -m pytest tests/backtest/test_short_engine.py -v"
+    result: "17 passed"
+    status: PASS
+
+  ruff:
+    command: "ruff check src/forex_system/backtest/engine.py core/config.py test_short_engine.py"
+    result: "All checks passed!"
+    status: PASS
+
+  full_suite:
+    command: "python3 -m pytest -q"
+    result: "1592 passed, 3 skipped in 595.80s"
+    status: PASS
+
+# ----------------------------------------------------------------------------
+# QUICK-CRITIC FINDINGS ADDRESSED (post-implementation hardening)
+# ----------------------------------------------------------------------------
+critic_findings_addressed:
+  - finding: "Swap-accrual sign chain correct but not quantified by a test"
+    verdict: implementation-correct (verified model.py:310-326 sign convention)
+    action: >
+      Rewrote test_short_swap_accrual_through_engine to assert the EXACT swap
+      credit (+6.00 USD = 0.3 pips * 0.0001 * 200_000 units) on a Monday 21:00 UTC
+      crossing bar (multiplier=1), pinning the full sign chain numerically.
+  - finding: "Swap test could pass vacuously if 21:00 bar is the last index"
+    verdict: valid test-quality gap
+    action: >
+      Replaced the soft `if 1 < ri < len-1` guard with a hard
+      `assert 1 < ri < len(ec) - 1` so the quantified swap assertions can never
+      be silently skipped. The 21:00 bar is deterministically at offset 13 of 20.
+  - finding: "C3-reduce inline PnL formula not verified numerically"
+    verdict: valid test-coverage gap (C3-reduce bypasses _close_position)
+    action: >
+      Added test_reduce_a_short_realized_pnl_is_quantitatively_correct: short at
+      1.1000, price falls to 1.0900, trim half → asserts realized PnL == +1000.00 USD
+      exactly, pinning the inline (price-entry)/pip * cur_sign arithmetic.
+
+# ----------------------------------------------------------------------------
+# REMAINING CONCERNS
+# ----------------------------------------------------------------------------
+remaining_concerns:
+  - id: RC-1
+    description: >
+      Daily/pro-rata short swap accrual is NOT implemented (raises NotImplementedError).
+      This is correct per spec (H1 is intraday-only; fail-loud is mandated). Any future
+      daily-bar short strategy requires a separate spec + implementation.
+    severity: by-design (not a defect)
+
+  - id: RC-2
+    description: >
+      _run_discrete is NOT modified per spec (out of scope; already sign-aware).
+      allow_shorts flag is NOT passed to _run_discrete — confirmed by code.
+    severity: by-design
+
+  - id: RC-3
+    description: >
+      config/default.yaml does NOT include allow_shorts: false explicitly.
+      Spec says OPTIONAL; parser default is False; behavior is unchanged.
+    severity: by-design
+
+what_was_not_done:
+  - No backtest trial run (trials.jsonl untouched)
+  - No live-capital path touched
+  - VolTargetSizer NOT modified (sign applied in engine only)
+  - costs/model.py NOT modified (include_swap=False covers all continuous closes)
+  - _run_discrete NOT modified (out of scope)
+
+files_modified:
+  - src/forex_system/backtest/engine.py
+  - src/forex_system/core/config.py
+
+files_created:
+  - tests/backtest/test_short_engine.py
+
+routed-from: cto-short-engine-spec-2026-06-16
+routed-to: principal-reviewer
+
+# ----------------------------------------------------------------------------
+# COVERAGE ROUND — PR Reviewer Conditions (additive tests only, no engine edits)
+# ----------------------------------------------------------------------------
+coverage_round:
+  timestamp_utc: 2026-06-17T00:00:00Z
+  authored_by: quant-developer
+  engine_code_changed: false   # principal-reviewer condition: additive tests only
+  trials_jsonl_touched: false
+
+  tests_added:
+    F-001:
+      description: >
+        C1 short-close PnL-sign at a NON-FLAT price (mid-run close path).
+        Prior tests only asserted cost_dollars on C1 exit at a flat price.
+        Two sub-tests added to pin the PnL sign on the mid-run C1 close path.
+      sub_tests:
+        test_c1_short_close_pnl_profit_when_price_fell:
+          scenario: short entered at 1.1000, C1-closed at 1.0800 (fell 200 pips), zero cost
+          expected: pnl_dollars > 0  AND ≈ +4000 USD (200p × 0.0001 × 200_000 units)
+          result: PASSED
+        test_c1_short_close_pnl_loss_when_price_rose:
+          scenario: short entered at 1.1000, C1-closed at 1.1200 (rose 200 pips), zero cost
+          expected: pnl_dollars < 0
+          result: PASSED
+
+    F-002:
+      description: >
+        JPY-pair short (USDJPY) — _to_engine_units sign preservation for negative usd_nominal,
+        and short PnL sign correctness for the JPY pip_value=0.01 / quote-currency path.
+        ZERO prior coverage of this path. Quote-currency sign handling is a known bug class.
+      sub_tests:
+        test_jpy_short_to_engine_units_sign_preserved:
+          scenario: >
+            signal=-1.0 on USDJPY falling price (150→148). Asserts final_equity > initial
+            (short profits) AND trade_log contains only SHORT trades (no LONGs).
+            If _to_engine_units dropped the sign, engine would enter a LONG → equity < initial.
+          result: PASSED
+          jpy_sign_bug_found: false   # engine correctly preserves sign through division by price
+        test_jpy_short_pnl_sign_correct_quantitatively:
+          scenario: >
+            short at 150.00, C1-closed at 149.00 (100 JPY pips down), zero cost, constant sizing.
+            engine_units = 200_000 / 150.00 ≈ 1333.33; expected PnL = 100 * 0.01 * 1333.33
+            ≈ +1333.33 USD.
+          expected: pnl_dollars ≈ +1333.33 USD (within ±1 USD)
+          result: PASSED
+        test_jpy_short_pnl_loss_when_price_rose:
+          scenario: short at 150.00, C1-closed at 151.00 (rose 100 JPY pips), zero cost
+          expected: pnl_dollars < 0
+          result: PASSED
+
+  jpy_sign_path_verdict: CORRECT
+  jpy_bug_found: false
+  note: >
+    The JPY short path (_to_engine_units divides signed usd_nominal by price) preserves
+    the negative sign for shorts. All three JPY sub-tests passed first-run without any
+    engine adjustment. No silent sign-flip bug exists on this path.
+
+  verification_results:
+    short_tests:
+      command: "python3 -m pytest tests/backtest/test_short_engine.py -v"
+      count_before: 17
+      count_after: 22
+      result: "22 passed in 0.05s"
+      status: PASS
+
+    equivalence_gate:
+      command: "python3 -m pytest tests/equivalence/ -q"
+      result: "3 passed"
+      status: PASS
+
+    no_lookahead_sacred:
+      command: "python3 -m pytest -k 'test_no_lookahead' -q"
+      result: "12 passed"
+      status: PASS
+
+    ruff:
+      command: "ruff check tests/backtest/test_short_engine.py"
+      result: "All checks passed!"
+      status: PASS
+
+  quick_critic_round:
+    finding_1:
+      issue: >
+        Closing-trade selectors filtered on `pnl_dollars != 0.0`. A buggy zero-PnL
+        close would be silently dropped → opaque "no trade found" error instead of
+        the actual wrong PnL value reaching the sign assertion.
+      verdict: valid diagnostic-quality improvement (not a correctness bug — the
+        len>=1 assert would still fail loudly)
+      action: >
+        Removed the `pnl_dollars != 0.0` guard from all four closing-trade selectors
+        (F-001a, F-001b, F-002b, F-002c). Now selected by exit_price == price_b alone;
+        entry trade has exit_price == price_a (distinct) so the match stays unique.
+      status: FIXED — re-ran, all 22 short tests still pass.
+    finding_2:
+      issue: "Critic claimed (1.1000-1.0800)/0.0001 = 2000, not 200, calling the comment wrong."
+      verdict: FALSE POSITIVE — 0.0200 / 0.0001 = 200. The 200-pips comment is correct.
+      action: none (no change)

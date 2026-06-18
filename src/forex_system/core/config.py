@@ -42,6 +42,7 @@ class BacktestConfig:
     walkforward_step_days: int = 63
     rebalance_mode: str = "discrete"
     rebalance_threshold: float = 0.20
+    allow_shorts: bool = False
 
 
 @dataclass
@@ -119,6 +120,7 @@ def load_config(path: str | Path) -> SystemConfig:
             walkforward_step_days=wf_raw.get("step_days", 63),
             rebalance_mode=exec_raw.get("rebalance_mode", "discrete"),
             rebalance_threshold=float(exec_raw.get("rebalance_threshold", 0.20)),
+            allow_shorts=bool(exec_raw.get("allow_shorts", False)),
         )
 
         return SystemConfig(

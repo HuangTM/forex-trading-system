@@ -45,6 +45,7 @@ def run_backtest(
     rebalance_mode: str = "discrete",
     rebalance_threshold: float = 0.20,
     constant_capital_sizing: bool = False,
+    allow_shorts: bool = False,
 ) -> BacktestResult:
     """Run a vectorized backtest.
 
@@ -73,6 +74,10 @@ def run_backtest(
             the sizer receives current equity — constant-leverage-on-equity behavior,
             which is correct for live Saxo trading but diverges from the script over
             long compounding periods. Only used in continuous mode.
+        allow_shorts: If True, negative signals are passed through to the sizer,
+            enabling short positions in continuous mode. Default False preserves
+            today's long-only behavior (bit-identical for all existing callers).
+            Only meaningful in continuous mode (discrete mode is already sign-aware).
     """
     if rebalance_mode not in _VALID_REBALANCE_MODES:
         raise ValueError(
@@ -107,6 +112,7 @@ def run_backtest(
             sizer=sizer,
             rebalance_threshold=rebalance_threshold,
             constant_capital_sizing=constant_capital_sizing,
+            allow_shorts=allow_shorts,
         )
 
     return _run_discrete(
@@ -267,6 +273,7 @@ def _run_continuous(
     sizer: PositionSizer | None,
     rebalance_threshold: float,
     constant_capital_sizing: bool = False,
+    allow_shorts: bool = False,
 ) -> BacktestResult:
     """Continuous rebalance mode.
 
@@ -286,6 +293,18 @@ def _run_continuous(
         raise ValueError(
             "rebalance_mode='continuous' requires a sizer. "
             "Pass a PositionSizer instance (e.g. VolTargetSizer) to run_backtest()."
+        )
+
+    # Defensive rail: a rebalance_threshold >= 1.0 with shorts enabled can suppress
+    # a flip (frac_delta for a flip = (|cur|+|tgt|)/|cur| > 1.0, but exactly at
+    # threshold=1.0 the `>` guard would still fire — however values >1.0 could
+    # suppress small flips). Warn once so operators aren't silently misled.
+    if allow_shorts and rebalance_threshold >= 1.0:
+        logger.warning(
+            "allow_shorts=True with rebalance_threshold=%.2f >= 1.0: "
+            "a small long-to-short flip may be suppressed if frac_delta <= threshold. "
+            "Default threshold=0.20 is safe; consider lowering if flips are missing.",
+            rebalance_threshold,
         )
 
     # Shift signals forward to avoid lookahead — identical to discrete mode
@@ -327,19 +346,28 @@ def _run_continuous(
         raw_signal = float(delayed_signals.iloc[i])
         current_atr = float(atr_series.iloc[i]) if not pd.isna(atr_series.iloc[i]) else 0.0
 
-        # Long-only clamp: negative signal → target flat
-        clamped_signal = max(raw_signal, 0.0)
+        # Signal clamp: when allow_shorts=False (default) clamp to long-only so
+        # that negative signals → flat (bit-identical to today's behavior).
+        # When allow_shorts=True, pass the signed signal through — the sizer
+        # receives abs() and the sign is re-applied in the engine (Site-S).
+        clamped_signal = raw_signal if allow_shorts else max(raw_signal, 0.0)
 
         # Compute target units using the sizer.
-        # The sizer returns USD-nominal exposure. Convert to engine-convention
-        # units for quote-currency pairs (e.g. USDJPY) so that the engine's
-        # pnl = price_change * units formula yields USD P&L, not JPY P&L.
+        # The sizer returns USD-nominal exposure (magnitude only). Convert to
+        # engine-convention units for quote-currency pairs (e.g. USDJPY) so
+        # that the engine's pnl = price_change * units formula yields USD P&L.
         # RC4: constant_capital_sizing uses initial_capital (constant-notional,
         # matching the research script). Default (False) uses current equity
         # (constant-leverage-on-equity, correct for live Saxo trading).
+        #
+        # Site-S: keep VolTargetSizer magnitude-only (no change to sizer).
+        # Apply sign here in the engine: feed abs(clamped_signal) to sizer,
+        # then multiply the result by signal_sign to get signed usd_nominal.
+        # Under allow_shorts=False: clamped_signal>=0, signal_sign=+1 → no-op.
+        signal_sign = 1.0 if clamped_signal >= 0.0 else -1.0
         sizing_equity = initial_capital if constant_capital_sizing else equity
-        usd_nominal = sizer.calculate_size(
-            clamped_signal,
+        usd_nominal = signal_sign * sizer.calculate_size(
+            abs(clamped_signal),
             sizing_equity,
             price,
             current_atr,
@@ -397,160 +425,258 @@ def _run_continuous(
         elif cur_units < 0:
             if use_rollover_accrual:
                 # Short-side rollover accrual: mirrors long branch.
-                # No else branch — daily pro-rata never accrued per-bar swap for shorts;
-                # do NOT add it silently (separate arch decision required).
-                #
-                # KNOWN GAP (KG-QD-3, out of scope): the engine is currently long-only
-                # (clamped_signal = max(raw_signal, 0.0) above), so cur_units < 0 never
-                # occurs in practice and this branch is dormant. The end-of-run cleanup
-                # block below only closes cur_units > 0. IF short intraday strategies are
-                # ever enabled, that cleanup block MUST gain a matching `elif cur_units < 0`
-                # close, or a held short would be silently abandoned at run end. Tracked in
-                # qd-engine-wiring.yaml remaining_concerns.
+                # Branch is now REACHABLE when allow_shorts=True enables negative units.
                 per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
                     pair, Direction.SHORT, ts
                 )
                 equity += per_bar_swap_pips * pip_value * abs(cur_units)
+            else:
+                # Daily/pro-rata short swap accrual is not implemented.
+                # H1 is intraday (rollover-aware path only). Fail loud rather than
+                # silently accruing zero swap — that would be a research-class decision
+                # the engine must not make unilaterally (execution-firewall §A).
+                if allow_shorts:
+                    raise NotImplementedError(
+                        "daily/pro-rata short swap accrual not implemented; "
+                        "H1 is intraday rollover-aware only. "
+                        "Use RolloverAwareRealisticCostModel for short strategies."
+                    )
 
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)
         # not max(cur_units, 1.0). For USDJPY the units are always >> 1 so the
         # difference is negligible, but the script semantics are correct and cleaner.
-        denominator = cur_units if cur_units > 0 else 1.0
+        # Site-D: use abs(cur_units) so a short position (cur_units < 0) rebalances
+        # on magnitude, not sign. When cur_units==0 both the old and new form yield 1.0.
+        denominator = abs(cur_units) if cur_units != 0.0 else 1.0
         frac_delta = abs(target_units - cur_units) / denominator
 
         if frac_delta > rebalance_threshold:
-            delta = target_units - cur_units
+            # Four-case magnitude+sign decision tree (Site-E / CTO spec Section 3).
+            # Branch on sign(cur) vs sign(target), NEVER on sign(delta) or target<=0.
+            # This is the ONLY structure that correctly handles shorts, flips, and
+            # increase-a-short without the `target_units<=0.0` full-exit trap.
+            cur_sign = 0 if cur_units == 0.0 else (1 if cur_units > 0.0 else -1)
+            tgt_sign = 0 if target_units == 0.0 else (1 if target_units > 0.0 else -1)
 
-            if delta > 0:
-                # Increase position (or initial entry)
-                cost_pips = cost_model.entry_cost(pair, abs(delta), timestamp=ts)
-                equity -= cost_pips * pip_value * abs(delta)
+            if tgt_sign == 0:
+                # C1: To-flat — close current side completely.
+                trade = _close_position(
+                    pair,
+                    strategy_name,
+                    cost_model,
+                    pip_value,
+                    float(cur_sign),  # +1.0 for long, -1.0 for short
+                    abs(cur_units),
+                    entry_price,
+                    entry_time,
+                    ts,
+                    price,
+                    include_swap=False,
+                )
+                trade_log.append(trade)
+                equity += trade.pnl_dollars
+                cur_units = 0.0
+                entry_price = 0.0
+                entry_time = None
 
-                if cur_units == 0.0:
-                    # Fresh entry
-                    entry_price = price
-                    entry_time = ts
-                else:
-                    # Rebalance up — adjust entry_price to weighted average
-                    total_new = cur_units + delta
-                    if total_new > 0:
-                        entry_price = (entry_price * cur_units + price * delta) / total_new
+                logger.debug(
+                    "continuous.exit: ts=%s pnl=%.2f",
+                    ts,
+                    trade.pnl_dollars,
+                )
 
-                # Emit a Trade for the delta (direction=LONG, size=delta)
+            elif cur_sign == 0:
+                # C2: From-flat entry — open a fresh position on either side.
+                cost_pips = cost_model.entry_cost(pair, abs(target_units), timestamp=ts)
+                equity -= cost_pips * pip_value * abs(target_units)
+                entry_price = price
+                entry_time = ts
                 trade_log.append(
                     Trade(
                         pair=pair,
-                        direction=Direction.LONG,
-                        entry_time=entry_time or ts,
+                        direction=Direction.LONG if tgt_sign > 0 else Direction.SHORT,
+                        entry_time=ts,
                         exit_time=ts,
                         entry_price=entry_price,
                         exit_price=price,
-                        size=abs(delta),
-                        pnl_pips=0.0,  # delta trade; running PnL tracked via equity_curve
+                        size=abs(target_units),
+                        pnl_pips=0.0,
                         pnl_dollars=0.0,
                         cost_pips=cost_pips,
-                        cost_dollars=cost_pips * pip_value * abs(delta),
+                        cost_dollars=cost_pips * pip_value * abs(target_units),
                         strategy=strategy_name,
                     )
                 )
                 cur_units = target_units
 
                 logger.debug(
-                    "continuous.rebalance_up: ts=%s delta=%.0f new_units=%.0f cost_pips=%.4f",
+                    "continuous.entry: ts=%s units=%.0f cost_pips=%.4f side=%s",
                     ts,
-                    delta,
                     cur_units,
                     cost_pips,
+                    "LONG" if tgt_sign > 0 else "SHORT",
                 )
 
-            else:
-                # Decrease position (partial exit or full exit)
-                reduce_units = abs(delta)
+            elif tgt_sign == cur_sign:
+                # C3: Same-sign resize — increase or partially reduce on the same side.
+                m_cur = abs(cur_units)
+                m_tgt = abs(target_units)
 
-                if target_units <= 0.0:
-                    # Full exit — swap was already credited daily, so skip in close
-                    trade = _close_position(
-                        pair,
-                        strategy_name,
-                        cost_model,
-                        pip_value,
-                        1.0,  # long position
-                        cur_units,
-                        entry_price,
-                        entry_time,
-                        ts,
-                        price,
-                        include_swap=False,
-                    )
-                    trade_log.append(trade)
-                    equity += trade.pnl_dollars
-                    cur_units = 0.0
-                    entry_price = 0.0
-                    entry_time = None
-
-                    logger.debug(
-                        "continuous.exit: ts=%s pnl=%.2f",
-                        ts,
-                        trade.pnl_dollars,
-                    )
-                else:
-                    # Partial reduction — charge cost on delta only
-                    cost_pips = cost_model.exit_cost(pair, reduce_units, timestamp=ts)
-                    # Realized PnL on the reduced chunk
-                    price_diff_pips = (price - entry_price) / pip_value
-                    realized_pnl_dollars = (
-                        price_diff_pips * pip_value * reduce_units
-                        - cost_pips * pip_value * reduce_units
-                    )
-                    equity += realized_pnl_dollars
-
+                if m_tgt > m_cur:
+                    # C3-increase: add to the position (works for both long and short).
+                    delta_mag = m_tgt - m_cur
+                    cost_pips = cost_model.entry_cost(pair, delta_mag, timestamp=ts)
+                    equity -= cost_pips * pip_value * delta_mag
+                    # Magnitude-form weighted-average entry_price (never signed, so the
+                    # `total_new > 0` guard bug cannot affect shorts — Critic finding #2).
+                    entry_price = (entry_price * m_cur + price * delta_mag) / m_tgt
                     trade_log.append(
                         Trade(
                             pair=pair,
-                            direction=Direction.LONG,
+                            direction=Direction.LONG if cur_sign > 0 else Direction.SHORT,
                             entry_time=entry_time or ts,
                             exit_time=ts,
                             entry_price=entry_price,
                             exit_price=price,
-                            size=reduce_units,
-                            pnl_pips=price_diff_pips - cost_pips,
-                            pnl_dollars=realized_pnl_dollars,
+                            size=delta_mag,
+                            pnl_pips=0.0,
+                            pnl_dollars=0.0,
                             cost_pips=cost_pips,
-                            cost_dollars=cost_pips * pip_value * reduce_units,
+                            cost_dollars=cost_pips * pip_value * delta_mag,
                             strategy=strategy_name,
                         )
                     )
                     cur_units = target_units
 
                     logger.debug(
-                        "continuous.rebalance_down: ts=%s delta=%.0f new_units=%.0f "
+                        "continuous.rebalance_up: ts=%s delta=%.0f new_units=%.0f "
+                        "cost_pips=%.4f",
+                        ts,
+                        delta_mag * cur_sign,
+                        cur_units,
+                        cost_pips,
+                    )
+
+                else:
+                    # C3-reduce: trim the position (same side, smaller magnitude).
+                    reduce_mag = m_cur - m_tgt
+                    cost_pips = cost_model.exit_cost(pair, reduce_mag, timestamp=ts)
+                    # Signed price diff: long gains when price rises, short gains when falls.
+                    price_diff_pips = (price - entry_price) / pip_value * cur_sign
+                    realized_pnl_dollars = (
+                        price_diff_pips * pip_value * reduce_mag
+                        - cost_pips * pip_value * reduce_mag
+                    )
+                    equity += realized_pnl_dollars
+                    trade_log.append(
+                        Trade(
+                            pair=pair,
+                            direction=Direction.LONG if cur_sign > 0 else Direction.SHORT,
+                            entry_time=entry_time or ts,
+                            exit_time=ts,
+                            entry_price=entry_price,
+                            exit_price=price,
+                            size=reduce_mag,
+                            pnl_pips=price_diff_pips - cost_pips,
+                            pnl_dollars=realized_pnl_dollars,
+                            cost_pips=cost_pips,
+                            cost_dollars=cost_pips * pip_value * reduce_mag,
+                            strategy=strategy_name,
+                        )
+                    )
+                    cur_units = target_units
+
+                    logger.debug(
+                        "continuous.rebalance_down: ts=%s reduce=%.0f new_units=%.0f "
                         "realized_pnl=%.2f",
                         ts,
-                        delta,
+                        reduce_mag,
                         cur_units,
                         realized_pnl_dollars,
                     )
 
-        # Mark-to-market
-        if cur_units > 0:
+            else:
+                # C4: Flip — cross-zero direction change. CLOSE-THEN-OPEN (never net).
+                # Two legs in one bar; both costs charged (economically honest).
+
+                # Leg 1: close the current side.
+                close_trade = _close_position(
+                    pair,
+                    strategy_name,
+                    cost_model,
+                    pip_value,
+                    float(cur_sign),  # +1.0 for long, -1.0 for short
+                    abs(cur_units),
+                    entry_price,
+                    entry_time,
+                    ts,
+                    price,
+                    include_swap=False,
+                )
+                trade_log.append(close_trade)
+                equity += close_trade.pnl_dollars
+
+                # Leg 2: reset bookkeeping BEFORE opening the new side (Critic finding #4).
+                # _close_position does NOT mutate entry_price/entry_time; must be explicit.
+                entry_price = price
+                entry_time = ts
+
+                # Open the new side.
+                open_cost_pips = cost_model.entry_cost(pair, abs(target_units), timestamp=ts)
+                equity -= open_cost_pips * pip_value * abs(target_units)
+                trade_log.append(
+                    Trade(
+                        pair=pair,
+                        direction=Direction.LONG if tgt_sign > 0 else Direction.SHORT,
+                        entry_time=ts,
+                        exit_time=ts,
+                        entry_price=entry_price,
+                        exit_price=price,
+                        size=abs(target_units),
+                        pnl_pips=0.0,
+                        pnl_dollars=0.0,
+                        cost_pips=open_cost_pips,
+                        cost_dollars=open_cost_pips * pip_value * abs(target_units),
+                        strategy=strategy_name,
+                    )
+                )
+                cur_units = target_units
+
+                logger.debug(
+                    "continuous.flip: ts=%s from_units=%.0f to_units=%.0f "
+                    "close_pnl=%.2f open_cost_pips=%.4f",
+                    ts,
+                    close_trade.size * cur_sign * -1,  # original side (before flip)
+                    cur_units,
+                    close_trade.pnl_dollars,
+                    open_cost_pips,
+                )
+
+        # Mark-to-market (Site-G): widen guard to != 0 so shorts get MtM too.
+        # Formula: (price - entry_price)/pip * cur_units is sign-correct for shorts
+        # because cur_units < 0 → gain when price falls, loss when price rises.
+        if cur_units != 0.0:
             unrealized_pips = (price - entry_price) / pip_value
             equity_curve.iloc[i] = equity + unrealized_pips * pip_value * cur_units
         else:
             equity_curve.iloc[i] = equity
 
-    # Close any remaining position at the last bar.
+    # Close any remaining position at the last bar (Site-H).
     # Swap was already credited daily so skip it here (include_swap=False).
-    if cur_units > 0:
+    # Widen guard to != 0 so a held short is closed and not silently abandoned
+    # (closes KG-QD-3 known gap). Pass sign-aware position and abs(size).
+    if cur_units != 0.0:
         last_ts = data.index[-1]
         last_price = data["close"].iloc[-1]
+        end_position = 1.0 if cur_units > 0.0 else -1.0
         trade = _close_position(
             pair,
             strategy_name,
             cost_model,
             pip_value,
-            1.0,  # long position
-            cur_units,
+            end_position,
+            abs(cur_units),
             entry_price,
             entry_time,
             last_ts,

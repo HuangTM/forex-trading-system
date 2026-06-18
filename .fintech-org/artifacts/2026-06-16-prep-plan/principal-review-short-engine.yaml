@@ -1,0 +1,319 @@
+# ============================================================================
+# PRINCIPAL REVIEWER — Independent review of the SHORT-CAPABLE continuous engine
+# ============================================================================
+role: principal-reviewer
+artifact_type: review                       # review-report
+decision: approve-with-conditions
+timestamp_utc: 2026-06-18T00:05:09Z
+authored_by: principal-reviewer
+no-capital-instruction: true                # backtest-only; no live capital touched; reviewed no live path
+claimed_domains:
+  - independent-code-review
+  - spec-vs-implementation-drift-detection
+  - hidden-bug-and-edge-case-surfacing
+  - test-coverage-and-test-quality-review
+
+artifact-under-review:
+  - cto-short-engine-spec-2026-06-16 (.fintech-org/artifacts/2026-06-16-prep-plan/cto-short-engine-spec.yaml)
+  - qd-short-engine implementation (.fintech-org/artifacts/2026-06-16-prep-plan/qd-short-engine.yaml)
+  - src/forex_system/backtest/engine.py            (working-tree changes vs eab7709)
+  - src/forex_system/core/config.py                (allow_shorts plumbing)
+  - tests/backtest/test_short_engine.py            (17 tests)
+
+rubrics-applied:
+  - spec-to-implementation-trace: applied
+  - execution-firewall-review: applied (Sections A, C, D, E)
+  - clock-and-ordering: applied (items 1,2,5,6,7)
+  - log-as-decision-trace: applied (flip/entry/exit/reduce decision boundaries)
+  - edge-case-enumeration: applied
+  - invariant-search: applied (equivalence-by-default, no-lookahead, no-double-count)
+  - test-inversion: applied
+  - failure-mode-reasoning: applied (cost model, end-of-run, threshold rail)
+  - numerical-statistical: skipped-because no statistical estimator changed; this is
+    deterministic position/PnL bookkeeping, not an inference procedure.
+
+contamination-check: "clean"   # prompt carried orchestrator's INDEPENDENT run results
+  # (equivalence 3 PASS, no_lookahead 12 PASS, short 17 PASS, full 1592 PASS) and the
+  # CTO/QD artifacts, but NO other role's approve/reject DECISION on this code and no
+  # author self-review stance. Orchestrator test counts are evidence I re-derived against
+  # the code, not a borrowed approval stance. Independence intact.
+
+time-spent-reasoning: ~35 minutes
+
+# ----------------------------------------------------------------------------
+# 1. EQUIVALENCE-BY-DEFAULT — code-level reduction (not just gate trust)
+# ----------------------------------------------------------------------------
+equivalence_by_default:
+  verdict: CONFIRMED at code level (independently of the green gate)
+  trace:
+    - Site-A (engine.py:351): clamped_signal = raw_signal if allow_shorts else
+      max(raw_signal,0.0). allow_shorts=False → identical to the prior
+      `max(raw_signal,0.0)`. PASS.
+    - Site-S (engine.py:363-371): allow_shorts=False ⇒ clamped_signal>=0 ⇒
+      signal_sign=+1.0 and abs(clamped_signal)==clamped_signal ⇒ the sizer call
+      and usd_nominal are arithmetically identical to the prior single call. PASS.
+    - Site-C (engine.py:425-443): the `elif cur_units < 0` branch is guarded by
+      cur_units<0, which cannot occur when allow_shorts=False (clamp keeps signal>=0,
+      sizer returns >=0 magnitude, sign=+1, _to_engine_units sign-preserving ⇒
+      target_units>=0 ⇒ cur_units>=0). Branch UNREACHABLE on default path. PASS.
+    - Site-D (engine.py:451): denominator = abs(cur_units) if cur_units!=0 else 1.0.
+      For cur_units>0, abs()==identity → same as old `cur_units if cur_units>0 else 1.0`;
+      for cur_units==0 both yield 1.0. Bit-identical on default. PASS.
+    - Site-E tree (engine.py:459-654): with allow_shorts=False, tgt_sign and cur_sign
+      are each in {0,+1}, so C4 (flip; requires cur_sign!=0 AND tgt_sign!=0 AND
+      tgt_sign!=cur_sign) and the short side of C3 (cur_sign==-1) are UNREACHABLE.
+      Reachable reduction:
+        * old `cur_units==0 & delta>0` fresh-entry  → C2 (cur_sign==0, tgt_sign==+1).
+        * old `delta>0` rebalance-up               → C3-increase (m_tgt>m_cur). The new
+          magnitude weighted-avg `(entry*m_cur + price*delta_mag)/m_tgt` equals the old
+          signed `(entry*cur + price*delta)/total_new` for positive units (m_cur==cur,
+          delta_mag==delta, m_tgt==total_new). IDENTICAL arithmetic.
+        * old `else` + `target_units<=0.0` full-exit → C1 (tgt_sign==0). Same
+          _close_position(position=+1.0, size=cur_units) call (float(cur_sign)==+1.0,
+          abs(cur_units)==cur_units). IDENTICAL.
+        * old `else` + `target_units>0` partial-reduce → C3-reduce. price_diff_pips =
+          (price-entry)/pip * cur_sign with cur_sign==+1 ⇒ identical to old unsigned
+          form. IDENTICAL.
+    - Site-G (engine.py:659): `!=0` vs old `>0` agree for all cur_units>0; at 0 both
+      take else. Bit-identical.
+    - Site-H (engine.py:669-688): `!=0` vs `>0` agree for cur_units>0; end_position
+      resolves to +1.0, size=abs(cur_units)==cur_units. Bit-identical.
+  conclusion: >
+    The reachable default-path arithmetic reduces EXACTLY to the prior code at every
+    site. The equivalence gate (3 PASS) is corroborated, not merely trusted.
+    test_allow_shorts_false_is_default additionally pins no-kwarg == explicit-False
+    bit-identical via assert_series_equal(check_exact=True). PASS.
+
+# ----------------------------------------------------------------------------
+# 2. REBALANCE DECISION-TREE FAITHFULNESS
+# ----------------------------------------------------------------------------
+decision_tree_faithfulness:
+  verdict: FAITHFUL
+  branch_key: >
+    engine.py:459-460 computes cur_sign/tgt_sign and branches on (cur_sign, tgt_sign)
+    ONLY: C1 tgt_sign==0 (462), C2 cur_sign==0 (489), C3 tgt_sign==cur_sign (521),
+    C4 else (599). There is NO `if delta>0` and NO `target_units<=0.0` test anywhere in
+    the replaced block. The forbidden `delta` variable is gone (grep-confirmed by reading
+    459-654). Matches Section-3 spec exactly.
+  increase_a_short:
+    verdict: CORRECT — does NOT route to exit (verified by reading, not test name)
+    trace: >
+      cur=-500, target=-1000 ⇒ cur_sign=-1, tgt_sign=-1 ⇒ C3 (521). m_cur=500,
+      m_tgt=1000, m_tgt>m_cur ⇒ C3-increase (526): delta_mag=500, entry_cost on 500,
+      magnitude weighted-avg entry_price, Trade(direction=SHORT since cur_sign<0),
+      cur_units=target_units=-1000. The position becomes MORE negative; NO _close_position
+      call, NO full-exit. The old `target_units<=0.0` flatten trap is structurally
+      impossible here. PASS.
+  same_sign_reduce:
+    verdict: CORRECT — C3-reduce (561) trims on the same side, cur_units=target_units
+      stays negative; emits a SHORT trade; entry_price UNCHANGED (correct, remainder
+      still open).
+  weighted_avg_guard_bug:
+    verdict: FIXED — C3-increase uses magnitude form (533); the old `total_new>0` guard
+      that would skip a short's entry_price update is absent. Critic finding #2 closed.
+
+# ----------------------------------------------------------------------------
+# 3. FLIP (C4) — concrete trace
+# ----------------------------------------------------------------------------
+flip_trace:
+  scenario: >
+    EURUSD, flat price P. Earlier: long entered at P_long, cur_units=+200000,
+    entry_price=P_long. New bar target_units=-200000. cur_sign=+1, tgt_sign=-1,
+    tgt_sign!=cur_sign ⇒ C4 (599).
+  leg1_close: >
+    _close_position(position=float(+1)=+1.0, size=abs(+200000)=200000,
+    entry_price=P_long, exit=P, include_swap=False). _close_position (725) derives
+    direction=LONG (position>0), price_diff_pips=(P-P_long)/pip*(+1) — correct LONG PnL
+    sign. equity += close_trade.pnl_dollars. A LONG Trade with correct PnL is booked.
+  leg2_reset: >
+    entry_price=P; entry_time=ts (622-623), BEFORE the open leg. The stale P_long is
+    discarded. Critic finding #4 closed.
+  leg3_open: >
+    entry_cost charged on abs(-200000)=200000; a fresh SHORT Trade (tgt_sign<0) is
+    emitted with entry_price=P (the FLIP-bar price, NOT P_long), size=200000;
+    cur_units=-200000. BOTH exit cost (long close) and entry cost (short open) are
+    charged — not netted (flip_cost_rationale satisfied; firewall Section A honest TC).
+  pnl_and_entry_price_correct: YES
+  result: >
+    Booked LONG-close PnL has the correct long sign; the new SHORT leg's entry_price is
+    the flip-bar price; two trades emitted; both costs charged. C4 is correct.
+  flip_log: >
+    engine.py:646 emits continuous.flip with from_units/to_units/close_pnl — decision
+    boundary replayable from logs alone (log-as-decision-trace satisfied). NOTE: the
+    from_units expression `close_trade.size * cur_sign * -1` is a COSMETIC log value only
+    (does not affect equity/trades); for a long->short flip it prints -|N| which mislabels
+    the pre-flip side as negative when it was +|N|. Minor observability nit (F-003).
+
+# ----------------------------------------------------------------------------
+# 4. SHORT PnL / COST / SWAP / MTM SIGN CORRECTNESS (traced, not taken on trust)
+# ----------------------------------------------------------------------------
+sign_correctness:
+  mark_to_market: >
+    engine.py:659-661: cur_units<0, price<entry ⇒ (price-entry)<0, *cur_units(<0) ⇒
+    POSITIVE unrealized (gain when price falls). price>entry ⇒ negative (loss when price
+    rises). Sign-correct. PASS.
+  entry_exit_cost_abs: >
+    All cost sites charge on magnitudes: C2 abs(target_units) (491-492,503,507), C3-incr
+    delta_mag (529-530,546), C3-reduce reduce_mag (564,569,584), C4 open abs(target_units)
+    (626-627,636,640), _close_position size>=0 (728,736). No negative-size cost. PASS.
+  short_swap_branch_reachable_and_signed: >
+    engine.py:429-432 is now REACHABLE (cur_units<0 occurs under allow_shorts).
+    Sign chain: rollover_cost_for_bar(SHORT) returns -swap_short*mult (model.py:313,326);
+    engine negates ⇒ per_bar_swap_pips = +swap_short*mult; equity += that * pip *
+    abs(cur_units). With swap_short=+0.3, mult=1, units=200000 ⇒ +6.00 USD credit. This
+    EXACTLY matches test_short_swap_accrual_through_engine's quantified assertion. The
+    branch mirrors the long branch's negate-then-apply pattern (424). PASS.
+  close_position_short: >
+    _close_position (725,732): position=-1.0 ⇒ direction=SHORT, price_diff_pips=
+    (exit-entry)/pip*(-1) ⇒ profit when exit<entry. Callers pass position=float(cur_sign)
+    / end_position=-1.0 and size=abs(cur_units). Short close booked with correct sign. PASS.
+  jpy_sign_preservation: >
+    _to_engine_units (818-819) for JPY returns usd_nominal/price; a negative usd_nominal
+    yields negative units (sign-preserving). Reasoned correct, but see test gap F-002
+    (no JPY-pair short test exercises this path).
+
+# ----------------------------------------------------------------------------
+# 5. NO-LOOKAHEAD + NO-DOUBLE-COUNT
+# ----------------------------------------------------------------------------
+clock_and_ordering:
+  no_lookahead:
+    verdict: PRESERVED
+    evidence: >
+      delayed_signals = signals.shift(entry_delay_bars).fillna(0.0) computed once before
+      the loop (unchanged). The clamp/abs/sign-multiply at 351-364 operate on the already-
+      delayed raw_signal=delayed_signals.iloc[i]; they add NO new .shift/.rolling/.now()
+      and touch no future bar. clock-and-ordering item 5 (lookahead) and item 7 (backtest
+      clock equivalence) unaffected. The sacred test_no_lookahead remains green
+      (orchestrator: 12 PASS). PASS.
+    clock-sources-named: 1   # exchange/event-time bar_ts in rollover_cost_for_bar (hour==21 UTC)
+    lookahead-found: false
+  no_double_count_swap:
+    verdict: PRESERVED for shorts
+    evidence: >
+      Continuous mode accrues short swap per-bar (429-432) and ALL continuous closes pass
+      include_swap=False: C1 (475), C4 leg1 (615), Site-H (684). _close_position only adds
+      holding_cost when include_swap=True (729), so the daily-accrued short swap is never
+      re-charged as a lump at exit. C3-reduce computes PnL inline with no swap term.
+      No double-count. PASS.
+
+# ----------------------------------------------------------------------------
+# 6. FINDINGS
+# ----------------------------------------------------------------------------
+findings:
+  - id: F-001
+    severity: minor
+    location: tests/backtest/test_short_engine.py (whole file) — missing pure-short C1 case
+    category: test-coverage-gap
+    observation: >
+      No test enters a SHORT, then drives target to FLAT via signal=0, and asserts the C1
+      branch books a SHORT close with the correct short PnL sign while cur_units returns to
+      0. test_short_exit_cost_is_positive_and_correct gets a closing SHORT trade via the
+      signal -1→0 path, but asserts only cost_dollars sign/magnitude, not the C1 PnL sign
+      on a non-flat price. Site-H end-of-run close is tested for PnL sign, but the mid-run
+      C1 to-flat short-close PnL-sign path is not pinned.
+    inference: >
+      A future sign regression specifically in the C1 short-close PnL (e.g. dropping
+      cur_sign) on a non-flat price could pass the current suite, since the only PnL-sign
+      assertions on a short close run through Site-H, not C1.
+    evidence: engine.py:462-487 (C1) vs tests covering exit only via cost asserts at flat price.
+    recommended-action-class: add-test
+    owning-role: quant-developer
+
+  - id: F-002
+    severity: minor
+    location: tests/backtest/test_short_engine.py — all fixtures are EURUSD (USD-quoted)
+    category: test-coverage-gap
+    observation: >
+      Every short test uses EURUSD, where _to_engine_units is identity. The JPY branch
+      (engine.py:818-819) that divides usd_nominal by price — and must PRESERVE the negative
+      sign for a short — has zero short-path coverage.
+    inference: >
+      A JPY short whose sign was inverted or dropped in _to_engine_units would not be caught.
+      The spec asserts this path is sign-safe (Site-S(d)) but no test exercises it.
+    evidence: engine.py:376, 818-819; spec Site-S clause (d) "VERIFIED sign-safe by reading".
+    recommended-action-class: add-test
+    owning-role: quant-developer
+
+  - id: F-003
+    severity: nit
+    location: src/forex_system/backtest/engine.py:650 (continuous.flip log from_units)
+    category: observability-gap
+    observation: >
+      The flip log's from_units = close_trade.size * cur_sign * -1 prints the negated
+      pre-flip side. For long(+N)->short, cur_sign=+1 so it logs -N, mislabeling a +N long
+      as -N. Cosmetic only; equity/trades are unaffected.
+    inference: >
+      A flip-debugging operator reading logs alone would see the wrong sign for the
+      pre-flip position. Per log-as-decision-trace the boundary should reconstruct truthfully.
+    evidence: engine.py:646-653.
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+  - id: F-004
+    severity: observation
+    location: src/forex_system/backtest/engine.py:301-308 (defensive WARNING rail)
+    category: correctness
+    observation: >
+      The rail warns when rebalance_threshold >= 1.0. The flip gate is
+      frac_delta = (m_cur + m_tgt)/m_cur > threshold. For an equal-magnitude flip
+      frac_delta=2.0, so threshold up to <2.0 still fires the flip; only a strongly
+      asymmetric flip (m_tgt << m_cur) approaches frac_delta just above 1.0 and could be
+      suppressed by a >=1.0 threshold. The warning is correctly conservative (warns at the
+      earliest point a flip could ever be suppressed) and does not alter behavior. This is
+      an observation, not a defect — the spec mandates exactly this WARNING (not a block),
+      and the warning text correctly says a flip "may" be suppressed.
+    inference: none — behaves as specified; H1/default threshold 0.20 is safe.
+    evidence: engine.py:301-308; spec rebalance_threshold_interaction; test at 805-835.
+    recommended-action-class: other
+    owning-role: none
+
+  - id: F-005
+    severity: observation
+    location: spec Site-C / engine.py:438-443 (NotImplementedError fail-loud)
+    category: correctness
+    observation: >
+      A daily/pro-rata cost model + allow_shorts + a held short raises NotImplementedError
+      rather than silently accruing zero swap. test_short_with_plain_cost_model_raises pins it.
+    inference: >
+      Failing loud is the CORRECT call here: silently accruing zero swap on a daily short is
+      a research-class economic decision (understates carry cost) the engine must not make
+      unilaterally — exactly the firewall Section-A drift class. Fail-loud is preferable to
+      silently-wrong. Concur with the spec disposition. Note the raise fires only when a
+      short is actually held on a non-rollover model; a long-only daily run is unaffected.
+    evidence: engine.py:433-443; test 842-867; firewall-review Section A rationale.
+    recommended-action-class: other
+    owning-role: none
+
+# ----------------------------------------------------------------------------
+# 7. CONDITIONS (approve-with-conditions — none blocking)
+# ----------------------------------------------------------------------------
+conditions:
+  must_fix_before_merge: []   # NO blocking findings
+  should_fix_same_pr:
+    - F-001: add a mid-run C1 short-close PnL-sign test (non-flat price).
+    - F-002: add one JPY-quoted-pair short test to exercise the sign-preserving
+      _to_engine_units division for negative units.
+  may_fix:
+    - F-003: correct the cosmetic from_units sign in the flip log.
+
+coverage-statement: >
+  I reviewed all artifacts in scope: the CTO spec, the QD handoff, the full engine.py
+  working-tree diff vs eab7709 (read the actual file 295-702 + _close_position 705-751 +
+  _to_engine_units 791-820), core/config.py plumbing, vol_target.py (sizer unchanged),
+  costs/model.py rollover_cost_for_bar/holding_cost sign chain, and all 17 tests in
+  test_short_engine.py. None skipped. I did NOT re-run the suite (the orchestrator
+  independently confirmed equivalence 3 / no_lookahead 12 / short 17 / full 1592 PASS);
+  my review is code-level spec-faithfulness + short-correctness, which is my charter.
+
+decision_rationale: >
+  Every Section-3 case (C1-C4) is implemented on the (cur_sign,tgt_sign) key with NO
+  branching on sign(delta) or target_units<=0.0; increase-a-short and the flip both behave
+  correctly (traced, not trusted); short PnL/cost/swap/MtM signs are all correct; equivalence-
+  by-default reduces exactly to the prior code at every site; no-lookahead and no-double-count
+  are preserved. The two open items are TEST-COVERAGE gaps (C1 short-close PnL sign; JPY short
+  sign-preservation) plus one cosmetic log nit — none are blocking, none indicate a code defect,
+  and the underlying code paths were reasoned correct here. Hence approve-with-conditions rather
+  than a clean approve: the conditions are additive tests, not code fixes.
+
+routed-from: qd-short-engine
+routed-to: ceo   # approve-with-conditions; conditions are additive tests owned by quant-developer

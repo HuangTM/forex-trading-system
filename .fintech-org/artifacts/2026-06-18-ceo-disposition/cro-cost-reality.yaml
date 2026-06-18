@@ -1,0 +1,220 @@
+# =====================================================================
+# CRO Cost-Model REALITY Calibration — EURUSD 1h
+# Forward-looking cost-MODEL update for FUTURE pre-registered research.
+# NOT a re-grade / resurrection of any past or falsified strategy.
+# =====================================================================
+role: cro
+artifact_type: methodology-design
+decision: approve
+timestamp: 2026-06-18T04:35:30Z
+
+# --- Base / governance fields ---
+no_capital_instruction: true        # methodology calibration only; no live capital, no trade counter increment
+trial_counter_increment: false
+size_multiplier: 1.0                 # no sizing decision in scope; full multiplier (this is a cost-model calibration, not a trade)
+
+claimed_domains:
+  - tail-risk-measurement
+  - cost-model-calibration
+  - regime-and-session-risk
+  - market-access-controls
+
+contamination_check: "clean"        # received atomic spread data + cost-model source only; no proposer hypothesis/rationale narrative
+blowup_analog: "none"               # methodology calibration; no position. (CHF-unpeg-2015 cited below only as a tail-spread reminder, not an active position analog)
+
+# ---------------------------------------------------------------------
+# EVIDENCE (data source, field, timestamp) — never proposer narrative
+# ---------------------------------------------------------------------
+evidence:
+  data_source: data/processed/EURUSD_1h.parquet
+  bars: 31012
+  span: "2021-01-03T22:00:00Z .. 2025-12-31T21:00:00Z (UTC)"
+  fields_used: [spread_median_pips, spread_mean_pips, spread_p90_pips]
+  measured_spread_pips:
+    median_col_mean: 0.4391
+    median_col_median: 0.30
+    median_col_p90: 0.60
+    median_col_p95: 0.80
+    median_col_p99: 2.70
+    median_col_max: 17.90
+    p90_col_p99: 4.70
+    p90_col_max: 23.60
+  spike_frequency:
+    p_gt_1pip: "4.14%"
+    p_gt_2pip: "1.95%"
+    p_gt_5pip: "0.15%"
+  session_breakdown_utc:
+    asia_00_06: {mean: 0.386, median: 0.30, p90: 0.50}
+    london_ny_07_20: {mean: 0.338, median: 0.30, p90: 0.50}
+    rollover_h21: {mean: 1.542, median: 1.40, p90: 3.10, max: 6.80}
+    finding: "Rollover bar (21:00 UTC, closing into 22:00) is the DOMINANT spread regime (~4-5x normal). Asia is NOT materially wider than London/NY in this EURUSD sample."
+  cost_model_source: src/forex_system/costs/model.py
+  config_source: config/default.yaml  # EURUSD: spread 0.5, slippage 0.5, commission 0.5, swap_long -1.2/day, swap_short +0.3/day
+
+# ---------------------------------------------------------------------
+# DELIVERABLE 1 — REALISTIC ROUND-TRIP COST (measured)
+# ---------------------------------------------------------------------
+realistic_round_trip_cost:
+  # RT = full_quoted_spread (crossed once on entry, once on exit = one full spread per RT)
+  #      + 2 * slippage_per_side + 2 * commission_per_side
+  formula: "RT_pips = full_spread + 2*slippage_per_side + 2*commission_per_side"
+  assumptions:
+    slippage_pips_per_side: 0.2
+    slippage_justification: >
+      Conservative-but-realistic for liquid EURUSD on 1h bars with limit/marketable-limit
+      execution. 1h research is NOT latency-sensitive HFT; a 0.2-pip/side allowance covers
+      typical adverse selection on a top-tier ECN feed. The OLD 0.5/side was a pessimistic
+      placeholder, not measured. Tail slippage in spikes is handled by the regime surcharge
+      below, NOT by inflating the baseline.
+    commission_pips_per_side: 0.2
+    commission_justification: >
+      Retail/ECN commission ~ $3.5/standard-lot/side ≈ 0.35 pip round-turn ≈ 0.175 pip/side;
+      rounded UP to 0.2/side as a conservative margin. Total commission drag 0.4 pip RT.
+    spread_handling: >
+      Use EVENT-TIME per-bar spread from the data (spread_median_pips at the bar the trade
+      executes), NOT a single fixed constant. Where a model cannot read per-bar spread, fall
+      back to the p90 conservative constant (0.60) below.
+  measured_RT_pips:
+    typical_day_session_spread_0.30: 1.10
+    sample_mean_spread_0.44: 1.24
+    conservative_p90_spread_0.60: 1.40     # RECOMMENDED fixed-fallback baseline
+    rollover_h21_spread_1.40: 2.20         # regime surcharge applies
+  contrast_with_old:
+    old_assumption_RT_pips: 7.5
+    new_conservative_baseline_RT_pips: 1.40
+    new_baseline_is_x_cheaper: 5.4
+    note: >
+      The old 7.5-pip round-trip was ~5-7x the measured realistic cost. It was a pessimistic
+      placeholder that cost-dominated thin intraday edges (e.g. a +3.4-pip-gross mechanism nets
+      negative under 7.5 but is NOT auto-killed under realistic cost — see HONEST IMPLICATION).
+
+# ---------------------------------------------------------------------
+# DELIVERABLE 2 — CALIBRATED COST FOR FUTURE PRE-REGISTERED 1h RESEARCH
+# Realistic but retains a conservative (p90-aware) margin. Not median-optimistic.
+# ---------------------------------------------------------------------
+calibrated_cost_model_going_forward:
+  principle: >
+    Event-time per-bar spread from the data + conservative slippage/commission + an EXPLICIT
+    regime surcharge for the rollover bar. Conservative margin is retained by (a) using p90 not
+    median for any fixed fallback, and (b) charging the rollover regime at its measured median,
+    not the sample median.
+  recommended_config_eurusd_1h:
+    mode: per_bar_event_time_spread
+    spread_source: "data column spread_median_pips at execution bar (preferred)"
+    fixed_fallback_spread_pips: 0.60       # p90 of median-spread col; use only when per-bar unavailable
+    slippage_pips_per_side: 0.2
+    commission_pips_per_side: 0.2
+    implied_baseline_RT_pips: 1.40         # conservative fixed fallback
+  implementation_hook:
+    existing_model: src/forex_system/costs/hourly_spread.py  # HourlySpreadCostModel
+    mechanism: >
+      HourlySpreadCostModel ALREADY keys spread by UTC hour-of-day via the engine's `timestamp`
+      argument to entry_cost/exit_cost. The hourly_spread_curve dict {hour: spread_pips} is the
+      direct lever for both the per-bar baseline and the rollover surcharge: set curve[21]=1.40
+      (rollover) and the day-session hours to 0.60. No new model class is required for the
+      hour-of-day surcharge; the spike-clamp (per-row spread > 2.0) needs the per-row data column,
+      which is a small extension of _spread_pips to read spread_median_pips at the bar.
+  commission_convention_alignment:
+    flag: CONVENTION_MISMATCH
+    finding: >
+      THIS calibration uses a 2-SIDED commission (0.2/side = 0.4 RT) — a standard ECN model. The
+      existing codebase models (RealisticCostModel.exit_cost, HourlySpreadCostModel.exit_cost)
+      charge commission ONCE on exit only (1-sided). My RT of 1.40 is internally consistent with
+      the 2-sided choice; under the codebase's current 1-sided convention the same spread+slippage
+      yields 1.20 RT. This is a 0.2-pip convention difference, NOT an arithmetic error.
+    directive: >
+      An implementer MUST consciously choose ONE convention and wire it explicitly. Recommended:
+      keep the conservative 2-sided 0.4-pip RT commission (it preserves margin). If the codebase's
+      1-sided exit-only convention is kept instead, document the 0.2-pip optimism and treat 1.20 as
+      the floor. Do NOT let the model silently inherit the old 1-sided default while citing this
+      artifact's 1.40 — that would understate cost by 0.2 pip.
+  regime_surcharges:
+    rollover_bar:
+      trigger: "execution bar at 21:00 UTC (closes into 22:00 UTC rollover)"
+      spread_floor_pips: 1.40              # charge measured median of the rollover window, NOT 0.30
+      implied_RT_pips: 2.20
+      rationale: "spread is ~4-5x normal at rollover; never apply the day-session spread here"
+    spike_clamp:
+      rule: "when per-bar spread_median_pips > 2.0, charge the actual per-bar spread (do NOT cap it)"
+      rationale: "2% of bars exceed 2 pips; tail spikes to ~18-24 pips are REAL transaction cost, not noise to be winsorized away (CHF-unpeg-2015 lesson on tail spreads)"
+    news_window:
+      status: KNOWLEDGE_GAP
+      note: >
+        This dataset has no event/news tag. High-impact releases (NFP, ECB/FOMC) widen spread
+        intra-bar in ways the 1h median understates. Until a news calendar is joined, any 1h
+        mechanism that concentrates entries in the first bar of a scheduled release must use the
+        per-bar spike-clamp AND be flagged for elevated tail risk in its pre-registration.
+  config_update_target:
+    file: config/default.yaml
+    note: >
+      The current per-pair EURUSD block (spread 0.5 / slip 0.5 / comm 0.5) is a single fixed
+      constant and is BOTH pessimistic on spread AND blind to the rollover regime. A 1h research
+      cost profile should be added separately (per_bar_event_time mode) rather than mutating the
+      daily-bar defaults. Do NOT lower the daily-bar config to 'unlock' anything.
+
+# ---------------------------------------------------------------------
+# DELIVERABLE 3 — HONEST IMPLICATION
+# ---------------------------------------------------------------------
+honest_implication:
+  - "A lower realistic cost (~1.4 RT vs 7.5) means some intraday edges that LOOKED cost-dominated under 7.5 pips may be viable. This is a methodological correction, not a discovery of alpha."
+  - "Full RT cost is spread + slippage + commission (~1.4 pips), NOT the bare ~0.4-pip spread. Any analysis that nets only the spread understates cost by ~0.8 pip and is wrong."
+  - "This calibration VALIDATES NOTHING. It only means future pre-registered tests should use realistic-not-pessimistic cost so that the cost model neither manufactures nor destroys edge."
+  - "A thinner cost makes the FALSE-POSITIVE bar more dangerous, not less: edges that survive only because cost dropped from 7.5 to 1.4 are exactly the ones most likely to be transient. Pre-registration discipline must tighten, not relax, as cost drops."
+  - "CONCRETE worked case: trial-48 had a REAL +3.41-pip gross overnight-MR edge (55% hit-rate, KILL-3 did not fire) killed ONLY by the 7.5-pip cost. Under 1.4-pip cost the same mechanism would show a positive NET in-sample number. This is precisely why IC-10's trial_48_specific_closure exists: the cheaper-cost world makes a falsified-by-cost edge look alive, and that illusion must NOT become a re-float."
+
+# ---------------------------------------------------------------------
+# DELIVERABLE 4 — HARD BOUNDARY (NHT IC-10) — NAMED, ENFORCED
+# ---------------------------------------------------------------------
+no_rescue_boundary:
+  name: "IC-10-NO-RESCUE-VIA-COST-RECALIBRATION"
+  binding: true
+  rule: >
+    This cost calibration MUST NOT be used to re-grade, re-score, or resurrect trial-48 or ANY
+    past or falsified strategy by lowering its assumed costs. A strategy that was killed under the
+    7.5-pip assumption stays killed. Lowering the cost on a frozen result is p-hacking by another
+    name (changing the test after seeing the outcome).
+  required_path_for_anything_now_promising: >
+    Any mechanism that looks attractive under the realistic 1.4-pip cost requires a FRESH,
+    pre-registered, pooled out-of-sample test under this calibrated cost model — authored and
+    frozen BEFORE the result is seen — not a re-evaluation of an old falsified run.
+  trial_48_specific_closure:
+    # The critic correctly flagged that a generic "fresh test is allowed" rule does NOT
+    # close the trial-48 backdoor, because trial-48's edge was REAL gross and killed ONLY by cost.
+    evidence: references/pre-registrations/overnight_mr.md
+    why_this_is_the_dangerous_case: >
+      trial-48 (overnight_mr / A2') was KILLED by KILL-1 (CPCV net Sharpe -4.93, DSR 0.00 at N=48)
+      and KILL-2 (avg net trade -4.09 pips). BUT KILL-3 did NOT fire: gross fade capture was
+      +3.41 pips at 55.17% hit-rate — the directional mean-reversion edge is REAL; only the frozen
+      7.5-pip cost drove net negative. This is EXACTLY the mechanism a researcher could now re-float
+      under 1.4-pip cost and call a "fresh test." The generic rule above renames the backdoor; it
+      does not close it.
+    binding_additional_constraints:
+      - "The org-wide Deflated-Sharpe denominator already counted trial-48 (honest-N=48). The same EURUSD-1h overnight-MR mechanism MAY NOT be re-floated as if N were lower; any new test inherits N≥48 deflation. Cheaper cost does NOT reset the multiple-testing penalty."
+      - "A re-float of the SAME single-pair EURUSD overnight-MR mechanism is presumptively a re-grade and is BLOCKED. To qualify as genuinely fresh it must materially differ in MECHANISM or UNIVERSE (e.g. POOLED across pairs, different session, different trigger) — not merely the same spec with the cost constant swapped. The Head of Quant Research must certify the difference is mechanistic, not cost-cosmetic, BEFORE freeze."
+      - "Any fresh pre-registration whose ONLY change from a falsified run is the cost number is, by definition, a re-grade and is forbidden under IC-10."
+      - "trial-48's one-shot OOS holdout (2024-07..2025-12) was NEVER burned and remains burned-once-only; it MUST NOT be read to motivate or pre-screen any re-float."
+  enforcement:
+    - "Trial-48 and all prior falsified/wound-down strategies remain falsified; their grades are immutable."
+    - "No artifact may cite this calibration as grounds to change a past strategy's net P&L or verdict."
+    - "Pre-registration of any new 1h mechanism must reference THIS cost profile by name and freeze it pre-result."
+    - "HoQR mechanistic-difference certification is a REQUIRED pre-freeze gate for any 1h mean-reversion / overnight test that resembles trial-48."
+
+# ---------------------------------------------------------------------
+# Risk fields
+# ---------------------------------------------------------------------
+binding_constraints:
+  - "firm-rule-1: no live capital (this is methodology only)"
+  - "IC-10-NO-RESCUE-VIA-COST-RECALIBRATION (above)"
+  - "execution-researcher-firewall: cost profile is a declarative spec; implementation must not silently winsorize the spike-clamp"
+
+regime_flags:
+  - "rollover-bar-spread-spike: h=21 UTC median 1.40 (~4-5x normal) — mandatory surcharge"
+  - "fat-tail-spread: 2% of bars >2 pips, isolated spikes ~18-24 pips — spike-clamp, no cap"
+  - "asia-NOT-wider: Asia 00-06 UTC spread ≈ London/NY in EURUSD (counter to common assumption) — do NOT add an Asia surcharge for EURUSD on this evidence"
+  - "news-window: KNOWLEDGE_GAP — no event calendar joined to 1h data"
+
+knowledge_gaps:
+  - "No intra-bar / sub-1h spread: the 1h median understates cost for entries timed inside a scheduled news release."
+  - "No event/news calendar joined to this dataset — news-window surcharge cannot be quantified yet."
+  - "Slippage 0.2/side is a defensible assumption, NOT measured (no order-book / fill data in this env). Revisit when real fills accrue (ties to BC-COST-RECON cumulative ledger calibration)."
+  - "Calibration is EURUSD-only. Other pairs (USDJPY, GBPUSD, crosses) need their own per-bar spread before this profile is generalized."

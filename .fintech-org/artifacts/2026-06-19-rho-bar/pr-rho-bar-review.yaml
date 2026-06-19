@@ -1,0 +1,235 @@
+# =============================================================================
+# Principal Reviewer (Independent) — review of the ρ̄ pooling-haircut amendment
+# Reviews HoQR's encoding of the Mathematician + NHT rulings into rubric G5 and
+# H1's frozen prereg. Independent; produced AFTER the build wave; approval
+# stances of other roles were NOT provided to this reviewer.
+# =============================================================================
+role: principal-reviewer
+artifact_type: review
+decision: approve-with-conditions
+timestamp_utc: "2026-06-19T21:18:05Z"
+no_capital_instruction: true
+trial_counter_incremented: false
+web_tools_used: false
+
+claimed_domains:
+  - independent-design-review
+  - independent-algorithm-review
+  - spec-vs-implementation-drift-detection         # ruling-to-edit faithfulness
+  - pre-registration-freeze-governance-review
+  - numerical-and-statistical-correctness-review
+
+artifact-under-review:
+  id: hoqr-rho-bar-amendment
+  path: ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+  files_touched:
+    - "references/intraday_confirmability_screening_rubric.md (§G5 + G5 row)"
+    - "references/pre-registrations/h1_session_open_momentum_pooled.md (KILL-4, PASS-cond-3, FAIL-reason-4, new DISCLOSURE NOTE)"
+    - "references/pre-registrations/h1_session_open_momentum_pooled.triggers.yaml (h1-KILL-4 raw_text, h1-PASS-rho comment, rho_bar_amendment_disclosure block)"
+  authoritative_rulings:
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/mathematician-rho-bar-analysis.yaml"
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/nht-rho-bar-ruling.yaml"
+
+rubrics-applied:
+  - "Spec-to-implementation trace (ruling → edit faithfulness) — APPLIED"
+  - "probability-statistics / numerical correctness (formula transcription) — APPLIED"
+  - "pre-registration freeze-governance (the central question) — APPLIED"
+  - "internal-consistency / cross-file reconciliation — APPLIED"
+  - "execution-firewall-review — skipped: no executable strategy/implementation code in scope (doc/spec amendment only); the QD eigen-computation is explicitly deferred and not part of this artifact"
+  - "log-as-decision-trace — skipped: no decision-boundary logging changed (doc amendment)"
+  - "edge-case / failure-mode / invariant on running code — skipped: no running code; the statistical edge cases (sign-flip invariance, floor/ceiling, ill-conditioning) ARE reviewed under numerical correctness"
+
+contamination-check: "clean — prompt supplied the two authoritative rulings (Mathematician, NHT) and the HoQR amendment as the artifact under review, plus the raw edits. The NHT ruling carries decision: approve-with-dissent and the HoQR carries decision: approve — these are the artifacts UNDER review (their rulings are the spec I check the edit against), NOT other roles' stances ON my review. No role's opinion of THIS amendment's correctness, and no CEO preference, was injected. Per role spec, the spec/ruling being reviewed is legitimate input; a prior approval of the SAME edit-under-review would be contamination — none present. Proceeding."
+
+# =====================================================================
+# FINDING 1 — MATH FAITHFULNESS  (verdict: FAITHFUL, no transcription error)
+# =====================================================================
+math_faithfulness:
+  verdict: FAITHFUL
+  checks:
+    rho_bar_eff_formula:
+      claim: "ρ̄_eff = (λ_max(C) − 1)/(k − 1)"
+      math_source: "mathematician q3 equicorrelation_form_REPORTING.rho_bar_eff (verbatim)"
+      rubric_encoding: "rubric §G5 'The statistic' block — `ρ̄_eff = (λ_max(C) − 1) / (k − 1)` — EXACT MATCH"
+      prereg_encoding: "h1.md PASS-cond-3 'ρ̄_eff = (λ_max(C)−1)/(k−1)' and DISCLOSURE NOTE pt.2 — EXACT MATCH"
+      result: PASS
+    n_eff_min_over_routes:
+      claim: "N_eff* = MIN( N_raw/λ_max , N_raw·k/Σλ_i² [PR] , N_raw·k/ENB )"
+      math_source: "mathematician q3 conservative_direction_rule + alternative-methods (MIN over admissible routes; neither dominates)"
+      rubric_encoding: "rubric §G5 'The statistic' MIN block reproduces all three routes with the PR and ENB definitions; floor/ceiling N_raw/k ≤ N_eff* ≤ N_raw present — EXACT MATCH incl. the non-domination rationale in 'Conservative rule'"
+      result: PASS
+    kish_identity_consistency:
+      claim: "N_raw/(1+(k−1)·ρ̄_eff) = N_raw/λ_max"
+      check: "Substituting ρ̄_eff=(λ_max−1)/(k−1): 1+(k−1)·(λ_max−1)/(k−1) = 1+(λ_max−1) = λ_max. Identity holds. Rubric and prereg both state this equivalence correctly."
+      result: PASS
+    series_definition:
+      claim: "C = Pearson corr of per-pair PnL-CONTRIBUTION x_{p,t}=signal·ret, demeaned + event-aligned, non-fires=0; NOT raw returns, NOT quote-signed signal"
+      math_source: "mathematician q2 verdict (iii) + caveat_demeaning"
+      encoding: "rubric §G5 'The series' block + h1.md DISCLOSURE pt.2 + triggers comments — all state PnL-contribution (signal×return), demeaned, event-aligned, non-fires=0, and explicitly exclude raw returns and quote-signed signal — EXACT MATCH"
+      result: PASS
+    signed_mean_forbidden_with_correct_reasoning:
+      claim: "signed simple mean forbidden; reason = SD2-class under-deflation + fails redundant-pair monotonicity (k=2 corr=−1 → N_eff→∞)"
+      sources: "mathematician why_signed_mean_is_wrong + NHT A1/A2 (redundant-pair monotonicity, N_eff=N_raw/0→∞)"
+      encoding: "rubric §G5 'FORBIDDEN' block reproduces BOTH the SD2 framing AND the redundant-pair-monotonicity counterexample (corr=−1 → DEFF→0 → N_eff→+∞) — EXACT MATCH to NHT A2"
+      result: PASS
+    sign_blind_invariance:
+      claim: "λ_max sign-blind: C'=SCS similar to C ⇒ spectrum invariant"
+      encoding: "rubric §G5 states `C' = SCS` similar to C, spectrum invariant — matches mathematician invariance_proof_sketch"
+      result: PASS
+    fallback_magnitude_mean:
+      claim: "magnitude mean = no-eigendecomp fallback only; dominates signed mean by triangle inequality; NO proven ordering vs ρ̄_eff"
+      encoding: "rubric §G5 'Fallback' block states exactly this incl. the 'heuristic floor, not a substitute when eigendecomp available' caveat — matches mathematician q3 fallback + conservative_direction_rule"
+      result: PASS
+  transcription_errors_found: "NONE. All formulas, the MIN-over-routes gate, the Kish identity, the series definition, and the forbidden-statistic reasoning transcribe the Mathematician + NHT rulings without error."
+
+# =====================================================================
+# FINDING 2 — GOVERNANCE: inherit-by-reference vs overreach  (THE CENTRAL CALL)
+# =====================================================================
+governance_central_ruling:
+  verdict: "PARTIAL OVERREACH on the H1 frozen prereg body — but BOUNDED, DISCLOSED, STRICTER, and threshold-preserving. Conditionally curable. Decision: approve-with-conditions, NOT reject."
+  what_nht_authorized:
+    quote_1: "ruling_B.enforceable_disposition.step_2: 'Add a one-line dated clarification NOTE to H1's prereg + triggers'"
+    quote_2: "ruling_B.when_each_option_is_correct.amend_in_place_clarification: 'Permitted, but execute it as inherit-from-rubric + a dated disclosure NOTE, NOT a silent edit of the symbol's meaning.'"
+    quote_3: "ruling_B.when_each_option_is_correct.chosen: 'rubric_only (primary) + amend_in_place as a thin dated disclosure note ... The in-place NOTE is only a disclosure pointer, not an independent edit.'"
+    reading: "NHT's home for the H1-side fix is (a) inherit the amended G5 by reference and (b) ONE thin dated disclosure NOTE. The NOTE is explicitly characterised as a POINTER, 'not an independent edit', and the operative prohibition is 'NOT a silent edit of the symbol's meaning.'"
+  what_hoqr_actually_did:
+    rubric_G5: "Primary durable fix authored in rubric §G5 — squarely within NHT step_1; correct home; no governance issue. APPROVED."
+    h1_disclosure_note: "A thin dated DISCLOSURE NOTE added to h1.md (5 points) and a rho_bar_amendment_disclosure block + h1-PASS-rho comment in triggers.yaml — squarely within NHT step_2. APPROVED."
+    h1_body_raw_text_edits:  # <-- the overreach question
+      - "h1.md KILL-4: body prose edited inline — 'signal correlation' → 'PnL-contribution (signal×return) correlation', and 'ρ̄' → 'ρ̄ ≡ ρ̄_eff', with bracketed dated annotation."
+      - "h1.md PASS-cond-3: 'ρ̄ ≤ 0.41' → 'ρ̄_eff ≤ 0.41', 'signal correlation' → 'PnL-contribution (signal×return) correlation', inline dated annotation."
+      - "h1.md FAIL-reason-4 + blind-structural-pass line: 'ρ̄'/'signal-correlation' → 'ρ̄_eff'/'PnL-contribution', inline dated annotation."
+      - "triggers.yaml h1-KILL-4 raw_text: CHANGED from 'after measured rho_bar haircut N_eff=N_raw/(1+(k-1)*rho_bar), years_to_validate > 2.0yr -> KILL' to 'after the measured rho_bar_eff haircut, years_to_validate > 2.0yr -> KILL'. (git HEAD diff confirms.) This is an edit to the FROZEN trigger raw_text, not merely an appended comment."
+  the_tension:
+    mathematician_wanted: "q2 rubric_text_fix + handoff_to_hoqr: explicitly asked to CHANGE THE WORDS at h1 L176/L200/L208/L246 ('signal correlation' → 'PnL-contribution …')."
+    nht_wanted: "inherit-by-reference + a thin disclosure NOTE, 'NOT a silent edit of the symbol's meaning'; the NOTE is 'a disclosure pointer, not an independent edit.'"
+    conflict: "The two rulings are in direct tension on the H1 BODY. Math says edit the body words; NHT says do NOT edit the symbol's meaning in place, inherit + NOTE only. HoQR resolved by doing BOTH: editing the body words AND dating/tagging each edit as a visible disclosure annotation."
+  ruling:
+    on_silent_vs_disclosed: "HoQR's edits are NOT SILENT — every body change carries a dated '[amended 2026-06-19 — see DISCLOSURE NOTE]' tag, and the triggers raw_text change carries an 'AMENDED 2026-06-19' comment. NHT's literal prohibition was on a SILENT edit. On the silent-ness axis, HoQR complies."
+    on_independent_edit_vs_pointer: "However, NHT was more specific than 'not silent': it said the in-place change must be 'a disclosure pointer, NOT an independent edit', and 'NOT a silent edit OF THE SYMBOL'S MEANING.' Editing the FROZEN h1-KILL-4 raw_text in place (rho_bar → rho_bar_eff) IS an independent edit of a frozen gate's literal text — it goes beyond a pointer. THIS specific edit (the triggers.yaml raw_text mutation, and the equivalent inline rewrites of the .md KILL-4/PASS-3/FAIL-4 prose) EXCEEDS the 'inherit-by-reference + thin NOTE' form NHT chose. It is the one place where HoQR substituted Mathematician's 'change the words' instruction for NHT's narrower 'pointer only' instruction, on the FROZEN object, where NHT — the governance authority for freeze integrity — was the controlling ruling."
+    severity_calibration: "This is OVERREACH but at the MILD end, because every NHT SAFETY interest is independently preserved: (i) direction-of-harm is stricter (Finding 4); (ii) the 0.41 threshold and every metric/operator are byte-for-byte unchanged (Finding 3); (iii) the edits are dated and disclosed, not covert; (iv) counter not burned, status FROZEN-AWAITING-DATA. The overreach is FORMAL (which authority's edit-form governs the frozen body), not substantive (no gate was loosened). Hence approve-WITH-CONDITIONS, not reject."
+  the_governance_inconsistency_that_proves_the_point:
+    observation: "Within triggers.yaml the two ρ̄ gates were treated DIFFERENTLY: h1-KILL-4 raw_text was EDITED in place (rho_bar→rho_bar_eff); h1-PASS-rho raw_text (line 106) was LEFT verbatim ('measured mean cross-pair signal correlation rho_bar <= 0.41') with only an appended DISCLOSURE comment."
+    inference: "The h1-PASS-rho treatment (original raw_text preserved + appended dated disclosure comment) is EXACTLY the NHT-conformant 'inherit + pointer, not an independent edit' form. The h1-KILL-4 treatment (raw_text mutated) is the overreaching form. The two gates should be governed identically. The PASS-rho form is the safe template; KILL-4 should match it."
+
+# =====================================================================
+# FINDING 3 — THRESHOLD / STRUCTURE / COUNTER INTEGRITY  (verdict: INTACT)
+# =====================================================================
+threshold_structure_integrity:
+  verdict: INTACT
+  evidence_from_grep_and_diff:
+    rho_threshold_0p41: "h1-PASS-rho threshold: 0.41 (triggers L105) UNCHANGED; rubric §G5 'Threshold (UNCHANGED)' block keeps ρ̄_eff ≤ 0.41 and explicitly defers re-derivation to a SEPARATE pre-result freeze — matches NHT guardrail #3. PASS."
+    all_kill_thresholds: "git diff shows ZERO change to any `threshold:` or `metric:` or `operator:` line (grep '^[-+].*metric:' returned empty; threshold lines unchanged). Verified present & unchanged: DSR 0.95 (KILL-1), hit-rate 0.50 (KILL-3), years_to_validate 2.0 (KILL-4), OOS Sharpe 0.30 (KILL-5), pair-conc 0.50 (KILL-7a), quarter-conc 0.40 (KILL-7b), IR 0.10 (PASS-IR), events/yr 350 (PASS-events), kill_switch_threshold 0.30. PASS."
+    counter: "counter_burned: false (triggers L15 unchanged; rho_bar_amendment_disclosure.counter_burned: false; honest_N_unchanged: 48). PASS."
+    status: "status: FROZEN-AWAITING-DATA (triggers L14) UNCHANGED; re_frozen: false. PASS."
+    structural_dof: "no entry/exit/universe/window/freq-cap/kill-semantics change in any diff hunk. PASS."
+  note: "The ONLY non-comment edit to a frozen trigger is the h1-KILL-4 raw_text string (Finding 2). It changes the DESCRIPTION, not the machine-checked metric/operator/threshold. No gate value moved."
+
+# =====================================================================
+# FINDING 4 — DIRECTION OF HARM  (verdict: STRICTER-ONLY confirmed)
+# =====================================================================
+direction_of_harm:
+  verdict: "CONFIRMED stricter-only. The amendment can only make H1 HARDER to pass."
+  reasoning:
+    - "The signed mean (forbidden) yields ρ̄_signed = −0.04 on the 3-pair peek → N_eff > N_raw → H1 PASSES G5. The adopted spectral/magnitude statistic yields ρ̄ ≈ 0.48–0.54 > 0.41 → H1 FAILS/STRETCH. The change moves H1 from PASS toward FAIL."
+    - "Mathematician ordering_fact: λ_max ≥ 1+(k−1)·ρ̄_signed always (Rayleigh quotient, all-ones vector) ⇒ ρ̄_eff ≥ ρ̄_signed ALWAYS ⇒ N_eff(spectral) ≤ N_eff(signed) ALWAYS. The new statistic is provably never more generous than the (now-forbidden) signed mean."
+    - "Floor/ceiling N_raw/k ≤ N_eff* ≤ N_raw and MIN-over-routes both bias toward LOWER N_eff (larger deflation, harder to clear ≤2yr / DSR). No route in the encoding can yield N_eff > N_raw."
+  conclusion: "The sole basis on which NHT approved (direction-of-harm toward FAIL) is preserved by the encoding. No path in the amended G5/H1 makes the gate EASIER."
+
+# =====================================================================
+# FINDING 5 — INTERNAL CONSISTENCY  (one real gap)
+# =====================================================================
+internal_consistency:
+  cross_file: "rubric §G5, h1.md, and triggers.yaml agree on the statistic, series, forbidden-signed-mean, MIN-over-routes, and 0.41-unchanged. No contradiction in the substantive definition."
+  gap_found:
+    id: "IC-1"
+    severity: minor
+    location: "triggers.yaml h1-PASS-rho raw_text (L106) vs h1-KILL-4 raw_text (L60)"
+    observation: "h1-PASS-rho raw_text still reads 'measured mean cross-pair signal correlation rho_bar <= 0.41' (old wording, clarified only by appended comment), while h1-KILL-4 raw_text was rewritten to 'rho_bar_eff'. The two frozen ρ̄ gates are now described inconsistently within the SAME file — one says 'signal correlation rho_bar', the other 'rho_bar_eff'."
+    inference: "Not a substantive defect (both resolve to the same amended §G5 meaning via the disclosure block), but it is an internal inconsistency AND it reveals the governance asymmetry in Finding 2: the safe NHT-conformant form was applied to PASS-rho but not to KILL-4. The live PASS-rho gate text outside the disclosure tag still uses the old 'signal correlation' wording — which is acceptable ONLY under the inherit-by-reference model; if that model is the governing one (it is, per NHT), then KILL-4 should match PASS-rho, not vice-versa."
+  no_other_live_old_wording: "Confirmed via grep: remaining 'signal correlation' occurrences are either (a) inside the rubric's own explanatory/forbidden-statistic prose (correct), (b) inside dated disclosure tags/notes in h1.md (correct), or (c) the h1-PASS-rho raw_text (the IC-1 gap). No undisclosed live gate text uses signed/old wording elsewhere."
+
+# =====================================================================
+# FINDING 6 — 3-PAIR PEEK DISCLOSURE  (verdict: COMPLIANT)
+# =====================================================================
+three_pair_peek_disclosure:
+  verdict: COMPLIANT
+  checks:
+    disclosed: "h1.md DISCLOSURE NOTE pt.1 discloses the 3-of-8 raw-return peek with the exact numbers (EUR-GBP +0.749, EUR-JPY −0.459, GBP-JPY −0.414; signed −0.04 / magnitude 0.54) and labels it a STRUCTURAL look, NOT a PnL/Sharpe/DSR/verdict look. triggers.yaml rho_bar_amendment_disclosure.three_pair_peek mirrors it. PASS (NHT binding_remediation bullet 1)."
+    marked_not_the_gate_input: "h1.md DISCLOSURE pt.3 and the closing line, plus triggers gate_input field, explicitly state the 3-pair number is NOT the gate input and 'anyone citing them as the decision is overruled' — matches NHT binding_remediation bullets 2-3. PASS."
+    full_8_remeasure_required: "Both files state the gate input is ρ̄_eff on FULL-8 landed data via the PnL-contribution statistic, deferred to quant-developer. PASS."
+    direction_of_harm_firewall_stated: "DISCLOSURE pt.1 names the direction-of-harm firewall (firm adopted the H1-killing definition, opposite the peek's self-interest). PASS — matches NHT the_3pair_peek_contamination_question."
+
+# =====================================================================
+# FINDINGS LIST (structured)
+# =====================================================================
+findings:
+  - id: F-001
+    severity: major
+    category: spec-drift            # ruling-form drift on a FROZEN object
+    location: "references/pre-registrations/h1_session_open_momentum_pooled.triggers.yaml h1-KILL-4 raw_text (L60); references/pre-registrations/h1_session_open_momentum_pooled.md KILL-4/PASS-cond-3/FAIL-reason-4 inline body edits"
+    observation: "The FROZEN h1-KILL-4 trigger raw_text was edited in place from 'rho_bar' to 'rho_bar_eff' (git HEAD diff confirms), and the .md KILL-4/PASS-3/FAIL-4 body prose was rewritten inline (dated/tagged). NHT ruling_B authorized for H1 ONLY 'inherit-by-reference + a thin dated disclosure NOTE … a disclosure pointer, not an independent edit … NOT a silent edit of the symbol's meaning.'"
+    inference: "Editing the frozen gate's literal raw_text exceeds NHT's chosen 'pointer-only' form, even though it is dated, disclosed, stricter, and threshold-preserving. It substitutes the Mathematician's 'change the words' instruction for NHT's narrower governance instruction on the frozen body, where NHT is the controlling authority for freeze integrity. The h1-PASS-rho gate in the SAME file was handled the NHT-conformant way (original raw_text preserved + appended disclosure comment), proving the safe form was available and was applied inconsistently."
+    evidence: "NHT nht-rho-bar-ruling.yaml ruling_B.when_each_option_is_correct.{amend_in_place_clarification,chosen}; git HEAD:triggers.yaml h1-KILL-4 raw_text vs working tree; h1-PASS-rho raw_text unchanged (L106)."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: head-of-quant-research
+    cure: "Revert the h1-KILL-4 raw_text (and the .md KILL-4/PASS-3/FAIL-4 body prose) to their ORIGINAL frozen wording, and rely on the inherit-by-reference + the existing DISCLOSURE NOTE / appended dated comment for the clarification — i.e. apply the SAME treatment already used for h1-PASS-rho. The §G5 rubric edit and the H1 DISCLOSURE NOTE stay as-is. This is the 'safe form' the prompt names and it fully satisfies the Mathematician's intent (the disambiguation is present, dated, and machine-discoverable via the disclosure block) without an independent edit to frozen gate text. NOTE: I do not author the revert; this describes the contract the cured state must satisfy."
+  - id: F-002
+    severity: minor
+    category: invariant-violation   # cross-gate consistency within the frozen file
+    location: "triggers.yaml h1-PASS-rho raw_text (L106) vs h1-KILL-4 raw_text (L60)"
+    observation: "The two ρ̄ gates in the same frozen file are now described with inconsistent wording ('signal correlation rho_bar' vs 'rho_bar_eff')."
+    inference: "Harmless to the machine checks (metric/operator/threshold identical) but a documentation inconsistency that disappears once F-001 is cured by reverting KILL-4 to match the PASS-rho treatment."
+    evidence: "grep of both raw_text lines."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: head-of-quant-research
+  - id: F-003
+    severity: observation
+    category: other
+    location: "rubric §G5 (all blocks)"
+    observation: "The rubric §G5 amendment transcribes the Mathematician + NHT rulings with no formula error, correct sign-blind reasoning, correct MIN-over-routes, correct forbidden-statistic justification, and a correct separate-freeze caveat on 0.41."
+    inference: "The PRIMARY durable fix (rubric, firm-wide control surface) is sound and within NHT step_1. No condition attaches to the rubric edit."
+    evidence: "Finding 1 + Finding 3 checks."
+    recommended-action-class: other
+    owning-role: head-of-quant-research
+
+# =====================================================================
+# CONDITIONS FOR APPROVAL (must hold before commit)
+# =====================================================================
+conditions_before_commit:
+  - id: C-1
+    blocking_for_commit: true
+    text: "Cure F-001: revert the FROZEN h1-KILL-4 raw_text (triggers.yaml) and the inline KILL-4/PASS-cond-3/FAIL-reason-4 BODY edits (h1.md) to their original frozen wording, relying on inherit-by-reference + the DISCLOSURE NOTE / dated appended comment — the same NHT-conformant treatment already correctly applied to h1-PASS-rho. This brings the H1-side edits within NHT ruling_B's 'pointer, not an independent edit' bound. (Equivalently, IC-1/F-002 is resolved by the same revert.)"
+  - id: C-2
+    blocking_for_commit: false
+    text: "RETAIN unchanged: the entire rubric §G5 amendment, the H1 DISCLOSURE NOTE, the triggers rho_bar_amendment_disclosure block, and the h1-PASS-rho appended disclosure comment. These are within ruling. Do NOT revert them."
+  - id: C-3
+    blocking_for_commit: false
+    text: "Carry forward at QD measurement time (already specified, restated for the gate file): N_eff* MUST be computed as the MIN over the routes actually produced, and ρ̄_eff reported; re-derivation of 0.41 remains a SEPARATE pre-result freeze (NHT guardrail #3). No action now; this is a forward obligation, not an amendment defect."
+
+coverage-statement: "I reviewed 1 of 1 artifacts in scope (the HoQR amendment and its three edited files), traced against both authoritative rulings (Mathematician, NHT). Nothing skipped. The QD eigen-computation is out of scope (not yet produced; explicitly deferred) and was not reviewed except to confirm it is correctly deferred."
+
+time-spent-reasoning: "~18 minutes (read 2 rulings + amendment + spec; git diff all 3 files; git HEAD baseline for raw_text deltas; grep thresholds + old-wording sweep; formula identity check)."
+
+summary: |
+  APPROVE-WITH-CONDITIONS. Math faithfulness: FAITHFUL — ρ̄_eff=(λ_max−1)/(k−1), the
+  MIN-over-routes N_eff*, the PnL-contribution series, and the forbidden-signed-mean
+  reasoning all transcribe the Mathematician + NHT rulings with NO formula error; the
+  Kish identity N_raw/(1+(k−1)ρ̄_eff)=N_raw/λ_max checks out. Governance (central call):
+  PARTIAL OVERREACH, bounded and curable — the rubric §G5 fix and the H1 DISCLOSURE NOTE
+  are squarely within NHT ruling, but editing the FROZEN h1-KILL-4 raw_text in place
+  (rho_bar→rho_bar_eff, git-confirmed) plus the inline .md KILL-4/PASS-3/FAIL-4 body
+  rewrites EXCEED NHT's 'inherit-by-reference + thin disclosure NOTE, a pointer NOT an
+  independent edit, NOT a silent edit of the symbol's meaning' instruction on the frozen
+  object. The overreach is FORMAL not substantive (dated, disclosed, stricter, threshold
+  intact). The same file already shows the safe form: h1-PASS-rho preserved its original
+  raw_text + appended a disclosure comment — KILL-4 should match it. Threshold/structure/
+  counter: INTACT (0.41 unchanged; all KILL thresholds 0.95/0.50/2.0/0.30/0.50/0.40/0.10/350
+  unchanged; no metric/operator change; counter_burned false; status FROZEN-AWAITING-DATA;
+  re_frozen false). Direction-of-harm: CONFIRMED stricter-only (ρ̄_eff ≥ ρ̄_signed always ⇒
+  N_eff never larger than the forbidden signed mean; moves H1 PASS→FAIL). Peek disclosure:
+  COMPLIANT (disclosed, marked NOT-the-gate-input, full-8 re-measure required). MUST-FIX
+  before commit (C-1): revert the frozen h1-KILL-4 raw_text and the inline h1.md
+  KILL-4/PASS-3/FAIL-4 body edits to original wording, relying on inherit-by-reference +
+  the DISCLOSURE NOTE (the NHT-conformant form already used for h1-PASS-rho); keep the
+  rubric §G5 amendment and the disclosure note/blocks untouched.

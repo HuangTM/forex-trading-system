@@ -58,6 +58,13 @@ triggers:
     operator: ">"
     threshold: 2.0
     raw_text: "after measured rho_bar haircut N_eff=N_raw/(1+(k-1)*rho_bar), years_to_validate > 2.0yr -> KILL"
+    # DISCLOSURE 2026-06-19 (frozen raw_text UNCHANGED; 'rho_bar' INHERITS amended rubric G5; see rho_bar_amendment_disclosure below; metric/operator/threshold UNCHANGED):
+    # rho_bar -> rho_bar_eff = (lambda_max(C)-1)/(k-1), eigenvalue-based + SIGN-BLIND, measured on
+    # the per-pair PnL-CONTRIBUTION (signal*return) correlation matrix C (demeaned, event-aligned;
+    # NOT raw returns, NOT quote-signed signal). The haircut gates on
+    # N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda_i^2) [PR], N_raw*k/ENB);
+    # N_eff = N_raw/(1+(k-1)*rho_bar_eff) = N_raw/lambda_max is the lambda_max/Kish reporting form.
+    # SIGNED simple mean FORBIDDEN. Magnitude mean = no-eigendecomp fallback only.
   - label: "h1-KILL-5-forward-decay"
     metric: "oos_sharpe"
     operator: "<"
@@ -97,6 +104,34 @@ pass_conditions_measured_pre_slot:
     operator: "<="
     threshold: 0.41
     raw_text: "measured mean cross-pair signal correlation rho_bar <= 0.41 (k=8 break-even)"
+    # DISCLOSURE (2026-06-19, NOT a re-freeze; threshold UNCHANGED at 0.41):
+    # 'rho_bar' inherits amended rubric G5 -> rho_bar_eff = (lambda_max(C)-1)/(k-1), gated as
+    # N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda_i^2) [PR], N_raw*k/ENB), eigenvalue-based
+    # and SIGN-BLIND. C = Pearson corr of per-pair PnL-CONTRIBUTION (signal*return) series,
+    # demeaned + event-aligned (NOT raw returns, NOT the quote-signed signal). SIGNED mean
+    # FORBIDDEN; magnitude mean = no-eigendecomp fallback only. Gate input = full-8 landed data;
+    # the 3-pair peek (signed -0.04 / magnitude 0.54, raw-return) is NOT the gate input.
+    # Provenance: .fintech-org/artifacts/2026-06-19-rho-bar/ (math + nht + hoqr amendment).
+
+# --- 2026-06-19 rho_bar amendment disclosure (thin pointer; H1 NOT re-frozen, counter NOT burned) ---
+rho_bar_amendment_disclosure:
+  date: "2026-06-19"
+  re_frozen: false
+  counter_burned: false
+  honest_N_unchanged: 48
+  threshold_0p41_unchanged: true
+  statistic: "eigenvalue-based sign-blind rho_bar_eff = (lambda_max(C)-1)/(k-1); gate N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda^2) [PR], N_raw*k/ENB)"
+  signed_mean: "FORBIDDEN (SD2-class under-deflation; fails redundant-pair monotonicity)"
+  series: "PnL-CONTRIBUTION (signal x return), demeaned + event-aligned; NOT raw returns, NOT quote-signed signal"
+  fallback: "magnitude mean mean|C_pq| only when no eigendecomposition available"
+  three_pair_peek: "raw-return corr on 3 of 8 majors: signed -0.04 / magnitude 0.54; STRUCTURAL look, NOT a PnL/verdict look; NOT the gate input"
+  gate_input: "rho_bar_eff measured on FULL-8 landed gate-cleared data with the PnL-contribution statistic"
+  rederive_0p41: "would be a SEPARATE pre-result freeze, NOT this amendment"
+  implementation_follow_on: "quant-developer computes C spectrum + N_eff* on landed full-8 data (Mathematician routed)"
+  provenance:
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/mathematician-rho-bar-analysis.yaml"
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/nht-rho-bar-ruling.yaml"
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
 
 # --- Hard data preconditions (must hold before spawn) ---
 data_preconditions:

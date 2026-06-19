@@ -1,0 +1,334 @@
+# =============================================================================
+# Mathematician — Formal resolution of ρ̄ in the G5 effective-N (Kish) haircut
+# =============================================================================
+role: mathematician
+artifact_type: methodology-design   # (formal-analysis; HoQR turns this into the rubric/prereg amendment)
+decision: approve
+timestamp_utc: "2026-06-19T21:02:44Z"
+trial_counter_incremented: false
+no_capital_instruction: true
+web_tools_used: false               # pure derivation; cites canonical results from knowledge only
+
+claimed_domains:
+  - formal-modeling-and-derivations
+  - probability-measure-and-filtration-correctness
+  - numerical-method-selection-and-stability      # Kish DEFF / eigenvalue conditioning
+  - dimensional-and-unit-consistency
+  - convergence-and-error-analysis                # standard-error / time-to-significance scaling
+
+inputs_grounding:
+  rubric_G5: "references/intraday_confirmability_screening_rubric.md L46 — N_effective = N_raw/(1+(k-1)*rho_bar), rho_bar = 'mean cross-pair signal correlation', k pooled pairs."
+  prereg_KILL4: "references/pre-registrations/h1_session_open_momentum_pooled.md L176-179, L208-210 — ρ̄ ≤ 0.41 break-even at k=8; ρ̄=0.50 → N_eff≈89/yr → ~6.9yr FAIL."
+  concrete_data: "1h log-returns, 3 of 8 majors: corr(EUR,GBP)=+0.749, corr(EUR,JPY)=-0.459, corr(GBP,JPY)=-0.414. SIGNED mean pairwise = -0.041; MAGNITUDE mean = 0.541."
+  universe_structure: "8-major basket is USD-factor-dominated, SIGN-MIXED: {EUR,GBP,AUD,NZD} load +USD vs USD base; {USDJPY,USDCAD,USDCHF} load -USD. Naive signed averaging cancels."
+
+# -----------------------------------------------------------------------------
+# 0. The object we must get right (what the haircut is FOR)
+# -----------------------------------------------------------------------------
+target_object: |
+  G5 exists to set the standard error of the POOLED estimator, hence
+  time-to-significance (G1 years_to_validate) and the DSR effective trial count.
+  The pooled quantity is the grand mean of per-pair, per-event PnL contributions:
+
+      Xbar = (1/(k·n)) Σ_{p=1..k} Σ_{t=1..n} x_{p,t},   x_{p,t} = signal_{p,t} · ret_{p,t}.
+
+  N_eff is DEFINED as the number of i.i.d. draws that would give the SAME variance
+  for Xbar as the correlated pooled sample actually gives. Everything below derives
+  from Var(Xbar). The haircut is a statement about Var(Xbar), nothing else.
+
+# =============================================================================
+# QUESTION 1 — THE CORRECT STATISTIC
+# =============================================================================
+q1_correct_statistic:
+  verdict: >
+    Eigenvalue-based, NOT the signed equicorrelation. The operative scalar is the
+    Kish-equivalent ρ̄ recovered FROM the eigenvalues of the k×k correlation matrix
+    of the per-pair PnL contributions, equivalently the participation-ratio / ENB
+    effective dimensionality. The signed pairwise mean (option a) is WRONG and is
+    precisely the anti-pooling-FRAUD failure G5 was written to stop. The magnitude
+    mean (option b) is a defensible conservative proxy but is not the exact object.
+
+  derivation_kish_for_equicorrelated_case:
+    setup: |
+      Take the cleanest case: k pairs, each per-pair event-mean has variance σ², and
+      every off-diagonal correlation equals a common ρ (true equicorrelation).
+      Let M_p = (1/n)Σ_t x_{p,t} be the per-pair mean (the per-pair "block estimate").
+      Var(M_p)=σ²/n. The pooled estimator is Mbar = (1/k)Σ_p M_p.
+    algebra: |
+      Var(Mbar) = (1/k²)[ Σ_p Var(M_p) + Σ_{p≠q} Cov(M_p,M_q) ]
+                = (1/k²)[ k·(σ²/n) + k(k-1)·ρ·(σ²/n) ]
+                = (σ²/n)·(1/k)·[ 1 + (k-1)ρ ].
+      Compare to k·n i.i.d. draws, which would give Var = σ²/(k·n).
+      The ratio (actual)/(i.i.d.) = 1 + (k-1)ρ  ≡  DEFF  (Kish design effect).
+      Hence N_eff = N_raw / DEFF = N_raw / (1 + (k-1)ρ̄).      ← exactly G5.
+    conclusion: |
+      So the Kish form is CORRECT — but ONLY when ρ in DEFF is the variance-inflation
+      ρ that actually appears in Var(Mbar). The whole dispute is: which scalar ρ̄
+      reproduces the TRUE Var(Mbar) for a NON-equicorrelated, sign-mixed matrix?
+
+  why_signed_mean_is_wrong: |
+    The summands in Var(Mbar) are the COVARIANCES Cov(M_p,M_q), and these are
+    σ²·ρ_{pq} with the strategy's own signs ALREADY baked into x_{p,t}. The variance
+    of a sum is Σσ²_p + Σ_{p≠q}Cov_{pq}; covariances enter ADDITIVELY and they DO
+    cancel when signed. That cancellation is real for the RAW-return matrix, but it
+    is an ARTIFACT of measuring correlation on the wrong series (see Q2): on the raw
+    returns, EUR and USDJPY are negatively correlated, so a naive signed mean of the
+    raw-return matrix collapses toward 0 and inflates N_eff toward N_raw. THAT is the
+    fraud: declaring 8 mechanically-coupled USD-factor streams to be 8 independent
+    event-streams because their RAW signs happen to oppose. The fix has two parts:
+    (i) measure on the PnL-contribution series, where the strategy's signs realign
+    the bets (Q2); and (ii) define ρ̄ via eigenvalues, which cannot be cancelled away
+    by sign-mixing (below).
+
+  why_eigenvalue_measure_is_invariant_to_sign:
+    factor_model: |
+      Write returns r = β·f + ε, one dominant factor f (the USD move), loadings β_p
+      of MIXED sign (+ for EUR/GBP/AUD/NZD, − for USDJPY/USDCAD/USDCHF), idiosyncratic
+      ε. The covariance is Σ = β β^T σ_f² + D (D diagonal). β β^T is RANK-ONE: it has
+      ONE large eigenvalue λ₁ ≈ σ_f²·Σ_p β_p² (the factor), and k−1 small eigenvalues
+      from D. Crucially β β^T depends on β_p² — the SIGN of each loading is squared
+      away. A sign-flip of any pair (long↔short, +USD↔−USD) leaves the spectrum
+      UNCHANGED. Effective dimensionality is a function of the spectrum, so it is
+      blind to sign-mixing — exactly the property we want and exactly what the signed
+      pairwise mean lacks.
+    participation_ratio: |
+      Define the participation ratio (a.k.a. effective rank / inverse Simpson on the
+      normalized spectrum):
+          PR = (Σ_i λ_i)² / Σ_i λ_i².
+      For p_i = λ_i/Σλ_j (so Σp_i=1):  PR = 1/Σ_i p_i².
+      One dominant eigenvalue ⇒ p₁→1 ⇒ PR→1 (one bet). Flat spectrum (truly
+      independent) ⇒ p_i=1/k ⇒ PR=k. PR ∈ [1,k] is the effective number of
+      independent dimensions REGARDLESS of off-diagonal signs.
+    enb_meucci: |
+      Meucci's Effective Number of Bets is the entropy form of the same idea:
+          ENB = exp(−Σ_i p_i ln p_i),   p_i = λ_i/Σ_j λ_j,   ENB ∈ [1,k].
+      PR (Rényi-2 / inverse-Simpson) and ENB (Shannon) are both Hill numbers of the
+      normalized spectrum; ENB ≥ PR always (Hill numbers are non-increasing in their
+      order q; PR is order-2, ENB is order-1), and they coincide for a flat spectrum.
+      So among the two DIMENSION-COUNT measures, PR gives the smaller effective
+      dimension and hence the smaller N_eff — the more CONSERVATIVE of the two, the
+      direction G5 wants. CAVEAT (do not over-claim): "PR ≤ ENB" only orders these
+      two dimension-count routes against EACH OTHER; it does NOT establish PR is more
+      conservative than the λ_max/ρ̄_eff route — those use different functionals of the
+      spectrum and neither dominates (counterexample in Q3). The conservative rule is
+      therefore the explicit MIN over routes (Q3), not "PR is always smallest."
+      PR is the recommended dimension-count default; ENB is the permissible variant.
+    invariance_proof_sketch: |
+      Let S = diag(s_p), s_p ∈ {+1,−1}, a sign-flip of pairs. The flipped correlation
+      matrix is C' = S C S. Since S is orthogonal (S^T=S, S²=I), C' is SIMILAR to C:
+      C' = S C S⁻¹ ⇒ spec(C') = spec(C). Eigenvalues are invariant under sign-flips
+      of variables. Therefore PR and ENB are invariant, while the signed pairwise mean
+      ρ̄_signed = (2/(k(k-1))) Σ_{p<q} C_{pq} is NOT (its summands flip sign). QED:
+      any sign-mixing-invariant scalar must be a spectral functional; the signed mean
+      is not, so it cannot be the right haircut for a sign-mixed factor universe.
+
+  mapping_eigenvalue_back_to_kish_rho:
+    statement: |
+      To keep the rubric's familiar DEFF = 1+(k-1)ρ̄ form, INVERT the equicorrelation
+      identity. For a true equicorrelation matrix C(ρ) the eigenvalues are exactly:
+          λ₁ = 1+(k-1)ρ   (the "all-ones" mode),   λ_{2..k} = 1−ρ  (multiplicity k−1).
+      So the LARGEST eigenvalue already equals the Kish DEFF in the equicorrelated
+      case. Generalize: define the effective ρ̄ from the dominant eigenvalue of the
+      EMPIRICAL k×k correlation matrix C of PnL contributions:
+          ρ̄_eff = (λ_max(C) − 1) / (k − 1).
+      This (a) reduces EXACTLY to the true ρ when C is equicorrelated, and (b) for a
+      sign-mixed one-factor matrix returns the factor's variance share, NOT zero —
+      because λ_max is sign-blind. Equivalently and more robustly, pin N_eff directly
+      from PR/ENB (Q3). The two routes are DIFFERENT functionals of the spectrum and
+      do NOT coincide at intermediate equicorrelation ρ — they agree only at the
+      endpoints ρ=0 (both → N_raw) and ρ=1 (both → N_raw/k). Between them, λ_max uses
+      only the top mode while PR uses the whole spectrum; this is why Q3 takes the MIN
+      over routes rather than asserting one dominates.
+    ordering_fact: |
+      λ_max ≥ mean(diag) = 1, with equality only if C=I. And λ_max ≥ (1 + (k-1)·
+      ρ̄_|·|_avg) is NOT generally true, but λ_max ≥ 1 + (k-1)·ρ̄_signed always holds
+      because the all-ones vector 1 gives Rayleigh quotient 1^T C 1/(1^T 1) =
+      1+(k-1)ρ̄_signed ≤ λ_max. ⇒ the spectral ρ̄_eff is ALWAYS ≥ the signed-mean ρ̄,
+      i.e. the signed mean is a LOWER bound on dependence and therefore an UPPER bound
+      on N_eff — it systematically OVER-counts independent events. Formal proof that
+      option (a) is the optimistic / fraud-enabling choice.
+
+  q1_answer: "(c) eigenvalue-based — operationalized as ρ̄_eff=(λ_max−1)/(k−1) on the PnL-contribution correlation matrix, or equivalently N_eff via the PR/ENB effective dimension. NOT (a). (b) magnitude-mean is an acceptable conservative fallback only."
+
+# =============================================================================
+# QUESTION 2 — THE CORRECT SERIES
+# =============================================================================
+q2_correct_series:
+  candidates:
+    i_raw_returns: "cross-pair correlation of 1h log-returns r_{p,t}"
+    ii_signals: "cross-pair correlation of the trading signals signal_{p,t} ∈ {−1,0,+1} (or sized)"
+    iii_pnl_contributions: "cross-pair correlation of x_{p,t} = signal_{p,t} · ret_{p,t} — the actual pooled summands"
+  verdict: "(iii) the per-pair PnL CONTRIBUTIONS. Decisively. Neither raw returns nor signals alone."
+  argument: |
+    The haircut must reflect the variance of the POOLED ESTIMATOR, and the pooled
+    estimator is the mean of x_{p,t}=signal_{p,t}·ret_{p,t} (target_object). By
+    definition Var(Xbar) is a functional of Cov(x_{p,·},x_{q,·}) — the covariance of
+    the SUMMANDS THEMSELVES. The only correlation matrix whose eigenvalues control
+    Var(Xbar) is C = corr(x). Any other series is the wrong random variable.
+    Concretely the strategy's own sign is part of x: a USD-factor MOMENTUM rule goes
+    SHORT EURUSD and LONG USDJPY during a USD-up move, so
+        x_EUR = (−1)·(EUR down) = +,   x_JPY = (+1)·(USDJPY up) = +.
+    The strategy has REALIGNED two raw-negatively-correlated legs into two
+    POSITIVELY-correlated PnL streams — the same bet. Measuring on raw returns (i)
+    sees the −0.46 and declares independence; measuring on contributions (iii) sees
+    the +correlation and correctly charges the haircut. This is the crux: the
+    sign-mixing that fools the raw-return signed mean is UNDONE once the strategy's
+    signs are applied, because a coherent factor strategy is, by construction, the
+    same directional bet expressed across many legs.
+  why_not_signals_only: |
+    Series (ii) (signals alone) is insufficient: two signals can be identical (+1,+1)
+    yet contribute uncorrelated PnL if the underlying returns are uncorrelated, and
+    two opposite signals on negatively-correlated legs contribute CORRELATED PnL.
+    Variance of Xbar depends on the product signal·ret, not on either factor in
+    isolation. corr(signal) over-counts dependence when signals align but returns
+    don't, and under-counts when signs oppose on coupled legs. Use (iii).
+  rubric_text_fix: |
+    G5/KILL-4 currently say 'mean cross-pair SIGNAL correlation'. This is the second
+    latent bug: 'signal' should read 'PnL-CONTRIBUTION (signal×return)'. Recommend
+    HoQR amend the words 'signal correlation' → 'PnL-contribution (signal×return)
+    correlation' wherever they appear (rubric L46; prereg L176, L200, L208, L246).
+  caveat_demeaning: |
+    Compute correlations on the per-event contribution series ALIGNED on common event
+    timestamps (the session-open events), demeaned per pair. Use only events where
+    BOTH pairs fire (or treat non-fires as 0 contribution consistently); state which.
+    Pearson is adequate here because the object is literally a second moment
+    (variance of a mean) — this is one of the rare cases where Pearson IS the right
+    dependence measure, since Var(Xbar) is exactly a linear function of pairwise
+    covariances, no nonlinear-dependence subtlety enters.
+
+# =============================================================================
+# QUESTION 3 — THE EXACT FORMULA FOR G5 / G1
+# =============================================================================
+q3_operational_formula:
+  definitions:
+    x: "x_{p,t} = signal_{p,t} · ret_{p,t}  (per-pair, per-event PnL contribution; the pooled summand)"
+    C: "C = k×k Pearson correlation matrix of the demeaned, event-aligned contribution series {x_{p,·}}"
+    lambda: "λ_1 ≥ … ≥ λ_k = eigenvalues of C (Σλ_i = k, since diag(C)=1)"
+    p_i: "p_i = λ_i / Σ_j λ_j = λ_i / k"
+  general_form_PRIMARY:
+    N_eff_direct: |
+      N_eff = N_raw · ( N_dim_eff / k ),     where the effective dimension is
+          N_dim_eff = PR = (Σ_i λ_i)² / Σ_i λ_i² = k² / Σ_i λ_i²   (PRIMARY, conservative)
+      i.e.  N_eff = N_raw · ( k / Σ_i λ_i² ).
+      [N_dim_eff = ENB = exp(−Σ p_i ln p_i) is the permissible less-conservative variant.]
+    rationale: "Per-pair you have N_raw/k events; you have N_dim_eff effectively-independent pair-dimensions; the pooled independent-event count is (N_raw/k)·N_dim_eff. Reduces to N_raw when C=I (PR=k) and to N_raw/k when C=11^T (PR=1)."
+  equicorrelation_form_REPORTING:
+    rho_bar_eff: "ρ̄_eff = (λ_max(C) − 1)/(k − 1)   — the scalar to report in the rubric's familiar notation"
+    N_eff_kish: "N_eff = N_raw / (1 + (k−1)·ρ̄_eff) = N_raw / λ_max(C)"
+    note: "Exact iff C is equicorrelated; for one-factor sign-mixed C it conservatively tracks the dominant-factor share. λ_max = DEFF in the equicorrelation case, so N_eff = N_raw/λ_max is the clean spectral statement of the Kish haircut."
+  when_each_applies:
+    - "Spectrum near {λ_max, 1,1,…} (one factor + noise) → λ_max and PR are close but not identical; report ρ̄_eff for the rubric notation but GATE on N_eff* = min(both routes) per the conservative rule."
+    - "Spectrum with several large λ (multiple factors, e.g. USD-bloc + JPY-cross bloc) → the single scalar ρ̄_eff understates structure; USE the PR/ENB N_dim_eff form (it integrates all eigenvalues). The equicorrelation ρ̄ is only a faithful summary of a ONE-factor world."
+    - "Fallback if eigendecomp unavailable/unstable (k small, near-singular C): use ρ̄ = MAGNITUDE mean (mean |C_{pq}|) — never the signed mean. PROVABLE part: mean|C_{pq}| ≥ |mean C_{pq}| ≥ mean C_{pq} = ρ̄_signed (triangle inequality), so the magnitude mean strictly dominates the signed mean and removes the sign-cancellation fraud. NOT-PROVABLE part: ρ̄_|·| has NO general ordering against the spectral ρ̄_eff — for a near-rank-one matrix with large mixed-sign entries λ_max can exceed 1+(k−1)·mean|C_{pq}|, so the magnitude mean can be LESS conservative than ρ̄_eff. Hence magnitude mean is a heuristic floor over the signed mean, NOT a substitute for the spectral measure when eigendecomp IS available."
+  conservative_direction_rule:
+    statement: |
+      WHEN IN DOUBT, LOWER N_eff (RAISE effective ρ̄). The gate is a confirmability
+      claim; over-stating N_eff manufactures false confirmability (the exact fraud).
+      RULE (explicit, no false single-winner ordering): forbid ρ̄_signed entirely
+      (it can give N_eff > N_raw — absurd). Among the admissible measures actually
+      computed, TAKE THE MINIMUM N_eff:
+          N_eff* = min( N_raw/λ_max ,  N_raw·k/Σλ_i² [PR] ,  [N_raw·k/ENB if used] ).
+      NEITHER the λ_max route NOR the PR route dominates the other in general (proof:
+      the 3-pair example below gives N_eff(λ_max)≈0.513·N_raw < N_eff(PR)≈0.667·N_raw,
+      so λ_max is tighter there; at other spectra PR is tighter), which is exactly WHY
+      the rule is a MIN, not 'use PR'. The ONLY proven global ordering is the lower
+      bound: every admissible measure gives N_eff ≤ N_raw/(1+(k−1)ρ̄_signed) wherever
+      ρ̄_signed ≥ 0 (since λ_max ≥ 1+(k−1)ρ̄_signed, established above), i.e. all
+      admissible measures are at least as conservative as the forbidden signed mean.
+      Floor/ceiling always: N_raw/k ≤ N_eff ≤ N_raw (cannot be more dependent than
+      perfectly-collinear, nor more independent than fully orthogonal).
+  unit_dimensional_check:
+    - "C dimensionless (correlation). λ_i dimensionless, Σλ_i = k. PR, ENB ∈ [1,k] dimensionless. ρ̄_eff ∈ [−1/(k−1), 1] dimensionless. N_eff has units of 'events' like N_raw. DEFF = λ_max ≥ 1 dimensionless. All consistent."
+    - "Edge: λ_max can exceed 1+(k−1)·1? No — for a correlation matrix λ_max ≤ k, attained only at C=11^T, giving ρ̄_eff=1, N_eff=N_raw/k. Bounds respected."
+
+# =============================================================================
+# QUESTION 4 — SANITY CHECK AGAINST THE DATA
+# =============================================================================
+q4_data_sanitycheck:
+  caveat_first: |
+    The 3-pair numbers are RAW 1h-RETURN correlations, i.e. series (i), the WRONG
+    series for the haircut. They are INDICATIVE of the factor structure only, not the
+    haircut input. The real input is corr of PnL CONTRIBUTIONS over session-open
+    events on the full 8-pair universe, not yet measured. Treat the following as
+    order-of-magnitude, not a gate decision.
+  three_pair_eigenvalue_read:
+    matrix: "C3 (raw returns) = [[1, .749, -.459],[.749, 1, -.414],[-.459, -.414, 1]] over {EUR, GBP, JPY-cross legs}"
+    signed_mean: "ρ̄_signed = (.749 − .459 − .414)/3 = −0.041  → DEFF=1+2(−0.041)=0.918 <1 ⇒ N_eff>N_raw (ABSURD: implies pooling ADDS independent info — the reductio that kills option a)."
+    magnitude_mean: "ρ̄_|·| = (.749+.459+.414)/3 = 0.541"
+    eigenvalues_approx: |
+      Characteristic read of C3: one dominant eigenvalue (the EUR/GBP/JPY USD-factor
+      mode) ≈ 1.9–2.0, plus two smaller ≈ 0.8 and ≈ 0.2–0.3 (trace = 3 pins the sum).
+      [ROUTE_TO quant-developer for the exact eig(C3) if a numeric value is needed for
+       any artifact that gates on it — see numerical-question-routed.] With λ_max≈1.95:
+         ρ̄_eff = (λ_max − 1)/(k−1) = (1.95 − 1)/2 ≈ 0.48.
+         PR = 9/Σλ² ≈ 9/(1.95²+0.8²+0.25²) ≈ 9/(3.80+0.64+0.06) ≈ 9/4.50 ≈ 2.0
+         ⇒ N_dim_eff ≈ 2.0 of 3 ⇒ ~33% haircut on the dimension count.
+    interpretation: |
+      Sign-blind reading: ρ̄_eff ≈ 0.48 and magnitude-mean 0.54 AGREE in
+      magnitude and both sit ABOVE the 0.41 break-even, whereas the signed mean
+      (−0.04) is nonsense. Even on RAW returns and only 3 legs, the USD factor is
+      already strong enough to breach 0.41 once measured sign-blind.
+  full_8_qualitative_prediction:
+    structure: "8 majors, one dominant USD factor + a weaker secondary (JPY-cross / risk-bloc) factor. β loadings mixed sign, large |β| (majors are ~50–70% USD-factor on 1h)."
+    on_contributions: "A USD-factor MOMENTUM strategy applies signs that REALIGN every leg onto the factor (Q2). So corr(contributions) will be MORE positively-coherent than corr(raw returns) — the strategy concentrates the spectrum further into λ_max. Expect ρ̄_eff(contributions) ≥ ρ̄_eff(raw)."
+    prediction: |
+      HONEST READ: H1 is UNLIKELY to clear ρ̄ ≤ 0.41 under the correct (sign-blind,
+      contribution-series) definition. A single-factor 8-major basket with the factor
+      explaining even ~40–50% of pooled variance gives λ_max ≈ 1+(k−1)·ρ̄ with
+      ρ̄_eff comfortably in the 0.4–0.6 range; the 3-pair raw read (≈0.48) is already
+      over the line and contributions push it higher, not lower. The k=8 pooling
+      therefore buys far fewer than 8× independent events — likely N_eff ≈ (2–4)×
+      per-pair, not 8×. This is the DATASET-WALL reasserting itself: pooling cannot
+      conjure independence that the USD factor has already spent.
+    honest_hedge: "This is a STRUCTURAL prediction from the factor model + the 3-pair indicative correlations, NOT a measurement. The gate must be decided on the ACTUAL measured 8-pair contribution-correlation spectrum. The point of this artifact is that whatever is measured, it must be reduced via λ_max/PR — NOT a signed mean — or the gate is defeated by construction."
+
+# -----------------------------------------------------------------------------
+# Role schema fields
+# -----------------------------------------------------------------------------
+assumptions-identified:
+  - "Var(Xbar) is the object the haircut must reflect (G1 time-to-significance ∝ 1/√N_eff; DSR trial count uses the same N_eff)."
+  - "Equal per-pair event-variance σ² assumed in the clean Kish derivation; unequal variances → use the weighted DEFF (Σw_p)²/Σw_p² with w_p=1/σ²_p, but the SIGN/EIGEN conclusion is unchanged."
+  - "Pearson is the correct dependence measure HERE because Var(mean) is exactly linear in pairwise covariances; no nonlinear-dependence correction needed for this specific object."
+  - "Correlations computed on demeaned, event-aligned PnL-contribution series; non-fire handling stated explicitly (0-contribution, consistent across pairs)."
+  - "One-to-two dominant factors in the 8-major 1h universe (USD primary; risk/JPY secondary) — supported by the 3-pair read, to be confirmed on the full matrix."
+  - "C is a valid (PSD) correlation matrix so eigenvalues are real, non-negative, sum to k."
+
+failure-regimes:
+  - "Signed-mean ρ̄ on a sign-mixed factor universe → ρ̄≈0 → DEFF<1 → N_eff>N_raw: the haircut INVERTS and rewards pooling correlated streams. This is the G5 fraud; categorically forbidden."
+  - "Measuring on raw returns instead of PnL contributions → strategy's sign-realignment invisible → dependence under-counted on momentum strategies that bet the same factor across legs."
+  - "Single-scalar ρ̄_eff when ≥2 comparable large eigenvalues exist → understates multi-factor structure; must switch to PR/ENB N_dim_eff form."
+  - "Near-singular C (k large, short event sample, |C_{pq}|→1) → eigendecomp ill-conditioned; λ_min→0. Diagnostic: cond(C)=λ_max/λ_min. If cond(C) huge, the sample correlation is unreliable → shrink (Ledoit–Wolf) C toward target BEFORE eig, and report the shrinkage intensity. [ROUTE_TO quant-developer.]"
+  - "Too few common events per pair → sampling error in C_{pq} of order 1/√n_common; a measured ρ̄ near the 0.41 boundary needs a CI, not a point estimate, before it gates G1."
+
+alternative-methods:
+  - "GATE on N_eff* = MIN over admissible routes (neither dominates in general): {N_raw/λ_max, N_raw·k/Σλ_i² [PR], N_raw·k/ENB}."
+  - "λ_max route: ρ̄_eff=(λ_max−1)/(k−1), N_eff=N_raw/λ_max — the rubric's reporting scalar."
+  - "PR route: PR=k²/Σλ_i², N_eff=N_raw·k/Σλ_i² — recommended dimension-count default; PR ≤ ENB so PR is the more conservative of the two DIMENSION-COUNT measures (not necessarily vs λ_max)."
+  - "ENB route: Meucci ENB=exp(−Σ p_i ln p_i) — permissible, less conservative dimension count."
+  - "No-eigendecomp fallback: magnitude mean ρ̄=mean|C_{pq}| (never signed); dominates signed mean by triangle inequality but has NO proven ordering vs the spectral routes."
+  - "If C is noisy/ill-conditioned: Ledoit–Wolf shrinkage before any spectral measure."
+
+proof-sketch-or-reference:
+  - "Kish design effect DEFF=1+(k-1)ρ for equicorrelated cluster means — derived in full in q1 (Var(Mbar) algebra). Ref: Kish, Survey Sampling (1965), design effect."
+  - "Equicorrelation matrix C(ρ) spectrum: λ_max=1+(k-1)ρ (eigenvector 1), λ=1−ρ (mult. k−1) — standard; gives ρ̄_eff=(λ_max−1)/(k−1) exact inverse."
+  - "Sign-flip invariance of spectrum: C'=SCS, S=S⁻¹ orthogonal ⇒ C'~C ⇒ spec equal. Elementary similarity-transform result."
+  - "λ_max ≥ 1+(k-1)ρ̄_signed via Rayleigh quotient with the all-ones vector ⇒ ρ̄_eff ≥ ρ̄_signed ⇒ signed mean over-states N_eff. Courant–Fischer."
+  - "Participation ratio / effective rank: PR=(Σλ)²/Σλ²; Meucci, 'Managing Diversification' (Risk, 2009), ENB=exp(entropy of λ-distribution). Both are Hill numbers of the normalized spectrum (Rényi-2 and Shannon resp.)."
+  - "Hill-number monotonicity: ¹D=ENB ≥ ²D=PR (Hill numbers non-increasing in order q), equality at flat spectrum ⇒ PR is the more conservative of the two DIMENSION-COUNT measures. This does NOT order PR against the λ_max route."
+  - "Non-domination of λ_max vs PR routes (why the gate is a MIN, not a single statistic): in equicorrelation, N_eff(λ_max)=N_raw/(1+(k-1)ρ) and N_eff(PR)=N_raw·k/[(1+(k-1)ρ)²+(k-1)(1-ρ)²]; equal only at ρ∈{0,1}, differ in between, and the 3-pair example gives N_eff(λ_max)≈0.513N_raw < N_eff(PR)≈0.667N_raw — λ_max tighter there, PR tighter elsewhere. Hence MIN over routes."
+  - "Magnitude vs signed mean: mean|C_{pq}| ≥ |mean C_{pq}| ≥ mean C_{pq} (triangle inequality) ⇒ magnitude mean dominates signed mean. NO general ordering of magnitude mean vs ρ̄_eff (λ_max can exceed 1+(k-1)mean|C_{pq}| for near-rank-one mixed-sign C)."
+
+numerical-question-routed: |
+  ROUTE_TO quant-developer: (1) exact eig(C3) for the 3-pair raw-return matrix
+  [[1,.749,-.459],[.749,1,-.414],[-.459,-.414,1]] to confirm λ_max≈1.95 and PR≈2.0;
+  (2) on the FULL 8-major universe, build C = corr(PnL-contribution series) over
+  session-open events (demeaned, event-aligned, non-fires=0), report its full
+  spectrum, λ_max, PR, ENB, ρ̄_eff, cond(C), and Ledoit–Wolf-shrunk versions; then
+  compute N_eff* = MIN(N_raw/λ_max, N_raw·k/Σλ², N_raw·k/ENB) and the resulting
+  years_to_validate for the G1 gate. This is the measurement that decides KILL-4.
+
+handoff_to_hoqr:
+  rubric_amendment_requested:
+    - "G5 (rubric L46): replace 'rho_bar is the mean cross-pair SIGNAL correlation' with: 'C is the k×k Pearson correlation matrix of per-pair PnL-CONTRIBUTION (signal×return) series. Gate on N_eff* = MIN(N_raw/λ_max(C), N_raw·k/Σλ_i² [participation ratio], N_raw·k/ENB); report the equivalent ρ̄_eff=(λ_max−1)/(k−1) in the rubric notation. The SIGNED pairwise mean is FORBIDDEN (it can yield N_eff>N_raw). If no eigendecomposition is available, use the magnitude mean mean|C_{pq}| (dominates the signed mean). When measures disagree, take the smaller N_eff.'"
+    - "prereg KILL-4 (L176-179, L208-210) and L200, L246: change 'signal correlation' → 'PnL-contribution (signal×return) correlation', and define ρ̄ as ρ̄_eff (spectral), keeping the ρ̄≤0.41 break-even but measured the correct way."
+  load_bearing_note: "Under the corrected definition the 3-pair indicative read (ρ̄_eff≈0.48) already breaches 0.41; H1 is more likely to FAIL KILL-4 than the signed-mean reading (−0.04) suggested. The signed mean was about to grant false confirmability — this is exactly the anti-pooling-fraud G5 was written to prevent."

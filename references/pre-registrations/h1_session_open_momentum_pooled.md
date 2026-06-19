@@ -176,7 +176,7 @@ machine-checkable.
 - **KILL-4 (pooling-fraud / effective-N, G5):** if, after the **measured** cross-pair signal
   correlation haircut `N_eff = N_raw / (1 + (k−1)·ρ̄)` (k=8), the resulting
   `years_to_validate > 2.0yr`, the pooling did NOT deliver independent events → KILL. (Machine-
-  checks the ρ̄ ≤ ~0.41 break-even; above it H1 slips past 2yr.)
+  checks the ρ̄ ≤ ~0.41 break-even; above it H1 slips past 2yr.) <!-- ρ̄ inherits amended rubric §G5 ρ̄_eff per 2026-06-19 DISCLOSURE NOTE below; raw gate text unchanged. -->
 - **KILL-5 (forward-decay, OOS one-shot):** OOS pooled net annualized Sharpe **< 0.30** → KILL.
 - **KILL-6 (sign-inversion, OOS):** OOS pooled net Sharpe **sign ≠ IS sign** → KILL (overfit/decayed).
 - **KILL-7 (concentration):** any **single pair > 50%** of pooled net PnL, OR any single
@@ -208,11 +208,52 @@ is **NOT** granted (parked for refinement / more pooling), per the rubric G1 dis
 3. **ρ̄ ≤ 0.41** — measured mean cross-pair signal correlation (k=8). Above ρ̄ ≈ 0.41 the
    `N_eff = N_raw/(1+(k−1)ρ̄)` haircut pushes years_to_validate past 2.0yr (at ρ̄=0.50,
    `N_eff ≈ 89/yr` → ~6.9yr FAIL). This is the load-bearing pooling assumption; it is measured,
-   not assumed.
+   not assumed. <!-- ρ̄ inherits amended rubric §G5 ρ̄_eff (eigenvalue-based, sign-blind, PnL-contribution series; signed mean forbidden) per 2026-06-19 DISCLOSURE NOTE; threshold 0.41 unchanged. -->
 
 These three are the rubric's G1/G2/G3/G5 instantiated. G4 (mechanism) and G6 (non-stationarity)
 are addressed in Alpha-Source below; G7 (pre-registration-before-data) is satisfied by this
 frozen artifact.
+
+---
+
+## DISCLOSURE NOTE — ρ̄ definition amendment (added 2026-06-19, NOT a re-freeze)
+
+This is a **thin dated disclosure** appended by reference; it changes **no** frozen structure,
+**no** threshold, and **no** KILL-gate value. H1 is **NOT re-frozen** and the org-wide trial
+counter is **NOT burned** (honest-N stays 48). Provenance: Mathematician
+`mathematician-rho-bar-analysis.yaml` + NHT `nht-rho-bar-ruling.yaml`
+(`.fintech-org/artifacts/2026-06-19-rho-bar/`); HoQR amendment
+`hoqr-rho-bar-amendment.yaml`.
+
+1. **3-pair structural peek disclosed.** On 2026-06-19, raw-1h-return correlation was measured
+   on **3 of the 8** majors (EUR–GBP +0.749, EUR–JPY −0.459, GBP–JPY −0.414): **signed mean
+   −0.04**, **magnitude mean 0.54**. This is a **partial (3-of-8) STRUCTURAL look** at a
+   correlation statistic — the category this prereg already designates a "blind STRUCTURAL pass
+   … NOT a return-fishing pass." It is **NOT** a PnL/Sharpe/DSR/verdict look. It contaminates the
+   *"never-looked" provenance* (hence this disclosure) but **not** the result and **not** the
+   amendment's legitimacy: the firm adopted the definition that moves H1 toward **FAIL**
+   (magnitude 0.54 > 0.41), opposite to the peek's self-interest — direction-of-harm is the
+   firewall.
+2. **H1 inherits the amended G5 ρ̄_eff definition by reference.** Wherever this prereg says
+   "signal correlation" / "ρ̄" (KILL-4, PASS-condition 3, KILL-4 reason 4), it now means the
+   amended rubric **§G5 ρ̄_eff**: an **eigenvalue-based, sign-blind** statistic
+   `ρ̄_eff = (λ_max(C)−1)/(k−1)`, gated as `N_eff* = MIN(N_raw/λ_max, N_raw·k/Σλ_i², …)`,
+   measured on the **PnL-CONTRIBUTION (signal×return)** correlation matrix — NOT raw returns,
+   NOT the quote-signed signal series. The **naive SIGNED mean is FORBIDDEN**. Magnitude mean is
+   the no-eigendecomposition fallback only.
+3. **The 3-pair number is NOT the gate input.** The gate input is `ρ̄_eff` measured on the
+   **full-8** landed, gate-cleared data with the **PnL-contribution** statistic. The
+   −0.04 / 0.54 / 3-pair figures are indicative structure only; anyone citing them as the
+   decision is overruled.
+4. **0.41 unchanged.** The `ρ̄_eff ≤ 0.41` break-even stays frozen as written. If full-8
+   `ρ̄_eff` exceeds 0.41 → H1 is STRETCH / no slot / counter unburned, exactly as written.
+   Re-deriving 0.41 under the new statistic would be a SEPARATE pre-result freeze, not this note.
+5. **Implementation follow-on (quant-developer).** The eigen-computation of `C` and `N_eff*` on
+   the full-8 landed universe is QD's job when the data lands (Mathematician routed it); it is
+   not computed here.
+
+On current 3-pair evidence (magnitude 0.54 > 0.41) H1 is trending toward STRETCH/FAIL on G5 —
+no slot unless full-8 ρ̄_eff (PnL-contribution) ≤ 0.41.
 
 ---
 
@@ -244,7 +285,7 @@ merely *present*.
    precisely at the open; net-of-p90-cost the avg trade may be ≤ 0 (the same arithmetic that
    killed trial 48: positive gross, cost-dominated net).
 4. **Pooling fraud / correlation blow-up (KILL-4):** the 8 pairs share USD/EUR legs; if measured
-   ρ̄ > 0.41 the effective-N collapses and the ≤2yr confirmability is illusory.
+   ρ̄ > 0.41 the effective-N collapses and the ≤2yr confirmability is illusory. <!-- ρ̄ inherits amended rubric §G5 ρ̄_eff per 2026-06-19 DISCLOSURE NOTE. -->
 5. **Insufficient power (KILL-0):** the κ=1.0 qualification cap may thin events/yr below the
    power floor once honestly counted (effective, non-overlapping).
 

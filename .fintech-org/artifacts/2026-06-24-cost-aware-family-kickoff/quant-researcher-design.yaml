@@ -1,0 +1,311 @@
+role: quant-researcher
+artifact_type: trade-intent
+decision: implement
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-qr
+trial_id: cost-aware-family-2026-06-24-qr
+pre-registration-ref: "PENDING — feasibility-gate-first; no committed pre-registration this cycle"
+
+candidates:
+  - name: "C1 — CB-decision post-announcement drift (event-conditioned, low-turnover)"
+    alpha-source: >
+      Structural source = the documented post-announcement DRIFT around scheduled central-bank
+      rate decisions (FOMC/ECB/BOJ/BOE etc.). The economic mechanism is gradual information
+      diffusion: a policy surprise (actual decision + statement/dot-plot/presser vs the priced-in
+      path) is not fully impounded into the exchange rate within the first bar. Institutional
+      re-hedging of rate-sensitive flows, options-desk delta adjustment, and slow repricing of
+      the front-end rate curve play out over the hours-to-1-day window after the release. This is
+      a SCHEDULED, RARE event (not a price-pattern), so it is the opposite construct to the retired
+      price-only F1-F6 high-turnover families: instead of firing thousands of times on every bar,
+      it fires only on the ~8-10 decision dates per relevant central bank per year, and each fire
+      is conditioned on a real macro catalyst with a genuinely large per-event move.
+      Why it plausibly survives cost: the per-event move on a policy-surprise day is an order of
+      magnitude larger than a normal-bar move (tens of pips, not sub-pip), while the cost hurdle is
+      fixed at ~1.1-1.6 pips RT. The gross-edge-per-trade scales with EVENT VOLATILITY, not with
+      turnover, so the cost ratio is structurally favourable — exactly the lever R2 asks for
+      (HIGHER per-trade edge, drastically LOWER turnover).
+      Why not arbed away: the direction is a CONDITIONAL bet on the sign of the surprise (require a
+      realised-surprise filter — see signal-logic). The drift is a risk-bearing/slow-diffusion
+      premium, not a riskless arb; it has real adverse-selection risk (whipsaw when the market
+      over-reacts then mean-reverts), which is why it is not competed to zero. HONEST CAVEAT per the
+      forex evidence layer: scheduled-event drift is weaker and noisier than the two factors with
+      clean OOS support (carry, cross-sectional momentum); FX TA generally is "mixed, not settled"
+      and decays post-1990s. We therefore treat C1 as a STRUCTURE-MOTIVATED hypothesis to be
+      cost-screened first and falsified hard, not as an established edge.
+    universe: >
+      EURUSD (spread_median 0.30, RT 1.10), USDJPY (0.60, RT 1.40), GBPUSD (0.90, RT 1.70).
+      Rationale: pick the three CHEAPEST USD-leg majors so the fixed cost hurdle is smallest, and
+      each has a single dominant scheduled catalyst we have verified dates for — EURUSD↔FED+ECB,
+      USDJPY↔FED+BOJ, GBPUSD↔FED+BOE. CB decision dates available in
+      data/rates/cb_decision_dates.parquet (842 dates, FED=129/ECB=145/BOJ=169/BOE=158, with a
+      per-date verification grade and source_tier; restrict to scheduled==True and verification in
+      {verified-official} for the screen to avoid fabricated/aggregator-only dates). EXCLUDE pairs
+      whose RT cost > 1.7 pips at this stage (USDCAD 2.10, NZDUSD 1.90) — they widen the hurdle
+      without a cheaper catalyst.
+    signal-logic: >
+      DECLARATIVE (NO code). For each (pair, decision-date) where the decision belongs to a central
+      bank governing one leg of the pair: define the announcement bar as the 1h bar containing the
+      scheduled release time (UTC). Compute a REALISED-SURPRISE PROXY from price itself (we have no
+      tick-level expectations data): surprise_sign = sign of the announcement-bar return; surprise_
+      magnitude = |announcement-bar realised range| relative to its trailing 60-decision-day median
+      bar range for that pair. FIRE ONLY when surprise_magnitude exceeds a hard threshold (e.g.
+      announcement-bar range > 1.5x its 250-bar trailing median true range) — this is the cost-aware
+      gate that restricts trading to genuine-surprise events and suppresses no-surprise no-edge days.
+      Direction = drift continuation: take a position in the SIGN of the announcement-bar move
+      (post-announcement drift hypothesis). This is conditional, event-gated, and shift(1) (enter on
+      the bar AFTER the announcement bar — no lookahead, no using the announcement bar's own close as
+      both signal and entry).
+    entry: >
+      Enter at the open of the first 1h bar AFTER the announcement bar, in the direction of the
+      announcement-bar return sign, ONLY IF the surprise-magnitude filter passed (announcement-bar
+      range > 1.5x trailing median range). At most one open position per pair per decision date.
+    exit: >
+      Time-based exit at a fixed hold horizon (primary spec: hold 12 hours; secondary spec to be
+      screened: hold to next session close ≈ 6-18h). Exit at the close of the hold-horizon bar.
+      Flat between events (no overnight inventory beyond the event window). Because positions never
+      flip directly (always close-to-flat then re-open on the next event), the F-001 reversal
+      under-count does not apply here — each fire is a clean open+close round-trip.
+    stop: >
+      Volatility stop at 1.5x ATR(14, 1h) from entry (per technical-analysis ATR-stop guidance,
+      day-trading 1.5-2x band). Stop is a risk control, not an edge; its main role is truncating the
+      whipsaw/over-reaction tail that makes drift noisy. A stop-out counts as the trade's exit.
+    hold-horizon: "12 hours primary (3-18h band screened); always intra-event, max ~1 session."
+    expected-fires-per-year: >
+      ORDER OF MAGNITUDE: ~8-10 relevant decisions/yr per central bank × (1-2 governing banks per
+      pair) × surprise-filter pass-rate ~0.4-0.5 ≈ 8-14 fires/yr/pair. Across the 3-pair universe
+      ≈ 25-40 fires/yr TOTAL. This is ~200-600x LOWER turnover than F1-F6 (which fired 2,300-16,100
+      times/pair over the sample, i.e. ~460-3,200/yr/pair). Decisive R2 contrast.
+    expected-gross-pips-per-trade: >
+      REASONING (not curve-fit): the screen must measure this, but the structural prior is that a
+      surprise-filtered post-FOMC/ECB 1h announcement bar on EURUSD/USDJPY/GBPUSD commonly moves
+      20-60 pips, and the documented drift captures a FRACTION of the subsequent same-direction move
+      over the following hours. A conservative structural estimate of capturable drift = 3-8 gross
+      pips/trade after the announcement bar (we deliberately EXCLUDE the announcement bar's own move
+      from the captured edge because we enter the bar AFTER it — no lookahead). Mid-point working
+      estimate ≈ 5 gross pips/trade. This is to be confirmed/killed by QD's cheap screen, not asserted.
+    rt-cost-hurdle-pips: >
+      EURUSD 0.30+0.80 = 1.10; USDJPY 0.60+0.80 = 1.40; GBPUSD 0.90+0.80 = 1.70 (real per-bar
+      spread_median from parquet, pair-native pips: all three are non-JPY-or-USDJPY where 1 pip =
+      0.0001 except USDJPY where 1 pip = 0.01; QD applies pair-native convention, NOT uniform 0.0001).
+      NOTE: on announcement bars the realised spread is typically WIDER than the pair median (news
+      spread-widening); the screen MUST use the real per-bar spread_median_pips on the actual
+      entry/exit bars (the bar AFTER the announcement), not the pair-level median, so the hurdle is
+      not understated. EXCLUDE-NOT-IMPUTE on any zero/missing-spread entry bar.
+    feasibility-falsification: >
+      KILL C1 if QD's cheap screen shows mean gross-pips/trade (surprise-filtered, entered on the
+      bar AFTER the announcement, measured on real per-bar entry/exit spreads) ≤ 0.80 × RT-cost on
+      that pair — i.e. ≤ 0.88 pips (EURUSD) / 1.12 pips (USDJPY) / 1.36 pips (GBPUSD). If the
+      surprise-filtered post-event drift cannot clear 80% of the hurdle on ANY of the three pairs,
+      C1 is FAILED before any counted pre-registration. STRETCH band = gross within 20% of hurdle.
+      Additional kill: if the surprise filter passes on < ~15 events/pair over the 5-yr sample
+      (too few for the per-event edge to be estimable), C1 is "untestable" → FAIL per the rubric.
+
+  - name: "C2 — Carry-sign overnight/multi-session hold (factor-grounded, lowest-turnover)"
+    alpha-source: >
+      Structural source = the CARRY factor — the single FX return source with the strongest peer-
+      reviewed out-of-sample support (forex evidence layer: carry + cross-sectional momentum are the
+      genuine documented edges; chart patterns are folklore). Mechanism: holding the higher-yielding
+      currency long against the lower-yielding currency earns the interest-rate differential as
+      ROLLOVER/SWAP each night the position is held. Crucially, carry edge accrues PER UNIT TIME HELD,
+      not per trade — so a multi-session hold amortises the fixed ~1.6-pip RT cost across many days of
+      accrual, the exact opposite of the cost-dominated high-turnover F1-F6 construct.
+      Why it survives cost: the per-trade gross edge = (carry accrual over the hold) + (any directional
+      drift), and carry accrual grows with hold length while cost is paid ONCE per round-trip. On a
+      high-differential pair like AUDJPY, the annualised carry can be several hundred pips/yr; even a
+      multi-week hold accrues tens of pips of carry, dwarfing a 1.6-pip RT cost. This is a real,
+      documented, slow factor — not arbed to zero because it is COMPENSATION FOR CRASH RISK (carry is
+      negatively skewed: "up by the stairs, down by the elevator" — periodic sharp unwinds during
+      risk-off). That skew is precisely why the premium persists.
+      HONEST CAVEAT per the evidence layer: COST-ADJUSTED carry profitability "did not survive
+      verification" in the literature, and carry's crash risk is real. So C2 is NOT a free lunch; the
+      feasibility question is narrowly whether the PER-TRADE gross carry+drift accrual clears the
+      cost hurdle on our specific high-differential pairs and hold horizon — a cheap, decisive test —
+      BEFORE any claim of net positive risk-adjusted return (which is a future-cycle CPCV question,
+      and which must carry the crash-skew caveat).
+    universe: >
+      AUDJPY (spread_median 0.80, RT 1.60) as PRIMARY — it is the highest-rate-differential pair in
+      our 9-pair set with a clean swap structure (AUD policy rate historically well above JPY), and
+      its real rate-diff series is available as AUDJPY_diff in data/rates/rate_differentials.parquet.
+      USDJPY (0.60, RT 1.40) as SECONDARY when USD-JPY differential is large and positive (FED above
+      BOJ — true for most of 2022-2025). Both are JPY-quote pairs → 1 pip = 0.01 (pair-native; QD must
+      NOT apply 0.0001 — the F-005 JPY-pip error must not propagate). EXCLUDE near-zero-differential
+      pairs (EURGBP, EURUSD) where carry accrual cannot clear the hurdle. The carry SIGN is set by the
+      rate differential, not by price: go long the high-yielder leg.
+    signal-logic: >
+      DECLARATIVE (NO code). Daily/weekly rebalanced positional hold conditioned on the sign and
+      magnitude of the interest-rate differential from data/rates/rate_differentials.parquet
+      (AUDJPY_diff, USDJPY_diff — daily series). HOLD the carry-positive direction (long the higher-
+      yielding currency) ONLY WHEN |rate_diff| exceeds a hard minimum (e.g. |annualised differential|
+      such that expected carry accrual over the hold horizon plausibly exceeds the RT cost — a cost-
+      aware gate). OPTIONAL crash-risk regime filter (recommended, to be screened): suspend/flatten the
+      carry position when a risk-off vol spike is detected (e.g. pair realised vol > 2x its 60-day
+      median, or a sharp adverse move) — this is the standard carry crash-management overlay and
+      directly addresses the negative-skew caveat. Position changes only when the differential sign
+      flips or the crash filter triggers → very few round-trips.
+    entry: >
+      Enter (or maintain) a long-high-yielder position at a daily decision bar (e.g. 22:00 UTC, the
+      rollover boundary) when rate_diff sign is carry-positive AND |rate_diff| > the cost-aware
+      minimum AND the crash filter is inactive. shift(1): the differential as of day D sets the
+      position entered at D+1's decision bar (no lookahead; the daily rate series is known end-of-day).
+    exit: >
+      Exit/flatten when (a) the rate-differential sign flips, OR (b) the crash-risk filter triggers,
+      OR (c) |rate_diff| falls below the cost-aware minimum. Otherwise HOLD across sessions/weeks.
+      F-001 NOTE: when the differential sign FLIPS, the position goes long→short (or short→long) — a
+      DIRECT POSITION FLIP. This MUST be charged 2 round-trips (close existing leg + open new leg) per
+      the F-001 fix; the screen must use the F-001-corrected reversal-cost accounting. Sign flips are
+      rare (a few per multi-year sample per pair), so even doubled flip-cost is immaterial against
+      accrued carry — but it must be charged correctly.
+    stop: >
+      Crash-risk regime flatten (above) is the primary tail control — appropriate to carry's negative
+      skew (a fixed pip stop is poorly suited to a slow positional carry trade and would churn cost).
+      Optional hard catastrophe stop at a wide multiple (e.g. 4x ATR(14, daily)) only to bound a
+      gap-risk disaster; not an edge.
+    hold-horizon: >
+      Multi-session to multi-week (days to weeks); position persists until a sign flip / crash flatten
+      / sub-threshold differential. This is the LOWEST-turnover candidate by design.
+    expected-fires-per-year: >
+      ORDER OF MAGNITUDE: driven by sign-flips + crash-filter toggles, NOT by bars. The AUD-JPY and
+      USD-JPY differentials were sign-stable for long stretches of 2021-2025, so expect ~2-8 round-
+      trips/yr/pair from sign flips, plus ~4-12 crash-filter flatten/re-enter cycles/yr in a volatile
+      year → ~10-20 fires/yr/pair WORST case, often far fewer. Across the 2-pair universe ≈ 15-40
+      fires/yr TOTAL. This is ~100-300x lower turnover than F1-F6. The decisive R2 contrast: the edge
+      is paid PER NIGHT HELD, while cost is paid PER FIRE — and fires are rare.
+    expected-gross-pips-per-trade: >
+      REASONING (not curve-fit): gross-pips/trade = (carry accrual over the hold) + (directional
+      drift over the hold). Carry accrual = (annualised differential) × (hold fraction of year) in
+      price terms, converted to pips. For AUDJPY with a multi-point annual differential and a typical
+      hold of weeks-to-months, carry accrual alone is plausibly TENS of pips per trade (JPY pip =
+      0.01, so a few hundred price points of annual carry = tens-to-hundreds of pips). Even ignoring
+      any directional component, the structural prior is gross carry ≫ 1.60-pip hurdle by a wide
+      margin PER TRADE, because the hold is long. The screen measures the realised per-trade gross
+      (carry + price drift, net of the crash-flatten timing); the hypothesis is gross ≫ hurdle.
+      Mid-point working estimate (AUDJPY, weeks-long hold): ≥ 20-40 gross pips/trade.
+    rt-cost-hurdle-pips: >
+      AUDJPY 0.80+0.80 = 1.60; USDJPY 0.60+0.80 = 1.40. Pair-native JPY pips (1 pip = 0.01) — QD must
+      use the JPY convention, not uniform 0.0001 (F-005 must not propagate). Real per-bar
+      spread_median on the actual entry/exit/rollover bars, EXCLUDE-NOT-IMPUTE on zero/missing-spread
+      bars. F-001-corrected accounting on sign-flip round-trips.
+    feasibility-falsification: >
+      KILL C2 if QD's cheap screen shows mean gross-pips/trade (carry accrual + price drift over the
+      realised hold, net of crash-flatten timing, on real per-bar entry/exit spreads, F-001-corrected
+      flip cost) ≤ 0.80 × 1.60 = 1.28 pips (AUDJPY) / ≤ 1.12 pips (USDJPY). Given the structural prior
+      of tens of pips of carry per multi-week hold, a result at or below the hurdle would itself be a
+      strong signal that either the differential is too small over this sample or the crash-flatten
+      timing is eating the carry — in which case C2 FAILS feasibility and is not pre-registered.
+      STRETCH = gross within 20% of hurdle (1.28-1.60 pips AUDJPY). Note: clearing the COST hurdle is
+      necessary-not-sufficient; net risk-adjusted profitability (carry's crash skew) is a separate
+      future-cycle CPCV question and must NOT be claimed from this screen.
+
+slippage-distribution: >
+  DECLARATIVE ESTIMATE (the 0.80-pip RT overhead already bundles 2×0.25 slip + 2×0.15 paper haircut;
+  this is the regime-bucketed view the screen should sanity-check against). Per-side slippage estimate:
+  CALM regime (normal liquidity, London/NY hours, pair vol ≤ 60-day median): mean ~0.15 pip, P50 ~0.10,
+  P90 ~0.30, P99 ~0.60. ELEVATED regime (session open, pair vol 1-2x median): mean ~0.30, P50 ~0.25,
+  P90 ~0.70, P99 ~1.5. EVENT regime (CB-announcement bar / NFP-class release, the C1 entry context):
+  mean ~0.6-1.0, P50 ~0.5, P90 ~2.0, P99 ~5+ — this is WHY C1 enters the bar AFTER the announcement
+  (not on it) and gates on the surprise filter; the screen must use the real per-bar spread on the
+  post-announcement entry bar, which already captures most event spread-widening. ILLIQUID regime
+  (Sydney early hours / holidays, the 2-3% of bars with spread_median > 5 pips per the 9pairs DQ note):
+  EXCLUDE-NOT-IMPUTE — do not trade or screen entries on those bars. The fixed 0.25-pip/side slip
+  assumption is reasonable for CALM/ELEVATED but OPTIMISTIC for EVENT regime; C1's hurdle should be
+  read with that caution (disclosed margin), reinforcing the "enter the bar after" design choice.
+
+retirement-triggers: >
+  MACHINE-CHECKABLE. (1) FEASIBILITY-KILL: if QD's cheap screen shows mean gross-pips/trade ≤ 0.80×RT
+  hurdle on ALL pairs in a candidate's universe → that candidate is retired (no pre-registration).
+  (2) TOO-FEW-EVENTS: if surprise-filtered fires (C1) or qualifying carry holds (C2) number < 15 over
+  the 5-yr sample on every pair → "untestable" → retired. (3) HURDLE-DOMINANCE: if measured mean
+  gross-pips/trade < real measured mean RT-cost-per-trade (post F-001 fix, real per-bar spreads,
+  pair-native pips) → retired, same machine condition that retired F1-F6 (cost-dominance). (4) If, in
+  a future pre-registered CPCV cycle, net SR < STRETCH (1.44) → retire as saturated, mirroring the
+  F1-F6 retirement condition (max net SR = -1.56, ≥3.00 SR units below STRETCH).
+
+evidence:
+  - "data/processed/{EURUSD,GBPUSD,USDJPY,EURJPY,AUDUSD,USDCAD,NZDUSD,EURGBP,AUDJPY}_1h.parquet — 9 pairs, ~31k 1h bars each, 2021-01-03→2025-12-31, with open/high/low/close/volume/spread_median_pips/spread_mean_pips/spread_p90_pips. Measured per-pair spread_median_pips: EURUSD 0.30, USDJPY 0.60, AUDJPY 0.80, GBPUSD 0.90, EURGBP 0.90, AUDUSD 1.00, EURJPY 1.00, NZDUSD 1.10, USDCAD 1.30 (verified by direct read this session)."
+  - "data/rates/cb_decision_dates.parquet — 842 scheduled CB decision dates with per-date verification grade + source_tier (FED 129, ECB 145, BOJ 169, BOE 158, RBA 172, BOC 58, RBNZ 11); columns bank/currency/date/scheduled/verification/source_tier. Grounds C1 event windows; screen restricts to scheduled==True and verification=='verified-official'."
+  - "data/rates/rate_differentials.parquet — daily interest-rate-differential series per pair incl. AUDJPY_diff, USDJPY_diff, EURUSD_diff (6,540 rows, from 2001). Grounds C2 carry sign/magnitude conditioning."
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml — F1-F6 retirement evidence (all 54 pair×family net SR FAIL, best -1.56), cost model (RT = spread_median + 0.80), EXCLUDE-NOT-IMPUTE, measured spreads. Establishes WHY high-turnover price-only families are cost-dominated."
+  - "forex-trading SKILL §2.5 evidence layer — carry + cross-sectional momentum are the only OOS-surviving FX factors; carry is compensation for crash risk (negative skew); cost-adjusted carry 'did not survive verification'; TA mixed/decaying; chart patterns ≈ folklore. C1 (event drift) is structure-motivated but weaker-evidenced than C2 (carry factor); both honestly caveated."
+  - "technical-analysis SKILL §1.4 + ATR-stop guidance — in-sample TA rules collapse OOS under data-snooping correction (Sullivan-Timmermann-White; McLean-Pontiff ~26% OOS / ~58% post-pub decay); require N-aware DSR + OOS before trusting any backtested edge. ATR 1.5-2x day-trade stop band."
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/pm-acceptance-criteria.yaml — cost hurdle, EXCLUDE-NOT-IMPUTE, pair-native pips (JPY=0.01), F-001/F-002 preconditions, honest-N=30 / no-counted-trial, feasibility PASS/STRETCH/FAIL bands."
+
+assumptions:
+  - "C1 uses a PRICE-DERIVED realised-surprise proxy (announcement-bar return sign + range vs trailing median) because tick-level rate-expectation/consensus-surprise data is NOT in the store. This is a weaker filter than a true expectations-surprise; disclosed as a limitation. If QD finds the price proxy too noisy to isolate genuine surprises, C1 weakens accordingly."
+  - "C1 attributes the relevant CB to the pair leg (FED→USD pairs, ECB→EUR pairs, BOJ→JPY pairs, BOE→GBP pairs). USDJPY has TWO governing banks (FED+BOJ); both decision sets are eligible event dates."
+  - "C2 assumes the daily rate_differentials series sign/magnitude is a faithful proxy for realised overnight swap accrual. Actual broker swap can differ from the headline policy differential (broker markup, tom-next basis); the screen's carry-accrual estimate should be conservative (haircut the headline differential) and is a feasibility approximation, not the realised swap ledger."
+  - "Both candidates enter shift(1) (bar/day AFTER the signal), preserving the no-lookahead invariant (sacred test). C1 explicitly does NOT capture the announcement bar's own move."
+  - "All gross-pips/trade figures herein are STRUCTURAL PRIORS / order-of-magnitude estimates for the QD cheap screen to CONFIRM OR KILL — they are NOT asserted results and carry no counted-trial status. honest-N stays 30; trial counter does not increment."
+  - "Clearing the cost-feasibility hurdle is necessary-not-sufficient: net risk-adjusted profitability (esp. C2's carry crash-skew, C1's whipsaw) is a SEPARATE future-cycle CPCV question, not claimed here."
+  - "Universe choices excluded GBPJPY (out of scope, HoQR R3) and added no 10th pair (R2 constraint)."
+
+confidence: medium
+
+body: |
+  ## Why these two candidates beat the cost hurdle where F1-F6 did not
+
+  The retired F1-F6 families share ONE fatal property: they are price-only and HIGH-TURNOVER
+  (2,300-16,100 fires/pair over 5yr; net SR -1.56 to -10.0). Their gross signal per trade is
+  sub-pip-to-low-pip and is entirely consumed by the ~1.1-1.7 pip round-trip cost. The arithmetic
+  of their failure is simply: gross-pips/trade < RT-cost/trade, repeated thousands of times. No
+  cost-model tweak closes a 3.00-SR-unit gap.
+
+  The pivot rules (R1 cost-feasibility-first, R2 change-the-edge-input) demand the OPPOSITE
+  construct on at least one axis: LOWER turnover and/or HIGHER per-trade edge. Both candidates
+  attack BOTH axes:
+
+  - **C1 (CB-decision drift)** raises per-trade edge by conditioning entry on a RARE, LARGE,
+    SCHEDULED catalyst — a policy surprise moves the cheapest majors tens of pips, and the drift
+    captures a multi-pip fraction over the following hours, against a fixed ~1.1-1.7 pip hurdle.
+    Turnover drops ~200-600x (8-14 fires/yr/pair vs F1-F6's hundreds-to-thousands). The cost ratio
+    is structurally favourable because edge scales with EVENT VOLATILITY, not with trade count.
+
+  - **C2 (carry-sign hold)** attacks turnover even harder (the lowest-turnover candidate by design)
+    AND grounds itself in the ONE FX factor with real OOS support (carry). The decisive insight:
+    carry accrues PER NIGHT HELD while cost is paid PER FIRE. A multi-week AUDJPY hold accrues tens
+    of pips of differential while paying ONE 1.60-pip round-trip. This is the cleanest possible
+    inversion of the cost-dominated high-turnover trap.
+
+  ## Honest evidence calibration (forex evidence layer, applied)
+
+  I am NOT claiming either candidate is a proven edge. The forex evidence layer is explicit:
+  only carry and cross-sectional momentum survive OOS; carry is compensation for crash risk
+  (negative skew) and cost-adjusted carry "did not survive verification"; scheduled-event drift
+  and FX TA generally are "mixed, not settled" and decay post-1990s. So:
+  - C2 is FACTOR-GROUNDED (the strongest available structural basis) but carries the crash-skew
+    caveat; the feasibility screen answers only the narrow COST question, not net profitability.
+  - C1 is STRUCTURE-MOTIVATED but weaker-evidenced; it is included as the second candidate
+    precisely because it exploits a DIFFERENT structural axis (scheduled-event volatility vs
+    rate-differential carry), giving the firm two non-redundant cheap screens. If forced to rank,
+    C2 has the stronger prior; C1 has the larger per-event move but noisier edge.
+
+  ## What the cheap screen must measure (decisive, pre-pre-registration)
+
+  For each candidate × pair: (a) count of qualifying fires over 2021-2025; (b) mean gross-pips/trade
+  measured on the REAL post-signal entry/exit bars (C1: bar after announcement; C2: realised
+  multi-session hold incl. carry accrual proxy), using real per-bar spread_median_pips, pair-native
+  pips (JPY=0.01), EXCLUDE-NOT-IMPUTE, F-001-corrected reversal cost on C2 sign-flips; (c) RT-cost/
+  trade; (d) gross-minus-cost margin; (e) PASS/STRETCH/FAIL per pre-registered falsification numbers
+  above. No CPCV, no counted trial, no honest-N increment this cycle.
+
+  The pre-registered kill numbers are explicit and machine-checkable: C1 dies if gross ≤ 0.88/1.12/
+  1.36 pips on EURUSD/USDJPY/GBPUSD respectively (or < 15 filtered events/pair); C2 dies if gross ≤
+  1.28/1.12 pips on AUDJPY/USDJPY (or < 15 qualifying holds/pair). These are the cheap, decisive
+  tests R1 asks for — knowable before burning the trial counter.
+
+knowledge_gaps:
+  - "No tick-level / consensus-surprise data for C1 — surprise is proxied from price (announcement-bar return/range), a weaker filter than true expectations-surprise. If the proxy cannot isolate genuine surprises in QD's screen, C1's per-event edge estimate is unreliable."
+  - "No realised broker-swap ledger for C2 — carry accrual is proxied from the headline policy rate-differential series, which can diverge from actual overnight swap (broker markup, tom-next basis). The screen's carry estimate should haircut the headline differential; the true swap could be materially smaller."
+  - "Post-event drift magnitude/persistence on these specific pairs over 2021-2025 is unmeasured (structural prior only); QD's screen is the first measurement. The 12h hold horizon is a design choice to be swept (3-18h)."
+policy_violations_detected: []
+sources:
+  - "data/processed/*_1h.parquet (9 pairs)"
+  - "data/rates/cb_decision_dates.parquet"
+  - "data/rates/rate_differentials.parquet"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/pm-acceptance-criteria.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [hypothesis-formulation-and-pre-registration, TradeIntent-spec-authoring, falsification-criteria-design, signal-vs-noise-justification]

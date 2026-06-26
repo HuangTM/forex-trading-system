@@ -1,0 +1,486 @@
+role: generator-academic-factor
+artifact_type: idea-slate
+lens: academic-factor-risk-premia
+timestamp: "2026-06-26T03:24:13Z"
+subtask_ref: new-alpha-exploration
+directions:
+
+  - name: broad-cross-sectional-carry-with-crash-overlay
+    hypothesis: >
+      IF carry is harvested as a rank-weighted long-short position across 20+
+      currencies (majors + EM) with an explicit crash-risk overlay (VIX/vol-of-vol
+      trigger for de-risking), THEN gross SR ~0.5-0.7 is achievable OOS with
+      lower crash-risk skew than naïve carry, at a turnover regime that survives
+      retail spread costs.
+    mechanism: >
+      The interest rate differential premium exists because carry positions are
+      short crash insurance — the currency investor bears the "peso problem" risk
+      of sudden large reversals during global risk-off episodes. This premium is NOT
+      arbed away because: (a) most institutional carry managers have mandates that
+      force them to hold through drawdowns rather than dynamically de-risk, creating
+      persistent supply of crash insurance; (b) the EM-currency component has
+      repatriation friction and regulatory barriers that prevent pure arbitrage.
+      The overlay works because FX crash correlation with equity vol is well-documented
+      and persistent — it is not a look-ahead signal but a real-time conditioning on
+      observable volatility regime. The cross-sectional breadth (20+ currencies)
+      attacks W2 by diversifying away the USD-factor concentration that plagued the
+      firm's 10-pair USDJPY-concentrated carry.
+    data-class-required: >
+      Daily spot + forward points across 20+ currencies including EM (e.g., BRL, MXN,
+      TRY, ZAR, INR-NDF, KRW-NDF). Forward curves are required (not just spot) to
+      construct carry signals without lookahead. Minimum 15yr history for regime
+      coverage. VIX (free, CBOE) for crash overlay. Available from: Bloomberg FX
+      Forwards (institutional, ~$15k-30k/yr), or Quandl/Refinitiv historical EM
+      forwards (cheaper), or academic datasets (Lustig-Verdelhan 2007 dataset is
+      publicly posted).
+    cheap-feasibility-test: >
+      Step 1 — cost hurdle: estimate required SR gross of transaction costs. For
+      daily-rebalanced carry at ~3-5 pip RT spread on majors and ~15-25 pip on EM,
+      compute break-even gross SR as (annualized_RT_cost / annualized_vol). If the
+      published OOS gross SR on the Lustig-Verdelhan G10 dataset (typically 0.5-0.7)
+      does not clear this hurdle after EM spread adjustment, KILL without data spend.
+      Step 2 — crash overlay kill test: check whether Lustig-Verdelhan's AUD/NZD/NOK
+      "carry basket" Sharpe degraded post-2015 (well-documented; if it did and the
+      crash overlay did not rescue it in published work, the direction is graded
+      PLAUSIBLE-NOT-STRUCTURAL).
+    walls-attacked: >
+      W2 (USD-factor-concentration) — directly attacked by expanding to 20+ currencies
+      incl EM, diluting the USD loading. W3 (regime-dependence) — partially attacked by
+      crash overlay conditioning on current volatility regime rather than assuming stable
+      regime. W1 (cost-dominance) — partially addressed by low turnover (daily carry,
+      not intraday); does NOT fully resolve W1 on EM crosses where spreads are 5-10x
+      majors. W4 — NOT attacked (does not require volume/order-flow data).
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0/yr for G10 carry using Lustig-Verdelhan public dataset (limited history).
+      ~$2,000-5,000/yr for EM forward points via FRED/Quandl historical feeds.
+      ~$15,000-30,000/yr for full Bloomberg FX Forwards (20+ currency, real-time quality).
+      Academic feasibility test uses the free dataset first.
+
+  - name: time-series-momentum-diversified-universe
+    hypothesis: >
+      IF 12-month time-series momentum (TSMOM) is applied across 40+ liquid FX
+      futures contracts (not spot pairs) spanning majors, minors, and EM where futures
+      exist, THEN gross SR ~0.4-0.6 OOS is achievable with turnover low enough to
+      survive exchange-traded FX futures transaction costs (~0.5-1.5 pip RT equivalent).
+    mechanism: >
+      TSMOM is the most robust documented systematic edge in commodity trading (Moskowitz,
+      Ooi, Pedersen 2012 — live OOS 1985-2012, multi-asset). In FX specifically, it
+      works via behavioral persistence (trend-chasing by discretionary managers) and
+      central bank intervention smoothing (CBs lean against trend, reducing mean-reversion
+      and sustaining trends longer than random walk). The key structural insight is that
+      FX FUTURES (CME-listed) have: (a) exchange-regulated transparent pricing, (b) real
+      volume and open interest data (attacking W4), (c) bid-ask spreads of 0.2-0.8 pip RT
+      equivalent (attacking W1 — 5-10x cheaper than retail spot). At 40+ contracts the
+      W2 USD-concentration is structurally diluted. The 12-month horizon has well-documented
+      lower turnover than short-term strategies, keeping W1 manageable.
+    data-class-required: >
+      CME FX futures OHLCV + volume + open interest for all actively-traded contracts:
+      EUR, GBP, JPY, AUD, CAD, CHF, NZD, MXN, BRL, RUB, CNH, KRW, INR, CZK, PLN,
+      HUF, SEK, NOK, DKK. Minimum 20yr continuous (back-adjusted) history. Available:
+      Norgate Data (~$250/yr for FX futures historical), Quandl CME premium (~$500/yr),
+      or free from CME DataMine for academic use. Volume and OI are included.
+    cheap-feasibility-test: >
+      Compute the cost hurdle: CME micro FX futures RT cost ~$0.50-2.00 per contract.
+      At the Moskowitz-Ooi-Pedersen reported gross FX TSMOM SR of ~0.4, the required
+      capital efficiency and position size are deterministic — check if the minimum
+      viable position size (to keep RT costs < 20% of gross edge) is achievable at the
+      firm's paper-trading capital base. If min viable position is >$50k per contract
+      at 1x leverage, the direction is technically sound but capital-constrained for
+      the firm's current scale. This is a back-of-envelope arithmetic check, no
+      backtest required.
+    walls-attacked: >
+      W1 (cost-dominance) — directly attacked; CME futures RT cost is 5-10x lower than
+      retail spot spread. W2 (USD-factor-concentration) — directly attacked by 40+ contract
+      universe vs. 10-pair retail. W4 (no-true-volume-or-order-flow) — directly attacked;
+      CME publishes real volume and OI daily. W3 — partially addressed by long lookback
+      (12-month signal is multi-regime by construction).
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      ~$250-500/yr for CME FX futures historical from Norgate or Quandl.
+      Free (academic): WRDS or CME DataMine for institutions.
+      Near-zero for the G10 subset via freely available futures continuous series
+      (multiple sources including Yahoo Finance for majors, though quality/continuity varies).
+
+  - name: fx-value-reer-deviation-mean-reversion
+    hypothesis: >
+      IF a currency is traded based on deviation of its Real Effective Exchange Rate
+      (REER) from a rolling 5yr equilibrium, using a cross-sectional ranking across
+      15+ currencies, THEN a gross SR of 0.3-0.5 is achievable at monthly-to-quarterly
+      rebalancing, at turnover low enough to be cost-feasible even at retail spreads.
+    mechanism: >
+      Purchasing Power Parity (PPP) and REER mean-reversion are the most theoretically
+      grounded mechanisms in international macro — the academic literature documents
+      half-lives of 3-5 years (Rogoff 1996, "The Purchasing Power Parity Puzzle").
+      The premium exists because: (a) persistent current account imbalances create slow-
+      moving equilibrium deviations; (b) institutional hedgers with fixed mandates cannot
+      rapidly unwind structural over/undervaluation; (c) monetary policy objectives
+      (inflation targeting) create known correction dynamics. HONEST EVIDENCE CAVEAT:
+      the cited literature (Rogoff 1996) establishes that PPP DEVIATIONS revert with a
+      3-5yr half-life — it does NOT test a tradable REER-sorted portfolio OOS. The
+      practitioner "FX value" factor (long-undervalued/short-overvalued by REER or PPP)
+      is widely used (AQR, academic style-factor work) but the specific OOS Sharpe of a
+      REER-z-score portfolio is not pinned by a single peer-reviewed OOS trading test in
+      my citations; it is theory-grounded with strong practitioner adoption, not a
+      replicated OOS result on the scale of TSMOM. The mechanism is plausibly
+      regime-agnostic (PPP deviations correct over rate cycles, not within them), which
+      is why it is a candidate for attacking W3 — but this regime-independence is a
+      mechanism claim to be tested, not an established result.
+    data-class-required: >
+      Monthly REER indices for 20+ currencies. Available FREE from:
+      (a) BIS REER dataset — published monthly, freely downloadable, covers 60+ economies
+      back to 1994 (broad) and 1964 (narrow). Zero cost.
+      (b) IMF International Financial Statistics — also free.
+      (c) BIS Effective Exchange Rate indices (narrow + broad).
+      Spot FX: existing data. No new paid data required.
+    cheap-feasibility-test: >
+      PURELY ANALYTICAL, NO BACKTEST. Step 1 — data-availability + persistence check:
+      download BIS REER monthly series (free) and measure ONE statistic — the
+      autocorrelation of the REER z-score at 12-month lag for G10. This is a property
+      of the deviation series itself, not a strategy return. Kill condition: if the
+      12-month autocorrelation < 0.5 (i.e., deviations do NOT persist on the multi-year
+      horizon the mechanism requires), reversion is too fast/noisy and the direction is
+      killed. Step 2 — cost-hurdle arithmetic (no return assumption): at quarterly
+      rebalancing the RT cost is ~0.2-0.5 pip per pair per quarter (~1-2 pip/yr),
+      which annualizes to a vanishingly small SR drag — confirming W1 is non-binding
+      REGARDLESS of the gross edge. NOTE: this test deliberately does NOT estimate the
+      gross SR (that would require a backtest); it only confirms (a) the precondition
+      that deviations persist and (b) that cost cannot be the killer. The gross edge
+      itself is deferred to a future pre-registered trial.
+    walls-attacked: >
+      W2 (USD-factor-concentration) — directly attacked by 15+ currency cross-sectional
+      ranking that explicitly de-loads the USD factor (the sorting criterion is REER
+      deviation, orthogonal to the USD carry factor). W1 (cost-dominance) — directly
+      addressed; quarterly rebalancing has trivial RT cost even at retail spreads.
+      W3 (regime-dependence) — TARGETED BUT UNPROVEN: the mechanism is theoretically
+      regime-agnostic (PPP corrects over, not within, rate cycles), but whether the
+      tradable REER portfolio is actually regime-independent is the central thing the
+      feasibility test cannot establish — graded a candidate attack, not a confirmed one.
+      W4 — NOT attacked (does not require volume data).
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    approx-data-cost: >
+      $0/yr — BIS REER is freely published monthly. IMF IFS also free.
+      Existing spot data covers execution pricing. Zero new data acquisition cost.
+
+  - name: fx-volatility-risk-premium-selling-realized-vs-implied
+    hypothesis: >
+      IF one sells 1-month at-the-money FX options (or variance swaps) on G10 currency
+      pairs and delta-hedges daily with spot, THEN the implied-versus-realized vol spread
+      (the FX Volatility Risk Premium, VRP) generates gross SR ~0.5-0.8 OOS at monthly
+      roll, with turnover low enough to survive institutional option bid-ask.
+    mechanism: >
+      The FX VRP exists because option buyers (corporates, risk-averse institutions)
+      are willing to pay a persistent premium for downside protection. The implied vol
+      consistently exceeds subsequent realized vol by 1-3 vol points on average across
+      G10 pairs (Carr and Wu 2009 "Variance Risk Premiums," peer-reviewed, multi-pair
+      OOS). The premium is not fully arbed because: (a) selling vol requires margin
+      capital that is costly for most institutions; (b) the strategy has left-tail risk
+      (realized vol spikes on event shocks), which most institutional mandates cannot
+      bear. The direction DOES NOT require intraday data — delta hedging is daily. The
+      mechanism is regime-conditioned (VRP tends to be larger in low-vol regimes), but
+      the cross-sectional breadth across G10 provides regime diversification.
+    data-class-required: >
+      FX option implied volatility surfaces (at minimum: 1-month ATM implied vol
+      for G10 pairs, delta-25 risk reversals and strangles for skew). Available from:
+      Bloomberg FX Vol Surface (~$20k-40k/yr for full surface),
+      or FRED/OptionMetrics FX (cheaper, less granular),
+      or Refinitiv Eikon FX vol (~$10k-15k/yr).
+      For a cheap-feasibility test only: 1-month ATM implied vol for EURUSD/USDJPY
+      is available free from CBOE (EUVIX, JYVIX indices) and some broker APIs
+      (Interactive Brokers implied vol for liquid pairs). Daily realized vol is
+      computed from existing OHLCV (Garman-Klass estimator — no new data).
+    cheap-feasibility-test: >
+      Use free CBOE EUVIX/JYVIX series + EURUSD/USDJPY realized vol from existing
+      OHLCV (Garman-Klass). Compute monthly implied-minus-realized vol spread.
+      Kill condition: if the mean implied-minus-realized spread < 1.5 vol points
+      (annualized), the strategy does not survive standard option bid-ask of
+      ~0.5-1 vol point. Expected result from published literature: spread is
+      typically 2-4 vol points on EURUSD, 2-5 on USDJPY. This is an
+      arithmetic check executable in 30 minutes on existing data + free CBOE vol.
+    walls-attacked: >
+      W1 (cost-dominance) — directly attacked; the mechanism's turnover is monthly
+      (one option sell per month per pair), not intraday. The option bid-ask is the
+      cost, not the underlying spot spread. W3 (regime-dependence) — partially attacked;
+      VRP exists across vol regimes though its magnitude varies (higher VRP in low-vol
+      regimes). W2 — partially attacked if applied across G10 rather than just USDJPY.
+      W4 — partially attacked; option implied vol IS a genuine vol signal with
+      information content not in tick-volume. Does NOT require order-flow data.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0 for feasibility test on 2 pairs using free CBOE vol indices.
+      ~$5,000-15,000/yr for Refinitiv Eikon FX vol surface on G10.
+      ~$20,000-40,000/yr for full Bloomberg FX Vol Surface.
+      Note: option execution requires institutional or semi-institutional broker access;
+      retail FX option markets have much wider bid-ask, materially changing the cost hurdle.
+
+  - name: dollar-factor-global-imbalance-long-short
+    hypothesis: >
+      IF the USD global factor (the "dollar carry trade" — long currencies of countries
+      with current account surpluses vs. short countries with deficits) is traded as a
+      low-turnover rank-weighted basket, THEN gross SR ~0.3-0.5 OOS is achievable at
+      quarterly rebalancing, structurally diversified from standard interest-rate carry.
+    mechanism: >
+      Lustig, Roussanov, and Verdelhan (2011, "Common Risk Factors in Currency Markets")
+      documented that FX returns are driven by two principal components: the HML carry
+      factor and the dollar risk factor (DOL). The dollar factor loads positively on all
+      currencies against USD when the USD is weak and negatively when strong — it is the
+      global-imbalance channel. Separately, Caballero and Krishnamurthy's work on global
+      reserve demand shows that the USD's status as reserve currency creates structural
+      over/undervaluation cycles related to global saving imbalances, not interest rate
+      differentials. This mechanism is: (a) low-correlation with standard interest-rate
+      carry (the firm's prior R5/QRB-6 attempts) — it buys a DIFFERENT factor; (b)
+      operates at quarterly horizon, avoiding cost-dominance. The cheap feasibility test
+      is that the current-account balance signal is available free from IMF/BIS.
+    data-class-required: >
+      Quarterly current account balances for 20+ countries (free: IMF Balance of
+      Payments, OECD.Stat, World Bank). Monthly trade balance proxies (free: FRED,
+      country statistical agencies). These are published free with ~3-month lag.
+      FX spot: existing data. USD index (DXY): free. Zero new paid data required.
+      Note: the signal IS slow-moving (quarterly) so the lag is acceptable for a
+      momentum-style application.
+    cheap-feasibility-test: >
+      PURELY ANALYTICAL SIGNAL-OVERLAP CHECK, NO STRATEGY BACKTEST. Construct the IMF
+      current-account-surplus/GDP ranking for G10 using free FRED/IMF data, and SEPARATELY
+      construct the interest-rate (carry) ranking for the same currencies from existing
+      rate-differential data. Measure ONE statistic: the rank correlation (Spearman)
+      between the current-account ordering and the carry ordering, as time-series-averaged
+      monthly cross-sectional ranks. This is a property of the two SIGNALS, not of any
+      strategy return — no spot returns, no Sharpe, no portfolio is computed. Kill
+      condition: if the two rankings have Spearman rank-correlation > 0.6 (the surplus
+      currencies ARE the high-carry currencies), the dollar-imbalance factor collapses
+      into the interest-rate carry the firm already tested and tested-and-failed, so it
+      adds no diversification — KILL. Reference: Lustig-Roussanov-Verdelhan (2011) report
+      DOL and HML-carry as DISTINCT principal components, so the prior is low overlap;
+      this check verifies that prior on the firm's specific universe before any data spend.
+    walls-attacked: >
+      W2 (USD-factor-concentration) — directly attacked; the dollar-factor approach
+      EXPLICITLY models the USD loading as the signal rather than being subject to it.
+      W1 (cost-dominance) — directly addressed; quarterly rebalancing has trivial RT cost.
+      W3 (regime-dependence) — ONLY PARTIALLY, AND CONTESTED: current-account imbalances
+      ARE slow-moving, but the DOL factor is well-documented to co-move with global
+      risk-on/risk-off regimes and "often loads on the same regimes as carry" (see
+      honest-note) — so claiming W3 is fully neutralized would contradict the factor's
+      own risk profile. Graded a partial, unproven attack pending the regime-correlation
+      check. W4 — NOT attacked.
+    evidence-grade: THEORY-GROUNDED-UNTESTED  # The DOL factor itself is OOS-documented (LRV 2011), but the SPECIFIC current-account-sorted tradable basket is not a replicated OOS trading result — the OOS evidence is for the principal component, not this signal construction.
+    approx-data-cost: >
+      $0/yr — IMF BOP, FRED, World Bank data are all freely published.
+      Existing spot data covers execution pricing. Zero new data acquisition cost.
+
+  - name: carry-timing-via-option-implied-skew  # challenges CEO steer
+    hypothesis: >
+      IF carry position sizing is dynamically conditioned on FX option 25-delta
+      risk reversal skew (a real-time, option-market-implied crash-risk signal),
+      THEN the carry-crash drawdown is reduced by 30-50% vs. naïve carry with
+      only a 10-20% reduction in gross carry return — producing better risk-adjusted
+      carry on EXISTING G10 pairs without new data.
+    mechanism: >
+      This direction CHALLENGES the CEO steer that "going around the walls beats
+      going faster/ML-on-same-data." The specific argument: the firm's carry attempts
+      failed primarily due to regime-dependence (W3) and crash risk, NOT due to a
+      fundamentally wrong mechanism. Option-implied skew is a publicly observable
+      signal that directly prices the LEFT TAIL RISK the carry trade is exposed to.
+      When skew is steep (options pricing crash as expensive), carrying the position is
+      irrational compensation for bearing un-priced crash risk; when skew is flat, the
+      carry premium is unencumbered. This is NOT "ML on the same OHLCV data" — it is a
+      genuinely different DATA CLASS (option-implied risk, not realized price history)
+      applied to an existing mechanism. Academic evidence: Jurek (2014, "Crash-neutral
+      currency carry trades") shows removing crash-risk periods improves carry SR and
+      skew significantly; Burnside et al. (2011) document option-protected carry.
+      The mechanism is arb-resistant because options markets have institutional structure
+      that prevents pure carry + options arbitrage.
+    data-class-required: >
+      FX option 25-delta risk reversal prices for G10 pairs. Available free for EURUSD
+      via broker APIs (Interactive Brokers) and CBOE vol indices. Paid for full G10:
+      Bloomberg FX vol surface or Refinitiv, ~$5k-15k/yr. Note: for G10 majors only
+      (EURUSD, USDJPY, GBPUSD, AUDUSD, USDCAD) a feasibility test can use free or
+      very low-cost sources.
+    cheap-feasibility-test: >
+      Obtain monthly 25-delta risk reversal for EURUSD from free sources (CBOE or
+      broker API). Compute correlation between steep-skew months and subsequent carry
+      underperformance months (using existing EURUSD carry data). Kill condition: if
+      the skew signal has <0.15 correlation with next-month carry excess return, it
+      adds no timing value and the direction is graded FOLKLORE. Expected from Jurek
+      (2014): skew-sorted crash-neutral carry shows Sharpe improvement of ~0.2-0.4
+      SR units. This test uses existing data + one free external series.
+    walls-attacked: >
+      W3 (regime-dependence) — directly attacked; the skew signal conditions on the
+      real-time crash-risk regime, making carry regime-adaptive rather than regime-blind.
+      W4 — partially attacked; option skew IS genuine market information not in OHLCV.
+      W1 — NOT helped (carry's low turnover was already not the primary cost problem).
+      W2 — NOT attacked (still concentrated on same pairs).
+      CHALLENGE TO CEO STEER: this direction argues the firm's W3 failure was a CARRY
+      TIMING failure, not a CARRY MECHANISM failure — and the fix is a new data signal
+      (option skew), NOT a fundamentally new mechanism. This is a targeted "go faster
+      intelligently" rather than "go around."
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0 for feasibility test on EURUSD using free CBOE/broker vol.
+      ~$5,000-15,000/yr for full G10 25-delta risk reversals.
+      Lower bound: ~$500-2,000/yr for G4-only (EURUSD, USDJPY, GBPUSD, AUDUSD) via
+      semi-institutional providers.
+
+  - name: betting-against-beta-in-fx-low-vol-factor
+    hypothesis: >
+      IF a cross-sectional FX "low-beta" factor is constructed (long low-realized-vol
+      currencies vs. short high-realized-vol currencies, exposure-neutral), THEN gross
+      SR ~0.3-0.5 OOS is achievable at monthly rebalancing with low turnover, providing
+      a carry-uncorrelated return stream.
+    mechanism: >
+      Menkhoff et al. (2012, "Carry Trades and Global FX Volatility", JF) document that
+      global FX volatility is priced: high-vol currencies earn a premium. The Betting
+      Against Beta (BAB) logic (Frazzini-Pedersen 2014) applied to FX: investors with
+      leverage constraints prefer high-beta (high-vol) currencies, making them structurally
+      OVERPRICED relative to fair value on a Sharpe-adjusted basis. Shorting high-vol
+      FX and levering up low-vol FX produces positive alpha. The mechanism is separate
+      from carry (low-vol currencies are not always high-carry currencies — JPY is
+      low-yield AND low-vol, AUD is high-carry AND high-vol). This correlation structure
+      means FX-BAB is a genuine diversifier. Arb resistance: constrained investors cannot
+      simply lever the low-vol side (leverage constraints are the source of the premium).
+    data-class-required: >
+      Daily realized volatility estimated from existing OHLCV (Parkinson or
+      Garman-Klass estimator on existing 1h data — no new data required).
+      For true cross-sectional breadth (20+ currencies): need spot daily OHLCV for
+      G10 + EM10 (Norgate/Quandl FX at ~$200-500/yr).
+      For G10 only: uses existing data. Zero new paid data required for G10.
+    cheap-feasibility-test: >
+      Construct 1-month realized vol ranking for G10 using existing 1h OHLCV data.
+      Compute the spread between low-vol-quartile vs. high-vol-quartile annualized
+      return. Kill condition: if the spread is negative (high-vol outperforms low-vol
+      on a total return basis for G10), the FX-BAB premium does not exist in this
+      universe. Academic reference: Menkhoff et al. (2012) report positive vol-sorted
+      premium in a broad currency universe; the G10-only subgroup is weaker. If G10
+      result is flat or negative, the direction requires EM breadth to work (which
+      requires new data). This test is executable on existing data in one day.
+    walls-attacked: >
+      W2 (USD-factor-concentration) — directly attacked; vol-sorted basket explicitly
+      de-loads the USD carry factor by construction (uncorrelated sorting criterion).
+      W3 — partially attacked; the vol premium mechanism is structural (leverage
+      constraints persist across regimes). W1 (cost-dominance) — directly addressed by
+      monthly rebalancing. W4 — NOT attacked.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0/yr for G10 feasibility test (uses existing 1h OHLCV).
+      ~$200-500/yr for G10+EM20 daily OHLCV (Norgate or Quandl FX historical).
+
+challenges-steer:
+  - carry-timing-via-option-implied-skew
+
+honest-note: |
+  DIRECTIONS I WOULD ACTUALLY BET ON (ranked by conviction):
+
+  1. time-series-momentum-diversified-universe — Moskowitz-Ooi-Pedersen (2012) is
+     the most robustly replicated systematic trading result in academic finance.
+     The FX futures version has real volume data (attacking W4), CME execution costs
+     5-10x below retail spread (attacking W1), and 40+ contract breadth (attacking W2).
+     The data is cheap ($250-500/yr). This is the strongest direction in the slate
+     on evidence grade + cost + wall-attack. Primary risk: minimum viable position
+     size at the firm's current capital base may not be economic.
+
+  2. fx-value-reer-deviation-mean-reversion — The BIS REER dataset is FREE, the
+     mechanism is theoretically grounded, and quarterly rebalancing trivially survives
+     retail spread costs. GRADE CORRECTION: this is THEORY-GROUNDED-UNTESTED, not an
+     OOS-survivor — Rogoff (1996) establishes deviation reversion, not a tradable REER
+     portfolio's OOS Sharpe; the FX-value factor has strong practitioner adoption (AQR
+     style factors) but I do not have a single peer-reviewed OOS trading test in my
+     citations. The catch: half-life of 3-5 years means the confirmability horizon is
+     long (this direction will face the same confirmability wall QRB-6 hit). Strong on
+     W2 attack; W3 attack is plausible-but-unproven. Free data, one-afternoon feasibility
+     check (signal-persistence autocorrelation, not a backtest).
+
+  3. broad-cross-sectional-carry-with-crash-overlay — OOS evidence is solid (Lustig-
+     Verdelhan G10 carry is the reference paper). The EM extension adds genuine
+     diversification but costs money for forward data. The crash overlay improves skew
+     but requires VIX conditioning — evidence that the overlay adds value net-of-cost
+     is thinner than the base carry literature. Honest: this is the SAME carry the
+     firm already tested, just with more breadth and a crash trigger. If the fundamental
+     mechanism review (W2/W3) is the issue, breadth helps more than the overlay.
+
+  DIRECTIONS I WOULD FLAG AS RISKIER:
+
+  4. dollar-factor-global-imbalance-long-short — Theoretically clean, free data.
+     GRADE CORRECTION: graded THEORY-GROUNDED-UNTESTED — the DOL principal component
+     is OOS-documented (LRV 2011) but the specific current-account-sorted TRADABLE basket
+     is not a replicated OOS trading result. The DOL factor's standalone return in pure
+     G10 is documented to be modest (SR ~0.3-0.4) and it often loads on the same
+     risk-on/risk-off regimes as carry — so the W3 attack is partial-and-contested, NOT
+     a clean regime-independent factor. The signal-overlap kill test (rank-correlation
+     vs. carry, analytical only) is essential before advancing this direction.
+
+  5. carry-timing-via-option-implied-skew — I included this as the CEO-steer challenge
+     and it has legitimate peer-reviewed support (Jurek 2014). But it IS carry,
+     just crash-conditioned. If the firm's carry near-misses (R5) failed due to
+     regime-dependence in a way that a skew signal would NOT have rescued (the
+     2022-23 JPY hike regime was not a crash-risk event — it was a directional
+     carry episode), then the skew overlay solves the wrong problem. The kill test
+     will be informative here.
+
+  6. betting-against-beta-in-fx-low-vol-factor — The evidence for G10-only FX-BAB
+     is thinner than the broad currency evidence in Menkhoff et al. (2012). In a
+     10-12 pair universe this is likely to produce SR near zero. Needs EM breadth
+     to work, which costs data. Feasibility test should kill or confirm quickly.
+
+  7. fx-volatility-risk-premium-selling-realized-vs-implied — Carr-Wu (2009) is
+     peer-reviewed and OOS. The mechanism is real. However: selling options requires
+     institutional execution infrastructure the firm does not have (option bid-ask
+     at retail level destroys the premium); this is the hardest direction to
+     operationalize given current firm infrastructure. It is a RESEARCH direction,
+     not near-term executable. Keep for a future cycle when infrastructure is resolved.
+
+  HONEST GRADE DISTRIBUTION (after self-correction): 5 of 7 directions carry genuine
+  OOS-academic support for their CORE factor — TSMOM, broad carry, VRP, FX-BAB, and
+  carry-timing-via-skew. Two directions are downgraded to THEORY-GROUNDED-UNTESTED on
+  honest reflection: (3) fx-value-REER — Rogoff (1996) tests deviation reversion, not a
+  tradable portfolio's OOS Sharpe; and (5) dollar-factor — the DOL principal component
+  is OOS but the specific current-account-sorted tradable basket is not a replicated OOS
+  trading result. None of the seven is pure FOLKLORE-UNVERIFIED. The honest calibration
+  is that the FX-BAB (G10 only) and dollar-factor results are THINNER than the carry and
+  TSMOM results, and the practical VRP direction is infrastructure-blocked. The strongest
+  evidence-grade + cheapest-data + most-walls-attacked direction remains TSMOM on CME FX
+  futures.
+
+sources:
+  - >
+    Moskowitz, T., Ooi, Y.H., Pedersen, L.H. (2012). "Time Series Momentum."
+    Journal of Financial Economics 104(2): 228-250. OOS 1985-2012, multi-asset incl FX futures.
+  - >
+    Lustig, H., Roussanov, N., Verdelhan, A. (2011). "Common Risk Factors in Currency
+    Markets." Review of Financial Studies 24(11): 3731-3777. DOL + HML-FX factors, OOS G10.
+  - >
+    Lustig, H., Verdelhan, A. (2007). "The Cross Section of Foreign Currency Risk Premia
+    and Consumption Growth Risk." American Economic Review 97(1): 89-117. Carry OOS.
+  - >
+    Rogoff, K. (1996). "The Purchasing Power Parity Puzzle." Journal of Economic Literature
+    34(2): 647-668. PPP half-life 3-5yr, foundational REER reference.
+  - >
+    Carr, P., Wu, L. (2009). "Variance Risk Premiums." Review of Financial Studies
+    22(3): 1311-1341. FX VRP, multi-pair OOS.
+  - >
+    Menkhoff, L., Sarno, L., Schmeling, M., Schrimpf, A. (2012). "Carry Trades and
+    Global Foreign Exchange Volatility." Journal of Finance 67(2): 681-718.
+    Vol-sorted FX portfolios, OOS multi-currency.
+  - >
+    Jurek, J.W. (2014). "Crash-neutral currency carry trades." Journal of Financial
+    Economics 113(3): 325-347. Option-protected carry, OOS G10.
+  - >
+    Frazzini, A., Pedersen, L.H. (2014). "Betting Against Beta." Journal of Financial
+    Economics 111(1): 1-23. BAB factor, multi-asset framework.
+  - >
+    Burnside, C., Eichenbaum, M., Kleshchelski, I., Rebelo, S. (2011). "Do Peso Problems
+    Explain the Returns to the Carry Trade?" Review of Financial Studies 24(3): 853-891.
+  - >
+    BIS Effective Exchange Rate indices (free): https://www.bis.org/statistics/eer.htm
+  - >
+    IMF Balance of Payments Statistics: https://data.imf.org (free, quarterly CA data)
+  - >
+    CBOE EUVIX / JYVIX indices (free): https://www.cboe.com/tradable_products/vix/
+  - >
+    Forex trading skill EVIDENCE LAYER (skill file §2.5): carry and cross-sectional FX
+    momentum are the two peer-reviewed OOS-documented systematic edges; carry is crash-
+    risk compensation; cost-adjusted carry profitability is contested.
+  - >
+    Firm evidence corpus: .fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/
+    CONSENSUS.md; .fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md;
+    references/pre-registrations/ (R5 carry USDJPY near-miss archive).
+
+no-capital-instruction: true

@@ -1,0 +1,425 @@
+role: quant-researcher
+artifact_type: pre-registration
+decision: implement
+timestamp: "2026-06-26T17:44:23Z"
+subtask_ref: trend-futures-prereg
+subtask_id: trend-futures-prereg-2026-06-26-qr
+trial_id: trend-futures-prereg-2026-06-26
+status: FROZEN-AWAITING-DATA   # design only; no backtest run; honest-N stays 30
+
+# ============================================================================
+# This is a DESIGN artifact authored under Rule 4 (pre-registration BEFORE
+# backtest). It is FROZEN: every threshold, window boundary, universe member,
+# and kill condition below is committed NOW, single-shot, and CANNOT be moved
+# after data is seen (NHT discipline). The committed CPCV backtest that would
+# spend one honest-N unit is a SEPARATE, Board-gated step (see
+# next-gated-steps). No code is emitted (execution firewall). No live or paper
+# capital. honest-N stays 30 at freeze.
+# ============================================================================
+
+hypothesis: >
+  IF 12-month time-series momentum (TSMOM — the sign of the trailing 12-month
+  vol-scaled excess return, rebalanced monthly) is harvested as ONE diversified,
+  risk-parity, program-level book spanning liquid CME/CBOT/NYMEX futures across
+  THREE asset classes (FX + commodities + rates), THEN the program's net-of-real-
+  futures-cost edge (gross trend Sharpe, post-decay ~0.20 per bet) is REAL —
+  because the trend / time-series-momentum risk premium is a documented OOS
+  survivor across a century of cross-asset evidence (Moskowitz-Ooi-Pedersen 2012;
+  Hurst-Ooi-Pedersen 2017) and futures round-trip cost at 12-month-signal
+  turnover is negligible (probe: residual net Sharpe ~0.40 vs a 0.20 gate) — BUT
+  it is NOT CONFIRMABLE within the firm's <=3yr bar: cross-asset breadth lifts
+  effective bets from ~2-4 to ~4-10 and shortens years-to-validate from centuries
+  toward decades, NOT toward years (F7 computes ~37-92yr on honest decayed
+  inputs). The pre-registered, frozen disposition is therefore that F7 FIRES
+  DO-NOT-RUN at $0; the committed backtest is NOT authorized. (Falsifiable: F7's
+  years-to-validate <= 3.0yr would clear it; on published-decayed inputs it does
+  not.)
+
+alpha-source: >
+  WHY THE TREND PREMIUM PERSISTS AND IS NOT ARBED (honest evidence-layer
+  calibration). The time-series-momentum / trend premium is the single most
+  replicated systematic trading result in academic finance: MOP-2012 documents
+  it OOS 1985-2012 across 58 futures incl FX; Hurst-Ooi-Pedersen-2017 extends it
+  to ~100 years across equities, bonds, commodities and FX. The economic
+  grounding is behavioral + structural and is NOT a free lunch: (a) under-reaction
+  to information diffusing slowly through a market (anchoring, disposition
+  effect), then (b) over-reaction / herding that extends trends, with (c) a
+  documented CRASH-RISK premium component — trend pays a positive premium in
+  exchange for sharp, correlated drawdowns at trend REVERSALS (2009 whipsaw, the
+  2011-2018 "long winter", March-2020). This is precisely why it is not arbed
+  away: the premium is COMPENSATION for bearing the reversal-crash risk that
+  rational arbitrageurs decline to hold; an arbitrageur who shorts the crowded
+  trend is the one who blows up in the reversal. The persistence is therefore a
+  risk premium, not a pricing error — consistent with the forex-trading EVIDENCE
+  LAYER, which lists momentum as one of only two peer-reviewed OOS-documented
+  systematic edges (alongside carry), with the explicit caveat that it is
+  gross-of-cost and crash-prone. HONEST CALIBRATION: published gross Sharpes
+  (~0.4 single-asset FX-futures sleeve; ~0.7-1.0 fully diversified) are GROSS,
+  carry wide bands, and PRE-DATE post-publication decay; a McLean-Pontiff decay
+  haircut (~35-58%) is applied before any plausibility claim, and NO edge number
+  is asserted here — the committed backtest establishes the firm's net edge.
+
+universe: >
+  ONE diversified, frozen, program-level universe of liquid, continuously-traded,
+  back-adjusted continuous futures, deliberately spanning THREE low-cross-
+  correlated asset classes to maximize EFFECTIVE breadth (the confirmability
+  lever). Total = 24 contracts, frozen at this freeze; no addition/removal after
+  data is seen.
+
+  SLEEVE 1 — FX futures (8): 6E (EUR), 6B (GBP), 6J (JPY), 6A (AUD), 6C (CAD),
+    6S (CHF), 6N (NZD), 6M (MXN). [CME/Globex]
+  SLEEVE 2 — Commodity futures (10): CL (WTI crude), NG (nat gas), HO (heating
+    oil) [NYMEX energy]; GC (gold), SI (silver), HG (copper) [COMEX metals];
+    ZC (corn), ZS (soybeans), ZW (wheat) [CBOT ags]; LE (live cattle) [CME].
+  SLEEVE 3 — Rates futures (6): ZT (2y), ZF (5y), ZN (10y), ZB (30y) [CBOT US
+    Treasuries]; plus 2 international rate sleeves where data permits: a
+    Euro-Bund-equivalent and a Short-STIR-equivalent (declared as the
+    "rates-international" slots; if backtest-grade continuous data is
+    unavailable at acquisition, these two slots are DROPPED — universe becomes
+    22, recorded as a frozen contingency, NOT re-optimized).
+
+  WHY THIS GIVES BREADTH: a single-pair futures TSMOM flips ~4x/yr → effective-N
+  far too low to confirm in <=3yr (the binding wall). Within FX, the 8 contracts
+  are USD-cross-loaded and collapse to ~2-4 EFFECTIVE independent bets (W2). The
+  decisive breadth unlock is the CROSS-ASSET span: commodity-trend and
+  rates-trend are empirically LOW-correlated to FX-trend OUTSIDE liquidation
+  regimes (AMP-2013; Hurst-2017 publish the cross-asset correlation matrices).
+  A 24-contract cross-asset program plausibly reaches ~6-10 effective independent
+  bets — the ONLY structural path that brings years-to-validate toward the
+  <=2-3yr bar. This breadth is MANDATORY, not optional, per the ratified
+  consensus and the NHT/CRO single-program ruling.
+
+windows: >
+  DATA NOT YET ACQUIRED — this section specifies the INTENDED, frozen window
+  STRUCTURE that the committed backtest MUST honor; it is not yet populated.
+  MINIMUM HISTORY: >=20 years of clean back-adjusted continuous daily series per
+  contract (target 1990-present where available; absolute floor 2000-present).
+  The >=20yr floor is a HARD precondition because it is the only way to bracket
+  multiple distinct macro regimes AND multiple trend-crash episodes.
+
+  STRUCTURE (single-pass, frozen boundaries — no sliding/re-fitting after seeing
+  results; CPCV does the resampling within TRAIN+TEST):
+    - TRAIN+TEST pool: earliest-available through 2021-12-31. CPCV folds + purge
+      + embargo are applied WITHIN this pool (see metric).
+    - HOLDOUT (locked, untouched until the single final evaluation):
+      2022-01-01 → most-recent-complete-year. Evaluated EXACTLY ONCE.
+    - FORWARD-CONFIRMATION look-date: pre-declared at the committed-backtest step
+      as part of the confirmability pre-check (a fixed calendar date, QRB-6-style
+      lock), NOT chosen after seeing in-sample results.
+
+  REGIME-CRASH INCLUSION (MANDATORY, CRO condition): the TRAIN+TEST pool MUST
+  include at least these trend-momentum CRASH / reversal episodes IN-SAMPLE — it
+  may NOT be a recent-low-vol-only window:
+    (1) the 2009 post-GFC trend reversal / sharp risk-on whipsaw;
+    (2) the 2011-2015 managed-futures "long winter" choppy drawdown;
+    (3) the March-2020 COVID volatility spike + cross-asset correlation-to-1 event.
+  If the acquired history cannot cover episode (1), the >=20yr floor is breached
+  and the design is BLOCKED pending deeper data (machine-checkable; see
+  falsification-criteria #6).
+
+metric: >
+  PRIMARY: Deflated Sharpe Ratio (Bailey-Lopez de Prado) on NET-of-real-futures-
+  cost, PROGRAM-LEVEL returns, computed under Combinatorial Purged Cross-
+  Validation (CPCV).
+    - CPCV configuration (FROZEN): N = 10 groups, k = 2 test groups per
+      combination → C(10,2) = 45 train/test splits; report the DISTRIBUTION of
+      net Sharpe across the 45 paths and the median path Sharpe as the point
+      estimate fed to DSR.
+    - PURGE: remove from TRAIN any observation whose label-construction window
+      overlaps the TEST window. Sized to the SIGNAL HORIZON: purge = 12 months
+      (the lookback) + 1 month (the holding/rebalance) = 13 months on each side
+      of every test fold. Non-negotiable: the 12-month lookback makes label
+      leakage the dominant lookahead risk here.
+    - EMBARGO: an additional 1-month embargo after each test fold to kill
+      serial-correlation bleed from the monthly rebalance. Total exclusion band
+      around a test fold = 13mo purge + 1mo embargo = 14 months.
+    - DEFLATION (the load-bearing honesty gate — applied as a COMPOUND
+      denominator): the DSR multiple-testing correction deflates against the
+      EFFECTIVE number of trials = honest-N=30 (org-wide trial budget already
+      spent) COMPOUNDED WITH the 21-direction generation SELECTION SURFACE
+      (PR F-008): the 21-wide search is booked into effective-N as its honest
+      MECHANISM count (~6-7 distinct mechanisms, NOT a naive 21 which
+      over-corrects, NOT +1 which under-corrects), per the consensus § Disciplines
+      #3. Frozen effective trial count for deflation = 30 + 7 = 37 (NHT owns
+      final ratification of this denominator at the committed step; 37 is the
+      pre-committed value).
+    - REGIME-STRATIFIED (MANDATORY, W3): report net Sharpe SEPARATELY for
+      {hiking, easing, on-hold} × {risk-on, risk-off} buckets AND for each of the
+      three in-sample crash episodes, NOT just pooled. The pooled DSR is not
+      sufficient on its own — a pass requires the crash-subsample condition
+      (falsification #4) to also hold.
+    - EFFECTIVE-BREADTH report (MANDATORY): report effective independent bets
+      (post-correlation, G5 concentration-adjusted) for the program, NOT the raw
+      24-contract count — this number drives the confirmability arithmetic.
+
+falsification-criteria:
+  # FROZEN, machine-checkable, single-shot. ANY ONE true => KILL the direction
+  # at (or before) the committed backtest. No threshold may be moved after data
+  # is seen. These are evaluated in order; #6 and #7 are PRE-backtest gates.
+  - "F1 (net-DSR floor): program-level net-of-cost Deflated Sharpe Ratio < 0.95 under the frozen compound deflation denominator (effective trials = 37) on the CPCV median path. (0.95 is the firm's ratified DSR pass bar.)"
+  - "F2 (cost-hurdle residual): published gross trend Sharpe, after a McLean-Pontiff post-publication decay haircut (use 0.50 retained = 50% haircut, the midpoint of the 35-58% range, pinned NOW), minus the modeled real-futures RT cost Sharpe drag, leaves < 0.20 residual gross Sharpe. (Probe established this PASSES at ~0.40 residual; F2 re-checks it on the frozen, decayed, program-turnover basis.)"
+  - "F3 (regime concentration / W3): > 50% of net program edge is concentrated in a single macro-regime bucket AND the net Sharpe of the program with that bucket EXCLUDED is <= 0. (The trend premium must not be one regime in disguise.) FROZEN BUCKET-DATING SOURCE: each calendar month is labelled on TWO axes. Axis-1 (CB-cycle) = {hiking, easing, on-hold} from the sign of the trailing-3-month change in the US effective federal funds rate (FRED series DFF, monthly average): >+5bp = hiking, <-5bp = easing, else on-hold. Axis-2 (risk-on/off) from the sign of the trailing-3-month return of the S&P 500 total-return index (FRED SP500 / Shiller proxy pre-1990): >=0 = risk-on, <0 = risk-off. Both series are public, monthly, look-back-only (no revision-lookahead); the labelling rule is frozen here and not tuned on results."
+  - "F4 (crash-subsample survival, CRO): the program's net Sharpe computed ON the union of the three mandated in-sample crash episodes is below its pre-declared crash-floor of -0.50 Sharpe, i.e. the strategy does not merely under-perform but is CATASTROPHIC in the exact regime the premium is supposed to compensate for. (Trend is EXPECTED to lose in reversals; F4 kills only an un-survivable crash, not a normal drawdown.) FROZEN TO-THE-DAY EPISODE BOUNDARIES (inclusive, calendar dates): (1) 2009 post-GFC trend reversal = 2009-03-09 → 2009-12-31; (2) managed-futures 'long winter' choppy drawdown = 2011-01-01 → 2015-12-31; (3) March-2020 COVID volatility spike + correlation-to-1 = 2020-02-19 → 2020-04-30. The union of these three date ranges is the F4 evaluation set, frozen here."
+  - "F5 (diversification premise / breadth): realized program-level effective independent bets Neff < 4.0, OR realized average pairwise cross-ASSET-SLEEVE correlation > 0.6 on the TRAIN+TEST pool. FROZEN Neff ESTIMATOR: Neff = (sum_i w_i)^2 / (w^T R w), where w is the program's risk-parity weight vector (inverse-vol, normalised to sum 1) over the per-contract trend-return series and R is the realized correlation matrix of those per-contract net-of-cost return streams on the TRAIN+TEST pool. (This is the Strategic-Breadth / participation-ratio form; it equals the contract count when streams are uncorrelated and collapses toward 1 as correlations → 1.) Cross-ASSET-SLEEVE correlation = the mean off-diagonal of the 3x3 correlation matrix of the three sleeve-aggregate return streams (FX, commodity, rates). Both pinned here, not referenced. (If the cross-asset breadth that justifies the whole direction is not real OOS, the program collapses to a single USD-loaded bet and the confirmability case is void.)"
+  - "F6 (data-floor / regime coverage — PRE-backtest gate): acquired clean history fails to cover >=20yr OR fails to include the 2009 trend-reversal episode in-sample. (Machine-checkable on the acquired manifest; BLOCKS the backtest, does not merely flag.)"
+  - "F7 (confirmability power — PRE-backtest gate, QRB-6 lesson): the pre-declared power pre-check returns years-to-validate at 80% power > 3.0 years. FROZEN, NON-CIRCULAR INPUTS (computable TODAY at $0, BEFORE any data spend — F7 must NOT depend on the backtest it gates): per-bet annual Sharpe s = 0.20 (the PUBLISHED ~0.40 diversified-trend Sharpe after the F2 50% McLean-Pontiff decay haircut — a published-literature value, NOT a backtest-realized one); effective bets B in the most-generous plausible band 4-10; deflated one-sided alpha = 0.05/37 (z = 3.00) from the frozen 37-trial denominator; power 0.80 (z = 0.842). Program Sharpe S_prog = s*sqrt(B); years = (z_power + z_alpha)^2 / S_prog^2. COMPUTED RESULT: years-to-validate = 92yr at B=4, ~61yr at B=6, ~37yr at B=10 (most-generous construction ~37-59yr). Since all > 3.0, F7 FIRES => DO-NOT-RUN. This is the expected disposition; the committed backtest is NOT authorized. (Re-evaluated only if real acquired-data estimates of s and B clear the gate, which on these honest published-decayed inputs they do not.)"
+
+data-spec: >
+  EXACTLY WHAT TO ACQUIRE so the Board/user can execute (flag free vs paid):
+    - INSTRUMENT: back-adjusted CONTINUOUS futures series for the 24 frozen
+      contracts above (FX 8 + commodity 10 + rates 6), with the documented roll
+      convention recorded (roll method is part of the FROZEN cost manifest — a
+      different roll = a different strategy).
+    - FREQUENCY: daily OHLCV. (Daily is sufficient for a 12-month-lookback,
+      monthly-rebalanced TSMOM; intraday is NOT required and is explicitly
+      out-of-scope for this direction.)
+    - INCLUDED FIELDS: OHLC + true exchange VOLUME + OPEN INTEREST (the W4-
+      closing property — genuine audited volume, not a tick-count proxy).
+    - HISTORY DEPTH: >=20yr per contract (target from 1990; floor from 2000),
+      sufficient to bracket the three mandated crash episodes.
+    - SOURCE CANDIDATES (in cost order):
+        * FREE tier (sufficient for the data-floor + crash-coverage CHECK and a
+          first-pass, lower-quality run): public daily continuous series for the
+          G10 FX and the most-liquid commodity/rate contracts via public
+          providers (continuity/roll quality VARIES — adequate to validate
+          coverage and the breadth correlation matrix, NOT backtest-grade).
+        * PAID, LOW-COST (RECOMMENDED for the committed backtest): Norgate Data
+          futures historical ~$250-500/yr, OR Nasdaq Data Link / Quandl
+          continuous futures ~$420-500/yr — backtest-grade rolls across all
+          three sleeves.
+        * INSTITUTIONAL (NOT required this cycle): clean intraday rolls
+          ~$2,000-10,000/yr — explicitly deferred; daily is the spec.
+    - APPROX TOTAL COST to execute the committed backtest: ~$250-500/yr, PAID,
+      REVERSIBLE — a separate Board step (CRO asymmetry: data is cheap +
+      reversible; an honest-N decrement is not).
+    - DEPLOYABILITY INPUTS NEEDED FROM BOARD (not data, but required before any
+      live designation): deployable capital base; whether Saxo Bank provides CME
+      futures access or only CFDs-on-futures; micro-contract (M6E etc.)
+      availability + liquidity. Until provided, this direction is RESEARCH-ONLY
+      (CRO 0.55, research-only designation).
+
+single-program-accounting: >
+  THE ONE-CORRELATED-PROGRAM DECLARATION (NHT + CRO ruling, baked in). The entire
+  24-contract universe is ONE strategy = ONE honest-N unit = ONE program-level
+  risk/position limit. It is NOT 24 independent bets and MUST NOT be counted as
+  24 (or 3, or any number > 1) confirmations. Rationale: cross-asset trend
+  correlations converge toward 1 in liquidation / risk-off regimes (the 2009
+  whipsaw and March-2020 are the realized analogs; CRO blowup analog: the
+  managed-futures 2011-2018 "long winter" was ONE correlated bet that all
+  reversed together). Concretely: (a) one program-level vol target and one
+  position-limit envelope govern the whole book; (b) the committed backtest
+  consumes EXACTLY ONE honest-N unit (30 → 31) when run, never one-per-sleeve;
+  (c) effective independent bets are REPORTED (for the confirmability arithmetic)
+  but the BET COUNT is 1 for honest-N accounting; (d) cross-lens convergence
+  (the same trend factor surfaced via 3 generation lenses) is NOT independent
+  confirmation and is discounted to one mechanism (NHT dissent #1, honored).
+
+generation-surface-declaration: >
+  THE SNOOP BURDEN TO DEFLATE AGAINST (PR F-008, binding). This direction is the
+  rank-#1 survivor of a 21-DIRECTION generation search conducted across 3
+  deliberately-divergent lenses (academic-factor, practitioner-microstructure,
+  contrarian-outsider) in the 2026-06-25 new-alpha-exploration cycle. Picking the
+  best-of-21 by edge-per-cost is itself a selection / data-snoop. It is mitigated
+  (NOT eliminated) by the fact that the gross-edge basis is taken from PUBLISHED
+  OOS literature, not a firm-data peek. The honest deflation denominator at the
+  committed backtest therefore COMPOUNDS: org-wide honest-N=30 + the generation
+  surface booked as its ~7 distinct MECHANISMS (naive 21 over-corrects because
+  the 21 collapse to ~6-7 mechanisms; +1 under-corrects and repeats the exact
+  under-deflation the 2026-05-31 honest-review reset corrected). FROZEN effective
+  trial count for DSR deflation = 30 + 7 = 37. NHT owns final ratification of
+  this number at the committed step; 37 is pre-committed here and may only be
+  revised UPWARD (never down) by NHT.
+
+confirmability-precheck: >
+  THE <=3yr POWER GATE — AND ITS HONEST, ALREADY-COMPUTED VERDICT: DO-NOT-RUN.
+  This gate is computable TODAY at $0 on PUBLISHED-LITERATURE inputs, with NO
+  dependence on the backtest it gates (F7 is pinned to s = 0.20, the published
+  ~0.40 diversified-trend Sharpe AFTER the F2 50% decay haircut — NOT a
+  backtest-realized number — so it is non-circular). The arithmetic: program
+  Sharpe S_prog = s × sqrt(B); years-to-validate at 80% power
+  = (z_{0.8} + z_{1-alpha})^2 / S_prog^2, with the one-sided alpha = 0.05/37
+  (z = 3.00) from the frozen 37-trial compound deflation and z_{0.8} = 0.842.
+
+  COMPUTED RESULT on the honest inputs (s = 0.20; effective bets B in the
+  MOST-GENEROUS plausible band 4-10): years-to-validate = 92yr at B=4, ~61yr at
+  B=6, ~37yr at B=10 — most-generous construction ~37-59yr. To clear the 3.0yr
+  bar would require a net annual Sharpe of ~2.2, i.e. ~4-5× the highest gross
+  diversified-trend Sharpe ever published — arithmetically out of reach. F7
+  therefore FIRES.
+
+  THE HONEST POSTURE (correcting any prior implication to the contrary):
+  breadth does NOT bring years-to-validate inside 2-3yr — that claim is false by
+  one-to-two orders of magnitude on this artifact's own formula and own honest
+  inputs, and every such claim is removed. Trend-on-futures escaped W4 (it has
+  real exchange volume/OI) but it did NOT escape the CONFIRMABILITY wall, which
+  is ARITHMETIC (a modest decayed per-bet Sharpe × finite breadth/horizon under
+  honest deflation), not a data-class limitation that more or better data could
+  lift. Cross-asset breadth helps — it lifts B from ~2-4 to ~4-10 and shortens
+  the horizon from centuries toward decades — but decades is not 3 years.
+
+  EXPECTED DISPOSITION: this pre-registration most likely fires F7 (do-not-run)
+  for $0, BEFORE any data spend or honest-N decrement. The committed backtest is
+  NOT authorized and remains NOT authorized until/unless the power pre-check
+  clears on REAL acquired-data estimates of s and B — which, on current honest
+  published-decayed inputs, it does not. This is exactly the QRB-6 posture
+  (power 9% at the 2030 look; the firm correctly did not chase it): the value
+  this pre-registration delivers is a rigorous, frozen, $0 do-not-run — proving
+  the firm can recognise an un-confirmable edge and decline to spend on it,
+  rather than a path to a committed trial.
+
+cost-model: >
+  REAL FUTURES ROUND-TRIP COST (the probe's validated assumption), frozen as a
+  per-contract manifest at the committed step: CME/CBOT/NYMEX exchange + clearing
+  + broker commission (~$1.50/side, ~$3.00 RT) PLUS 1-2 tick bid-ask per round
+  trip, PLUS explicit continuous-contract ROLL cost (a real cost the cheap probe
+  could omit but the committed backtest MUST model — the roll convention is part
+  of the frozen manifest). At 12-month-signal turnover (~2-8 RT/yr per contract),
+  the probe showed the Sharpe drag is ~0.002-0.013 and the 0.20 residual gate
+  clears by >=1.4x across the full plausible grid (gross 0.30-0.80, 2-12 RT/yr,
+  1-3 tick) — cost is NOT the binding constraint. Stress note: bid-ask widens on
+  EM/thin contracts (6M, NG) and around macro events; the manifest uses
+  per-contract (not single-average) ticks, and roll cost is added explicitly so
+  the cheap-probe omission cannot silently re-enter.
+
+next-gated-steps: >
+  1. (Board, $0, reversible) Authorize acquisition of the >=20yr continuous
+     futures data for the 24 frozen contracts (~$250-500/yr Norgate/Nasdaq-Data-
+     Link, OR free tier for the coverage check first). Reversible; NOT an
+     honest-N decrement.
+  2. (PRE-backtest, $0) Run the two machine-checkable PRE-gates on the acquired
+     manifest: F6 (data-floor: >=20yr + 2009 crash in-sample) and F7
+     (confirmability power pre-check: years-to-validate <= 3.0yr on realized
+     breadth). If EITHER fires → STOP, report to Board, no trial spent.
+  3. (NHT) Ratify the compound deflation denominator (pre-committed 37 = 30 + 7);
+     may only revise UPWARD.
+  4. (Board-gated, the ONE honest-N SPEND) Run the committed CPCV backtest under
+     the frozen windows/metric/cost-model above. This is the SINGLE-SHOT,
+     irreversible honest-N decrement (30 → 31). Evaluate ALL frozen falsification
+     criteria F1-F5 once; the HOLDOUT is touched EXACTLY ONCE.
+  5. (Deployability, separate) Even on PASS, live/paper designation requires the
+     Board capital-base figure + Saxo CME-futures-access confirmation + micro-
+     contract liquidity check (CRO research-only gate). No live capital implied
+     by this artifact.
+
+trial-count-at-spawn: 30   # honest-N at freeze; increment deferred to committed backtest
+
+evidence:
+  - "Moskowitz, Ooi, Pedersen (2012) 'Time Series Momentum', JFE 104(2):228-250 — OOS 1985-2012 across 58 futures incl FX; FX-futures sub-Sharpe ~0.4. Primary evidence base."
+  - "Hurst, Ooi, Pedersen (2017) 'A Century of Evidence on Trend-Following Investing', AQR/JPM — ~100yr diversified trend, net Sharpe ~0.7-1.0; cross-asset correlation matrices (the breadth case). Exhibit 2 commodity sleeve post-2000."
+  - "Asness, Moskowitz, Pedersen (2013) 'Value and Momentum Everywhere', JF — cross-asset momentum OOS survivor + published cross-asset correlation tables (Table 1); basis for the F5 breadth/diversification premise."
+  - "forex-trading SKILL.md §2.5 EVIDENCE LAYER — momentum (with carry) is one of only two peer-reviewed OOS-documented systematic FX edges; gross-of-cost, crash-prone caveat — the honest calibration anchor for alpha-source."
+  - ".fintech-org/artifacts/2026-06-26-trend-futures-feasibility-probe/quant-developer-probe.yaml — the $0 cost-hurdle probe: residual net Sharpe ~0.40 vs 0.20 gate, non-knife-edge; cost is NOT binding, confirmability is; min-viable-notional $3,083 (both 6E and M6E pass). PASS-advance, no trial counted."
+  - ".fintech-org/artifacts/2026-06-25-new-alpha-exploration/CONSENSUS.md — ranked shortlist (T1 = trend-on-futures, rank #1); the reframe (point the harness at futures); CRO single-program ruling + research-only designation; PR F-002/F-005/F-008; NHT dissent #1 (triple-counted trend) + #3 (21-surface snoop). Source of the HARD CONDITIONS baked in here."
+  - ".fintech-org/artifacts/2026-06-25-new-alpha-exploration/quant-researcher-structured.yaml — C1 cme-fx-futures-time-series-momentum structured candidate; falsification skeleton + effective-breadth caveat carried forward."
+  - "references/pre-registrations/CONSENSUS_2026-06-07_qrb6_winddown — confirmability wall (events/yr × per-event-Sharpe → validate <=3yr; power 9% at the 2030 look). The load-bearing precedent for confirmability-precheck / F7 do-not-run."
+  - "Bailey & Lopez de Prado — Deflated Sharpe Ratio + CPCV with purge & embargo; the firm's ratified DSR>=0.95 pass bar and N=30 deflation denominator (post-2026-05-31 honest-review reset)."
+  - "McLean & Pontiff (2016) 'Does Academic Research Destroy Return Predictability?', JF — post-publication decay ~35-58%; basis for the F2 decay haircut (50% midpoint pinned)."
+
+assumptions:
+  - "The published gross trend Sharpes (~0.4 single-FX-sleeve; ~0.7-1.0 diversified) are GROSS, carry wide bands, and pre-date decay; a 50% McLean-Pontiff haircut is applied before any plausibility claim and NO net edge number is asserted — the committed backtest establishes the firm's net edge."
+  - "Cross-asset trend sleeves (FX / commodity / rates) are LOW-correlated OUTSIDE liquidation regimes (AMP-2013, Hurst-2017 correlation tables); this is the breadth premise the whole confirmability case rests on, and it is itself an F5 KILL criterion to be tested OOS — it is assumed for design, falsified by data."
+  - "Cross-asset trend correlations converge toward 1 in liquidation/risk-off (2009, March-2020); hence the single-program accounting (one honest-N unit, one risk limit) — breadth helps confirmability in normal regimes but does NOT diversify the tail."
+  - "Daily OHLCV+volume+OI is sufficient for a 12-month-lookback monthly-rebalanced TSMOM; intraday is out-of-scope for this direction."
+  - ">=20yr clean continuous history is acquirable for the FX + Treasury + liquid-commodity sleeves; the two international-rate slots are a frozen contingency that may be dropped to 22 contracts if data is unavailable (recorded, not re-optimized)."
+  - "honest-N=30 is the ratified deflation base; the 21-generation-surface books as ~7 distinct mechanisms → compound effective trials = 37 (NHT may revise UPWARD only)."
+  - "The probe's cost finding (residual ~0.40 >> 0.20 gate, non-knife-edge) holds at program turnover once roll cost is added; cost is treated as NON-binding and confirmability as the binding risk."
+  - "No code is emitted (execution firewall); no live or paper capital is deployed; the trial counter does NOT increment at this design freeze."
+
+confidence: medium
+
+body: |
+  HOW THIS PRE-REGISTRATION BAKES IN EVERY RATIFIED CONDITION (and where the
+  honest uncertainty lives).
+
+  The firm reached this direction the hard way: retail-OHLCV families are
+  exhausted (net SR < 0 across 84 pair×family combos), and a 21-direction search
+  across three lenses ranked TREND-FOLLOWING ON FUTURES #1 — not because trend is
+  fancy, but because pointing the firm's validated harness (CPCV + DSR +
+  confirmability rubric + honest-N) at a real-volume futures venue makes three of
+  the four binding walls structurally non-binding: W1 (cost) and W4 (no true
+  volume) fall to the venue change, and W2 (USD-concentration) falls to the
+  cross-asset span. The $0 probe then settled the FIRST question — cost — decisively:
+  at 12-month-signal turnover the futures cost drag is ~0.002-0.013 Sharpe and the
+  0.20 residual gate clears by >=1.4x across the whole plausible grid. So this
+  pre-registration deliberately does NOT re-litigate cost. It targets the ONE
+  risk the probe flagged as binding and that QRB-6 died on: CONFIRMABILITY.
+
+  THE CONFIRMABILITY ARGUMENT IS THE WHOLE DESIGN — AND IT FAILS HONESTLY. A
+  single-pair futures TSMOM flips ~4x/yr; within FX the 8 contracts are
+  USD-cross-loaded and collapse to ~2-4 effective bets. Cross-asset breadth (FX +
+  commodity + rates, low-correlated outside liquidations) is the ONLY lever on
+  confirmability, and it does lift effective bets from ~2-4 to ~4-10 — but the
+  arithmetic settles it: at a post-decay per-bet Sharpe of 0.20 and B in 4-10,
+  the program Sharpe S_prog = 0.20*sqrt(B) is ~0.40-0.63, and years-to-validate
+  at 80% power under the 37-trial deflated alpha is ~37-92yr (most-generous
+  ~37-59yr), NOT <=3yr. Clearing 3yr would need a net annual Sharpe ~2.2, ~4-5×
+  the highest gross diversified-trend Sharpe ever published. So breadth shortens
+  the horizon from CENTURIES toward DECADES, but decades is not years. The
+  confirmability wall here is ARITHMETIC (modest decayed Sharpe × finite
+  breadth/horizon under honest deflation), not a data-class limitation — moving
+  to a real-volume venue escaped W4 but NOT this wall. That is why F7 is pinned
+  to PUBLISHED-DECAYED inputs (s=0.20), computable at $0 today, and FIRES
+  DO-NOT-RUN now: the committed backtest is NOT authorized and the honest-N unit
+  is NOT spent. The value this pre-registration delivers is a rigorous, frozen,
+  $0 do-not-run (the QRB-6 discipline mechanized) — the firm recognising an
+  un-confirmable edge and declining to spend on it. F5 (effective bets < 4 OR
+  cross-sleeve corr > 0.6) and F6 (data-floor) remain hard kills for the
+  contingency that real acquired-data estimates ever revise the inputs; on
+  current honest inputs they are moot because F7 fires first.
+
+  SINGLE-PROGRAM ACCOUNTING (the NHT/CRO ruling, honored without softening). The
+  24 contracts are ONE strategy = ONE honest-N unit = ONE risk limit. The
+  breadth that helps confirmability in NORMAL regimes does NOT diversify the
+  tail: cross-asset trend correlations go to 1 in liquidation (the CRO's
+  managed-futures "long winter" and March-2020 analogs). So effective bets are
+  REPORTED for the confirmability arithmetic, but the BET COUNT for honest-N is
+  1, and the committed backtest spends EXACTLY ONE unit (30→31), never
+  one-per-sleeve. Cross-lens convergence (trend surfaced via three generation
+  lenses) is discounted to one mechanism — NHT dissent #1 is correct and is
+  baked in, not paraphrased away.
+
+  DEFLATION IS COMPOUND, NOT +1 (PR F-008). The DSR denominator deflates against
+  honest-N=30 AND the 21-direction selection surface, booked as its ~7 distinct
+  mechanisms (naive 21 over-corrects; +1 under-corrects and repeats the exact
+  failure the 2026-05-31 reset fixed). Frozen effective trial count = 37, NHT to
+  ratify, revisable only upward. The gross-edge basis is published OOS literature
+  (not a firm-data peek), which mitigates — not eliminates — the best-of-21 snoop;
+  a 50% McLean-Pontiff decay haircut is applied before any plausibility claim and
+  NO net edge number is asserted.
+
+  CPCV IS SIZED TO THE SIGNAL HORIZON. With a 12-month lookback, label leakage is
+  the dominant lookahead risk, so purge = 13 months (12mo lookback + 1mo hold) on
+  each side of every test fold, plus a 1-month embargo (14-month total exclusion
+  band), across C(10,2)=45 train/test paths. The eval is regime-stratified
+  {hiking/easing/on-hold}×{risk-on/risk-off} AND reports the three in-sample
+  crash episodes separately — pooled DSR alone cannot pass; F3 (regime
+  concentration) and F4 (crash survival) must also hold. The TRAIN+TEST pool is
+  MANDATED to include the 2009 reversal, the 2011-2015 "long winter", and
+  March-2020 — no recent-low-vol-only window is permitted (F6 blocks it).
+
+  WHAT THIS ARTIFACT IS AND IS NOT. It is a FROZEN design: every window boundary,
+  universe member, threshold, deflation count, and kill condition is committed now
+  and single-shot. It is NOT a backtest — no data is acquired, no code is written
+  (firewall), no honest-N is spent, and the trial counter stays 30. The committed
+  CPCV backtest that would spend one honest-N unit is a separate, Board-gated step,
+  preceded by two $0 pre-gates (F6 data-floor, F7 confirmability power) that
+  STOP the spend before it happens. HONEST POSTURE: cost is solved (probe), and
+  confirmability is RESOLVED — NEGATIVELY — at $0: F7, on published-decayed
+  inputs, computes years-to-validate ~37-92yr and FIRES DO-NOT-RUN. This
+  direction is therefore the firm's next honest do-not-run, NOT an escape from
+  the dataset wall: trend-on-futures cleared W4 (real volume) but the
+  confirmability wall is arithmetic and unbroken. The committed backtest is NOT
+  authorized; the honest-N unit is NOT spent; and the artifact's deliverable is
+  precisely the rigorous, frozen, single-shot $0 rejection.
+
+knowledge_gaps:
+  - "Realized effective independent-bet count for the 24-contract cross-asset program — drives F5/F7; computable $0 from AMP-2013/Hurst-2017 published correlation tables before any spend (route to Quant Developer per consensus § Knowledge Gaps)."
+  - "Availability of >=20yr backtest-grade continuous data for the two international-rate slots (Bund/STIR equivalents) — frozen contingency: drop to 22 contracts if unavailable."
+  - "Whether Saxo Bank provides CME futures access or only CFDs-on-futures, and micro-contract (M6E etc.) liquidity — deployability inputs, Board-owned; do not affect the research design."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [hypothesis-formulation-and-pre-registration, TradeIntent-spec-authoring, falsification-criteria-design, data-snooping-and-look-ahead-prevention]

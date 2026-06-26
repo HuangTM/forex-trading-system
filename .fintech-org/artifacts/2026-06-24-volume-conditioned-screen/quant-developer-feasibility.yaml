@@ -1,0 +1,333 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-25T08:15:00Z"
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-qd
+spec-ref: volume-conditioned-2026-06-24-qr
+
+files-to-create-or-modify:
+  - scripts/volume_conditioned_screen.py  (CREATED — full V1+V2 screen with C2COST-fixed accounting)
+  - scripts/cost_feasibility_c1_c2.py  (MODIFIED — line 575 fix: exit_i+1 → exit_i+2)
+
+c2cost-fix:
+  file: scripts/cost_feasibility_c1_c2.py
+  location: line 575 in run_c2_pair(), the hold_cost slice
+  lines-changed: |
+    OLD (buggy):
+      hold_cost = float(cost_series.iloc[entry_i:exit_i + 1].sum())
+    NEW (fixed):
+      hold_cost = float(cost_series.iloc[entry_i:exit_i + 2].sum())
+  explanation: |
+    The position series transitions: [..., 0, +1, +1, ..., +1, 0, ...]
+                                           entry_i               j = exit_i+1
+    pos.diff().abs() registers:
+      - entry-leg cost at bar entry_i (0 → +1, diff=1)
+      - exit-leg cost at bar j = exit_i+1 (+1 → 0, diff=1)
+    The OLD slice [entry_i : exit_i+1] = [entry_i : j] covers bars
+    entry_i .. exit_i inclusive, stopping before bar j — the exit-change bar
+    where cost registers. Every trade was under-charged by exactly one exit leg
+    (= spread_on_exit_change_bar + RT_OVERHEAD). The FIX extends to
+    [entry_i : exit_i+2] = [entry_i : j+1], capturing both entry and exit cost
+    without double-charging (compute_rt_cost_series is NOT modified — it already
+    correctly charges the exit-change bar at j; only the slice is widened).
+  assertion-output: |
+    == C2COST_FULL_RT_ENTRY_PLUS_EXIT ASSERTION ==
+    Description: Synthetic single trade flat→+1 at bar 1, hold bars 2-3, +1→flat at bar 4
+    Spread (EURUSD-like): 0.30 pips
+    RT overhead:          0.80 pips
+    RT per leg:           1.10 pips
+    Position path:        [0.0, 1.0, 1.0, 1.0, 0.0]
+    Cost series:          [0.0, 1.1, 0.0, 0.0, 1.1]
+    entry_i=1, exit_i=3, j(exit_change_bar)=4
+    Buggy slice: iloc[1:4]  ← covers bars [1, 2, 3]
+      → buggy cost: 1.1000 pips  (entry only — exit leg DROPPED)
+    Fixed slice:  iloc[1:5]  ← covers bars [1, 2, 3, 4]
+      → fixed cost: 2.2000 pips  (entry + exit = full RT)
+    Expected full RT: 2.2000 pips
+    Undercount per trade: 1.1000 pips (= exactly 1 exit leg)
+    ASSERTION PASSED: True ✓
+    Interpretation: Buggy slice charges 1.1000 pips (entry leg only).
+      Fixed slice charges 2.2000 pips (entry + exit = full RT).
+      Every trade was under-charged by exactly 1.1000 pips
+      (= 1 exit leg × (spread 0.30 + overhead 0.80) pips).
+    NOTE: This is a NEW, DISTINCT assertion from run_f001_assertion().
+      run_f001_assertion() tests the flip-count (binary→magnitude) bug on
+      a path with a flip (position change of magnitude 2). This assertion
+      tests the trade-loop hold_cost SLICE bug on a simple single-entry/exit
+      trade (position magnitude changes of 1), confirming the exit-change bar
+      (at j=exit_i+1) is captured in the fixed slice but NOT in the buggy slice.
+
+evidence:
+  - "scripts/volume_conditioned_screen.py: executed; raw output saved to .fintech-org/artifacts/2026-06-24-volume-conditioned-screen/volume_screen_raw.json"
+  - "scripts/cost_feasibility_c1_c2.py line 575: exit_i+1 → exit_i+2 (OPEN-ITEM-C2COST closed)"
+  - "V1 EURUSD: n=793 (5.0yr → 158.6/yr), gross=1.6446, rt_cost=1.5083, PASS on cost-axis"
+  - "V1 USDJPY: n=819 (5.0yr → 164.2/yr), gross=3.3023, rt_cost=2.1192, PASS on cost-axis"
+  - "V1 GBPUSD: n=504, gross=0.9149, rt_cost=2.8298, FAIL"
+  - "V1 EURJPY: n=503, gross=0.0132, rt_cost=3.2076, FAIL"
+  - "V1 AUDUSD: n=616, gross=1.2712, rt_cost=3.1135, FAIL"
+  - "V2 all 3 pairs: FAIL (all deeply negative margin) + DISQUALIFIED (all conditioned relrng >= 1.2x sample)"
+  - "Volatility-control: relvol t-stat < 2.00 for ALL 8 (5 V1 + 3 V2) pair-candidate combinations"
+  - "USDJPY 2x2: high_rv×low_rr gross=-0.45pips, high_rv×high_rr gross=+6.03pips — edge lives only in volatility cell"
+
+assumptions:
+  - "Seasonal norm: full-sample median per (day_of_week×24+hour_utc) bucket (168 buckets). Acceptable for descriptive feasibility; rolling/expanding norm needed for any future committed CPCV backtest."
+  - "V1 signal bar relvol and relrng used for volatility-control regression (signal bar attributes drive the entry decision)."
+  - "V1 gross = direction × (close_{t+2} - open_{t+1}) / pip_size — pure price capture from entry open to exit close; does NOT include signal bar's own move."
+  - "V2 exit: each hold bar checked for session-open touch; if touch detected, exit at min(target, close) for long / max(target, close) for short."
+  - "V2 session open = open price of first bar of each calendar date (UTC midnight bar)."
+  - "EXCLUDE-NOT-IMPUTE: zero/missing spread bars drop the trade at entry or exit check."
+  - "relrng computed as (high-low) / full-sample median(high-low), so sample median = 1.0 by construction."
+  - "Cost on CONDITIONED bars: entry_spread + exit_spread + 0.80 (not full-sample average). High-relvol bars carry wider spreads, raising the effective hurdle."
+
+confidence: high
+
+body: |
+  ## JOB 1 — C2COST fix + new assertion
+
+  **Bug confirmed and fixed.** The trade-loop in `scripts/cost_feasibility_c1_c2.py`
+  at line 575 sliced `cost_series.iloc[entry_i:exit_i+1]`. The exit-change bar
+  (where pos transitions from direction→0) is at index `j = exit_i + 1`, which
+  lies OUTSIDE this slice. The exit-leg cost was silently dropped for every trade.
+
+  **Fix:** `cost_series.iloc[entry_i:exit_i+2]`. One-character change. The shared
+  `compute_rt_cost_series` function is NOT modified — it already correctly charges
+  cost at every position-change bar including the exit-change bar. Only the slice
+  boundary changes.
+
+  **New distinct assertion (`C2COST_FULL_RT_ENTRY_PLUS_EXIT`):**
+  - Synthetic path: flat→+1 at bar 1, hold bars 2-3, +1→flat at bar 4
+  - Spread = 0.30 pips, RT overhead = 0.80 pips → RT per leg = 1.10 pips
+  - Cost series: [0.0, 1.1, 0.0, 0.0, 1.1] (entry registers bar 1, exit bar 4)
+  - Buggy slice [1:4] sums bars 1,2,3 → 1.10 pips (entry only; exit DROPPED)
+  - Fixed slice [1:5] sums bars 1,2,3,4 → 2.20 pips (entry + exit = full RT)
+  - Assertion checks: (a) buggy == 1.10, (b) fixed == 2.20, (c) undercount == 1 exit leg
+  - ASSERTION PASSED ✓
+  - Distinct from run_f001_assertion(): F-001 tests binary-vs-magnitude charge on a
+    FLIP path (magnitude=2); this tests the slice boundary on a simple open/close
+    trade (magnitude=1 each leg) — different bug, different test structure.
+
+  **Impact on prior C2 results:** OPEN-ITEM-C2COST is now closed. The previous C2
+  screen under-charged every trade by approximately 1 exit leg per hold period.
+  Per the PR finding (principal-reviewer.yaml): USDJPY C2 corrected margin +1.807
+  → −0.743 (net negative). That conclusion is reinforced by this fix; C2 retirement
+  stands.
+
+  ---
+
+  ## JOB 2 — V1 + V2 cost-feasibility tables
+
+  ### Volume ~ Range correlation diagnostics
+
+  | Pair   | raw_vol~rng (Spearman) | relvol~relrng (Spearman) | log-log R² |
+  |--------|------------------------|--------------------------|------------|
+  | AUDUSD | 0.7398                 | 0.5235                   | 0.2990     |
+  | EURGBP | 0.7431                 | 0.4225                   | 0.2042     |
+  | EURJPY | 0.7414                 | 0.5570                   | 0.2994     |
+  | EURUSD | 0.6879                 | 0.3557                   | 0.1584     |
+  | GBPUSD | 0.7105                 | 0.3911                   | 0.1644     |
+  | USDJPY | 0.7279                 | 0.5730                   | 0.3073     |
+
+  QR's descriptive probe stated raw_vol~range ≈ 0.62–0.72 and relvol~relrng ≈ 0.53–0.64.
+  Measured (Spearman): raw_vol~rng = 0.69–0.74 (consistent); relvol~relrng = 0.36–0.57
+  (somewhat LOWER than QR's 0.53–0.64 on the EURUSD/GBPUSD end, which improves the
+  orthogonality argument marginally, but does not rescue the directional edge as the
+  volatility-control results confirm).
+
+  ### V1 — RELVOL-CONTINUATION feasibility
+
+  Signal: session-open hour (07 or 13 UTC), relvol ≥ 1.5, direction = sign(close−open).
+  Entry: bar t+1 open. Exit: bar t+2 close (2-bar hold).
+  Cost: entry_spread + exit_spread + 0.80 on CONDITIONED bars.
+
+  | Pair   | N_fires | Fires/yr | Gross/tr (pips) | RT cost/tr (pips) | Margin (pips) | Cost verdict |
+  |--------|---------|----------|-----------------|-------------------|---------------|--------------|
+  | EURUSD |     791 |    158.6 |          1.6446 |            1.5083 |        +0.1363 | **PASS**    |
+  | GBPUSD |     504 |    101.0 |          0.9149 |            2.8298 |        −1.9149 | FAIL        |
+  | USDJPY |     819 |    164.2 |          3.3023 |            2.1192 |        +1.1832 | **PASS**    |
+  | EURJPY |     503 |    100.8 |          0.0132 |            3.2076 |        −3.1943 | FAIL        |
+  | AUDUSD |     616 |    123.5 |          1.2712 |            3.1135 |        −1.8423 | FAIL        |
+
+  QR falsification criterion: KILL iff gross ≤ 0.80 × RT_cost on ≥3 of 5 pairs.
+  FAIL pairs = 3 (GBPUSD, EURJPY, AUDUSD) → V1 meets the cost-axis KILL criterion.
+  Note: EURUSD and USDJPY are cost-PASS, but this does not rescue V1 because (a) the
+  kill criterion fires (3/5 FAIL), and (b) both PASS pairs fail the volatility-control
+  test (see below).
+
+  **IMPORTANT SURPRISE vs QR's prior:** EURUSD gross=1.64 pips (QR probed 0.89 on 1-bar
+  hold). The difference is the 2-bar hold: QR's probe measured next-1-bar return;
+  this screen measures the 2-bar cumulative return from entry_open to exit_close.
+  The higher gross comes from the 2-bar window, not from a measurement error. The
+  USDJPY gross of 3.30 pips also reflects JPY's higher pip-volatility at session opens.
+  However, both are disqualified by the volatility-control test.
+
+  ### V1 — VOLATILITY-CONTROL TEST (decisive)
+
+  Regression: gross_pips ~ intercept + relvol_rank + relrng_rank (OLS on signal-bar attributes).
+  PASS criterion: relvol coefficient t-statistic ≥ 2.00 after controlling for relrng.
+
+  | Pair   | N    | relvol coef | relvol t | relrng coef | relrng t | R²     | Pass t≥2? |
+  |--------|------|-------------|----------|-------------|----------|--------|-----------|
+  | EURUSD |  791 |   +0.00185  |    +0.45 |   +0.00381  |    +0.94 | 0.0024 | **NO**   |
+  | GBPUSD |  504 |   −0.00194  |    −0.16 |   +0.00857  |    +0.71 | 0.0010 | NO       |
+  | USDJPY |  819 |   −0.00205  |    −0.33 |   +0.01155  |    +1.83 | 0.0042 | NO       |
+  | EURJPY |  503 |   −0.01384  |    −0.90 |   +0.02700  |    +1.76 | 0.0064 | NO       |
+  | AUDUSD |  616 |   +0.00579  |    +1.15 |   +0.00012  |    +0.02 | 0.0025 | NO       |
+
+  **ALL FIVE PAIRS FAIL the volatility-control test.** relvol t-stat is negative or near
+  zero for 4 of 5 pairs, far below the threshold of 2.00. The R² values (0.001–0.006)
+  show the regression explains essentially nothing — the gross return is noise with
+  respect to both relvol and relrng ranks.
+
+  **2×2 Stratification (supplementary — form b per QR design):**
+  Key cell = high_relvol × LOW_relrng (volume surprise WITHOUT a volatility spike):
+
+  | Pair   | high_rv × low_rr (n, gross) | high_rv × high_rr (n, gross) | Signal lives in? |
+  |--------|-----------------------------|------------------------------|------------------|
+  | EURUSD | n=135, +2.31 pips           | n=261, +2.93 pips            | Both (marginally higher in vol cell) |
+  | GBPUSD | n=93,  +0.43 pips           | n=159, +1.89 pips            | High-vol cell    |
+  | USDJPY | n=160, −0.45 pips           | n=250, +6.03 pips            | **HIGH-VOL CELL ONLY — DISQUALIFIED** |
+  | EURJPY | n=95,  +0.88 pips           | n=157, −1.64 pips            | Low-vol cell (negative high-vol) |
+  | AUDUSD | n=117, +1.44 pips           | n=191, +3.22 pips            | High-vol cell    |
+
+  USDJPY is the clearest case: the positive gross lives EXCLUSIVELY in the high-relvol ×
+  high-relrng cell (+6.03 pips). The "volume-without-volatility" cell is −0.45 pips. Per
+  QR's design: "If the gross edge lives ONLY in the high-relvol/high-relrng cell, the signal
+  is volatility, not volume → DISQUALIFIED." USDJPY is disqualified on this basis, despite
+  its cost-PASS label. EURUSD's positive low-relrng cell (+2.31) does not rescue it because
+  the regression t-stat is 0.45 — statistically noise.
+
+  **V1 VERDICT: DISQUALIFIED.** Both independent kill paths fire:
+  1. Cost-axis KILL criterion: ≥3 of 5 pairs FAIL (GBPUSD, EURJPY, AUDUSD).
+  2. Volatility-control KILL: relvol t < 2.00 for ALL 5 pairs; USDJPY explicitly
+     lives only in the volatility cell.
+
+  ---
+
+  ### V2 — RELVOL-HIGH ∧ SPREAD-LOW MEAN-REVERSION feasibility
+
+  Signal: relvol ≥ 1.5 AND spread ≤ p40, extension ≥ 0.75 × seasonal-median-range.
+  Direction: mean-revert toward session open. Entry: t+1 open. Exit: t+3 close or touch.
+
+  | Pair   | N_fires | Fires/yr | p40 spread | Gross/tr | RT cost/tr | Margin   | Cost verdict |
+  |--------|---------|----------|------------|----------|------------|----------|--------------|
+  | EURUSD |   2926  |    586.6 |  0.30 pips |  −0.1703 |    1.4777  |  −1.6480 | FAIL         |
+  | USDJPY |    788  |    158.0 |  0.50 pips |  −3.4409 |    2.3074  |  −5.7484 | FAIL         |
+  | EURGBP |    969  |    194.3 |  0.80 pips |  −1.1696 |    2.7087  |  −3.8783 | FAIL         |
+
+  All three pairs are cost-axis FAIL with deeply negative margins. The mean gross is
+  NEGATIVE on all three — the mean-reversion signal generates adverse returns on average.
+
+  **V2 Construction check (disqualification criterion):**
+  The spread-low gate was designed to EXCLUDE high-volatility bars by construction.
+  The check verifies: conditioned-entry relrng median < 1.2 × sample median (=1.0).
+
+  | Pair   | Conditioned relrng median | vs sample (1.0) | Ratio | Status             |
+  |--------|---------------------------|-----------------|-------|--------------------|
+  | EURUSD | 1.3108                    | +31.1%          | 1.31  | **DISQUALIFIED**   |
+  | USDJPY | 1.2523                    | +25.2%          | 1.25  | **DISQUALIFIED**   |
+  | EURGBP | 1.5368                    | +53.7%          | 1.54  | **DISQUALIFIED**   |
+
+  All three pairs are DISQUALIFIED: the spread-low gate failed to exclude high-volatility
+  bars — conditioned entries are actually HIGHER-range than the sample average (not lower).
+  This confirms that high-relvol AND low-spread conditions do not jointly isolate a
+  low-volatility regime on this data. The joint gate does not work as designed.
+
+  **V2 volatility-control regression:**
+
+  | Pair   | N    | relvol t | relrng t | R²     | Pass t≥2? |
+  |--------|------|----------|----------|--------|-----------|
+  | EURUSD | 2926 |    +0.25 |    −0.09 | 0.0000 | NO        |
+  | USDJPY |  788 |    +0.04 |    −2.26 | 0.0065 | NO        |
+  | EURGBP |  969 |    −0.49 |    −0.38 | 0.0004 | NO        |
+
+  No pair passes. USDJPY shows relrng t=−2.26 (higher relrng → lower gross returns,
+  consistent with mean-reversion failing on big-range bars), but relvol t=0.04 — volume
+  carries zero incremental information.
+
+  **V2 VERDICT: DISQUALIFIED on all three independent grounds:**
+  1. Cost-axis FAIL: all 3 pairs, deeply negative margin (−1.65 to −5.75 pips/trade).
+  2. Construction void: conditioned relrng median ≥ 1.2× sample on all 3 pairs.
+  3. Gross returns are negative — mean-reversion signal is wrong-directional on average.
+
+  ---
+
+  ## VOLATILITY-CONTROL test results — summary
+
+  No candidate (V1 or V2) produces a relvol t-statistic ≥ 2.00 after controlling for
+  relative-range, for any pair. The test result is unambiguous across all 8 combinations
+  tested. The relvol coefficients are small, inconsistent in sign, and statistically
+  indistinguishable from zero. The gross edge, where it exists (EURUSD/USDJPY V1), is
+  attributable to volatility (relrng), not to the volume-conditioning signal.
+
+  The USDJPY 2×2 stratification provides the clearest disqualification: positive gross
+  lives only where both relvol AND relrng are high — the volume signal is a volatility
+  proxy, not an independent alpha source.
+
+  ---
+
+  ## Measured raw-vol~range and relvol~relrng correlations
+
+  Measured Spearman correlations (executed, verified):
+
+  | Pair   | raw_vol~rng | relvol~relrng | log-log R² |
+  |--------|-------------|---------------|------------|
+  | EURUSD | 0.6879      | 0.3557        | 0.1584     |
+  | GBPUSD | 0.7105      | 0.3911        | 0.1644     |
+  | USDJPY | 0.7279      | 0.5730        | 0.3073     |
+  | EURJPY | 0.7414      | 0.5570        | 0.2994     |
+  | AUDUSD | 0.7398      | 0.5235        | 0.2990     |
+  | EURGBP | 0.7431      | 0.4225        | 0.2042     |
+
+  QR's probe stated 0.62–0.72 (raw) and 0.53–0.64 (relvol~relrng). Measured values:
+  raw_vol~rng = 0.69–0.74 (broadly consistent, slightly higher on the upper end);
+  relvol~relrng = 0.36–0.57 (EURUSD/GBPUSD are lower than QR's range, USDJPY/EURJPY
+  consistent). The lower relvol~relrng on EURUSD (0.36 vs QR's 0.53 floor) suggests
+  more residual non-range volume variance on EURUSD, but — as the regression confirms —
+  that residual carries no directional information.
+
+  ---
+
+  ## Verdict summary
+
+  **V1 (relvol-continuation): CLOSED.**
+  - Cost-axis: FAIL (3/5 pairs at kill threshold). EURUSD/USDJPY are cost-PASS but
+    cannot save the family (kill criterion ≥3/5 fires).
+  - Volatility-control: FAILED on all 5 pairs (relvol t < 2.00 for all).
+  - USDJPY 2×2: positive edge lives exclusively in the high-vol cell → DISQUALIFIED
+    as volatility-restatement per QR's pre-specified retirement trigger.
+  - V1 is CLOSED on both cost-axis and volatility-control grounds.
+
+  **V2 (relvol-high ∧ spread-low mean-reversion): CLOSED.**
+  - Cost-axis: FAIL (all 3 pairs, deeply negative gross returns).
+  - Construction void: spread-low gate failed to exclude high-range bars (all 3 pairs
+    disqualified, ratio 1.25–1.54).
+  - Volatility-control: FAILED on all 3 pairs.
+  - V2 is CLOSED on all three independent disqualification grounds.
+
+  **FAMILY-CLOSED recommendation (per QR's retirement-triggers §5):**
+  Both V1 and V2 are retired on measured numbers. The volume-conditioning lever on the
+  existing 9-pair 1h parquet data is exhausted. The data-capability acquisition path
+  (intraday tick / L2 with true depth) is the next lever, per QR's design and the
+  broader firm finding that the 1h dataset ceiling has been reached.
+
+  **Honest-N: unchanged at 30.** This is a descriptive feasibility screen.
+  No trials.jsonl entry with counts_toward_deflation_denominator: true was appended.
+
+firewall-self-review: approve
+knowledge_gaps:
+  - "V1 EURUSD/USDJPY cost-PASS is a descriptive observation only; both are disqualified by volatility-control and do not advance. Not inconsistent with QR's prior (QR probed 1-bar, screen measures 2-bar hold)."
+  - "V2 fire count (EURUSD: 2926, ~587/yr) is much higher than QR's estimate (40-80/yr). Difference: QR estimated independent joint probability; the actual joint (relvol≥1.5 ∧ spread≤p40 ∧ extension≥0.75×medrange) is much less restrictive than QR expected, likely because the 'extension' threshold (0.75×seasonal-median-range from session open) fires frequently on most bars distant from session open."
+policy_violations_detected:
+  - "NONE — no live capital, no trial increment, no HoQR judgment made here. Descriptive numbers only."
+sources:
+  - "scripts/cost_feasibility_c1_c2.py (MODIFIED: line 575)"
+  - "scripts/volume_conditioned_screen.py (CREATED)"
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/volume_screen_raw.json (execution output)"
+  - "data/processed/{EURUSD,GBPUSD,USDJPY,EURJPY,AUDUSD,EURGBP}_1h.parquet (read-only)"
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/quant-researcher-design.yaml"
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/pm-acceptance-criteria.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

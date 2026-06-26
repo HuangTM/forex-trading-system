@@ -1,0 +1,347 @@
+role: quant-researcher
+artifact_type: trade-intent
+decision: implement
+timestamp: "2026-06-25T06:20:24Z"
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-qr
+trial_id: volume-conditioned-2026-06-24-qr
+pre-registration-ref: "PENDING — feasibility-gate-first; no committed pre-registration this cycle"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADLINE PRIOR (read first): My honest expectation BEFORE the screen runs is
+# that BOTH candidates FAIL the R1 cost-feasibility gate, and that the lever
+# closes. I designed them in good faith to give the volume-conditioning lever
+# its strongest possible shot, but my own descriptive probes (documented in
+# `body` and `evidence`) already show the directional structure is ~coin-flip
+# and the gross edge is below the RT-cost hurdle on the two pairs I probed.
+# I am surfacing this as a finding, not burying it. The design exists so QD can
+# CONFIRM-OR-REFUTE it cheaply and HoQR can KILL it on numbers, not on my prior.
+# ─────────────────────────────────────────────────────────────────────────────
+
+candidates:
+  - name: V1-RELVOL-CONTINUATION (relative-volume participation-surprise continuation)
+    alpha-source: >
+      The proposed mechanism: a session-open bar that prints volume FAR ABOVE its
+      time-of-day/day-of-week seasonal norm reflects a PARTICIPATION SURPRISE — more
+      distinct participants acting than the calendar predicts for that hour — which (the
+      folklore claim) signals informed/institutional flow that continues over the next
+      1–2 bars rather than mean-reverting. The "beyond volatility" claim rests on the
+      fact that RELATIVE volume (vol / its seasonal median) is NOT the same as RAW range:
+      empirically only ~26% (EURUSD) to ~40% (AUDUSD) of log-relative-volume variance is
+      explained by log-relative-range, so ~60–74% of relative-volume variation is residual
+      to range — a genuine non-range component. The orthogonality CLAIM is that this
+      residual participation-surprise carries DIRECTIONAL information that a pure range/ATR
+      filter (the retired F1–F6 vol-breakout family) does not.
+      HONEST CAVEAT (evidence layer): OBV / PVT / "volume confirms trend" are largely
+      UNVALIDATED FOLKLORE in the forex-trading + technical-analysis evidence layers
+      (Park & Irwin TA survey is mixed-not-settled; no peer-reviewed OOS support for
+      tick-volume directional edges in OTC FX). Retail FX volume is broker TICK-volume
+      (a count of price updates, no consolidated tape), so the prior on a real directional
+      edge here is LOW. The point of this candidate is to TEST that low prior cheaply, not
+      to assert it.
+    universe: >
+      EURUSD, GBPUSD, USDJPY, EURJPY, AUDUSD (the five lowest-spread / highest-liquidity
+      pairs in scope, where any gross edge has the best chance of clearing the RT hurdle).
+      Rationale: if a participation-surprise edge cannot clear costs on the TIGHTEST-spread
+      pairs, it cannot clear on the wider-spread remainder (USDCAD 2.10, NZDUSD 1.90,
+      EURGBP 1.70, AUDJPY 1.60 RT hurdles) — so screening these five is sufficient to
+      decide the family. GBPJPY explicitly excluded (HoQR R3).
+    volume-signal-definition: >
+      RELATIVE-TO-SEASONAL-NORM, not raw. Define seasonal bucket = (day_of_week × 24 + hour_UTC),
+      168 buckets. seasonal_median_volume[bucket] = median of `volume` over all bars in that
+      bucket across the full sample. relvol_t = volume_t / max(seasonal_median_volume[bucket(t)], 1).
+      Signal fires only when relvol_t exceeds a threshold (pre-specified at 1.5×, i.e. volume
+      ≥ 1.5× its seasonal norm). PREFERRED over raw volume BECAUSE raw volume is dominated by
+      intraday seasonality (London/NY opens always print high volume) — a raw-volume filter
+      would just select session-open bars, which is a TIME filter, not a participation signal.
+      Dividing by the seasonal norm removes the deterministic time-of-day component and isolates
+      the SURPRISE. Justification of (partial) orthogonality to range: relvol's correlation with
+      relative-range drops from raw-vol~range ≈ 0.62–0.72 to relvol~relrange ≈ 0.53–0.64 — lower,
+      but NOT orthogonal; see volatility-control-test. The residual after seasonal-norming is the
+      only defensible "volume, not time, not (fully) volatility" quantity available on this data.
+    signal-logic: >
+      At each bar t that is a session-open hour (07:00 or 13:00 UTC — London / NY opens, the two
+      highest-participation transitions), compute relvol_t. If relvol_t ≥ 1.5 AND the bar's own
+      return sign is well-defined (|close−open| > 0), emit a CONTINUATION signal in the DIRECTION
+      of the current bar's close−open. Position is discretized to +1 (long) or −1 (short) for the
+      hold horizon. Declarative only; ROUTE_TO quant-developer for vectorized implementation using
+      the existing pip-size table (scripts/cost_feasibility_c1_c2.py lines 36–46) and the
+      C2COST-corrected trade-loop accounting. NO CODE EMITTED BY QR.
+    entry: >
+      Enter at bar t+1 open (no-lookahead: signal computed on closed bar t, executed next bar),
+      in the direction of bar t's close−open sign, conditional on relvol_t ≥ 1.5 at a session-open hour.
+    exit: >
+      Time-stop exit at the close of bar t+2 (a 2-bar / 2-hour hold). Fixed-horizon exit chosen
+      to keep turnover and per-trade cost minimal and to make the gross-edge estimate falsifiable
+      against a single, pre-specified horizon (no horizon-shopping).
+    stop: >
+      Protective stop at 1.5 × the entry bar's range (≈ 1.5 × ATR-equivalent on a single bar) on
+      the adverse side. Stop is for risk containment only; the feasibility screen evaluates the
+      gross signed return over the fixed 2-bar hold (stop rarely binds at this horizon) so the
+      cost verdict is not stop-path-dependent.
+    hold-horizon: 2 hours (2 × 1h bars), fixed.
+    expected-fires-per-year: >
+      ~250–320 fires/yr/pair (NOT low-turnover by the family's standard, and that is itself a
+      cost problem). Derivation: 2 session-open hours/day × ~250 trading days/yr = ~500
+      candidate bars/yr; relvol ≥ 1.5 fires on the upper tail of the seasonal-norm distribution
+      at session opens — my probe measured 793 EURUSD fires and 504 GBPUSD fires over the ~5-yr
+      sample at hours {07,13}, i.e. ~100–160 fires/yr/pair on the strict (07/13-only) definition.
+      If session-open hours are broadened to {07,08,13,14} the count roughly doubles to ~250–320/yr.
+      QD measures the exact count under the strict definition; I pre-register the strict {07,13}
+      definition as primary.
+    expected-gross-pips-per-trade: >
+      ~0.9–1.0 pips/trade (LOW — below the hurdle on most pairs). Derivation from a real probe,
+      NOT curve-fit: I measured mean signed-continuation return over the next bar on high-relvol
+      session-open bars = +0.892 pips (EURUSD), +1.025 pips (GBPUSD). Continuation rate was 0.508
+      (EURUSD) and 0.498 (GBPUSD) — statistically a coin flip. The small positive mean is driven
+      by the magnitude of continuing moves being marginally larger than reversing moves, NOT by a
+      directional edge. Extending to a 2-bar hold does not reliably scale this (mean-reversion at
+      h=2 may erode it). I report ~1 pip/trade as the GENEROUS upper-bound gross estimate.
+    rt-cost-hurdle-pips: >
+      Per-pair (spread_median_pips real per-bar + 0.80 overhead): EURUSD 1.10, GBPUSD 1.70,
+      USDJPY 1.40, EURJPY 1.80, AUDUSD 1.80. NOTE these are FULL-SAMPLE medians; high-relvol
+      bars carry WIDER spreads (EURUSD high-relvol mean spread 0.47 vs 0.44 all; AUDUSD 1.25 vs
+      1.19 all), so the effective hurdle on the conditioned subset is HIGHER than the table,
+      worsening feasibility. QD must compute the hurdle on the CONDITIONED bars, not full-sample.
+    volatility-control-test: >
+      MANDATORY. Form (a) preferred: residualize the per-trade gross signed return on relative-RANGE.
+      Specifically: (1) regress per-trade gross pips on relrng_rank (rank of relative-range on the
+      entry bar) AND relvol_rank, jointly; report the relvol coefficient and its t-stat NET of
+      relrng. PASS-the-control iff the relvol term is positive with t ≥ 2.00 after controlling for
+      relrng. Form (b) supplementary: stratify entries into a 2×2 (relvol high/low × relrng high/low)
+      and show the high-relvol/LOW-relrng cell (the "volume-surprise without a volatility-spike" cell)
+      carries independent positive gross edge. If the gross edge lives ONLY in the high-relvol/high-relrng
+      cell, the signal is volatility, not volume → DISQUALIFIED as an F1–F6 vol-breakout restatement.
+      PRIOR: relvol~relrange ≈ 0.53–0.64 (substantial shared variance) and high-relvol bars show
+      IDENTICAL directional efficiency to low (0.464 vs 0.451) → I expect this control to FAIL,
+      i.e. the (already coin-flip) edge to be a volatility shadow.
+    feasibility-falsification: >
+      KILL (cost-axis FAIL) iff gross_edge_per_trade ≤ 0.80 × RT_cost on the conditioned bars for
+      ≥3 of the 5 pairs. Concretely, with measured gross ≈ 0.9–1.0 pips and hurdles 1.10–1.80,
+      gross/hurdle ≈ 0.5–0.9 → FAIL on EURUSD (0.9/1.10=0.82, borderline) and clear FAIL on
+      GBPUSD/EURJPY/AUDUSD (≤0.6). SECONDARY independent kill: volatility-control test fails
+      (relvol t-stat < 2.00 net of relrng) → DISQUALIFIED regardless of cost margin.
+      Either condition closes the candidate.
+
+  - name: V2-RELVOL-LOWSPREAD-MEANREVERT (structural anti-volatility construction)
+    alpha-source: >
+      Designed specifically to ATTACK the orthogonality problem BY CONSTRUCTION (the PM's
+      acceptable form (a): "volume HIGH while spread is LOW — anti-correlated with volatility
+      spikes"). Mechanism claim: a bar with HIGH relative-volume but NARROW spread reflects
+      DEEP two-sided liquidity (many participants, tight book) rather than a one-sided volatility
+      surge (which widens spreads). In a deep-liquidity high-participation bar, a price extension
+      away from the session VWAP/open is more likely to be ABSORBED (mean-revert) than to continue,
+      because the liquidity to fade it is present. This is the one volume framing that is plausibly
+      orthogonal to volatility, because the LOW-SPREAD condition explicitly EXCLUDES the
+      volatility-spike regime where tick-volume and range co-move.
+      HONEST CAVEAT: this is still a folklore mechanism (no peer-reviewed OOS FX support); and it
+      partially re-treads the retired F-family mean-reversion topology (spread-filt-reversal),
+      which the NO-RETIRED-FAMILY-RERUN constraint scrutinizes. Its claim to novelty is the
+      JOINT relvol-high ∧ spread-low ∧ seasonal-norm conditioning, not the mean-reversion leg alone.
+      I flag this novelty as CONTESTABLE and defer to HoQR's structural-novelty pre-screen.
+    universe: >
+      EURUSD, USDJPY, EURGBP (the three pairs where "low spread" is a meaningful, frequently-met
+      condition — median spreads 0.30 / 0.60 / 0.90). On wide-spread pairs the "low spread" gate
+      almost never fires, making the construction vacuous. Rationale: test where the structural
+      anti-volatility gate can actually bind.
+    volume-signal-definition: >
+      relvol_t = volume_t / seasonal_median_volume[bucket(t)] (same 168-bucket seasonal norm as V1).
+      JOINT condition: relvol_t ≥ 1.5 AND spread_median_pips_t ≤ the pair's 40th-percentile spread
+      (a TIGHT-book bar). The spread-low gate is what manufactures orthogonality: it removes the
+      high-range/wide-spread bars where tick-volume is merely a volatility proxy, leaving
+      high-participation/tight-book bars. Pre-specified spread percentile = 40th (not optimized).
+    signal-logic: >
+      On any bar t satisfying relvol_t ≥ 1.5 AND spread_t ≤ p40_spread, if the bar's close is
+      extended ≥ 0.75 × seasonal-median-range away from the same session's opening price, emit a
+      MEAN-REVERSION signal toward the session open (sign = − sign(close − session_open)). Discretize
+      to ±1 for the hold. Declarative only; ROUTE_TO quant-developer. NO CODE.
+    entry: Enter at bar t+1 open, fading the extension (no-lookahead).
+    exit: Time-stop at close of bar t+3 (3-hour hold) OR touch of the session-open price, whichever first.
+    stop: 1.5 × seasonal-median-range on the adverse side (risk containment).
+    hold-horizon: up to 3 hours (3 × 1h bars), early-exit on session-open touch.
+    expected-fires-per-year: >
+      ~40–80 fires/yr/pair (LOW turnover — the joint relvol≥1.5 ∧ spread≤p40 ∧ extension≥0.75×
+      gate is restrictive). Derivation: relvol≥1.5 ≈ upper ~15% of bars; spread≤p40 ≈ 40% of bars;
+      extension≥0.75×medrange ≈ ~25% of bars; if roughly independent, joint ≈ 0.15×0.40×0.25 ≈
+      1.5% of ~6200 bars/yr ≈ ~90/yr, but relvol and spread are NEGATIVELY associated on the
+      conditioned set (high relvol tends to WIDEN spread — see probe: EURUSD high-relvol spread
+      0.47 > 0.44), so the joint is RARER than independence implies → ~40–80/yr. QD measures exact.
+    expected-gross-pips-per-trade: >
+      ~1.5–2.5 pips/trade IF the mean-reversion mechanism is real (an extension of 0.75× a ~11-pip
+      EURUSD seasonal range ≈ 8 pips; reverting ~20–30% of it ≈ 1.5–2.5 pips). This is a REASONED
+      mechanism estimate, NOT a measured probe — I did not probe V2's mean-reversion return
+      (it requires session-open anchoring QD must build), and I flag that the estimate is therefore
+      SOFTER than V1's. The honest risk: the extension itself is the volatility the spread-gate was
+      supposed to exclude, so the gross edge may collapse once the spread-low gate is binding.
+    rt-cost-hurdle-pips: >
+      On the CONDITIONED (spread≤p40) bars the hurdle is LOWER than full-sample by construction:
+      EURUSD ≈ p40_spread + 0.80 ≈ ~1.0; USDJPY ≈ ~1.2; EURGBP ≈ ~1.5. QD computes the exact
+      conditioned-bar hurdle (this is the design's intended cost ADVANTAGE — it trades only on
+      tight-book bars).
+    volatility-control-test: >
+      MANDATORY, but the construction is built to pass form (c)/(a): the spread-low gate makes the
+      entry anti-correlated with volatility spikes BY CONSTRUCTION. The screen must still CONFIRM this:
+      (1) verify the conditioned-entry bars' relative-range distribution is NOT shifted high vs sample
+      (if conditioned relrng median ≈ sample median, the construction worked); (2) residualize gross
+      return on relrng_rank and confirm the relvol/mean-reversion term survives with t ≥ 2.00. If the
+      conditioned bars are STILL high-range (the spread-low gate failed to exclude volatility), the
+      construction is void → DISQUALIFIED.
+    feasibility-falsification: >
+      KILL (cost FAIL) iff gross_edge ≤ 0.80 × conditioned-RT-cost on ≥2 of 3 pairs. SECONDARY kill:
+      conditioned-entry-bar relrng median ≥ 1.2× sample median (construction failed to exclude
+      volatility) → DISQUALIFIED as volatility-restatement. TERTIARY: HoQR structural-novelty
+      pre-screen rules the mean-reversion leg too close to retired spread-filt-reversal → DISQUALIFIED
+      before screen.
+
+slippage-distribution: >
+  Declarative (modeled, not measured live — no live capital). The 0.80-pip RT overhead already
+  embeds 2×0.25 slippage. By regime: CALM (out-of-hike, London/NY core hours) mean slip ≈ 0.25,
+  P50 ≈ 0.2, P90 ≈ 0.5, P99 ≈ 1.0 pips. STRESS (2022–23 FOMC hiking, news bars, session-open
+  spikes) mean ≈ 0.5–0.8, P90 ≈ 1.5, P99 ≈ 3–4 pips. CRITICAL for these candidates: V1 enters at
+  session opens, the HIGHEST-slippage hours of the day — so the realized slippage on V1 fires sits
+  in the upper tail, further eroding an already sub-hurdle gross edge. V2's spread-low gate biases
+  toward the calm tail (intended). Slippage modeling stays declarative; QD applies the fixed 0.80
+  overhead per the cost-hurdle definition for the screen (no per-bar slippage model this cycle).
+
+retirement-triggers: >
+  Machine-checkable: (1) cost-axis FAIL per feasibility-falsification above → retire candidate.
+  (2) volatility-control test fails (relvol coefficient t < 2.00 net of relrng) → retire as
+  volatility-restatement. (3) For V2, conditioned-entry relrng median ≥ 1.2× sample median →
+  retire (construction void). (4) Amended gate (later, HoQR): if cost-PASS/STRETCH but
+  regime-stratification shows edge vanishes out-of-hike, OR per-trade t < 2.00, OR single-year
+  domination → GATE-HELD, does not advance. (5) If BOTH candidates retire on any of the above,
+  emit FAMILY-CLOSED: the volume-conditioning lever on existing 9-pair 1h data is exhausted and
+  data-capability acquisition (intraday tick / L2 with true depth) is the recommended next lever.
+
+evidence:
+  - "DESCRIPTIVE PROBE (run by QR this cycle, read-only, non-counting): raw volume~range corr
+    = 0.62–0.72 across all 9 pairs; relvol(seasonal-normed)~relrange corr = 0.53–0.64 — LOWER but
+    NOT orthogonal. Tick-volume IS substantially a volatility proxy even after seasonal-norming."
+  - "DESCRIPTIVE PROBE: log-relvol regressed on log-relrange → R²=0.257 (EURUSD), 0.400 (AUDUSD);
+    so 60–74% of relative-volume variance is RESIDUAL to range — a genuine non-range component
+    exists, but the probe below shows it carries no directional sign."
+  - "DESCRIPTIVE PROBE: high-relvol bars show directional efficiency 0.464 vs 0.451 low (no
+    trend-vs-chop discrimination) and WIDER spreads (EURUSD 0.47 vs 0.44; AUDUSD 1.25 vs 1.19) —
+    cost moves the wrong way on the conditioned subset."
+  - "DESCRIPTIVE PROBE (V1 core): session-open high-relvol continuation rate = 0.508 (EURUSD,
+    n=793) / 0.498 (GBPUSD, n=504) ≈ coin flip; mean signed-continuation = +0.892 / +1.025 pips,
+    BELOW the RT hurdles 1.10 / 1.70. This is the headline reason my prior is FAIL."
+  - "Cost hurdle table (real spread_median_pips + 0.80, pair-native pips): EURUSD 1.10, GBPUSD 1.70,
+    USDJPY 1.40, EURJPY 1.80, AUDUSD 1.80, USDCAD 2.10, NZDUSD 1.90, EURGBP 1.70, AUDJPY 1.60."
+  - "EVIDENCE-LAYER CITATION (forex-trading SKILL §2.5, §8; technical-analysis SKILL evidence
+    layer): OBV / volume-confirms-trend / PVT are UNVALIDATED FOLKLORE in FX; Park & Irwin TA
+    survey is mixed-not-settled with post-1990s decay; no peer-reviewed OOS support for tick-volume
+    directional edges in OTC FX. The only documented FX edges are carry + cross-sectional momentum
+    (systematic factors, not volume). Prior on a real volume directional edge here = LOW."
+  - "Retail FX `volume` = broker TICK-volume (count of price updates; FX is OTC, no consolidated
+    tape) — confirmed in PM acceptance criteria TICK-VOLUME-VS-VOLATILITY-GUARD. This is the
+    structural reason volume ≈ volatility on this data."
+  - "scripts/cost_feasibility_c1_c2.py lines 36–46 (pip-size table, JPY=0.01) and the C2COST-fixed
+    trade-loop accounting — QD reuses both for the screen."
+
+assumptions:
+  - "9-pair 1h parquet store (2021-01-03 → 2025-12-31, ~31,012 bars/pair) accessible and unchanged;
+    `volume` non-zero on all bars (probe confirmed median 3,253–10,020 across pairs)."
+  - "EXCLUDE-NOT-IMPUTE: trades whose entry OR exit bar has zero/missing spread_median_pips are
+    dropped from the screen; never imputed."
+  - "QD computes the RT hurdle on the CONDITIONED bars (not full-sample), because high-relvol bars
+    carry wider spreads — full-sample hurdles understate cost for V1."
+  - "V1 gross estimate (~1 pip) is probe-grounded; V2 gross estimate (~1.5–2.5 pips) is a softer
+    mechanism estimate I did NOT probe (session-open anchoring required) — flagged explicitly."
+  - "The seasonal norm uses the FULL sample median per (dow×24+hour) bucket. This uses future bars
+    in the median, which is acceptable for a DESCRIPTIVE feasibility screen but would require a
+    rolling/expanding norm in any committed CPCV pre-registration (no-lookahead). QD should note
+    this; it does not affect the cost-feasibility verdict (a magnitude gate), only a future backtest."
+  - "No-lookahead preserved in the trade logic: signal on closed bar t, execute bar t+1 open."
+
+confidence: medium
+
+body: |
+  ## The volume-vs-volatility orthogonality argument — laid bare
+
+  This cycle's make-or-break is whether a volume-conditioned signal carries information
+  BEYOND realized range. I treated that as an empirical question and probed it directly
+  on the real 9-pair data before writing a single candidate. The answer, honestly:
+
+  **Tick-volume is substantially — though not entirely — a volatility proxy on this data,
+  and the residual (non-range) component does not carry directional information.**
+
+  Three facts, all measured:
+
+  1. **Seasonal-norming helps but does not orthogonalize.** Raw volume correlates with bar
+     range at 0.62–0.72. The right move — the one the prompt asks for — is to use volume
+     RELATIVE to its time-of-day/day-of-week seasonal norm ("participation surprise"),
+     because FX volume has strong intraday seasonality (London/NY opens always spike), and a
+     raw-volume filter is really a TIME filter. Seasonal-norming drops the correlation to
+     0.53–0.64. Lower, materially — but still over half the variance is shared with range.
+     A "relative-volume edge" is therefore PRESUMPTIVELY a relative-range edge unless proven
+     otherwise. That is exactly the F1–F6 vol-breakout family the firm already retired.
+
+  2. **There IS a residual.** Only 26% (EURUSD) to 40% (AUDUSD) of log-relative-volume
+     variance is explained by log-relative-range. So 60–74% of relative-volume is genuinely
+     NOT range. If volume carried alpha beyond volatility, it would live in this residual.
+     This is the steelman for the family, and I built V1 to exploit it.
+
+  3. **The residual carries no directional sign.** High-relvol bars are no more "trend bars"
+     than low-relvol bars (directional efficiency 0.464 vs 0.451 — indistinguishable). And
+     at the strongest a-priori spot — high participation-surprise at session opens — the
+     next-bar continuation rate is 0.508 / 0.498, a coin flip, with a signed edge of ~0.9–1.0
+     pips that sits BELOW every pair's RT-cost hurdle (1.10–1.80). Worse, high-relvol bars
+     carry WIDER spreads, so the cost moves against the signal exactly where it fires.
+
+  ## What this means for the two candidates
+
+  **V1 (relvol continuation)** is the strongest-faith directional attempt, and my own probe
+  already shows it is ~coin-flip with sub-hurdle gross edge. My honest prior is cost-axis
+  **FAIL** on ≥3 of 5 pairs and a FAILED volatility-control test (the small edge is a
+  volatility shadow). I include it not because I believe it, but because the firm's discipline
+  is to KILL on measured numbers from QD, not on a researcher's prior — and V1 gives QD a
+  precise, falsifiable target.
+
+  **V2 (relvol-high ∧ spread-low mean-reversion)** is the ONE framing with a structural
+  orthogonality argument: by gating on LOW spread, it excludes the volatility-spike regime
+  where tick-volume and range co-move, isolating high-participation/tight-book bars. This is
+  the PM's acceptable form (a). It is also the candidate I could NOT probe directly (it needs
+  session-open anchoring QD must build), so its gross estimate (~1.5–2.5 pips) is a softer
+  mechanism estimate, and it brushes against the retired spread-filt-reversal topology — its
+  novelty rests entirely on the joint relvol ∧ spread ∧ seasonal conditioning, which I flag as
+  CONTESTABLE and defer to HoQR's structural-novelty pre-screen. Its honest risk: the price
+  extension it fades may BE the volatility the spread gate was meant to exclude.
+
+  ## The honest bottom line (per the prompt's explicit instruction)
+
+  The prompt instructed: "If you cannot articulate a volume signal that is plausibly orthogonal
+  to volatility, SAY SO honestly — that itself closes the lever." My finding is intermediate
+  and I will not overstate it in either direction:
+
+  - I CAN articulate a partially-orthogonal signal (V2's relvol-high ∧ spread-low construction,
+    and V1's seasonal-norm residual). So the lever is not closed by pure inarticulability.
+  - But my DESCRIPTIVE EVIDENCE points strongly to FAIL: the directional content is coin-flip,
+    the gross edge is sub-hurdle, the residual carries no sign, and the evidence layer rates FX
+    volume indicators as unvalidated folklore. My expectation is that QD's screen returns
+    cost-axis FAIL for V1 and a failed-or-borderline result for V2, closing the family.
+
+  This is the right way for the lever to close: cheaply, on a feasibility screen, with a
+  pre-specified volatility-control test, and with the honest-N held at 30 (descriptive,
+  non-counting). If QD's numbers surprise me and a candidate is cost-PASS AND passes the
+  volatility control, it then faces HoQR's amended three-sub-gate (regime + t≥2.00 +
+  no-single-year) before any pre-registration — a bar I designed toward but do not expect
+  this family to clear. No committed CPCV backtest, no trial-counter increment this cycle.
+
+knowledge_gaps:
+  - "V2 mean-reversion gross edge is unprobed (requires session-open anchoring QD builds); its
+    ~1.5–2.5 pip estimate is a mechanism estimate, softer than V1's probe-grounded ~1 pip."
+  - "Whether a rolling/expanding seasonal norm (no-lookahead) materially changes fire counts vs
+    the full-sample norm used in the descriptive probe — relevant only to a future CPCV backtest."
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/pm-acceptance-criteria.yaml"
+  - "scripts/cost_feasibility_c1_c2.py"
+  - "data/processed/{9 pairs}_1h.parquet"
+  - "~/.claude/skills/forex-trading/SKILL.md (evidence layer §2.5, §8)"
+  - "~/.claude/skills/technical-analysis/SKILL.md (volume-indicator evidence layer)"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [hypothesis-formulation-and-pre-registration, TradeIntent-spec-authoring, falsification-criteria-design, signal-vs-noise-justification]

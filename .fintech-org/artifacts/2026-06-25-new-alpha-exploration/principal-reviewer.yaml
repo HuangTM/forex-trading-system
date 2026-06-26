@@ -1,0 +1,434 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-25T00:00:00Z"
+subtask_ref: new-alpha-exploration
+subtask_id: new-alpha-exploration-2026-06-25-pr
+artifact-under-review: quant-researcher-structured.yaml + ml-researcher-eval.yaml (exploration shortlist soundness)
+rubrics-applied:
+  - review-plan (correctness / completeness / clarity / risk dimensions; inversion + absent-evidence + assumption-audit hardening)
+  - financial-ml-methodology (rubric 1 CV-no-leak, rubric 2 DSR/multiple-testing, rubric 3 labels, rubric 4 regime-stratified)
+  - probability-statistics (LLN/CLT effective-N, Wilson CI, Spearman power, multiple-testing burden)
+  - execution-firewall-review (spec-vs-future-implementation drift; cost-manifest "sensible default" tail)
+  - log-as-decision-trace (kill-number machine-checkability / decision-replayability)
+
+feasibility-test-soundness:
+  - direction: C1 cme-fx-futures-time-series-momentum
+    kill-number-well-defined: yes
+    false-pos-or-neg-risk: >
+      FALSE-PASS risk on Step A. The kill arithmetic substitutes the PUBLISHED
+      gross MOP-2012 FX-futures-sleeve Sharpe (~0.4) as the edge numerator, then
+      subtracts a modeled CME cost drag. Two un-stated hazards make a PASS weak
+      evidence of a live edge: (1) the published ~0.4 is itself the survivor of
+      an enormous cross-study selection surface and is subject to McLean-Pontiff
+      post-publication decay (~35-58%) — the test does not discount for decay or
+      for the gap between the 1985-2012 sample and a 2012-2026 OOS window;
+      (2) the "implied annual turnover at the 12-month signal" is an input the
+      desk supplies, and the residual-Sharpe gate (>=0.20) is sensitive to it —
+      a generous turnover assumption passes a direction that a realistic one
+      kills. FALSE-KILL risk is low and acceptable (kill condition 2, capital-
+      infeasibility, is a genuine hard constraint, correctly first-classed).
+    disguised-backtest: no
+  - direction: C2 multi-asset-factor-basket-and-commodity-trend-transplant
+    kill-number-well-defined: partial
+    false-pos-or-neg-risk: >
+      FALSE-PASS risk concentrated in the gap between the two cheap checks and
+      the load-bearing claim. Checks 1-2 (published combined OOS Sharpe >= 0.4;
+      futures cost hurdle <= 25%) are decidable on published numbers. But the
+      whole W2/W3 attack rests on LOW realized cross-sleeve correlation OOS,
+      and that is the ONE quantity the cheap test cannot touch — it is deferred
+      to kill-criterion (3) at committed-backtest time (corr > 0.6 => kill).
+      So the cheap test can PASS a direction whose entire thesis (diversification)
+      is unverified, and an in-sample corr threshold checked at backtest is itself
+      a snoop surface. The honest caveat is stated in walls-NOT-solved, but the
+      kill-NUMBER for the central risk lives only at the (future, costed) backtest
+      stage, not at the cheap gate — so "cheap test passes" must not be read as
+      "thesis survives." Also: roll cost is correctly flagged as not-to-be-omitted,
+      but the cheap check (Treasuries ~1bp, commodities "a few bp") does not bound
+      roll/curve cost, which on commodity continuous contracts can dominate the
+      bid-ask term.
+    disguised-backtest: no
+  - direction: C3 fx-swap-basis-cip-deviation-directional-predictor
+    kill-number-well-defined: yes
+    false-pos-or-neg-risk: >
+      FALSE-PASS AND FALSE-KILL both material, and under-acknowledged on the
+      statistical-power side. The cheap test is a single Spearman rank-correlation
+      on BIS QUARTERLY basis vs subsequent QUARTERLY spot return with kill at
+      |rho| < 0.15. Post-2008 quarterly BIS data is ~16yr => ~64 quarterly
+      observations, and these overlap/autocorrelate heavily (funding-stress is
+      persistent), so the EFFECTIVE N is far below 64. At that effective N, the
+      sampling SE of Spearman rho is large: a true rho of 0.15 is statistically
+      indistinguishable from 0 (FALSE-KILL of a real signal), AND a spurious
+      |rho| >= 0.15 can arise from a handful of stress quarters driving the rank
+      order (FALSE-PASS). The test reports no CI and no significance gate on rho
+      — it treats a point estimate of a noisy statistic as decisive. This is the
+      sharpest methodological gap in the slate. The direction's own
+      confirmability-horizon section honestly says the edge lives in ~3 stress
+      episodes; that same fact undermines the cheap rho test's reliability, but
+      the artifact does not connect the two.
+    disguised-backtest: no
+  - direction: ML CB-text regime classifier (ml-researcher-eval.yaml)
+    kill-number-well-defined: yes
+    false-pos-or-neg-risk: >
+      LOW for what the test actually measures, because the ml-researcher already
+      performed the key correction: it REFRAMED the success criterion from the
+      generator's over-claim ("classifies the regime before the market prices
+      it", a tradable-edge claim) down to "can an LLM READ CB stance" (a
+      look-ahead-labeled readability screen), and flagged the conflation
+      explicitly. The N=120 / 3-class Wilson-CI-above-0.33 gate is statistically
+      sound for THAT (readability) question. The residual false-PASS risk is that
+      a passing readability screen could still be (mis)read by the Board as
+      evidence of tradable edge — the ml-researcher pre-empts this in prose, but
+      the kill-number itself does not encode the "readability != edge" firewall,
+      so it depends on the reframe surviving into the consensus.
+    disguised-backtest: no
+
+findings:
+  - id: F-001
+    severity: major
+    location: "quant-researcher-structured.yaml — C3 cheap-feasibility-test + kill-number (|rho| < 0.15 on BIS quarterly Spearman)"
+    category: numerical
+    observation: >
+      The C3 cheap kill-test is a single Spearman rho point estimate on ~16yr of
+      overlapping quarterly BIS basis data with NO confidence interval, NO
+      significance gate, and NO effective-N adjustment for the heavy
+      autocorrelation of funding-stress episodes. A |rho| threshold of 0.15 is
+      asserted as machine-checkable, but at the true effective N (a handful of
+      independent stress episodes, per the artifact's own confirmability section)
+      the SE on rho is large enough that 0.15 is not distinguishable from 0.
+    inference: >
+      The kill-number is machine-checkable in form but not DECISIVE in substance:
+      it can false-kill a real signal (rho point estimate < 0.15 by sampling
+      noise) and false-pass a spurious one (a few stress quarters drive the rank
+      order). The test's reliability is internally contradicted by the artifact's
+      own "edge lives in ~3 independent episodes" finding. Treating a noisy point
+      statistic as a hard gate is the probability-statistics anti-pattern of
+      "10 samples is not enough; asymptotic."
+    evidence: >
+      probability-statistics SKILL §1.5 (LLN/CLT, O(1/sqrt(n)); "10 samples is
+      not enough"); §4.8 common mistake. Du-Tepper-Verdelhan post-2008 sample
+      is ~16yr quarterly with serial dependence. C3 confirmability-horizon field
+      states effective event-count is "tiny regardless of calendar length."
+    recommended-action-class: tighten-invariant
+    owning-role: quant-researcher
+  - id: F-002
+    severity: major
+    location: "quant-researcher-structured.yaml — C1 cheap-feasibility-test Step A; falsification-criteria (1)"
+    category: correctness
+    observation: >
+      The C1 cheap test uses the published MOP-2012 gross Sharpe (~0.4) directly
+      as the edge numerator with no discount for (a) post-publication alpha decay
+      and (b) the 1985-2012 in-sample-to-2026 OOS gap, and the >=0.20-residual
+      gate is sensitive to a desk-supplied "implied annual turnover" input that
+      is not pinned by a public number.
+    inference: >
+      A PASS on this arithmetic is weaker evidence of a live net edge than the
+      kill-number's crispness implies. This does not make it a disguised backtest
+      (it is genuine published-number arithmetic), but it can pass a direction
+      whose real OOS net edge is below the gate once decay and a realistic
+      turnover are applied. financial-ml-methodology §evidence-base: anomaly
+      edges decay ~35-58% post-publication (McLean-Pontiff); a Sharpe without a
+      decay/OOS haircut over-states plausibility.
+    evidence: >
+      financial-ml-methodology SKILL §rubric-2 evidence-base (McLean-Pontiff
+      35-58% decay; "good backtest performance is an indicator of negative
+      future results" on memory series). C1 kill-number residual gate >= 0.20.
+    recommended-action-class: tighten-invariant
+    owning-role: quant-researcher
+  - id: F-003
+    severity: minor
+    location: "quant-researcher-structured.yaml — C2 cheap-feasibility-test (cost hurdle) + slippage-distribution C2"
+    category: correctness
+    observation: >
+      The C2 cheap cost check bounds commission + bid-ask ("Treasuries ~1bp,
+      commodities a few bp") but does not bound CONTINUOUS-CONTRACT ROLL / curve
+      cost, which on commodity sleeves (energy, ags in contango) can exceed the
+      bid-ask term and is a recurring source of overstated trend-following net
+      Sharpe. The slippage-distribution section says roll "must be modeled
+      explicitly... the cheap test must not omit" it — but the cheap-test field
+      itself does not include a roll term in the hurdle arithmetic.
+    inference: >
+      Internal inconsistency between the stated requirement (model roll) and the
+      cheap test as written (bid-ask + commission only). A direction could pass
+      the cheap hurdle and then have its net edge eaten by roll at backtest.
+    recommended-action-class: tighten-invariant
+    owning-role: quant-researcher
+  - id: F-004
+    severity: minor
+    location: "quant-researcher-structured.yaml — C2 kill-criteria; cross-sleeve correlation gate"
+    category: test-coverage-gap
+    observation: >
+      C2's load-bearing thesis (low cross-sleeve correlation => W2/W3 relief) has
+      its only kill-number (realized corr > 0.6) at the FUTURE committed-backtest
+      stage. The cheap stage has no proxy gate for it, even though a $0 proxy
+      exists: realized cross-asset factor-return correlations are reportable from
+      the same free daily series the cheap test already uses, and AMP-2013 /
+      Hurst-2017 publish cross-asset correlations directly.
+    inference: >
+      The cheapest, most decisive falsifier of C2's central premise is deferred
+      to the costed stage when a free analytic proxy is available now. Not a
+      blocking gap (the corr>0.6 gate exists), but it weakens the "kill before
+      spend" property the cycle was chartered to deliver.
+    recommended-action-class: add-test
+    owning-role: quant-researcher
+  - id: F-005
+    severity: minor
+    location: "ml-researcher-eval.yaml — CB-text downstream gates; quant-researcher-structured.yaml C1/C3 confirmability"
+    category: correctness
+    observation: >
+      The confirmability arithmetic is handled honestly in PROSE across all three
+      relevant directions (C1 "~5-8yr", C3 "approaches QRB-6 infeasible regime",
+      CB-text "~8 events/yr, same wall QRB-6 died on, <=3yr pre-check required"),
+      but only the CB-text direction names an explicit MACHINE-CHECKABLE
+      years-to-validate <=3yr pre-check. C1 and C3 leave the confirmability kill
+      as a SOFT/prose flag (C1 retirement-trigger is explicitly "SOFT" for the
+      effective-N item).
+    inference: >
+      Honesty is adequate (no over-claim — see confirmability-honesty), but the
+      gate is not symmetric: the firm's twice-hit failure mode (QRB-6 power=9%)
+      deserves the same explicit years-to-validate pre-check on C1/C3 that the ML
+      direction already carries, or the soft flag will not bind at the future
+      pre-registration.
+    recommended-action-class: tighten-invariant
+    owning-role: head-of-quant-research
+  - id: F-006
+    severity: minor
+    location: "quant-researcher-structured.yaml — evidence-grade transcription vs gen slates"
+    category: spec-drift
+    observation: >
+      Evidence-grade consistency with cited sources is GOOD overall. C1 inherits
+      OOS-ACADEMIC-SURVIVOR (MOP-2012) consistent with gen-academic and
+      gen-contrarian. C2 inherits OOS-ACADEMIC-SURVIVOR (AMP-2013, Hurst-2017)
+      consistent with gen-contrarian Direction 4 / gen-academic TSMOM note. C3:
+      gen-practitioner Direction 6 graded it OOS-ACADEMIC-SURVIVOR; the QR
+      structured record does not restate a single-token evidence-grade field for
+      C3 but the four-field PM gate requires an explicit EVIDENCE-GRADE token per
+      direction. C1 and C2 likewise embed the grade in prose/selection-rationale
+      rather than as a discrete tagged field.
+    inference: >
+      The PM hard-constraint EACH-DIRECTION-MUST-SPECIFY-FOUR-FIELDS lists
+      (d) EVIDENCE-GRADE as one of the four machine-checkable fields. The QR
+      artifact satisfies it semantically (grades are recoverable and correct) but
+      not as a discrete typed field per candidate — a completeness-gate nit the
+      PM/HoQR should normalize before consensus so the four-field check is
+      literally machine-checkable.
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-007
+    severity: observation
+    location: "ml-researcher-eval.yaml — CB-text leakage gate (pretraining cutoff vs statement date)"
+    category: correctness
+    observation: >
+      The ML methodology gates are strong and correctly identify the text-ML
+      leakage mode that has NO price-model analogue: the LLM pretraining corpus
+      post-dates the statements, so a zero-shot classifier may "know" the realized
+      regime; a knowledge-cutoff-vs-statement-date contamination check is named
+      mandatory. This is the correct rubric-1 application for text. One residual
+      subtlety not stated: even the FEASIBILITY readability screen (this cycle)
+      uses a model whose cutoff post-dates 2010-2024 FOMC statements AND uses
+      90-day-forward fed-funds labels — so the screen's accuracy is contaminated
+      UPWARD by both label look-ahead AND pretraining recall.
+    inference: >
+      Does not change the verdict (the ml-researcher already de-rates the screen
+      to "readability, not edge"), but the contamination is double, not single:
+      the dictionary-baseline control (run alongside) is what actually disentangles
+      "LLM recalls the answer" from "LLM reads the prose" — reinforcing that the
+      dictionary baseline is the load-bearing honesty gate the ml-researcher
+      correctly elevated.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: ml-researcher
+  - id: F-008
+    severity: observation
+    location: "cross-cutting — selection surface of 21 -> shortlist promotion"
+    category: other
+    observation: >
+      The shortlist is promoted from a 21-direction slate (3 lenses x 7) screened
+      by an NHT cull. honest-N=30 is asserted unchanged and every cheap test is
+      single-shot, pre-committed, and non-counting (counts_toward_deflation_
+      denominator:false). The generation surface is declared (the slates are
+      named, the cull is append-only). This is the correct discipline for an
+      exploration that does NOT spend. The residual snoop risk is downstream:
+      when a surviving direction advances to a COMMITTED pre-registration, the
+      effective N must increment by the SELECTION SURFACE (21 generated + the
+      cheap tests run), not just +1 — otherwise the DSR at that future stage is
+      computed against an under-counted denominator.
+    inference: >
+      Not a finding against this cycle (no trial counted). It is a forward
+      hazard: the pre-registration that advances any of C1/C2/C3/CB-text must
+      book the generation-surface into effective-N, or it repeats the exact
+      under-deflation the firm's honest-review reset already corrected once.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: null-hypothesis-tester
+
+selection-surface-handled: >
+  yes — for THIS cycle. Single-shot pre-committed cheap tests; honest-N=30
+  asserted unchanged with non-counting trials.jsonl semantics; generation
+  surface (3 named slates, 21 directions) and the append-only NHT cull are
+  declared. CONDITION (F-008): the future committed pre-registration of any
+  surviving direction MUST increment effective-N by the generation+screen
+  surface, not +1, or the downstream DSR is computed against an under-counted
+  denominator. Flagged blocking-for-future-pre-registration, not for this
+  shortlist.
+
+confirmability-honesty: adequate
+# No over-claim detected. Each candidate honestly states whether its data CLASS
+# escapes or merely RELOCATES the wall: C1 "MIXED, leans favorable... RECURS the
+# confirmability wall at the effective-breadth level... NOT a clean escape"; C2
+# "FAVORABLE... best escape... NOT guaranteed, conditional on low cross-sleeve
+# corr"; C3 "UNFAVORABLE... most likely to RECUR THE QRB-6 CONFIRMABILITY WALL...
+# strong mechanism, weak confirmability"; CB-text "~8 events/yr, same wall QRB-6
+# died on, <=3yr pre-check required." The slate is unusually disciplined here —
+# the over-claim a reviewer would expect ("new data class => wall escaped") is
+# explicitly NOT made; C2 is the only candidate claiming a credible path THROUGH
+# the wall and it correctly conditions that on an untested correlation premise.
+
+coverage-statement: >
+  Reviewed: quant-researcher-structured.yaml (3 structured candidates C1/C2/C3,
+  their cheap-feasibility-tests, kill-numbers, falsification-criteria,
+  walls-attacked/NOT-solved, confirmability-horizons, slippage-distribution,
+  retirement-triggers, assumptions); ml-researcher-eval.yaml (CB-text direction
+  + 3 cut ML framings + HFT verdict + CPCV/purge/embargo/DSR/dictionary-baseline
+  gates); pm-acceptance-criteria.yaml (brief, 4 walls, 8 criteria, CRO firewall);
+  all three gen slates (academic / practitioner / contrarian) for evidence-grade
+  consistency and disguised-backtest detection on the underlying directions.
+  NOT reviewed (out of scope / would carry a ranking stance): head-of-quant-
+  research.yaml and nht-null-test-report.yaml — deliberately not read to preserve
+  the cold/uncontaminated posture (I have not been told any role's ranking or
+  approval stance). Applied review-plan, financial-ml-methodology (all 4 rubrics),
+  probability-statistics, execution-firewall-review, log-as-decision-trace.
+  Not assessed: the numeric correctness of any published Sharpe (no data, no
+  recompute by design); live tradability (no backtest this cycle).
+
+contamination-check: clean
+# I was NOT told any role's ranking or approval stance. The ml-researcher
+# artifact contains its own decision:approve / shortlist-verdict:include — that
+# is the artifact-under-review's self-stance (normal review input), NOT a stance
+# communicated to me about how to rank/approve. HoQR ranking and NHT cull stances
+# were deliberately not read. No prompt field revealed a ranking/approval stance.
+
+time-spent-reasoning: >
+  ~45 min: read 5 skills + 3 review-target artifacts + 3 gen slates; cross-checked
+  evidence-grade transcription QR<->gens; stress-tested each cheap test for
+  false-pos/neg and disguised-backtest; checked C3 Spearman power against
+  effective-N; checked selection-surface/honest-N handling against the financial-ml
+  multiple-testing rubric; verified confirmability claims against the QRB-6
+  reference; inversion + absent-evidence + assumption-audit hardening passes.
+
+evidence:
+  - "quant-researcher-structured.yaml lines 70-378 (C1/C2/C3 records), 380-446 (slippage, retirement-triggers, assumptions)"
+  - "ml-researcher-eval.yaml lines 11-80 (CB-text), 144-175 (HFT + shortlist-rec), 226-244 (downstream gates)"
+  - "pm-acceptance-criteria.yaml lines 30-95 (four-field gate, four-walls-stay-closed), 244-247 (PR scope)"
+  - "gen-academic-factor.yaml lines 60-104 (TSMOM), 366-440 (honest-note grade self-corrections)"
+  - "gen-contrarian-outsider.yaml lines 76-134 (commodity transplant), 208-258 (multi-asset basket), 264-336 (CB-text)"
+  - "gen-practitioner-microstructure.yaml lines 424-516 (FX swap basis = C3 source), 580-587 (COT evidence-grade honesty)"
+  - "financial-ml-methodology SKILL rubric-1 (CV-no-leak, text leakage), rubric-2 (DSR/N, McLean-Pontiff decay), decision-matrix hard gates"
+  - "probability-statistics SKILL §1.5 (LLN/CLT, '10 samples not enough'), §4.8"
+  - "references/pre-registrations/CONSENSUS_2026-06-07_qrb6_winddown (power=9%, confirmability wall) — cited by all three candidates"
+
+assumptions:
+  - "The 4 walls and honest-N=30 are accurate per the governing CADJPY/cost-aware consensus; I did not re-derive them (same assumption the authors declare)."
+  - "Published academic OOS Sharpes are gross-of-firm-cost with wide bands and bound plausibility only — consistent with the QR artifact's own stated assumption; I did not recompute any."
+  - "HoQR owns final ranking and NHT owns the cull; I deliberately did not read those to stay cold, so my review does not assess ranking-consistency directly — I assess only that the QR/ML feasibility designs SUPPORT a consistent ranking (PM criterion PR-(c) is therefore partially deferred to a stance I cannot see without contamination; I flag this scoping explicitly rather than read the ranking)."
+  - "No code emitted; no capital; trial counter unchanged — verified by assertion in the artifacts, not by re-reading trials.jsonl this pass."
+
+confidence: medium
+
+body: |
+  INDEPENDENT SOUNDNESS REVIEW — exploration shortlist (C1/C2/C3 + CB-text)
+
+  VERDICT: approve-with-conditions. This is a methodologically DISCIPLINED
+  non-spend exploration. The single most important thing a reviewer can say
+  about it is what it did NOT do: it did not over-claim wall-escape (the
+  confirmability-honesty is genuinely adequate, the failure mode I expected),
+  it did not smuggle a mini-backtest into any "cheap test" (all four are
+  arithmetic-on-published-numbers or a single-statistic-on-free-data), and it
+  did not increment honest-N. None of my findings blocks the SHORTLIST. Two are
+  blocking-for-FUTURE-pre-registration (F-001 C3 Spearman power; F-008
+  selection-surface into effective-N). The rest tighten kill-numbers.
+
+  1. ARE THE CHEAP TESTS DECISIVE AND CHEAP? (and not disguised backtests)
+  None of the four is a disguised backtest — this is the cleanest property of
+  the slate, and it directly satisfies the PM's PR-(a) gate and the assumption
+  that "cheap test != mini-backtest." C1 and C2 are desk arithmetic on published
+  Sharpes + public fee schedules. C3 and CB-text compute ONE statistic each (a
+  Spearman rho; a 3-class accuracy with Wilson CI) on free data — a property of
+  series/documents, not a portfolio return. Good.
+
+  But "cheap" is not the same as "DECISIVE," and three of the four have a
+  false-pass channel that the crisp kill-numbers mask:
+    - C3 (F-001, MAJOR): a |rho| < 0.15 gate on ~16yr of overlapping quarterly
+      data with no CI and no effective-N adjustment is the sharpest gap. The
+      direction's OWN confirmability section says the edge lives in ~3
+      independent stress episodes — which is exactly why a point-estimate rho is
+      unreliable (it can be false-killed by sampling noise or false-passed by a
+      few stress quarters driving the ranks). The fix is to gate on rho WITH a CI
+      / permutation p-value at the honest effective-N, not on the point estimate.
+    - C1 (F-002, MAJOR): substituting the raw published ~0.4 Sharpe with no
+      decay/OOS haircut, and a residual gate sensitive to a desk-chosen turnover,
+      can pass a direction whose live net edge is below the gate.
+    - C2 (F-003/F-004, MINOR): the cost hurdle omits roll/curve cost the artifact
+      itself says must not be omitted, and the central diversification premise has
+      its only kill at the costed stage when a $0 correlation proxy exists now.
+  The CB-text feasibility test is the soundest of the four BECAUSE the
+  ml-researcher already corrected the generator's tradable-edge over-claim down
+  to a readability screen and put the dictionary baseline alongside it — the one
+  control that disentangles "LLM recalls the answer" from "LLM reads the prose"
+  (reinforced by F-007: the screen is double-contaminated, look-ahead label +
+  pretraining recall, so the baseline is load-bearing).
+
+  2. MULTIPLE-TESTING / SELECTION-SURFACE DISCIPLINE
+  Handled for this cycle (selection-surface-handled: yes). Single-shot,
+  pre-committed, non-counting; generation surface and append-only cull declared.
+  No candidate's cheap test is structured to become a p-hacking tool THIS cycle
+  (each runs once, kill-or-pass). The forward hazard (F-008) is the one to carry
+  into governance: the committed pre-registration that advances any survivor must
+  book the 21-direction generation surface + cheap-tests-run into effective-N,
+  not +1 — owned by NHT. This is the firm's previously-corrected under-deflation
+  failure, and it will recur silently if effective-N is reset to +1 at advance.
+
+  3. CONFIRMABILITY-HORIZON HONESTY
+  Adequate, no over-claim flagged. Each candidate states whether its data CLASS
+  escapes or merely RELOCATES the wall, in the right direction: C3 honestly
+  self-identifies as the worst (recurs QRB-6 hard) yet is carried for orthogonality
+  + free test — a defensible, transparent trade; C2 is the only credible
+  path-THROUGH and correctly conditions it on an untested correlation; C1 is
+  "mixed, not a clean escape." The asymmetry I do flag (F-005, MINOR) is that
+  only CB-text carries an explicit machine-checkable <=3yr years-to-validate
+  pre-check; C1/C3 leave it as a soft/prose flag. Given QRB-6 died at power=9%,
+  the same explicit pre-check belongs on C1/C3.
+
+  4. ML METHODOLOGY GATES (text direction)
+  Strong. The ml-researcher applies financial-ml-methodology correctly: k-fold
+  disqualified on serially-correlated regime labels; CPCV/walk-forward + PURGE
+  (inter-meeting label span) + EMBARGO sized to regime autocorrelation in MONTHS
+  (correctly refusing the 1-5d daily heuristic); DSR under org-wide N=30 + the
+  effective-N inflation from stance-threshold / gating-percentile / carry-param
+  choices, computed for the conditioned stream's actual T/skew/kurtosis (not a
+  recalled threshold); regime-stratified eval on an INDEPENDENT axis to avoid the
+  classifier-evaluating-itself circularity; and the dictionary/keyword baseline
+  elevated as the single most important honesty gate. The text-specific leakage
+  gate (pretraining-cutoff vs statement-date) is present and is the correct
+  rubric-1-for-text application. The only refinement (F-007, observation) is that
+  the feasibility screen itself is double-contaminated, which strengthens — not
+  weakens — the ml-researcher's own conclusion. No rubric gap rises to blocking.
+
+  5. SEVERITY / BLOCKING POSTURE
+  No finding blocks the SHORTLIST (correct per the brief — this is guidance, not
+  a spend). Blocking-for-future-pre-registration: F-001 (C3 Spearman must gate on
+  significance at effective-N, not a point estimate) and F-008 (effective-N must
+  absorb the selection surface at advance). Everything else tightens kill-numbers
+  or normalizes the four-field completeness tagging (F-006). Approve-with-
+  conditions: adopt F-001 and F-008 as binding pre-conditions on any future
+  pre-registration; treat F-002/F-003/F-004/F-005 as kill-number hardening before
+  advance.
+
+knowledge_gaps:
+  - "I did not recompute any published Sharpe or basis correlation — by design (no data, no backtest this cycle); plausibility is taken as bounded by the cited OOS literature, not established."
+  - "PR criterion (c) ranking-consistency is only partially assessable without reading the HoQR ranking, which I deliberately did not read to stay cold; I assessed that the feasibility designs SUPPORT a consistent edge-per-cost ranking, not the ranking itself."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, spec-vs-implementation-drift-detection, test-coverage-and-test-quality-review, numerical]

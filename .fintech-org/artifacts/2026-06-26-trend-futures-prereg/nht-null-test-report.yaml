@@ -1,0 +1,200 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: dissent   # rigor MACHINERY survives; the confirmability PLAUSIBILITY CLAIM does not — needs revision before any backtest authorization
+timestamp: "2026-06-26T18:30:00Z"
+subtask_ref: trend-futures-prereg
+subtask_id: trend-futures-prereg-2026-06-26-nht
+
+falsification-criteria-audit:
+  - criterion: "F1 (net-DSR floor < 0.95 at effective trials = 37, CPCV median path)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Clean. Fixed numeric bar (0.95), fixed deflation denominator (37), fixed point estimate (median of C(10,2)=45 paths). Single-shot on the committed backtest. The only soft edge is that the deflation count 37 is itself ratified by ME at the committed step — but the pre-reg correctly pins 37 NOW and permits only UPWARD revision, which forecloses post-hoc loosening. No movability."
+  - criterion: "F2 (cost-hurdle residual < 0.20 after 50% McLean-Pontiff decay haircut minus modeled RT cost drag)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Clean and the decay haircut is pinned NOW (0.50 retained, midpoint of 35-58%), removing the F-002 degree of freedom the consensus flagged. Note this is the WEAKEST kill of the set in the sense that the probe already showed it clears at ~0.40 by >=1.4x; F2 is near-certain to PASS and is therefore non-binding. That is honest, not a defect — cost is not the binding risk."
+  - criterion: "F3 (regime concentration: >50% edge in one bucket AND net Sharpe with that bucket excluded <= 0)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Two-pronged AND, both prongs computable from the regime-stratified report. Frozen buckets {hiking/easing/on-hold}x{risk-on/risk-off}. The '>50%' and '<=0' are fixed. One latent DOF: the assignment of calendar dates to regime buckets is not itself frozen in the artifact (which CB-cycle dating? whose risk-on/off classifier?). RECOMMEND: pin the regime-dating source (e.g. realized fed-funds direction for hike/ease/hold; a named risk proxy threshold) at the committed step so the bucket boundaries cannot be chosen after seeing which split makes F3 pass."
+  - criterion: "F4 (crash-subsample survival: net Sharpe on union of 2009/2011-15/Mar-2020 below pre-declared -0.50 floor)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Crash-floor -0.50 is pre-declared and fixed; the three episodes are named with windows mandated in-sample. Machine-checkable. Minor: the exact calendar boundaries of '2011-2015 long winter' and 'March-2020' are not to-the-day frozen here; pin the start/end dates at the committed step (otherwise a ~quarter of slack at each boundary is a small post-hoc lever on the crash-subsample Sharpe). The DIRECTION of the gate is correct: it kills only a CATASTROPHIC crash, not a normal trend drawdown, which is the right design for a crash-risk-premium strategy."
+  - criterion: "F5 (breadth: realized effective independent bets < 4.0 OR cross-asset-sleeve avg pairwise corr > 0.6 on TRAIN+TEST)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Both prongs are fixed numerics and computable. This is the genuinely load-bearing in-sample kill and it is well-specified. One note: 'effective independent bets' must use a single frozen estimator (the G5 concentration-adjusted / eigenvalue method named in the metric); the artifact references G5 but does not pin the exact formula. Pin it, else the eff-bet count is a DOF."
+  - criterion: "F6 (data-floor PRE-gate: >=20yr clean history AND 2009 reversal in-sample)"
+    frozen-machine-checkable-single-shot: yes
+    weakness: "Clean, fully machine-checkable on the acquired manifest, BLOCKS rather than flags. No weakness."
+  - criterion: "F7 (confirmability power PRE-gate: years-to-validate at 80% power > 3.0yr -> DO NOT RUN)"
+    frozen-machine-checkable-single-shot: "yes-as-written / but CIRCULAR on one input"
+    weakness: "THE LOAD-BEARING DEFECT. F7's formula and the 3.0yr bar are frozen and the arithmetic is fully specified. BUT its two inputs are mis-scoped: (a) effective breadth B is correctly pre-computable $0 from published AMP-2013/Hurst-2017 correlation tables; (b) the 'decayed per-bet Sharpe s' is AMBIGUOUS — if s is the published-and-decayed number (0.40 x 0.50 = 0.20), F7 is fully computable NOW and ALREADY FIRES by 10-30x (see confirmability-power-audit); if s is meant to be the BACKTEST-REALIZED per-bet Sharpe, then F7 is NOT a pre-backtest gate at all (circular — it needs the backtest it is supposed to gate). This ambiguity must be resolved: s MUST be the published-decayed input for F7 to be a true $0 pre-gate. As written and read honestly, F7 is a do-not-run verdict, NOT a plausible pass."
+
+deflation-audit: >
+  37 effective trials (honest-N=30 + 21-surface booked as ~7 mechanisms) is DEFENSIBLE and
+  honors the standing ratified ruling (consensus Discipline #3 / PR F-008: '~6-7 distinct
+  mechanisms, not naive 21'). I do NOT force an upward revision, for a reason the pre-reg
+  itself should have stated: the deflation is SECOND-ORDER here, not load-bearing. I computed
+  the Bailey-Lopez de Prado expected-max-Sharpe hurdle E[max SR]/sigma_SR at N=31, 37, 51
+  (full-21), 67: it grows only logarithmically — 2.087, 2.159, 2.284, 2.386. Booking the full
+  21 (N=51) instead of 7 mechanisms (N=37) raises the hurdle by only ~0.13 sigma_SR. So the
+  pre-reg's framing that 'naive 21 over-corrects' slightly overstates the cost of conservatism
+  — the conservative choice is nearly free. I exercise my upward-revision authority to RECORD
+  that N=51 (full 21) is also fully defensible and changes the bar negligibly; I do not mandate
+  it, but I REMOVE the artifact's implied claim that 21 would be a meaningful over-correction.
+  The DSR pass-bar of 0.95 is a posterior-probability threshold (P[true SR>0] post-deflation),
+  the firm's ratified bar; N enters through the deflation denominator, not the threshold, so
+  0.95 is used correctly and is appropriate at 37 (or 51) effective trials. NET: deflation is
+  honest and not under-counted; it is simply NOT the gate that decides this direction.
+
+confirmability-power-audit: >
+  THIS IS THE LOAD-BEARING FINDING AND IT IS A FAIL. I evaluated the pre-reg's OWN frozen F7
+  formula — years-to-validate(80% power) = (z_0.8 + z_{1-alpha})^2 / S_prog^2, with
+  S_prog = s*sqrt(B), z_0.8 = 0.8416, and z_{1-alpha} set by the compound deflation
+  (eff trials 37 -> one-sided alpha ~0.05/37 -> z~3.00; or 0.025/37 -> z~3.21). Using the
+  pre-reg's OWN honest inputs (published FX-sleeve gross 0.40 x 0.50 McLean-Pontiff decay =
+  0.20 per-bet; B = 4..10 effective bets, the pre-reg's claimed range): years-to-validate is
+  37-92 years at B=10..4 (z=3.00) and 41-103 years (z=3.21). The MOST GENEROUS corner I could
+  construct — taking Hurst's fully-diversified gross ~1.0, decayed x0.5 = 0.50 as the DIRECT
+  net program Sharpe (not building it up from per-bet) — still yields ~59 years. Inverting the
+  formula: to validate in <=3yr at the deflated alpha you need a net ANNUAL program Sharpe of
+  ~2.2 — roughly 4-5x the highest GROSS UNDECAYED diversified trend Sharpe ever published
+  (~1.0). Even with NO deflation at all (raw alpha=0.05, z=1.645) you need annual Sharpe ~1.44,
+  still above any honest decayed trend number. This is fully consistent with the firm's own R5
+  precedent (a true ~0.30 annual Sharpe gives only 20-35% power over the WHOLE carry universe
+  history; a ~0.77 series 'will take years'). CONCLUSION: the pre-reg's central thesis —
+  'cross-asset BREADTH compresses years-to-validate below the <=2-3yr bar' — is
+  ARITHMETICALLY FALSE under its own formula, by 1-2 orders of magnitude. Breadth raises
+  S_prog by sqrt(B) (a factor ~2-3x), but the bar needs a factor of ~7-11x. This is the QRB-6
+  power-infeasible trap in new clothes: the data class changed (futures, real volume), but the
+  events/yr x per-event-Sharpe arithmetic that killed QRB-6 is essentially intact. F7 is
+  therefore not a hypothetical gate that 'might' fire — on every plausible input it is a
+  DO-NOT-RUN verdict computable $0 TODAY. The pre-reg's machinery is RIGHT to include F7;
+  its PROSE is wrong to present <=2-3yr as achievable.
+
+single-program-accounting-ok: >
+  YES, and it is the strongest section of the artifact. Treating 24 correlated cross-asset
+  trend contracts as ONE honest-N unit / ONE risk envelope / ONE program (30->31, never
+  one-per-sleeve) is correct: cross-asset trend correlations converge to 1 in liquidation
+  regimes, so the breadth is real in NORMAL regimes but does NOT diversify the tail — the
+  artifact states this explicitly and does NOT smuggle breadth as independent confirmation.
+  Cross-lens convergence (trend surfaced via 3 generation lenses) is correctly discounted to
+  ONE mechanism (my dissent #1 from the exploration cycle, honored verbatim, not paraphrased).
+  ONE subtle tension to flag, not a veto: effective-breadth B is used in TWO roles — as the
+  confirmability LEVER in F7 (more bets -> shorter horizon) and as the single-program
+  CONSTRAINT (one bet for honest-N). These are consistent (statistical power vs governance
+  accounting are different axes), but the artifact must never let a high reported B in F7 leak
+  back into honest-N as '>1 confirmation.' As written it does not. OK.
+
+verdict: needs-revision-before-backtest
+
+dissent-statement: >
+  DISSENT (append-only, verbatim for CONSENSUS.md). The rigor MACHINERY of this
+  pre-registration is excellent and I affirm it: all seven falsification criteria carry fixed
+  numeric thresholds and named inputs, are single-shot, and the HOLDOUT is touched exactly
+  once; the single-program accounting (one honest-N unit, one risk limit, cross-lens
+  convergence discounted to one mechanism) is correct and does not smuggle breadth as
+  independent confirmation; the compound deflation to 37 effective trials honors the ratified
+  F-008 ruling. I dissent on ONE load-bearing point that blocks freezing the prose as the
+  firm's standing spec. The artifact's CENTRAL THESIS — that cross-asset breadth compresses
+  years-to-validate below the firm's <=2-3yr confirmability bar — is ARITHMETICALLY FALSE
+  under the pre-registration's OWN F7 formula. Evaluating that formula on the artifact's own
+  honest inputs (published FX-sleeve gross 0.40 x a pinned 0.50 McLean-Pontiff decay = 0.20
+  per-bet; effective bets B=4..10; deflated one-sided alpha at 37 trials -> z~3.0), years-to-
+  validate at 80% power is 37 to 92 YEARS, not 2-3. The single most generous construction I
+  could honestly build (Hurst diversified gross ~1.0 x 0.5 decay = 0.50 taken as the DIRECT
+  net program Sharpe) still gives ~59 years. To validate in <=3yr at the deflated alpha the
+  program would need a net ANNUAL Sharpe of ~2.2 — about 4-5x the highest gross-undecayed
+  diversified trend Sharpe ever published. Breadth multiplies S_prog by sqrt(B) (~2-3x); the
+  bar demands ~7-11x. This is the QRB-6 power-infeasible trap wearing new clothes: the data
+  class changed but the events/yr x per-event-Sharpe arithmetic that killed QRB-6 is intact.
+  Because F7's inputs (decayed per-bet Sharpe from published literature; effective B from
+  published correlation tables) are BOTH computable for $0 TODAY, F7 is not a hypothetical
+  gate — on every plausible input it is a DO-NOT-RUN verdict that can and should be evaluated
+  BEFORE any data spend. Two consequences I require before this freezes as the standing spec:
+  (1) the prose (hypothesis, universe 'WHY THIS GIVES BREADTH', confirmability-precheck PASS
+  BAND, body) must be corrected to state HONESTLY that the most likely F7 outcome is a
+  do-not-run, and must STOP asserting <=2-3yr as achievable — the honest posture is 'this is
+  probably the firm's next honest do-not-run, and F7 is the mechanism that proves it cheaply,'
+  not 'breadth gets us inside the bar'; (2) F7's 'decayed per-bet Sharpe s' input must be
+  pinned to the PUBLISHED-AND-DECAYED number (0.20), NOT a backtest-realized quantity —
+  otherwise F7 is circular (it needs the backtest it is meant to gate) and silently ceases to
+  be a pre-backtest gate. Secondary, non-blocking: pin the regime-bucket dating source (F3),
+  the exact 2011-2015 / March-2020 episode calendar boundaries (F4), and the eff-independent-
+  bet estimator formula (F5/G5), each of which is a small post-hoc lever if left unfrozen. I
+  also record that the deflation denominator is second-order here (the BLdP expected-max-Sharpe
+  hurdle rises only ~0.13 sigma_SR going from 7 mechanisms/N=37 to the full 21/N=51), so the
+  '37 is honest, 21 over-corrects' framing overstates the cost of conservatism; I exercise my
+  upward-revision authority only to record that N=51 is equally defensible and nearly free, not
+  to mandate it. NET DISPOSITION: do NOT freeze the prose as the firm's standing spec as-is.
+  The criteria and accounting are sound; the confirmability NARRATIVE is not. Revise the prose
+  to the honest do-not-run posture and resolve the F7 input scope, THEN freeze. The corrected
+  artifact would be a model pre-registration: it would correctly spend ZERO honest-N by firing
+  F7 at $0 before any data purchase — which is exactly the QRB-6 discipline the firm earned.
+
+contamination-check: "clean"
+
+evidence:
+  - "Pre-reg F7 / confirmability-precheck formula evaluated on its own honest inputs: years-to-validate = (0.8416 + z_{1-alpha})^2 / (s*sqrt(B))^2. s=0.20 (published 0.40 x 0.50 decay), B=4..10, z~3.00 (alpha 0.05/37) -> 37-92 yrs; z~3.21 (0.025/37) -> 41-103 yrs. Most-generous direct net program Sharpe 0.50 -> ~59 yrs. Required net annual Sharpe for <=3yr at deflated alpha ~2.2 (>4x highest published gross-undecayed diversified trend ~1.0)."
+  - "Bailey-Lopez de Prado expected-max-Sharpe hurdle E[maxSR]/sigma_SR at N=31/37/51/67 = 2.087/2.159/2.284/2.386 — grows logarithmically; 7-mechanism (37) vs full-21 (51) differ by only ~0.13 sigma_SR -> deflation count is second-order, not the binding gate."
+  - "Quant-developer probe (.../2026-06-26-trend-futures-feasibility-probe/quant-developer-probe.yaml): residual net Sharpe ~0.40 vs 0.20 gate, non-knife-edge across gross 0.30-0.80 x 2-12 RT/yr x 1-3 tick -> cost is NOT binding (confirms F2 will PASS; cost is not the decisive risk)."
+  - "Exploration CONSENSUS.md (.../2026-06-25-new-alpha-exploration/): Discipline #3 + PR F-008 ratify '~6-7 mechanisms not naive 21'; NHT dissent #1 (trend triple-counted -> advance ONE program, cross-lens != independent confirmation) and #3 (21-wide snoop deflated at advance); CRO single-program ruling (one correlated bet, corr->1 in liquidation). Pre-reg honors all of these."
+  - "R5 power precedent (references/pre-registrations/r5_carry_universe_kill_test.md sec.6): true ~0.30 annual Sharpe -> only 20-35% power over the WHOLE carry-universe history; a ~0.77 series 'will take years to confirm.' Consistent with this report's multi-decade years-to-validate finding."
+  - "MEMORY / QRB-6 wind-down precedent: power was 9% at the 2030 look; 80% needs 28-256yr; firm correctly did-not-run. This pre-reg's confirmability arithmetic reproduces that trap on a new data class."
+
+assumptions:
+  - "F7 z_{1-alpha} derived from the compound deflation as a one-sided Bonferroni-style alpha/37 (0.05/37 -> z~3.00, or 0.025/37 -> z~3.21). If the firm uses a different (e.g. Sidak or DSR-internal) alpha mapping the exact years shift, but not the order of magnitude — every mapping leaves years-to-validate >> 3.0."
+  - "Standard result T_years = (z_a+z_b)^2 / S_prog^2 where S_prog is the ANNUALIZED program Sharpe and the Sharpe t-stat after T years ~ S_prog*sqrt(T). Verified consistent with the firm's R5/QRB-6 conventions."
+  - "Decayed per-bet Sharpe s=0.20 taken from the pre-reg's own pinned inputs (published 0.40 FX-sleeve x 0.50 McLean-Pontiff midpoint). The diversified figure (~0.7-1.0 gross) is treated in the generous corner as a DIRECT program Sharpe, x0.5 decay."
+  - "Effective-bet range B=4..10 taken from the pre-reg's own claim ('~6-10 effective independent bets'); F5 floor is 4. No B in this range rescues the horizon."
+
+confidence: high
+
+body: |
+  RIGOR AUDIT — what survives, what does not, and why the verdict is needs-revision.
+
+  WHAT SURVIVES (and I affirm without softening): The falsification machinery is genuinely
+  rigorous. All seven criteria carry fixed numeric thresholds (DSR<0.95, residual<0.20, >50%
+  AND <=0, crash-floor -0.50, eff-bets<4 OR corr>0.6, >=20yr AND 2009, years-to-validate>3.0)
+  with named inputs; F1-F5 are evaluated once on the committed backtest with the HOLDOUT
+  touched exactly once; F6/F7 are $0 pre-gates that BLOCK rather than flag. The single-program
+  accounting is correct and is the artifact's best section: 24 correlated cross-asset contracts
+  = one honest-N unit = one risk limit (30->31), breadth real in normal regimes but NOT in the
+  tail (corr->1 in liquidation), cross-lens convergence discounted to one mechanism. My own
+  exploration-cycle dissents #1 and #3 are honored verbatim, not paraphrased away. The
+  deflation to 37 honors the ratified F-008 ruling and I do not force it upward — I verified it
+  is second-order (full-21 raises the BLdP hurdle by only ~0.13 sigma_SR).
+
+  WHAT DOES NOT SURVIVE (the veto): the confirmability NARRATIVE. The artifact stakes its
+  entire reason-for-existence on the claim that cross-asset breadth brings years-to-validate
+  into the <=2-3yr band. I evaluated the pre-reg's OWN F7 formula on its OWN honest inputs and
+  it is false by 1-2 orders of magnitude: 37-92 years across the full claimed breadth range,
+  ~59 years even in the most generous construction. To clear 3yr at the deflated alpha needs a
+  net annual Sharpe ~2.2; the best honest decayed number is ~0.5. Breadth helps by sqrt(B)
+  (~2-3x); the gap is ~7-11x. This is QRB-6 in new clothes — the data class escaped W4 (real
+  volume) but the events/yr x per-event-Sharpe arithmetic that killed QRB-6 is intact.
+
+  WHY THIS IS NEEDS-REVISION, NOT A CLEAN SURVIVES, AND NOT A FLAT KILL. It is not a clean
+  survives because freezing prose that asserts an arithmetically-false plausibility claim as
+  the firm's STANDING SPEC would re-import exactly the over-claim the 2026-05-31 honest-review
+  reset existed to purge — an unwary Board could read 'breadth gets us inside the bar' as a
+  green light. It is not a flat kill because the MACHINERY is correct and, crucially, F7 will
+  do its job: on published inputs it fires a DO-NOT-RUN for $0 BEFORE any data spend or honest-N
+  decrement. The honest fix is small and surgical: (1) rewrite the confirmability prose to the
+  true posture — 'F7 is expected to fire; this is most likely the firm's next honest do-not-run,
+  proven cheaply' — and delete every assertion of <=2-3yr as achievable; (2) pin F7's per-bet
+  Sharpe input to the published-decayed 0.20 (not a backtest-realized quantity) so F7 is a real
+  $0 PRE-gate and not circular; (3) freeze the three minor DOFs (F3 regime-dating source, F4
+  episode calendar boundaries, F5/G5 eff-bet estimator). With those corrections this becomes a
+  model pre-registration: it would correctly spend ZERO honest-N by firing F7 before any
+  purchase. The criteria are sound; the story they are wrapped in is not — fix the story, then
+  freeze.
+
+knowledge_gaps:
+  - "Exact alpha-mapping the firm uses to turn 37 effective trials into the F7 z_{1-alpha} (Bonferroni 0.05/37 assumed -> z~3.00). Every reasonable mapping leaves years-to-validate >> 3.0, so this does not change the verdict, but it should be pinned in the committed-step F7 spec."
+  - "Whether the pre-reg author intends F7's per-bet Sharpe input to be published-decayed (pre-computable, gate fires NOW) or backtest-realized (circular). This MUST be resolved in revision; it is the single ambiguity that decides whether F7 is a true pre-gate."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [p-hacking-and-data-snooping-detection, replication-protocol-design, structural-skepticism-on-any-claim, null-hypothesis-construction]

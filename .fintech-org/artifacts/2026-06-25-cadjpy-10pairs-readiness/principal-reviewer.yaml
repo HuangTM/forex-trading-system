@@ -1,0 +1,219 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-25T20:40:00Z"
+subtask_ref: cadjpy-10pairs-readiness
+subtask_id: cadjpy-10pairs-2026-06-25-pr
+artifact-under-review: quant-developer-compute.yaml (+ compute_10pairs_readiness.py, compute_10pairs_raw.json)
+rubrics-applied:
+  - "review-plan (spec-to-impl trace)"
+  - "execution-firewall-review (spec-vs-implementation drift)"
+  - "log-as-decision-trace (decision reconstructability from artifact)"
+  - "probability-statistics (rho_bar_eff / eigenvalue numerics)"
+  - "python (numerical reproduction)"
+independent-recompute:
+  rho_bar_all10_mine: 0.3716   # matches QD exactly (lambda_max 4.3446, k=10, n_obs 29660)
+  rho_bar_all9_confirm: "0.4090 (mine = 0.4090) — CONFIRMED, exact match to prior reference"
+  cadjpy_breadth_claim: >
+    CONFIRMED and robust. On the IDENTICAL common window (controlling for the n_obs/k
+    change), ALL-9 rho=0.4092 vs ALL-10 rho=0.3716, delta -0.0376 (QD reported -0.0374
+    vs the prior published 0.4090; my same-window delta -0.0376 confirms the effect is
+    genuine, not a window artifact). Mechanism is sound: lambda_max barely rises
+    (4.2736 -> 4.3446) while k goes 9 -> 10, so the per-dimension normalized concentration
+    (lambda_max-1)/(k-1) drops. Key CADJPY pairwise corrs reproduced EXACTLY:
+    USDCAD=-0.403, EURUSD=-0.064, EURGBP=-0.077 (the diversifying negatives);
+    USDJPY=0.775, AUDJPY=0.776, EURJPY=0.757 (JPY factor). QD's narrative
+    ("breadth via negative USDCAD corr -0.40 despite JPY-factor corr ~0.77") is accurate.
+  dq_cadjpy_mine: >
+    ADMIT (reproduced via coverage_gate library directly). bar_coverage=99.23%
+    (gate >=85), measured_spread_coverage=100.0% (gate >=90), max_contiguous_gap_h=24
+    (gate <=24, exactly at inclusive ceiling -> PASS), spread_median=1.2 pips
+    (gate ceil 5.0), spread_p90_median=1.5 (gate ceil 15.0), spread_max=36.2,
+    frac>5pip=3.99%, n_zero_spread=0, n_missing=0, issues=[], spread_flags=[],
+    SC-4 verdict=ADMIT. CADJPY config entry (floor 0.2 / ceil 5.0 / p90 15.0) is
+    sane and AUDJPY-tier (identical to AUDJPY/EURJPY/NZDUSD); not loose — observed
+    median 1.2 sits at ~24% of the ceiling. floor<ceiling invariant holds.
+  cadjpy_cd0_spotcheck: >
+    F5 London AM drift net SR = -2.1914 (mine) vs -2.1914 (reported) — EXACT.
+    Also reproduced ALL SIX exactly: F1 -14.8138, F2 -3.8527, F3 -7.1838,
+    F4 -7.2459, F5 -2.1914, F6 -11.8669. All FAIL (bar 1.44). no-lookahead via
+    shift(1) confirmed in _net_pnl_pips; F-001 fix confirmed (_position_changes
+    uses raw .abs() diff so a +1->-1 flip is charged 2 RTs); C2COST cost
+    = spread + 2*(0.25+0.15) = spread+0.80 pips/change confirmed.
+  discrepancies: "none beyond rounding (QD -0.0374 vs published-9 baseline; my same-window delta -0.0376 — equivalent, well within proxy-baseline rounding)"
+findings:
+  - id: F-001
+    severity: minor
+    location: "compute_9pairs_readiness.py:126-159 (compute_rho_bar_eff); QD assumptions[0]; amendment lines 43-45, 84-85"
+    category: spec-drift
+    observation: >
+      The rho-bar amendment (hoqr-rho-bar-amendment.yaml, sections 2_series and the
+      knowledge_gaps block) mandates that the correlation matrix be computed on the
+      per-pair PnL-CONTRIBUTION series x_{p,t}=signal_{p,t}*ret_{p,t} (demeaned,
+      event-aligned), and explicitly names the full PnL-contribution rho as "the actual
+      gate input". The compute instead uses RAW hourly log-return correlations.
+    inference: >
+      [confirmed-conservative] This is a real deviation from the amendment's mandated
+      statistic, but it is in the SAFE direction and does not threaten the PASS. I
+      reproduced two crude PnL-contribution proxies (F1-reversal, F3-momentum) over
+      ALL-10: rho_eff = 0.2076 and 0.2188 respectively — far BELOW the raw-return 0.3716.
+      Signal timing/direction de-correlates the pairs, so raw-return rho over-states
+      concentration. The raw-return proxy is therefore the HARDER test, and ALL-10 still
+      passes at 0.3716 < 0.41 with a 0.038 margin. QD disclosed this proxy choice
+      (assumptions[0], body lines 87-90). For a DESCRIPTIVE readiness screen (not a frozen
+      hypothesis gate decision, trial_counter not incremented) the proxy is acceptable.
+      CONDITION: any actual H1/pooled-hypothesis GATE decision that binds the 0.41
+      threshold must recompute rho_eff on the amendment-mandated PnL-contribution series
+      for the specific pre-registered signal — the 0.3716 raw-return number is NOT a
+      substitute for that gate input.
+    evidence: "hoqr-rho-bar-amendment.yaml:43-45,84-85; my PnL-contrib reproduction rho=0.2076/0.2188; QD assumptions[0]; raw-return rho=0.3716 reproduced exactly"
+    recommended-action-class: clarify-spec
+    owning-role: head-of-quant-research
+  - id: F-002
+    severity: minor
+    location: "compute_9pairs_readiness.py:379-401 (F5 london_am_drift position construction)"
+    category: edge-case
+    observation: >
+      F5 builds its position by summing positional .shift(s+1) for s in 0..3 of an
+      08:00-only signal series, on an index that contains gaps. On contiguous days the
+      position correctly spans 09:00-12:00 (4 bars), verified by tracing 2021-01-04.
+      But across missing-bar boundaries the positional shifts land on later in-session
+      hours, so the union of position-active hours is 09:00-17:00 rather than the
+      intended 09:00-12:00.
+    inference: >
+      [labeled-inference] This is a positional-shift-on-non-contiguous-index artifact,
+      not a lookahead violation (every shift is strictly forward, decision info precedes
+      the PnL bar). Impact on the verdict is nil: F5 net SR -2.1914 is far below the 1.44
+      bar and all 6 families FAIL regardless. Flag for hygiene: a time-indexed reindex to
+      a regular hourly grid (or a groupby-day hold) would make the hold window exact and
+      gap-robust. Same pattern would matter materially if any F5-class strategy were ever
+      promoted past CD0.
+    evidence: "my trace: position-active hours = {9..17}; signal hours = {8}; single clean day 2021-01-04 shows correct 09-12 span"
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+  - id: F-003
+    severity: observation
+    location: "compute_10pairs_raw.json C1 max_contiguous_gap_h=24; config max_contiguous_gap_h:24"
+    category: edge-case
+    observation: >
+      CADJPY's max contiguous gap is exactly 24h, the inclusive gate ceiling. It passes
+      because the gate is <=24. This is a one-clean-trading-day blackout (QD body lines
+      43-48), with 0 zero-spread bars and 100% spread coverage, so it is a coverage gap
+      not a quality gap.
+    inference: >
+      [observation] PASS is correct and the gate is inclusive by design. No action; noted
+      only because CADJPY sits at the exact threshold — a single additional missing hour
+      anywhere in that run would flip it to EXCLUDE, so the margin here is zero on this one
+      criterion (unlike the comfortable margins on coverage/spread).
+    evidence: "coverage_gate(...).max_contiguous_gap_hours = 24 reproduced; config global max_contiguous_gap_h: 24"
+    recommended-action-class: add-log
+    owning-role: quant-developer
+  - id: F-004
+    severity: observation
+    location: "quant-developer-compute.yaml assumptions[1]; run_cd0_family docstring lines 299-310"
+    category: numerical
+    observation: >
+      pip=0.0001 is applied UNIFORMLY to CADJPY (a JPY-quote pair whose physical pip is
+      0.01). QD discloses this matches the prior canonical F1-F6 convention and argues
+      gross (log_ret/0.0001) and spread cost (in instrument pips) "scale together" so net
+      SR is comparable.
+    inference: >
+      [labeled-inference] The scaling claim is only partly right: gross PnL scales by the
+      pip denominator MULTIPLICATIVELY while cost is ADDITIVE, so the gross/cost RATIO is
+      NOT pip-invariant. However, because the reported CADJPY spreads ARE already expressed
+      in the parquet's instrument-pip units (median 1.2, consistent with a JPY-cross), and
+      the gross uses the SAME series' log-returns, the internal arithmetic is self-consistent
+      for a comparability screen, and all 6 net SRs are so deeply negative (-2.2 to -14.8)
+      that no pip choice flips any FAIL. Non-blocking for this verdict; flagged because the
+      "scale together -> comparable" justification in the docstring is an over-claim that
+      should not be relied on if any JPY-pair result ever lands near the bar.
+    evidence: "run_cd0_family docstring 299-310; net SRs -2.19..-14.81 all << 1.44 bar"
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+coverage-statement: >
+  Reviewed all 3 compute sections (C1 DQ, C2 rho_bar_eff, C3 CD0) end-to-end with
+  independent Python reproduction of every headline number: rho_eff for ALL-10/ALL-9/
+  JPY3/CROSSES4 (all exact), CADJPY 9 pairwise correlations (all exact), DQ gate via
+  the actual coverage_gate library (ADMIT, all sub-metrics exact), and all 6 CD0 net
+  SRs (all exact). Additionally ran a same-window control to isolate the CADJPY breadth
+  effect and two PnL-contribution proxies to test the F-001 conservatism direction.
+  Skipped: re-deriving the 0.41 threshold (out of scope — frozen, separate-freeze per
+  amendment) and the N_eff* DSR-deflation scaling (computed in a separate harness per
+  the script's F-002 note, not this artifact).
+contamination-check: "clean"
+time-spent-reasoning: ~35 min
+evidence:
+  - "independent recompute: rho ALL-10=0.3716, ALL-9=0.4090, JPY3=0.7479, CROSSES4=0.4988 (all exact)"
+  - "same-window control: ALL-9-on-common=0.4092 vs ALL-10=0.3716, delta -0.0376"
+  - "CADJPY corrs: USDCAD=-0.403, EURJPY=0.757, AUDJPY=0.776, USDJPY=0.775 (all exact)"
+  - "DQ via coverage_gate: ADMIT, bar_cov 99.23, spread_cov 100.0, max_gap 24, median 1.2, flags=[]"
+  - "CD0: F1 -14.8138 / F2 -3.8527 / F3 -7.1838 / F4 -7.2459 / F5 -2.1914 / F6 -11.8669 (all exact, all FAIL)"
+  - "PnL-contrib proxy rho ALL-10: F1-rev 0.2076, F3-mom 0.2188 (<< raw 0.3716 -> raw is conservative)"
+  - "no zero/nan close bars in EURUSD/USDJPY/CADJPY"
+assumptions:
+  - "rho_bar_eff gate at 0.41 (eigenvalue/sign-blind) is the frozen acceptance threshold per the amendment; not re-derived here."
+  - "honest_N=30 unchanged (descriptive screen, trial_counter not incremented) — accepted as stated; not independently re-derived."
+  - "PnL-contribution proxies I built (F1/F3) are crude stand-ins to test DIRECTION of the raw-return bias, not the eventual frozen-hypothesis gate input."
+confidence: high
+body: |
+  ## Verdict: APPROVE-WITH-CONDITIONS
+
+  Every headline number reproduces exactly under independent Python. The two
+  load-bearing conclusions — (a) ALL-10 rho_bar_eff = 0.3716 PASSES the 0.41 gate
+  with CADJPY ADDING breadth (delta -0.0374), and (b) CADJPY DQ = ADMIT, and (c)
+  all 6 CD0 families FAIL — are all correct and robust. None of my findings flips
+  the NO-SPEND/ADMIT posture.
+
+  ### What I verified independently (not just re-read)
+  - rho_bar_eff for all four subsets: EXACT match. ALL-9=0.4090 confirms the prior
+    reference. ALL-10=0.3716.
+  - Breadth claim stress-test: I recomputed ALL-9 on the SAME common index as ALL-10
+    to strip out the n_obs/k confound. Same-window delta = -0.0376, essentially
+    identical to QD's -0.0374. So CADJPY genuinely lowers normalized concentration;
+    it is NOT an artifact of the shrinking common window. Mechanism checks out:
+    lambda_max barely moves (4.2736->4.3446) while k rises 9->10.
+  - CADJPY's 9 pairwise corrs: all exact. The narrative (high JPY-factor corr ~0.77
+    but offset by negative USDCAD -0.40 and small negatives to EUR pairs) is accurate.
+  - DQ: ran the actual coverage_gate library, not just the QD's numbers — ADMIT,
+    every sub-metric matches.
+  - CD0: reproduced all six net SRs to 4dp; confirmed shift(1) no-lookahead, the
+    F-001 flip-cost fix, and the spread+0.80 cost model.
+
+  ### The one condition (F-001, minor spec-drift)
+  The amendment mandates rho on PnL-CONTRIBUTION (signal x return) series and calls
+  that "the actual gate input"; QD used raw log-returns. I confirmed this is
+  CONSERVATIVE: PnL-contribution proxies give rho ~0.21, far below the raw-return
+  0.3716, because signal timing de-correlates pairs. So raw-returns is the harder
+  test and ALL-10 still passes — the spec-drift cannot flip the PASS. The condition
+  is forward-looking only: when an actual frozen pooled-hypothesis gate decision is
+  made, rho_eff must be recomputed on the pre-registered signal's PnL-contribution
+  series; the 0.3716 descriptive number is not a substitute for that gate input.
+
+  ### Minor hygiene flags (F-002..F-004), none verdict-relevant
+  - F5's positional .shift hold-window leaks past 12:00 across data gaps (forward-only,
+    so not lookahead; harmless given the deep FAIL).
+  - CADJPY sits exactly at the 24h max-gap ceiling (passes inclusively; zero margin
+    on that one criterion).
+  - The "pip=0.0001 uniform scales together -> comparable" justification for the JPY
+    pair is an over-claim (gross scales multiplicatively, cost additively), but is
+    immaterial here since all net SRs are deeply negative.
+
+  Bottom line: the compute is correct, reproducible, honest about its proxy, and the
+  ADMIT + breadth-PASS + all-FAIL conclusions stand. Approve, conditioned on F-001
+  being honored at any future binding gate decision.
+knowledge_gaps:
+  - "The amendment-mandated full PnL-contribution rho for a SPECIFIC pre-registered signal is unmeasured (by design at this descriptive stage); my proxies only bound its direction, not its exact value for any frozen hypothesis."
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/quant-developer-compute.yaml"
+  - "scripts/compute_10pairs_readiness.py"
+  - "scripts/compute_9pairs_readiness.py"
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/compute_10pairs_raw.json"
+  - "config/data_quality_gates_1h.yaml"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+  - "src/forex_system/data/quality_gate_1h.py"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, spec-vs-implementation-drift-detection, numerical, hidden-bug-and-edge-case-surfacing]

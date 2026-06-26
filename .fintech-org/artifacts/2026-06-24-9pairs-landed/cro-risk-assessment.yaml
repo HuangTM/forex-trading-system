@@ -1,0 +1,94 @@
+role: cro
+artifact_type: risk-assessment
+decision: veto
+timestamp: 2026-06-24T23:45:30Z
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-cro
+size_multiplier: 0.0
+binding_constraints:
+  - "paper_only: true / no_live_capital: true — absolute; no capital authorized under any branch."
+  - "no_trial_increment_without_pre_registration: true — this is a descriptive in-sample screen, NOT a trial; honest_N stays 30, no counted-trial commitment authorized."
+  - "net annualized Sharpe thresholds: STRETCH >= 1.44, PASS >= 1.76 — best observed combo is -1.56 (NEGATIVE), 3.00 SR units below STRETCH; zero combos at/above either threshold."
+  - "G5 confirmability gate: rho_bar_eff (eigenvalue/sign-blind) <= 0.41 required — ALL-9 = 0.4090 clears by only 0.0010 (within proxy estimation noise); USD-majors-6 and -7 FAIL outright."
+  - "EXCLUDE-NOT-IMPUTE honored in the screen; result stands without zero-imputation contamination."
+regime_flags:
+  - "concentration-regime: N_eff = 2.11 for ALL-9 — nine instruments behave as ~2 independent bets; not a diversified book."
+  - "gate-margin-fragile: ALL-9 rho_bar_eff oscillates across the 0.41 gate by window (full=0.4090 pass, 3yr=0.392 pass, but point estimate is 0.24% inside threshold on a conservative/over-stating proxy)."
+  - "negative-edge-regime: all 54 canonical intraday families x pairs net-Sharpe NEGATIVE in-sample (descriptive UPPER bound, pre-deflation)."
+  - "sub-universe trade-off: only crosses-only (k=3) clears G5 with real margin (0.3563) but at N_eff=1.75 — clearing concentration by shrinking to a more-concentrated book."
+evidence:
+  - "DQ gate: EURGBP + AUDJPY both ADMIT (~99% bar coverage, 100% measured-spread coverage, per-pair medians within ceilings; sole gap = 24h 2024 New-Year closure). Data quality is NOT the blocker."
+  - "rho_bar_eff table: ALL-9=0.4090 (N_eff 2.11, below by 0.0010); USD-majors-7=0.5023 (FAIL); USD-majors-6=0.5971 (FAIL); crosses-only-3=0.3563 (N_eff 1.75, pass)."
+  - "3-year-window ALL-9 rho_bar_eff = 0.392 (point estimate moves with window — confirms margin is noise-band, not robust clearance)."
+  - "Net-of-cost screen: 54 combos, ALL net-Sharpe NEGATIVE; best = -1.56 (3.00 units below 1.44 STRETCH); zero at/above STRETCH or PASS. In-sample descriptive upper bound, EXCLUDE-NOT-IMPUTE, real per-bar spreads."
+  - "Portfolio state: no open positions, no live capital, backtest-readiness screen. Prior 7-pair cycle = NO-SPEND; honest_N held at 30."
+blowup-analog: "August 2007 quant-quake / LTCM-style correlated-book failure: a book that looks diversified across many instruments but carries low effective-bet count (N_eff ~2) concentrates an apparently-spread position into one factor; a single USD- or EUR-complex regime shock hits nearly all legs together. Sizing this 9-pair universe as if it were 9 independent bets would understate tail concentration by ~4.3x (9 / 2.11)."
+contamination-check: "clean"
+assumptions:
+  - "rho_bar_eff is reported as eigenvalue/sign-blind and conservative/over-stating per the brief; I treat the 0.0010 ALL-9 margin as inside estimation noise rather than a robust pass."
+  - "The 54-combo net-Sharpe screen is an in-sample DESCRIPTIVE upper bound; any out-of-sample / DSR-deflated figure (honest_N=30) can only be lower, never higher — so a negative best-case cannot become a positive realized edge."
+  - "A descriptive screen does not increment a counted trial; no pre-registration was presented, so no trial commitment is on the table to approve."
+confidence: high
+body: |
+  Three independent risk arguments converge on NO-SPEND, and any one of them
+  is sufficient on its own.
+
+  (1) NO POSITIVE EDGE TO SIZE. The net-of-cost screen is unanimously
+  negative across all 54 canonical-family x pair combinations. The BEST combo
+  is -1.56 net annualized Sharpe — 3.00 Sharpe units below the 1.44 STRETCH
+  floor and further below the 1.76 PASS bar. Critically this is an IN-SAMPLE
+  DESCRIPTIVE UPPER BOUND: it precedes any out-of-sample deflation, trial-
+  selection penalty, or Deflated-Sharpe shrinkage against honest_N=30. The
+  best case is already a loss-making book; the realized case can only be
+  worse. There is no expectancy to allocate a position-sizing multiplier to.
+  size_multiplier = 0.0 is the only defensible output — sizing off a negative-
+  edge screen is sizing a guaranteed-loss position.
+
+  (2) G5 CONFIRMABILITY IS NOT ROBUSTLY CLEARED. The only universe that
+  passes the 0.41 gate as a full set, ALL-9 at 0.4090, clears by 0.0010 — a
+  0.24% margin on a statistic the brief itself flags as a conservative, raw-
+  return PROXY that over-states. The 3-year window gives 0.392, so the point
+  estimate flickers across the gate depending on the window. A gate cleared
+  by a noise-band margin on a proxy is, for risk purposes, not cleared. Both
+  USD-majors sub-universes (7 and 6) FAIL outright (0.5023, 0.5971). The only
+  sub-universe with real G5 margin is crosses-only (0.3563) — but that is a
+  3-instrument book at N_eff 1.75, i.e. it satisfies the concentration gate by
+  becoming MORE concentrated, not less. There is no configuration here that
+  is both confirmable with margin AND adequately diversified.
+
+  (3) EFFECTIVE-BET COUNT ~2.1 FORBIDS CONCENTRATION-INSENSITIVE SIZING.
+  N_eff = 2.11 for ALL-9 means nine pairs behave as ~2 independent bets. Even
+  if (1) and (2) were resolved, a risk budget allocated as if this were a
+  diversified 9-leg book would understate tail concentration by ~4.3x. A
+  single shock to the USD or EUR complex correlates nearly every leg — the
+  2007 quant-quake / LTCM correlated-book failure mode. No concentration-
+  sensitive sizing rule justifies a non-zero multiplier on a 2-bet book that
+  also lacks positive expectancy.
+
+  PROCEDURAL: This is a descriptive screen, not a pre-registered trial. Under
+  no_trial_increment_without_pre_registration, no counted trial may be spent
+  and honest_N stays at 30. The prior 7-pair cycle was correctly NO-SPEND;
+  adding two clean-DQ instruments did not change the binding constraint, which
+  was never data coverage — it is the absence of net-of-cost edge. The DQ
+  ADMIT on EURGBP/AUDJPY is real and worth banking, but data quality is not
+  the gate that fails here.
+
+  DECISION: veto on any SPEND / counted-trial / H1 commitment on this
+  universe. size_multiplier = 0.0. This is not a wind-down of research — it is
+  a refusal to commit capital or a counted trial to a universe whose best
+  in-sample, pre-deflation net-of-cost result is a loss. The constructive next
+  step (outside my risk authority to mandate, noted as a gap) is that the
+  edge problem is upstream of the pair-count problem: more instruments did not
+  and cannot manufacture positive net-of-cost expectancy. Absent a screen that
+  produces at least one combo at/above STRETCH on an out-of-sample basis,
+  there is nothing for risk to size.
+knowledge_gaps:
+  - "Whether any single combo approaches STRETCH on a held-out / forward window is not in the evidence set — only the in-sample 54-combo upper bound is provided; the upper bound being negative makes this moot for the SPEND decision but relevant for whether to continue generation."
+  - "Per-combo dispersion of the 54 net-Sharpes (how close the best -1.56 is to the median) is not provided; does not change the veto."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [correlation-and-concentration-limits, risk-budget-allocation, tail-risk-measurement, position-sizing]

@@ -1,0 +1,176 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-pm
+task-statement: >
+  Reassess H1 freeze and NO-SPEND standing after EURGBP (2026-06-23) and AUDJPY (2026-06-24)
+  land; recompute rho_bar_eff, DQ, and CD0 on full 9-pair universe.
+deliverable-type: backtest-eval
+deadline: "2026-06-25T00:00:00Z"
+instrument-universe:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - EURJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURGBP
+  - AUDJPY
+
+hard-constraints:
+  # Confirmability gate (H1 freeze/unfreeze decision)
+  - "rho_bar_eff gate: G5 requires rho_bar_eff <= 0.41 (eigenvalue/sign-blind statistic per 2026-06-19 rubric amendment); any subset claim uses the same statistic and the same threshold; signed-mean is FORBIDDEN as gate input"
+  - "rho_bar_eff must be computed on PnL-contribution (signal x return) series when a signal series exists; raw-return proxy is acceptable ONLY for pre-reg structural screens and must be disclosed as proxy with conservative-direction statement"
+  - "rho_bar_eff must be reported for: (a) ALL-9, (b) USD-majors-7 (excl. EURGBP/AUDJPY), (c) USD-majors-6 (prior cycle reference), (d) crosses-only subset (EURJPY/EURGBP/AUDJPY), (e) any H1-candidate subset; MIN-over-routes rule applies when multiple N_eff routes disagree"
+  - "honest_N: 30 (ratified 2026-06-18); no trial-counter increment without a pre-registered candidate that clears at minimum the STRETCH bar (net annualized SR >= 1.44)"
+  - "paper_only: true; no_live_capital: true — absolute; no exception path exists"
+  - "no_trial_increment_without_pre_registration: true — a descriptive CD0 screen is NOT a trial; must carry counts_toward_deflation_denominator: false"
+  - "DQ EXCLUDE gate applies to EURGBP and AUDJPY under config/data_quality_gates_1h.yaml (per-pair thresholds already specified: EURGBP spread_median_ceiling 3.0 / p90_ceiling 8.0; AUDJPY spread_median_ceiling 5.0 / p90_ceiling 15.0; global bar_coverage_min 0.85, measured_spread_min 0.90, max_contiguous_gap_h 24, zero_spread_run_threshold 6); EXCLUDE-NOT-IMPUTE; a failing pair cannot enter H1 universe"
+  - "CRO cost-coverage EXCLUDE gate applies: per-bar measured spread must be present on >= 90% of in-session bars; spread_p90_pips is the charge rate for cost modeling"
+  - "CD0 screen: 6 canonical intraday families (F1-F6 as defined in prior consensus artifacts); single fixed spec per family; no param search; no OOS; in-sample descriptive upper bound only; real per-bar spreads from spread_median_pips / spread_p90_pips columns (NOT config-median fallback); EXCLUDE-NOT-IMPUTE for zero/missing spread bars"
+  - "H1 un-freeze is FORBIDDEN unless rho_bar_eff <= 0.41 is met on the universe-as-proposed-for-H1; un-freeze also requires CD0 net SR >= 1.76 on at least one family for at least one pair in the candidate universe"
+  - "Kill-criterion watch: any framing of new cross data as 'progress toward H1' without the rho_bar_eff number actually clearing is the documented 2026-05-31 kill-criterion trap; NHT must test this claim explicitly"
+  - "rho_bar_eff proxy disclosure required: if PnL-contribution series not available pre-pre-reg, disclose proxy nature, confirm conservative direction, and state whether the breach margin is large enough that the proxy artifacts cannot change the verdict"
+  - "no_trial_increment_without_pre_registration applies to any H1 subset run; a 'test run on the crosses only' is a trial if it produces a verdict"
+
+criteria:
+  # The three recomputed facts
+  - "C1 (DQ ADMIT/EXCLUDE): EURGBP and AUDJPY each receive a DQ manifest covering: n_rows, UTC range, bar_coverage_pct, measured_spread_min_pct, max_contiguous_gap_h (with gap explanation), zero_spread_run check, spread_median_pips and spread_p90_pips vs. per-pair ceiling/floor from config/data_quality_gates_1h.yaml; verdict ADMIT or EXCLUDE with failing-gate identified"
+  - "C2 (rho_bar_eff recompute): rho_bar_eff and N_eff reported for ALL-9 and for the five required subsets (see hard-constraints); delta vs. prior ALL-7 (rho_bar_eff=0.502, N_eff=1.74) stated explicitly; direction of change (toward/away from 0.41 gate) stated for each subset; H1 freeze/unfreeze call issued with numeric justification referencing the gate"
+  - "C3 (CD0 net-Sharpe re-screen): CD0 screen using real per-bar spread_median_pips (half-spread per-side) + 0.25 slip + 0.15 Saxo haircut; run on EURGBP and AUDJPY at minimum; optionally re-run prior pairs using real spreads if materially different from config-median; all family results (gross SR, net SR, n_trades, verdict) reported; FAIL/STRETCH/PASS threshold applied (STRETCH=1.44, PASS=1.76)"
+  - "C4 (SPEND/NO-SPEND decision): explicit SPEND or NO-SPEND verdict with the deciding number(s); if NO-SPEND, state whether any STRETCH candidate exists even if not PASS; trial-counter increment decision stated (Y/N) with rationale"
+  - "C5 (H1 freeze/unfreeze call): explicit REMAIN-FROZEN or UN-FREEZE verdict; if REMAIN-FROZEN, state the binding gate and the numeric shortfall; if UN-FREEZE, state which gate cleared and the pre-registration next step required before any backtest runs"
+  - "C6 (NHT null tests): NHT must test at minimum: (i) Claim — adding crosses moves rho_bar_eff toward 0.41; (ii) Claim — EURGBP or AUDJPY hosts a standalone net-of-cost exploitable edge; (iii) Claim — this data drop warrants a trial-counter increment; all three nulls must be explicitly accepted or rejected with deciding numbers"
+  - "C7 (PR independent verification): principal-reviewer independently recomputes at least the rho_bar_eff for ALL-9 and the DQ gate calls for EURGBP/AUDJPY from raw parquet; any discrepancy vs. QD numbers triggers a rework request before consensus is signed"
+  - "C8 (descriptive log): if this reassessment produces no trial, a .fintech-org/trials.jsonl entry is appended with counts_toward_deflation_denominator: false and event: descriptive-screen"
+
+out-of-scope:
+  - "Live deployment or paper trading authorization"
+  - "Vendor onboarding or additional pair acquisition (GBPJPY, USDCHF, or others) during this wave"
+  - "Full H1 pre-registration authoring or freeze unless C5 returns UN-FREEZE"
+  - "Any backtest run that constitutes a trial (counter-burning) without a pre-registered frozen spec"
+  - "CD0 screen on daily or 4h pairs — 1h only this cycle"
+  - "Re-derivation of the 0.41 G5 threshold (this was NHT-guardrailed as a separate freeze in the 2026-06-19 amendment)"
+  - "Acquisition of USDCHF (CRO-de-prioritized: adds USD concentration, not diversification)"
+  - "Any subset run of frozen H1 on the new pairs — that is a trial requiring pre-registration"
+
+roles-staffed:
+  - "quant-developer: runs DQ manifests for EURGBP and AUDJPY, recomputes rho_bar_eff on all required subsets from raw parquet, runs CD0 screen with real per-bar spreads for the two new crosses"
+  - "head-of-quant-research: issues H1 freeze/unfreeze call (C5) with factor-structure rationale; states research direction (cross-subset candidacy, H1 subset eligibility, or NO-SPEND continuation)"
+  - "cro: receives ONLY structured fields (instrument-universe + hard-constraints); veto authority on any trial spend, any H1 subset run without pre-registration, any cost modeling that deviates from the EXCLUDE-NOT-IMPUTE rule; concurs or vetoes C4"
+  - "null-hypothesis-tester: mandatory structural skeptic; tests Claims i/ii/iii (see C6); guards the more-data-narrative trap; dissent is append-only and survives any consensus"
+  - "principal-reviewer: independent recompute of rho_bar_eff (ALL-9) and DQ gates for EURGBP/AUDJPY from raw parquet; single review wave with rework-request authority before consensus"
+  - "pm: authors this acceptance-criteria artifact; synthesizes consensus; ensures dissent preservation; does not make technical calls"
+
+evidence:
+  # On-disk parquet files verified 2026-06-24
+  - "data/processed/EURGBP_1h.parquet (31,022 rows; range 2021-01-03 22:00 UTC to 2025-12-31 21:00 UTC; spread_median_pips min=0.50 max=29.90 nulls=0; spread_mean_pips min=0.52 max=30.30 nulls=0; spread_p90_pips min=0.60 max=32.36 nulls=0)"
+  - "data/processed/AUDJPY_1h.parquet (31,037 rows; range 2021-01-03 22:00 UTC to 2025-12-31 21:00 UTC; spread_median_pips min=0.40 max=33.20 nulls=0; spread_mean_pips min=0.40 max=33.21 nulls=0; spread_p90_pips min=0.40 max=34.40 nulls=0)"
+  - "data/processed/EURUSD_1h.parquet (31,012 rows; verified range 2021-01-03 to 2025-12-31)"
+  - "data/processed/GBPUSD_1h.parquet (31,019 rows)"
+  - "data/processed/USDJPY_1h.parquet (31,031 rows)"
+  - "data/processed/EURJPY_1h.parquet (31,034 rows)"
+  - "data/processed/AUDUSD_1h.parquet (31,045 rows)"
+  - "data/processed/USDCAD_1h.parquet (30,996 rows)"
+  - "data/processed/NZDUSD_1h.parquet (31,024 rows)"
+  - "config/data_quality_gates_1h.yaml (EURGBP per-pair: spread_median_ceiling 3.0 / p90_ceiling 8.0; AUDJPY: spread_median_ceiling 5.0 / p90_ceiling 15.0; global bar_coverage_min 0.85)"
+  - ".fintech-org/trials.jsonl (52 lines; ratified honest-N=30 per 2026-06-18 classification event; last entry: CD0-cycle2-NZDUSD+7pair-factor 2026-06-23 counts_toward_deflation_denominator: false)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/CONSENSUS.md (prior NO-SPEND decision; USD-majors-6 rho_bar_eff=0.597 / N_eff=1.51; ALL-7 rho_bar_eff=0.502 / N_eff=1.74; 24 pair-family combos all FAIL net SR)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/head-of-quant-research-cycle2.yaml (C4: EURGBP > GBPJPY > AUDJPY acquisition priority; USDCHF de-prioritized)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/cro-risk-assessment.yaml (veto triggers enumerated; Archegos-pattern concentration risk at 1.5 effective bets; cross-acquisition concurred as risk-reducing)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/nht-null-test-report.yaml (kill-criterion watch ELEVATED; Claims A/B/C all NOT-REJECTED; signed-mean FORBIDDEN reaffirmed)"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/head-of-quant-research-rho-bar.yaml (G5 rho_bar_eff amendment: eigenvalue/sign-blind; PnL-contribution series; MIN-over-routes; 0.41 unchanged)"
+  - "references/pre-registrations/h1_session_open_momentum_pooled.md (FROZEN-AWAITING-DATA; H1 binds G5 by reference; EXCLUDE-NOT-IMPUTE clause)"
+  - "references/intraday_confirmability_screening_rubric.md (G5 gate definition post-amendment)"
+
+assumptions:
+  - "EURGBP and AUDJPY spread columns (spread_median_pips, spread_mean_pips, spread_p90_pips) are real measured Dukascopy bid-ask spread data, not config-median fallback imputed values — this is load-bearing for C3 (real-spread CD0 screen); QD must confirm source provenance in DQ manifest"
+  - "The F1-F6 family specifications are stable from prior consensus (2026-06-19-3pairs-landed, 2026-06-22-6pairs-landed); QD uses the same family specs for comparability"
+  - "rho_bar_eff proxy using raw log-returns is conservative (over-states concentration vs. PnL-contribution gate statistic) — this is the documented 2026-06-19 mathematical ruling; QD must disclose and confirm conservative direction holds for the cross-inclusive universe"
+  - "The 0.41 G5 gate value is frozen and not re-derived in this wave (NHT guardrail #3 from 2026-06-19)"
+  - "No GBPJPY 1h parquet exists on disk — this pair is NOT in scope for this wave despite being a recommended acquisition target; QD should confirm absence"
+  - "EURGBP max spread_median_pips=29.90 and AUDJPY max spread_median_pips=33.20 represent infrequent illiquid-session spikes; the DQ gate checks median/mean across all bars, not individual extremes; QD should flag if these drive above the ceiling for a material fraction of bars"
+  - "Prior cycle's honest-N=30 remains the denominator for DSR deflation; no new trial has been counted between 2026-06-23 and 2026-06-24"
+
+confidence: high
+
+body: |
+  ## Coordination notes
+
+  ### What changed and why this reassessment is warranted
+  Two FX crosses — EURGBP (landed 2026-06-23) and AUDJPY (landed 2026-06-24) — have joined the
+  1h dataset. These are the first non-USD-quote pairs in the firm's intraday universe. The prior
+  consensus (2026-06-22) explicitly identified EURGBP > GBPJPY > AUDJPY as the highest-priority
+  acquisitions precisely because crosses are the only mechanism capable of breaking the USD-factor
+  concentration wall that keeps H1 frozen. Two of the three priority crosses have now landed.
+
+  ### Why this is NOT a progress claim
+  The 2026-05-31 documented failure mode is "infra-excitement / more-data-narrative substituting
+  for confirmable alpha." The fact that two recommended crosses have landed is a necessary but not
+  sufficient condition for any gate to clear. The reassessment exists to COMPUTE whether the gates
+  actually clear — not to assume they do. NHT is specifically tasked with testing this claim (C6-i).
+
+  ### Key open question for H1
+  The H1 freeze's binding constraint is rho_bar_eff > 0.41 (currently 0.502 on ALL-7, 0.597 on
+  USD-majors-6). The question this wave answers: does adding EURGBP and/or AUDJPY to the
+  universe pull rho_bar_eff toward or below 0.41? The prior HoQR recommendation was that crosses
+  with lower USD-beta should dilute the factor — but this is a hypothesis, not a fact. The QD
+  computation will settle it. If rho_bar_eff on ALL-9 (or on a cross-inclusive H1 candidate
+  subset) clears 0.41, H1 can be considered for un-freeze subject to CD0 also clearing.
+
+  ### CRO firewall note
+  The CRO receives ONLY the structured fields of this artifact (instrument-universe and
+  hard-constraints). Task-statement free-text and body narrative are NOT forwarded to CRO.
+  All information the CRO needs is encoded in the hard-constraints machine-checkable clauses:
+  rho_bar_eff <= 0.41, honest_N=30, paper_only, no_live_capital, no_trial_increment_without_pre_reg,
+  EXCLUDE-NOT-IMPUTE, and the veto-trigger conditions from prior CRO artifact. This is the
+  disjoint-evidence contract.
+
+  ### Real spreads on the new crosses — key change vs. prior CD0 screens
+  Prior CD0 screens (2026-06-19, 2026-06-23) used config-median spreads because the parquets
+  at that time may have lacked real measured spread columns. The 9 on-disk parquets now all
+  carry spread_median_pips, spread_mean_pips, and spread_p90_pips with zero nulls (verified
+  2026-06-24). This means C3 uses REAL per-bar spreads for the first time. The EURGBP and
+  AUDJPY spread maxima are materially higher than USD-major crosses (EURGBP spread_median up to
+  29.9 pips; AUDJPY up to 33.2 pips in illiquid sessions). If these spreads are real and not
+  artifacts, they will likely make the CD0 screen MORE cost-dominated for the crosses than for
+  the USD majors — which makes a net-positive CD0 result LESS likely, not more. QD should
+  characterize the spread distribution (median, p90, fraction of bars above e.g. 5 pips) and
+  confirm the cost model uses spread_median_pips (half-spread per side) as the baseline charge,
+  with spread_p90_pips available for stress scenarios.
+
+  ### Dissent preservation
+  NHT dissent is append-only, verbatim, and survives consensus. If NHT produces a
+  block-threshold dissent, the consensus artifact must carry it and surface it to the CEO.
+
+  ### Rework cap
+  Maximum 2 QD review cycles (consistent with prior protocol). If PR flags a discrepancy
+  after cycle 2 that cannot be resolved, escalate to CEO via named-gap artifact.
+
+  ### Trial counter
+  This reassessment is a descriptive screen (no param search, no OOS, no frozen spec with
+  pre-registration). It does NOT increment the trial counter. If the screen produces a
+  SPEND verdict (CD0 clears STRETCH/PASS), the pre-registration step is the next action
+  before any trial is counted. The .fintech-org/trials.jsonl entry for this screen carries
+  counts_toward_deflation_denominator: false.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "data/processed/*_1h.parquet (9 files, verified 2026-06-24)"
+  - "config/data_quality_gates_1h.yaml"
+  - ".fintech-org/trials.jsonl"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/cro-risk-assessment.yaml"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/head-of-quant-research-cycle2.yaml"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/nht-null-test-report.yaml"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/head-of-quant-research-rho-bar.yaml"
+  - "references/pre-registrations/h1_session_open_momentum_pooled.md"
+  - "references/intraday_confirmability_screening_rubric.md"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

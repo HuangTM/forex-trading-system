@@ -1,0 +1,294 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-26T00:00:00Z"
+subtask_ref: trend-futures-feasibility-probe
+subtask_id: trend-futures-probe-2026-06-26-qd
+
+frozen-kill-number: >
+  Direction: trend-following on FX futures (time-series momentum, MOP-2012 /
+  Hurst-Ooi-Pedersen-2017).
+  STEP A (cost hurdle): KILL if (published gross FX-futures TSMOM Sharpe ~0.4) minus
+  (modeled CME round-trip cost Sharpe drag) <= 0.0. Advance gate: net-of-cost must
+  leave >= 0.20 RESIDUAL Sharpe.
+  STEP B (deployability): compute min-viable position notional per contract such that
+  round-trip cost < 20% of gross per-rebalance edge; compare to firm's capital base.
+
+step-A-cost-hurdle:
+
+  gross-sharpe-used: >
+    BASE CASE: 0.40 (FX-futures subset, MOP 2012 — Moskowitz, Ooi, Pedersen,
+    "Time Series Momentum," Journal of Financial Economics, 2012, Table 3 / Figure 3).
+    HONEST NOTE: The ~0.4 figure is for the FX-futures sub-portfolio of a diversified
+    TSMOM strategy. The diversified multi-asset trend Sharpe (Hurst, Ooi, Pedersen 2017
+    "A Century of Evidence on Trend-Following Investing") is ~0.7-1.0 net over
+    100 years, substantially higher due to diversification across equities, bonds,
+    commodities, and FX. Single-market FX-futures TSMOM operates at the LOWER end;
+    the ~0.4 base case is an honest representation for a narrow FX futures application.
+    Upper reference: 0.7-1.0 (multi-asset, highly diversified) — NOT applicable to
+    single-market FX futures alone.
+
+  modeled-rt-cost-sharpe-drag:
+    contract: "CME 6E EUR/USD Futures"
+    notional_EUR: 125000
+    notional_USD: 135625
+    assumed_EURUSD_rate: 1.085
+    tick_size_USD: 0.00005
+    tick_value_USD: 6.25
+    formula: >
+      Sharpe_drag = (N_rt × RT_cost_total) / (annual_vol_pct × notional_USD)
+      where RT_cost_total = fee_RT + bid_ask_cost_per_RT
+    inputs:
+      fee_per_side_USD: 1.50        # conservative: exchange + clearing + broker
+      fee_RT_USD: 3.00
+      bid_ask_base: "1 tick = $6.25"
+      bid_ask_RT_cost_base_USD: 6.25
+      RT_cost_total_base_USD: 9.25   # $3.00 fee + $6.25 spread
+      N_rt_per_year_base: 4          # 12-month TSMOM signal → ~4 signal flips/yr
+      annual_vol_pct: 0.15           # 15% vol target per position (standard TSMOM)
+      annual_return_vol_USD: 20344   # 15% × $135,625
+    base_case_calculation: >
+      annual_cost = 4 RT × $9.25/RT = $37.00
+      Sharpe_drag = $37.00 / $20,344 = 0.00182
+    modeled-sharpe-drag-base: 0.0018
+
+  residual-net-sharpe: >
+    BASE CASE: 0.40 - 0.0018 = 0.3982 (rounds to 0.40).
+    The futures cost drag on a 12-month TSMOM signal is negligible at ~0.002 Sharpe.
+    This is structurally different from a high-frequency strategy: the low turnover
+    is the key mitigant.
+
+  futures-vs-retail-spot-cost-ratio: >
+    CONFIRMED (with important nuance): For the CME 6E EUR/USD at 125k EUR notional:
+      Futures RT cost (1-tick + $3 fee): $9.25 = 0.68 bps of notional.
+      Retail spot (1-pip spread all-in, no commission): $11.52 one-way = 0.85 bps.
+      Ratio retail/futures: ~1.2x for EUR/USD (the most liquid pair).
+
+    The "5-10x lower than retail spot" claim in the pre-registration requires
+    qualification:
+    - For EUR/USD specifically: futures are roughly comparable to retail (1-2x cheaper),
+      NOT 5-10x. EUR/USD retail spreads are unusually tight (0.5-1.5 pip).
+    - For LESS liquid pairs (AUD/CAD, GBP/JPY, AUD/JPY): retail spreads widen to
+      2-5+ pips. At those levels, futures ARE 5-10x cheaper.
+    - Conclusion: The structural advantage of futures over retail spot is REAL but is
+      pair-dependent. For EUR/USD, it is modest. For the broader FX futures universe
+      (which TSMOM applies across), the cost advantage is meaningful and the claim
+      is plausible as a portfolio average.
+    - KEY STRUCTURAL POINT CONFIRMED: At low TSMOM turnover (4 RT/yr), even 0.85 bps
+      retail spot cost = annual_drag of only 0.003 Sharpe — immaterial in both cases.
+      The cost regime difference matters FAR more for higher-turnover strategies.
+    - ECN/pro spot (0.1 pip + $5 RT commission): $12.30 RT = 0.91 bps — HIGHER than
+      futures due to the fixed commission component dominating at tight spreads.
+
+  sensitivity-table: |
+    Assumptions: 15% vol target, 6E at $135,625 notional, fee $3.00 RT.
+    Gate: Residual Net Sharpe >= 0.20.
+    All values = Gross Sharpe - Sharpe_drag (computed as shown above).
+
+    Gross SR | N_RT/yr | BA=1 tick | BA=2 tick | BA=3 tick | Min net | Gate?
+    ---------|---------|-----------|-----------|-----------|---------|-------
+      0.30   |    2    |  +0.299   |  +0.298   |  +0.298   | +0.298  | PASS
+      0.30   |    4    |  +0.298   |  +0.297   |  +0.296   | +0.296  | PASS
+      0.30   |    6    |  +0.297   |  +0.295   |  +0.294   | +0.294  | PASS
+      0.30   |    8    |  +0.296   |  +0.294   |  +0.291   | +0.291  | PASS
+      0.30   |   12    |  +0.295   |  +0.291   |  +0.287   | +0.287  | PASS
+      -----  |  ----   |   ----    |   ----    |   ----    |  ----   |
+      0.40   |    2    |  +0.399   |  +0.398   |  +0.398   | +0.398  | PASS
+      0.40   |    4    |  +0.398   |  +0.397   |  +0.396   | +0.396  | PASS  ← BASE
+      0.40   |    6    |  +0.397   |  +0.395   |  +0.394   | +0.394  | PASS
+      0.40   |    8    |  +0.396   |  +0.394   |  +0.391   | +0.391  | PASS
+      0.40   |   12    |  +0.395   |  +0.391   |  +0.387   | +0.387  | PASS
+      -----  |  ----   |   ----    |   ----    |   ----    |  ----   |
+      0.50   |    2    |  +0.499   |  +0.498   |  +0.498   | +0.498  | PASS
+      0.50   |    4    |  +0.498   |  +0.497   |  +0.496   | +0.496  | PASS
+      0.50   |   12    |  +0.495   |  +0.491   |  +0.487   | +0.487  | PASS
+      -----  |  ----   |   ----    |   ----    |   ----    |  ----   |
+      0.70   |    2    |  +0.699   |  +0.698   |  +0.698   | +0.698  | PASS
+      0.70   |   12    |  +0.695   |  +0.691   |  +0.687   | +0.687  | PASS
+      -----  |  ----   |   ----    |   ----    |   ----    |  ----   |
+      0.80   |   12    |  +0.795   |  +0.791   |  +0.787   | +0.787  | PASS
+
+    MAXIMUM drag case (gross 0.30, 12 RT/yr, 3-tick spread): 0.287 >> 0.20.
+    Even at 0.30 gross Sharpe and 12 RT/yr, futures cost is only 0.013 Sharpe — trivial.
+    The gate is NOT knife-edge. TSMOM's low-turnover structure makes cost drag
+    essentially irrelevant at this notional level.
+
+  gate-holds-across-range: >
+    YES — emphatically. Across the full plausible range (gross 0.30-0.80, 2-12 RT/yr,
+    1-3 tick bid-ask), the minimum residual net Sharpe is 0.287, versus the 0.20 gate.
+    The gate clears by a factor of ~1.4x even in the worst-case scenario tested.
+    This result is NOT knife-edge: futures cost at TSMOM turnover is negligible.
+
+step-B-deployability:
+
+  formula: >
+    Gate: RT_cost_per_rebalance < 0.20 × (gross_SR × vol_pct × notional_USD / N_rt)
+    Rearranged: notional_USD > (RT_cost × N_rt) / (0.20 × gross_SR × vol_pct)
+  inputs:
+    RT_cost_USD: 9.25
+    N_rt: 4
+    gross_SR: 0.40
+    vol_pct: 0.15
+  min-viable-notional-per-contract: >
+    min_notional = (9.25 × 4) / (0.20 × 0.40 × 0.15)
+                 = 37.00 / 0.012
+                 = $3,083 USD
+
+    Interpretation: Any position >$3,083 notional satisfies the 20% cost-of-edge gate.
+    This is a very low bar; it is met by even a single micro futures contract.
+
+  full-size-6E-notional: "125,000 EUR ≈ $135,625 USD"
+  micro-M6E-notional: "12,500 EUR ≈ $13,562 USD"
+
+  per-contract-cost-as-fraction-of-edge:
+    full_6E: >
+      Edge per RT = 0.40 × 0.15 × $135,625 / 4 = $2,034
+      Cost per RT = $9.25
+      Cost/edge = 9.25 / 2034 = 0.45%  (well under the 20% gate; passes by 44x)
+    micro_M6E: >
+      Edge per RT = 0.40 × 0.15 × $13,562 / 4 = $203
+      Cost per RT = $9.25
+      Cost/edge = 9.25 / 203 = 4.55%  (passes the 20% gate; room for slippage)
+
+  deployability-verdict: >
+    RESEARCH-ONLY PENDING CAPITAL-BASE INPUT.
+    The firm is backtest-only with no specified live-capital base. The min-viable
+    notional gate is extremely low ($3,083), meaning even micro futures pass the
+    cost-of-edge test. However, deployability depends on:
+    (a) Board-specified capital allocation (not yet ratified);
+    (b) Broker access to CME futures (currently retail FX / Saxo Bank — check
+        whether Saxo provides CME futures access or only CFDs on futures);
+    (c) Margin requirements: 6E initial margin ~$2,000-2,500 per contract at CME
+        (exchange minimum; broker may require more);
+    (d) M6E micro futures: good for small capital bases but open interest/volume
+        confirmation required (M6E is liquid but thinner than 6E full);
+    (e) A multi-pair TSMOM portfolio (as in MOP 2012) requires >1 contract and
+        hence proportionally larger capital — the single-contract analysis here
+        is per-position; portfolio-level sizing is a separate exercise.
+
+verdict: >
+  PASS-advance.
+
+  Step A: PASS — clear and non-knife-edge. The cost hurdle is met with
+  substantial margin. At TSMOM-typical turnover (4 RT/yr on 6E futures),
+  the Sharpe drag is ~0.002, leaving a residual net Sharpe of ~0.398 against
+  a 0.20 gate. Even at the most adverse plausible parameter set (gross 0.30,
+  12 RT/yr, 3-tick spread), residual net = 0.287, well above 0.20.
+
+  Step B: Min-viable notional of $3,083 is trivially met by both full 6E and
+  micro M6E. Deployability status: RESEARCH-ONLY pending Board capital-base input
+  and CME futures access confirmation.
+
+  This is a descriptive probe only — NO counted trial. Honest-N stays at 30.
+  Advancing means: a SEPARATELY GATED, FUTURE pre-registration step covering
+  signal construction, universe selection, portfolio-level sizing, OOS
+  confirmability horizon, and governance — none of which are committed here.
+
+evidence:
+  - "Moskowitz, Ooi, Pedersen (2012) 'Time Series Momentum', JFE — FX futures sub-Sharpe ~0.4"
+  - "Hurst, Ooi, Pedersen (2017) 'A Century of Evidence on Trend-Following' — diversified net Sharpe 0.7-1.0"
+  - "CME Group 6E EUR/USD contract specs: 125,000 EUR notional, 0.00005 tick ($6.25), liquid Globex hours"
+  - "CME M6E micro EUR/USD: 12,500 EUR notional (1/10 of 6E)"
+  - "All arithmetic verified by deterministic Python computation in this session"
+
+assumptions:
+  - "EUR/USD exchange rate: 1.085 (approximate; used only for bps comparison, not P&L)"
+  - "Fee per side: $1.50 (conservative combined exchange + clearing + broker; range $0.85-$2.00)"
+  - "Vol target: 15% annualized per position (standard MOP 2012 vol-scaling)"
+  - "Turnover base case: 4 RT/yr (12-month lookback TSMOM signal on FX; literature range 2-8 for 12M signal)"
+  - "Bid-ask base: 1 tick (6E is extremely liquid; 1-tick spread realistic during active hours)"
+  - "Gross Sharpe 0.40: FX-futures-subset figure from MOP 2012; treated as pre-committed base per instructions"
+  - "MOP 2012 gross Sharpe is before management fees; not directly comparable to retail-net figures"
+
+confidence: high
+
+body: |
+  ## Step A: Cost Arithmetic and the Structural Futures-vs-Spot Point
+
+  The CME 6E EUR/USD future is one of the most liquid derivative contracts in existence.
+  For a 125,000 EUR notional position using a 12-month TSMOM signal:
+
+    - Tick value: $6.25 (0.00005 USD × 125,000 EUR)
+    - Per-RT cost (fee $3.00 + 1-tick spread $6.25): $9.25
+    - Annual turnover (12M TSMOM): ~4 signal flips → $37.00/yr
+    - Annual return vol: 15% × $135,625 = $20,344
+    - Sharpe drag: $37.00 / $20,344 = 0.0018
+
+  Base-case net Sharpe: 0.40 - 0.0018 = 0.398. The cost drag is negligible.
+  The key insight is structural: TSMOM's edge comes from holding positions for weeks
+  to months. Very low turnover means very little cost accrual. This is precisely why
+  institutional trend-following flourishes in futures markets.
+
+  ### Futures vs Retail Spot — Honest Assessment
+
+  For EUR/USD (most liquid pair), futures RT cost (0.68 bps) is roughly comparable
+  to tight retail spot (0.85 bps for 1-pip spread). The 5-10x advantage claim in the
+  pre-registration is an overstatement for EUR/USD specifically but becomes accurate
+  for less liquid FX pairs (2-5 pip retail spreads vs. 1-tick futures). The portfolio-
+  level truth (MOP 2012 applies TSMOM across many FX pairs including less liquid ones)
+  supports the claim as a portfolio average. For EUR/USD in isolation: ~1-2x advantage.
+  In both regimes, at TSMOM turnover, the ABSOLUTE cost drag is trivially small.
+
+  ## Sensitivity Analysis
+
+  Across the full plausible grid (Gross SR 0.30-0.80, N_RT 2-12/yr, BA 1-3 ticks):
+
+    - Minimum residual net Sharpe in any cell: 0.287 (worst: gross 0.30, 12 RT/yr, 3-tick)
+    - Maximum drag encountered: 0.013 Sharpe (at 12 RT/yr, 3-tick scenario)
+    - Gate of 0.20 residual is cleared in EVERY cell by a factor of ≥1.4x
+
+  The sensitivity table confirms this is not a knife-edge result. The gate is robust
+  across the full parameter range. The structural reason is simple: TSMOM's max-drag
+  scenario (12 RT/yr, 3-tick) amounts to only ~$261/yr cost on a ~$135k position —
+  negligible against a 15% vol regime.
+
+  ## Step B: Deployability
+
+  Min-viable notional computation (20% cost-of-edge gate):
+    min_notional = ($9.25 × 4 RT) / (0.20 × 0.40 gross_SR × 0.15 vol) = $3,083
+
+  Both 6E (full, $135,625) and M6E (micro, $13,562) pass this gate with large margin.
+  Full 6E: cost = 0.45% of gross per-RT edge (gate is 20%).
+  Micro M6E: cost = 4.55% of gross per-RT edge (gate is 20%).
+
+  DEPLOYABILITY STATUS: Research-only pending:
+  (a) Board capital-base ratification
+  (b) CME futures access confirmation (Saxo may offer futures or only CFDs)
+  (c) Portfolio-level sizing (MOP 2012 applies TSMOM across a basket of FX contracts,
+      not just EUR/USD; total capital requirement scales with basket size)
+  (d) Margin availability: 6E initial margin ~$2,000-2,500 per contract
+
+  ## Verdict vs Frozen Kill-Number
+
+  STEP A GATE (net >= 0.20): Net = 0.398 >> 0.20. PASS — not knife-edge.
+  STEP B: Min-viable = $3,083; both contract sizes clear. Deployability: research-only.
+
+  OVERALL: PASS-advance. This is a $0-cost descriptive feasibility probe. NO trial
+  is counted; honest-N remains at 30. Advancing means a separately-gated pre-registration
+  step covering: signal specification, lookback selection, universe selection, OOS
+  confirmability horizon assessment, portfolio-level cost and margin modeling, and
+  governance ratification. None of those steps are committed or implied here.
+
+  The critical open question for any future pre-registration: CONFIRMABILITY.
+  TSMOM with a 12-month lookback on FX futures needs N_events/yr × per-event-Sharpe
+  to determine if OOS validation is feasible in ≤2-3 years. With ~2-4 signal flips/yr
+  per instrument, per-instrument confirmability is SLOW. A multi-pair portfolio
+  accelerates it. This is the principal risk that must be addressed before any
+  trial is registered — not the cost.
+
+firewall-self-review: approve
+counts_toward_deflation_denominator: false
+knowledge_gaps:
+  - "Exact MOP 2012 FX-only Sharpe at different lookbacks (12M stated as ~0.4; other lookbacks not modeled here)"
+  - "CME M6E micro open interest / volume statistics (liquidity assumed adequate; should be verified before any futures pre-reg)"
+  - "Whether Saxo Bank provides CME futures access or only CFDs on futures (material for deployability)"
+  - "Portfolio-level Sharpe for multi-pair FX futures TSMOM (diversification benefit not modeled in this single-pair probe)"
+policy_violations_detected: []
+sources:
+  - "Moskowitz, T.J., Ooi, Y.H., Pedersen, L.H. (2012). Time series momentum. Journal of Financial Economics, 104(2), 228-250."
+  - "Hurst, B., Ooi, Y.H., Pedersen, L.H. (2017). A century of evidence on trend-following investing. AQR Working Paper."
+  - "CME Group. 6E EUR/USD Futures Contract Specifications. cmegroup.com."
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

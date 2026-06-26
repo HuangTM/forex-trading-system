@@ -1,0 +1,125 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-nht
+claim-tested:
+  - "Claim (i): Adding the two crosses moves rho_bar_eff toward/below the 0.41 G5 gate. (Reported: ALL-9 rho_bar_eff = 0.4090 vs gate 0.41 — 0.0010 margin, raw-return PROXY, eigenvalue/sign-blind; USD-majors-7 = 0.5023.)"
+  - "Claim (ii): EURGBP or AUDJPY hosts a standalone net-of-cost exploitable edge in the canonical intraday families. (Reported: all 54 combos net-Sharpe NEGATIVE; best AUDJPY F5 net −1.56, 3.00 SR below STRETCH.)"
+  - "Claim (iii): This data drop warrants an org-wide trial-counter increment."
+tests-requested:
+  - "Arithmetic re-derivation of rho_bar_eff = (lambda_max-1)/(k-1) for ALL-9, USD-7, CROSSES-3 from reported eigenvalues (internal-consistency check)."
+  - "Eigenvalue-sum sanity check (must equal k=9 for a correlation matrix)."
+  - "Sampling-uncertainty estimate of SD(lambda_max) and SD(rho_bar_eff) under a delta-method/random-matrix heuristic, across autocorrelation-deflation scenarios (iid / 6h / daily / weekly blocks) — the margin-to-gate-in-SD test."
+  - "Net-of-cost screen vs the no-edge null: 54 combos, best net SR vs STRETCH=1.44 bar, gap measured."
+  - "Trials-ledger inspection: is the 2026-06-24 line flagged counts_toward_deflation_denominator:false; is any pre-registered candidate present."
+  - "NOT-ROUTED to quant-developer: no re-execution of trading code needed; all tests are interpretive/arithmetic on QD's reported numbers. (If a defensible 'broken-wall' assertion were ever desired, I would ROUTE_TO quant-developer for a block-bootstrap CI on lambda_max — see knowledge_gaps.)"
+tests-results:
+  - "Claim (i) arithmetic: VERIFIED internally consistent. ALL-9 rho_bar_eff recomputes to 0.4090 from lambda_max=4.2723, k=9. Eigenvalue sum = 9.0000 (valid decomposition). USD-7=0.5023 and CROSSES-3=0.3563 reproduce exactly. The DELTA (ALL-7 0.502 → ALL-9 0.409) is real and in the claimed direction."
+  - "Claim (i) sensitivity: the gate margin of 0.0010 in rho units corresponds to lambda_max moving only 0.0077 (0.18%) to cross the gate. lambda_max-at-gate = 4.2800 vs actual 4.2723."
+  - "Claim (i) uncertainty: SD(rho_bar_eff) ~ 0.0044 under the UNREALISTIC iid assumption (n=29,805) → margin/SD = 0.23. Under realistic autocorrelation deflation: 6h-blocks SD~0.011 (margin/SD=0.09), daily-blocks SD~0.021 (margin/SD=0.05), weekly-blocks SD~0.048 (margin/SD=0.02). In EVERY scenario the point estimate sits <0.25 SD from the gate — statistically AT the gate."
+  - "Claim (i) corroboration of uncertainty: the reported last-3yr subsample value 0.392 differs from the full-sample 0.409 by 0.017 — SEVENTEEN times the 0.0010 margin. Sub-period sampling alone moves the statistic by an order of magnitude more than the claimed clearance."
+  - "Claim (ii) net-of-cost: CONFIRMED all 54 pair×family net SR negative. Best = AUDJPY F5 −1.5555; second EURGBP F5 −3.2006. Distance to STRETCH(1.44) = 3.00 SR units for the best combo. Gross-positive cases (EURGBP F1 gross 2.29) flip to deeply negative net (−8.21): signal is entirely cost-consumed. This is the no-edge null surviving decisively."
+  - "Claim (iii) ledger: the 2026-06-24 line IS correctly flagged counts_toward_deflation_denominator:false; honest-N for DSR remains 30. No pre-registered candidate exists; nothing reaches even STRETCH."
+matched-benchmark-sharpe: "n/a as a matched-random permutation (no signal cleared screening to warrant one). The implicit matched benchmark is the no-edge cost-floor: net SR for every one of 54 in-sample combos is negative; a no-skill strategy at this turnover/cost would also be net-negative, and the observed best (−1.56) is consistent with — not better than — that null."
+permutation-results: "n/a — a permutation/bootstrap test on net-SR is only worth requesting once a candidate clears the descriptive screen. None did. The relevant uncertainty test was on rho_bar_eff (Claim i), executed above as a sampling-SD analysis: the margin is 0.02–0.23 SD, indistinguishable from the gate."
+dsr-assessment: "No DSR deflation is triggered: zero candidates clear screening, no pre-registration, no trial burned. Honest-N remains 30 (52 pre-existing lines + the 2026-06-24 descriptive line correctly excluded). DSR is not the operative gate here — there is no Sharpe edge to deflate. Correctly so: the net-of-cost screen produced nothing to confirm."
+dissent-statement: |
+  DISSENT (append-only, preserved verbatim):
+
+  The ALL-9 rho_bar_eff = 0.4090 "PASS" of the 0.41 G5 gate must NOT be characterized as
+  the structural-concentration wall being "broken," nor as "progress toward H1." I record
+  the following for the permanent record:
+
+  1. The margin (0.0010 in rho units; 0.0077 / 0.18% in lambda_max) is smaller than the
+     sampling uncertainty of the statistic by 4x–50x. Under the most generous (iid,
+     counterfactually wrong) assumption the gap is 0.23 SD; under realistic hourly-return
+     autocorrelation it is 0.02–0.09 SD. The estimate is statistically AT the gate, not below it.
+     The proposer's own robustness check (last-3yr = 0.392) moves the number by 0.017 — 17x the
+     claimed clearance — which is direct empirical confirmation that this margin is noise.
+
+  2. The statistic is a raw-return eigenvalue PROXY, not the PnL-contribution gate stat. The
+     proxy's "conservative direction" argument cannot rescue a 0.001 margin: a direction claim
+     ("true <= proxy") with no measured magnitude does not certify a sub-0.001 clearance. The
+     true stat is uncomputable here because no signal series exists (nothing cleared screening).
+
+  3. Most importantly: there is NOTHING TO BE LESS-CONCENTRATED ABOUT. The rho_bar_eff gate
+     exists to bound cross-strategy concentration AMONG CONFIRMABLE EDGES. The net-of-cost screen
+     returns ZERO edges across all 54 in-sample combos — best net −1.56, a full 3.00 SR below the
+     STRETCH bar. A diversification statistic over a portfolio of zero alphas is vacuous. Passing
+     it is not progress; it is measuring the correlation structure of noise.
+
+  This is precisely the 2026-05-31 failure mode: "more data = progress" substituting for
+  confirmable alpha. Two new clean pairs, a marginally-improved proxy concentration number, and
+  zero net edge is NOT a step toward H1. The correct disposition is honest NO-SPEND, no counter
+  increment (which the ledger correctly reflects), and NO claim that the wall is broken. I would
+  NOT certify the wall "broken" on this evidence. If the firm ever wants to assert it, that
+  requires (a) a real confirmable signal to populate the universe, and (b) a block-bootstrap CI
+  on rho_bar_eff whose UPPER bound sits below 0.41 — not a point estimate 0.18% under it.
+contamination-check: "clean — prompt delivered atomic claims + data references + trial count. The 'conservative direction' note is QD's own data-artifact disclosure presented for testing, not an injected rationale for why a claim is true; no other role's approval/stance or market-expectation rationale was conveyed. The guard-duty framing is adversarial instruction to me, not a contaminating stance."
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json (C2 eigenvalues, C3 net-SR, C1 DQ manifest)"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml (QD disclosures incl. 0.001 margin, 3yr=0.392 robustness)"
+  - ".fintech-org/trials.jsonl (53 lines; 2026-06-24 line flagged counts_toward_deflation_denominator:false; honest-N=30)"
+  - "Arithmetic verification (this report): rho_bar_eff reproduces 0.4090/0.5023/0.3563; eigsum=9.0; lambda_max-at-gate=4.2800"
+  - "Sampling-SD analysis (this report): margin/SD = 0.23 (iid) down to 0.02 (weekly blocks)"
+assumptions:
+  - "SD(lambda_max) ~ lambda_max * sqrt(2/n_eff) is a delta-method/random-matrix order-of-magnitude heuristic for a single-dominant-factor correlation matrix, used to bound the margin-to-SD ratio. The CONCLUSION (margin << SD) is robust across all n_eff scenarios tested and is independently corroborated by the proposer's own 3yr=0.392 subsample; the exact SD constant does not change the verdict."
+  - "Hourly FX log-returns are autocorrelated / vol-clustered, so nominal n_obs=29,805 overstates independent information; effective N is materially smaller (block sizes 6h–weekly bracket the plausible range). This makes the iid SD a strict lower bound on uncertainty — the real margin/SD is even worse than 0.23."
+  - "rho_bar_eff is a raw-return proxy; the true PnL-contribution stat was not (and could not be) computed. Per QD the proxy's bias is conservative-in-direction but unquantified-in-magnitude — insufficient to certify a 0.001 clearance."
+  - "I did not re-execute any trading or eigendecomposition code (NHT does not run code); I verified internal arithmetic consistency and computed uncertainty bounds. A definitive 'broken-wall' certification would require ROUTE_TO quant-developer for a block-bootstrap CI."
+confidence: high
+body: |
+  ## Claim (i) verdict — rho_bar_eff margin/uncertainty — NOISE-INDISTINGUISHABLE
+  The arithmetic is sound (rho_bar_eff=0.4090 reproduces; eigensum=9.0; the −0.093 delta vs
+  ALL-7 is real and directionally correct). But a 0.0010 margin on a 9×9-correlation leading
+  eigenvalue, estimated from ~30k AUTOCORRELATED hourly bars, is NOT a robust clearing of the
+  gate. It is indistinguishable from being AT the gate:
+    - lambda_max needs to move only 0.0077 (0.18%) to cross.
+    - SD(rho_bar_eff) ranges 0.0044 (iid lower bound) to ~0.048 (weekly blocks). Margin/SD =
+      0.23 at best, 0.02–0.09 realistically. A statistic <0.25 SD from a threshold has not cleared it.
+    - The proposer's own last-3yr subsample (0.392) sits 0.017 from the point estimate — 17× the
+      margin. The number wanders far more than the claimed clearance under trivial reslicing.
+    - It is a raw-return PROXY; the true gate stat is uncomputable here (no signal series). A
+      directional-conservatism argument with no magnitude cannot certify a 0.001 clearance.
+  I would NOT certify the wall "broken." Honest framing: "ALL-9 raw-return proxy point estimate
+  is at the 0.41 gate, within estimation noise; USD-majors-7 (0.502) and -6 (0.597) remain
+  clearly above it." The improvement is real in direction, immaterial in magnitude.
+
+  ## Claim (ii) verdict — net-of-cost edge null — NULL SURVIVES (no edge)
+  Confirmed against the no-edge null: all 54 combos net-negative. Best AUDJPY F5 = −1.56, a full
+  3.00 SR below STRETCH(1.44). Gross-positive signals (EURGBP F1 gross 2.29) are entirely consumed
+  by costs (net −8.21). This is exactly what a no-skill strategy at this turnover/spread floor
+  produces. Neither EURGBP nor AUDJPY hosts a standalone exploitable intraday edge. No permutation
+  test warranted — nothing cleared the descriptive screen to test.
+
+  ## Claim (iii) verdict — trial-increment — CORRECTLY NO INCREMENT
+  No pre-registered candidate; nothing reaches STRETCH. The ledger's 2026-06-24 line is correctly
+  flagged counts_toward_deflation_denominator:false. Honest-N for DSR stays 30. Counting this as a
+  trial would DISTORT the denominator (inflate the deflation count with a null screen that risked
+  no edge) — the correct action is what was done: descriptive-screen, no burn. AGREED.
+
+  ## More-data-narrative guard — FLAGGED
+  This is the 2026-05-31 failure mode in miniature. The seductive narrative is: "two new clean
+  pairs + the concentration number finally touched the gate = momentum toward H1." That narrative
+  is false on two independent grounds. First, the gate "pass" is inside its own estimation noise
+  (Claim i). Second, and decisively, a concentration/diversification gate is VACUOUS when the
+  universe contains zero confirmable edges (Claim ii): you cannot be well-diversified across an
+  empty alpha set. Marginally lowering the correlation eigenvalue of a basket of NET-NEGATIVE
+  strategies is not progress — it is characterizing the covariance of noise. The honest posture
+  remains NO-SPEND. New data improved DQ coverage; it did not produce an edge to confirm.
+knowledge_gaps:
+  - "True PnL-contribution rho_bar_eff for ALL-9 is uncomputable here (no signal series cleared screening); only the raw-return proxy exists."
+  - "A definitive accept/reject of 'wall broken' would require a block-bootstrap (or moving-block) CI on lambda_max / rho_bar_eff — ROUTE_TO quant-developer if ever needed. My SD figures are heuristic bounds; the verdict (margin << uncertainty) is robust to the exact method and is corroborated by the 3yr subsample."
+  - "F1–F6 specs remain unfrozen-as-code; QD reconstructed them from prior CONSENSUS prose. FAIL verdict is robust to plausible spec variants (best net −1.56 vs +1.44 bar), so this gap does not change Claim (ii)."
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml"
+  - ".fintech-org/trials.jsonl"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [structural-skepticism-on-any-claim, p-hacking-and-data-snooping-detection, null-hypothesis-construction]

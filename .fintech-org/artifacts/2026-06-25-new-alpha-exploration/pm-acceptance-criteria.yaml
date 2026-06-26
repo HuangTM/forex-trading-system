@@ -1,0 +1,472 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-25T00:00:00Z"
+subtask_ref: new-alpha-exploration
+subtask_id: new-alpha-exploration-2026-06-25-pm
+task-statement: >
+  Produce a costed, gated, ranked shortlist of 2-3 structurally-new alpha
+  directions that go around the 4 confirmed walls; no data spend, no
+  backtest, honest_N unchanged at 30.
+deliverable-type: strategy-design
+deadline: "2026-06-28T00:00:00Z"
+instrument-universe: []  # exploration — universe is an OUTPUT, not an input
+
+hard-constraints:
+  - >
+    NO-DATA-SPEND-NO-COMMITTED-BACKTEST: zero data acquisition spend this
+    cycle. No committed pre-registered backtest. Trial counter (honest_N=30)
+    MUST NOT increment. Any trials.jsonl entry appended must carry
+    counts_toward_deflation_denominator: false and event:
+    descriptive-exploration-screen. Pre-registration happens only in a FUTURE
+    cycle IF a direction clears the feasibility gate and the Board authorizes
+    the advance.
+
+  - >
+    NO-LIVE-CAPITAL: no live capital or paper-trading deployment of any kind.
+    Research output only.
+
+  - >
+    EACH-DIRECTION-MUST-SPECIFY-FOUR-FIELDS — machine-checkable completeness
+    gate. Every surviving direction in the shortlist must explicitly state:
+    (a) DATA-CLASS-REQUIRED: the specific new data class it genuinely requires
+        (or "uses existing 1h/daily OHLCV+spread" if no new data needed);
+    (b) CHEAP-FEASIBILITY-TEST: a concrete, executable, single-step test that
+        can kill the direction before any data spend (e.g., "estimate gross
+        edge from published academic OOS SR on the same factor; if <0.3 reject"
+        or "compute cost hurdle for required frequency; if RT cost > estimated
+        gross edge reject");
+    (c) WALL-ATTACKED: which of the 4 confirmed structural walls this direction
+        explicitly targets (cost-dominance-on-turnover / USD-factor-
+        concentration / regime-dependence / no-true-volume-or-order-flow);
+    (d) EVIDENCE-GRADE: one of [OOS-ACADEMIC-SURVIVOR, OOS-PRACTITIONER-
+        SURVIVOR, THEORY-GROUNDED-UNTESTED, FOLKLORE-UNVERIFIED].
+    Directions missing any of the four fields are incomplete deliverables.
+
+  - >
+    DIVERGENCE-REQUIREMENT: the generation wave must be genuinely divergent.
+    Each generator operates under a distinct epistemic lens (academic-factor /
+    practitioner-microstructure / contrarian-outsider) and must propose >=4
+    distinct directions. A direction is distinct if its primary edge-mechanism
+    differs from all other proposals in that lens; variants of the same
+    mechanism under one lens count as one. The PM will reject a generation
+    wave where >=2 lenses produce the same primary direction.
+
+  - >
+    ANTI-CONVERGENCE-ON-STEER: the CEO steer (avoid faster/HFT/ML-on-same-data
+    as primary candidates) is a PRIOR to TEST, not a conclusion to pre-converge
+    on. Each generator must include at least 1 direction that directly
+    challenges the steer (e.g., argues that a specific HFT/ML approach DOES go
+    around a wall) with explicit reasoning. NHT will evaluate whether the
+    challenge survives.
+
+  - >
+    NHT-FOLKLORE-CULL-MANDATORY: NHT evaluates the full slate (all lenses,
+    all generated directions) against the folklore-vs-OOS-evidence test BEFORE
+    the ranking step. Directions graded FOLKLORE-UNVERIFIED with no compensating
+    structural prior are culled at this step. NHT's cull rationale is
+    append-only, verbatim, and may NOT be paraphrased in the consensus artifact.
+
+  - >
+    CRO-FIREWALL: the CRO task statement contains ONLY structured fields:
+    instrument-universe (empty this cycle — exploration output determines it),
+    hard-constraints (verbatim from this document), no-live-capital flag,
+    honest-N=30, no-counted-trial-this-cycle, and the per-shortlisted-direction
+    data-acquisition-cost estimate field. No strategy rationale, no framing,
+    no alpha-source description crosses the firewall. The CRO synthesizes risk
+    from structured fields alone.
+
+  - >
+    RANK-BY-EDGE-PER-DATA-COST: the final shortlist must be ranked by
+    expected-edge-per-unit-of-data-acquisition-cost. Directions requiring zero
+    new data get an explicit cost=0 label (not "low cost"). Directions requiring
+    paid data feeds must include a rough annual acquisition cost estimate in USD
+    before ranking. HoQR issues the ranking call with explicit reasoning; the
+    ranking is not delegated to generators.
+
+  - >
+    FOUR-WALLS-STAY-CLOSED: the 4 confirmed falsified families
+    (cost-dominant-turnover / USD-factor-concentrated / regime-dependent /
+    no-volume-on-retail-OHLCV) are NOT re-opened as-is. A direction may attack
+    one of these walls structurally (e.g., acquiring volume data to address wall
+    4) but may NOT re-propose the same edge-mechanism on the same data as a new
+    candidate. Machine-checkable: each direction's data-class field must differ
+    from "retail 1h/daily OHLCV+spread on 10 pairs, no volume" unless its
+    mechanism is categorically different from F1-F6 + R5 + QRB-6.
+
+criteria:
+  - >
+    GENERATION-WAVE-COMPLETE: all 3 lenses have produced >=4 distinct proposed
+    directions each (minimum 12 total proposals across the full slate). Each
+    proposal includes a one-sentence primary edge-mechanism. The PM confirms
+    the slate is divergent (no >=2 lenses producing the same primary mechanism)
+    before passing to the screen wave.
+
+  - >
+    NHT-CULL-DOCUMENTED: NHT has issued a structured folklore-cull report over
+    the full slate. Each culled direction has a verbatim rationale. The cull
+    output identifies the evidence grade for every direction, not just the
+    culled ones. Surviving directions carry one of [OOS-ACADEMIC-SURVIVOR,
+    OOS-PRACTITIONER-SURVIVOR, THEORY-GROUNDED-UNTESTED].
+
+  - >
+    STRUCTURED-DIRECTIONS-AUTHORED: for every direction that survived the NHT
+    cull, QR has produced a structured record containing all four required fields
+    (data-class, cheap-feasibility-test, wall-attacked, evidence-grade) plus a
+    one-line falsifiable hypothesis in the form "IF [data / frequency / mechanism]
+    THEN gross-edge > RT-cost by [estimated margin], testable by [cheap test]."
+    Incomplete records are a blocking finding.
+
+  - >
+    ML-HFT-EVALUATED: ML-Researcher has produced a structured evaluation of
+    the ML/HFT-signal directions in the slate, including: the CPCV/Deflated-
+    Sharpe methodology gates that would govern a future backtest, the specific
+    new data class each ML/HFT direction genuinely requires (vs. what it can
+    use from existing 1h OHLCV), and an honest assessment of whether each ML/HFT
+    direction goes around or hits the cost-dominance wall head-on.
+
+  - >
+    HOQR-RANKED-SHORTLIST: HoQR has issued a ranked shortlist of 2-3 surviving
+    directions, ordered by expected-edge-per-data-acquisition-cost, with
+    explicit per-direction reasoning. The ranking must state: (a) estimated
+    gross-edge basis (academic OOS SR or structural prior), (b) estimated data
+    acquisition cost in USD/yr or "zero" for existing data, (c) the resulting
+    edge-per-cost ratio (qualitative: HIGH/MEDIUM/LOW with rationale). Directions
+    not making the shortlist have an explicit kill rationale.
+
+  - >
+    CRO-STRUCTURED-FIELDS-COMPLETE: CRO artifact contains all required
+    structured fields — per-shortlisted-direction data-acquisition-cost-risk
+    (max plausible annual cost, vendor concentration, disjoint-coverage note),
+    no-live-capital, honest-N=30, no-counted-trial-this-cycle. No rationale
+    embedded in CRO task statement; firewall confirmed by PM at dispatch.
+
+  - >
+    PR-REVIEWED: Principal Reviewer issues a single-wave review verdict.
+    PR checks: (a) each shortlisted direction's feasibility-test is genuinely
+    executable and specific (not "run a backtest" — that's a committed trial),
+    (b) evidence-grades are consistent with cited sources, (c) the ranking
+    methodology is applied consistently, (d) the NHT cull was not overridden
+    without documented reasoning. Blocking finding count documented.
+
+  - >
+    TRIAL-COUNTER-UNCHANGED: trials.jsonl confirmed honest-N=30 after this
+    cycle. PM verifies. No direction in the shortlist is a committed
+    pre-registration; pre-registration is explicitly deferred to a future cycle.
+
+  - >
+    CONSENSUS-AUTHORED: PM synthesizes a CONSENSUS artifact in
+    .fintech-org/artifacts/2026-06-25-new-alpha-exploration/CONSENSUS.md
+    capturing: the full slate with evidence grades, NHT cull rationale (verbatim),
+    the ranked shortlist with deciding edge-per-cost reasoning, PR verdict,
+    CRO data-cost position, and honest-N confirmation. NHT dissent is
+    append-only and verbatim-preserved. Consensus is append-only.
+
+out-of-scope:
+  - >
+    Data acquisition decision: any decision to actually purchase or ingest a
+    new data class is a separate Board-authorized step. This cycle produces only
+    the hypothesis + feasibility-test + cost-estimate that would JUSTIFY a future
+    acquisition request.
+  - >
+    Committed backtest or counted pre-registration: the shortlist directions are
+    candidates for future pre-registration, not pre-registered hypotheses this
+    cycle. No CPCV backtest runs.
+  - >
+    Live or paper deployment of any kind.
+  - >
+    Re-opening the 4 falsified existing-data families as-is: F1-F6 canonical
+    families on retail 1h OHLCV (max net SR -1.56 across 54 pair×family combos
+    and -2.19 for CADJPY) are retired-as-saturated. R5 carry USDJPY (RULE_4_
+    AMBIGUOUS, DSR=0.907, power=9%) and QRB-6 CB-decision event-drift (wound
+    down as un-confirmable in <=5yr) are archived near-misses, not candidates.
+    These may be cited as structural lessons but not re-proposed.
+  - >
+    GBPJPY pair: explicitly excluded per prior HoQR ruling.
+  - >
+    rho_bar_eff or G5 concentration gate recompute: moot until a cost-feasible
+    candidate with a positive-edge signal series exists.
+
+roles-staffed:
+  - >
+    academic-factor-lens generator: generates >=4 divergent directions through
+    the lens of academic peer-reviewed factor literature (carry, value, momentum,
+    volatility risk premium, cross-asset macro, term structure). Role enforces
+    OOS discipline — must cite published OOS performance, not in-sample results.
+    Must include >=1 direction that challenges the CEO steer.
+  - >
+    practitioner-microstructure-lens generator: generates >=4 divergent
+    directions through the lens of practitioner microstructure and execution
+    (order-flow imbalance, bid-ask spread dynamics, latency arbitrage, market-
+    making, dealer positioning). Evaluates whether each direction requires
+    proprietary data unavailable to a retail participant. Must include >=1
+    direction challenging the steer.
+  - >
+    contrarian-outsider-lens generator: generates >=4 divergent directions
+    through a first-principles / non-consensus lens — deliberately seeks
+    directions that mainstream quant finance overlooks or dismisses. Examples:
+    regime-change detection using macroeconomic nowcasts, cross-asset structural
+    shifts, alternative data (satellite, sentiment, positioning), changing the
+    objective from direction to volatility/options. Must include >=1 direction
+    challenging the steer.
+  - >
+    head-of-quant-research: after NHT cull + QR structuring, deduplicates and
+    merges overlapping directions; issues the ranked shortlist (2-3 directions)
+    ordered by edge-per-data-acquisition-cost with explicit reasoning; owns the
+    strategic finding for the Board.
+  - >
+    quant-researcher: for every direction surviving the NHT cull, structures it
+    as a complete four-field record (data-class / cheap-feasibility-test /
+    wall-attacked / evidence-grade) plus a one-line falsifiable hypothesis.
+    NO implementation code. NO committed pre-registration.
+  - >
+    ml-researcher: evaluates specifically the ML/HFT-signal directions in the
+    slate; specifies CPCV/Deflated-Sharpe methodology gates that would govern a
+    future backtest; assesses which ML/HFT directions genuinely require new data
+    vs. which are just more complexity on the same data; estimates overfitting
+    risk at available sample sizes.
+  - >
+    null-hypothesis-tester: mandatory structural skeptic and sole gatekeeper of
+    the folklore-cull step. Evaluates the full slate against OOS-evidence; culls
+    FOLKLORE-UNVERIFIED directions with no structural prior; preserves cull
+    rationale append-only and verbatim. Evaluates whether any direction's
+    cheap-feasibility-test is itself begging the question (i.e., the test
+    assumes the edge exists). Non-blocking unless a direction claiming OOS-
+    ACADEMIC-SURVIVOR is found to cite only in-sample or p-hacked results.
+  - >
+    cro: receives ONLY structured fields (hard-constraints, no-live-capital,
+    honest-N=30, no-counted-trial-this-cycle, per-shortlisted-direction
+    data-acquisition-cost field). Produces disjoint structured risk position:
+    max plausible annual data-acquisition cost per direction, vendor
+    concentration risk, regulatory/access risk for each data class. No rationale
+    in task statement (PM enforces firewall at dispatch).
+  - >
+    principal-reviewer: single-wave review of the full shortlist package — NHT
+    cull rationale, structured direction records, evidence grades, feasibility
+    tests, HoQR ranking. Issues approve-or-blocking verdict. Checks that
+    feasibility tests are genuinely cheap and executable, not disguised backtests.
+  - >
+    pm (this role): authors acceptance criteria; enforces sequencing (generation
+    before cull before structuring before ranking); enforces CRO firewall;
+    synthesizes CONSENSUS; preserves NHT dissent verbatim; confirms trial
+    counter unchanged; does NOT make technical or strategy calls.
+
+evidence:
+  - >
+    .fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md —
+    the governing ratified consensus establishing the binding NO-EDGE wall
+    (net-of-cost SR < 0 across all 84 pair×family combos), the DATA-CAPABILITY
+    conclusion (binding constraint requires a data CLASS change, not pair
+    breadth), and the two-option fork (data acquisition with precondition vs.
+    observe-only).
+  - >
+    .fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md —
+    establishes cost-dominance wall (all F1-F6 retired-as-saturated, max net SR
+    -1.56), regime-dependence finding (FOMC hiking cycle = 30% of events,
+    53-54% of USDJPY 12h/18h gross), and the CD0 machine-checkable kill
+    condition.
+  - >
+    .fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/nht-null-test-report.yaml —
+    NHT structural skeptic ruling on the cost-aware family, establishing the
+    cost-null survival discipline.
+  - >
+    .fintech-org/artifacts/2026-06-07T-data-capability/ and
+    references/pre-registrations/CONSENSUS_2026-06-07_qrb6_winddown.md —
+    QRB-6 CB-decision wound down as un-confirmable (power 9% at 2030, 80%
+    needs 28-256 yr); establishes the CONFIRMABILITY wall (events/yr ×
+    per-event-Sharpe → validate in <=3yr).
+  - >
+    .fintech-org/trials.jsonl — honest-N=30, stable; ratified honest-n-
+    classification entry 2026-06-18; confirmed unchanged through 2026-06-25.
+  - >
+    references/pre-registrations/ (r5_carry_universe_kill_test.md,
+    vol_target_carry.md, r5_confirmatory_vol_target_carry_usdjpy.md) —
+    the R5 carry USDJPY near-miss archive (RULE_4_AMBIGUOUS, DSR=0.907,
+    power=9%); establishes USD-factor concentration as a documented structural
+    wall (vol_target_carry concentrated on USDJPY, 2022-2023 regime).
+
+assumptions:
+  - >
+    The 4 confirmed structural walls (cost-dominance-on-turnover, USD-factor-
+    concentration, regime-dependence, no-true-volume-or-order-flow) are an
+    accurate characterization of the falsification corpus. If any wall is
+    contested, the NHT role should flag it as a dissent, not suppress it.
+  - >
+    honest-N=30 is the ratified deflation denominator; any direction that could
+    be construed as continuing a previously-registered trial family would require
+    NHT sign-off before the trial counter question is settled.
+  - >
+    The Board's steer (faster/HFT/ML-on-same-data fights walls head-on; going
+    around the walls is more promising) is a generative prior, not a binding
+    constraint. The generation wave may and should include directions that
+    challenge this prior; NHT evaluates the challenge on its merits.
+  - >
+    "Cheap feasibility test" means an estimate or analytical check executable
+    without a committed CPCV backtest — e.g., a published Sharpe from OOS
+    academic literature, a back-of-envelope cost hurdle computation using
+    publicly available spread data, or a data-availability check (can we
+    acquire this data, at what cost, from what vendor). NOT a mini-backtest.
+  - >
+    The three generators operate independently before the NHT cull step.
+    The PM does not pre-coordinate generators' proposals; divergence is
+    structural, not curated.
+  - >
+    The generation wave's >=4-per-lens minimum is a floor, not a target.
+    Generators may propose more if the lens warrants it.
+
+confidence: medium
+
+body: |
+  ## Coordination notes
+
+  ### The generate-then-screen structure (hard sequencing)
+
+  Phase 1 — GENERATION (parallel, no inter-lens coordination):
+    Academic-factor lens, practitioner-microstructure lens, and
+    contrarian-outsider lens each produce their >=4 proposed directions
+    independently. PM collects and confirms divergence across lenses
+    before passing to Phase 2. Anti-convergence check: if >=2 lenses
+    propose the same primary mechanism, PM flags and requests a replacement
+    direction from the converging lens before proceeding.
+
+  Phase 2 — NHT FOLKLORE-CULL (sequential, blocks Phase 3):
+    NHT evaluates the full slate. FOLKLORE-UNVERIFIED directions with no
+    structural prior are culled. NHT issues structured cull report with
+    verbatim rationale per culled direction and evidence grade for all
+    surviving directions. This step BLOCKS Phase 3; no structuring begins
+    until the cull report is complete and the PM has confirmed it is
+    append-only and verbatim.
+
+  Phase 3 — STRUCTURING + ML EVALUATION (parallel):
+    QR structures each surviving direction into the four-field record plus
+    one-line falsifiable hypothesis.
+    ML-Researcher evaluates ML/HFT directions specifically.
+    These two tasks may run in parallel.
+
+  Phase 4 — HOQR RANKING:
+    HoQR deduplicates, merges overlapping directions, and issues the ranked
+    shortlist (2-3 directions) by edge-per-data-acquisition-cost.
+
+  Phase 5 — CRO + PR (parallel):
+    CRO receives structured fields and issues data-cost risk position.
+    PR issues single-wave review verdict.
+    These two tasks may run in parallel (CRO gets structured fields only;
+    no PR output crosses the CRO firewall).
+
+  Phase 6 — CONSENSUS (PM):
+    PM synthesizes CONSENSUS.md capturing all outputs. NHT dissent
+    verbatim-preserved. Append-only artifact.
+
+  ### The edge-per-data-cost ranking metric
+
+  The ranking metric for the final shortlist is:
+
+    EDGE_PER_COST_RATIO = (estimated_gross_edge_basis) / (data_acquisition_cost_USD_yr)
+
+  Where:
+    - estimated_gross_edge_basis is derived from published OOS Sharpe ratios
+      (for OOS-ACADEMIC-SURVIVOR directions) or a structural prior with stated
+      confidence interval (for THEORY-GROUNDED-UNTESTED directions). It is NOT
+      a figure derived from a backtest on existing firm data this cycle.
+    - data_acquisition_cost_USD_yr is the rough annual cost of the required
+      data class, or "0" for directions that use existing firm data. CRO
+      provides this estimate for shortlisted directions.
+    - Directions requiring zero new data but attacking only already-saturated
+      mechanisms are disqualified (wall-attacked field must be non-trivially
+      addressed).
+
+  HoQR applies this metric qualitatively (HIGH / MEDIUM / LOW with rationale)
+  rather than a single numeric rank, because the gross-edge estimates carry
+  wide uncertainty bands. The ranking is explicit reasoning, not a formula
+  output.
+
+  ### CRO firewall (enforced by PM)
+
+  The CRO task statement contains ONLY:
+    - instrument-universe: [] (exploration — universe is an output)
+    - hard-constraints: [verbatim from this document]
+    - no-live-capital: true
+    - honest-N: 30
+    - no-counted-trial-this-cycle: true
+    - per-direction-data-cost-field: [structured list of shortlisted
+      directions with data-class-required label ONLY — no alpha rationale,
+      no edge-mechanism description]
+
+  Any rationale, framing, alpha-source description, or mechanism explanation
+  crossing the firewall is a PM policy violation. The CRO synthesizes
+  data-acquisition-cost risk from the structured fields alone; the CRO does
+  NOT evaluate strategy merit.
+
+  ### The divergence requirement in practice
+
+  Each lens is explicitly asked to operate under a different epistemic frame:
+    - Academic-factor lens: what does peer-reviewed OOS literature say exists?
+    - Practitioner-microstructure lens: what do practitioners with actual P&L
+      history say works, and what data does it require?
+    - Contrarian-outsider lens: what would you build if you had never read a
+      quant finance paper and were reasoning from first principles about FX
+      market structure?
+
+  The value of this structure is that divergence is built into the lenses'
+  epistemologies, not curated post-hoc. The PM's role is to confirm divergence
+  was preserved, not to generate it.
+
+  ### What "goes around the walls" means operationally
+
+  The 4 walls are:
+    W1 - COST-DOMINANCE-ON-TURNOVER: high-turnover price-only strategies on
+         retail FX are eaten by spread + slippage. "Going around" means either
+         (a) dramatically lower turnover (carry, factor-harvest style) or (b)
+         a structural edge source that scales with event volatility, not trade
+         count.
+    W2 - USD-FACTOR-CONCENTRATION: 10-pair retail FX universe is highly loaded
+         on the USD factor; vol-target carry concentrated on USDJPY. "Going
+         around" means either cross-asset breadth or a systematic de-correlation
+         mechanism (e.g., multi-asset factor basket including non-FX).
+    W3 - REGIME-DEPENDENCE: best performing strategies (carry, QRB-6 CB-drift)
+         derive 50%+ of gross edge from a single macro regime (FOMC 2022-23
+         hiking cycle). "Going around" means either a mechanism that is
+         regime-agnostic by construction or explicit regime conditioning that
+         shortens the confirmability window.
+    W4 - NO-TRUE-VOLUME-OR-ORDER-FLOW: retail OHLCV has zero volume signal;
+         microstructure-based strategies are unresearched. "Going around" means
+         acquiring a data class that actually carries volume or order-flow
+         information (CME FX futures, L2 depth, bank positioning surveys).
+
+  A direction "goes around" a wall if its data-class or mechanism makes that
+  wall structurally non-binding, not merely less severe.
+
+  ### Why this is a non-counting exploration (not a pre-registration cycle)
+
+  The 2026-06-25 CADJPY consensus found the binding constraint is the NO-EDGE
+  wall — net-of-cost SR < 0 across all 84 pair×family combos on existing data.
+  The purpose of this cycle is to map the directions that COULD produce a
+  positive-SR candidate on new data or new mechanisms, so the Board can make
+  an informed data-acquisition decision. No CPCV backtest runs. No pre-
+  registration is authored. The shortlist is the deliverable; it is the input
+  to a future Board authorization, not a commitment of firm resources.
+
+  ### Observe-only posture preservation
+
+  The firm is in observe-only / maintenance posture (2026-06-25 CADJPY
+  consensus, Option 2). This cycle constitutes the structured exploration
+  authorized to assess whether Option 1 (data-capability acquisition) is
+  justified. If the shortlist produces no direction with a plausible positive
+  edge-per-data-cost ratio, the honest outcome is to remain on observe-only
+  and report that to the Board. The PM will capture this outcome in the
+  CONSENSUS artifact exactly as presented by HoQR; it is not softened.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/nht-null-test-report.yaml"
+  - ".fintech-org/trials.jsonl"
+  - "references/pre-registrations/r5_carry_universe_kill_test.md"
+  - "references/pre-registrations/vol_target_carry.md"
+  - "references/pre-registrations/r5_confirmatory_vol_target_carry_usdjpy.md"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

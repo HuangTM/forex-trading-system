@@ -1,0 +1,366 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-25T06:11:30Z"
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-pm
+task-statement: >
+  Fix OPEN-ITEM-C2COST, design >=1 volume-conditioned candidate with explicit
+  tick-vs-volatility disambiguation, run R1 cost-feasibility screen. No committed backtest.
+deliverable-type: strategy-design
+deadline: "2026-06-27T06:11:30Z"
+instrument-universe:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - EURJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURGBP
+  - AUDJPY
+
+hard-constraints:
+  - "R1-COST-FEASIBILITY-GATE-FIRST: the cost-feasibility screen is the FIRST gate. No
+    committed backtest, pre-registration, or trial-counter increment precedes a feasibility
+    verdict. Gate definition: gross-edge-per-trade (pips) must exceed round-trip cost
+    = spread_median_pips (real per-bar, from parquet) + 0.80 pips overhead, for the
+    candidate's holding regime. PASS = gross > RT-cost. STRETCH = gross within 20% of
+    RT-cost with explicit margin disclosure. FAIL = gross <= 80% of RT-cost OR
+    gross-edge rationale unfalsifiable."
+
+  - "OPEN-ITEM-C2COST-PRECONDITION: before the volume screen runs, QD MUST fix the
+    exit-leg cost under-count in scripts/cost_feasibility_c1_c2.py. The bug is in the
+    TRADE-LOOP SLICE at line ~575 (hold_cost = cost_series.iloc[entry_i:exit_i+1].sum()):
+    the exit RT cost fires at bar exit_i+1 (the first bar where position changes from
+    non-zero back to zero, where pos.diff() is non-zero) — that bar falls OUTSIDE the
+    slice, silently dropping the exit leg for every trade. FIX TARGET IS THE TRADE-LOOP
+    SLICE, NOT the shared compute_rt_cost_series function. The shared function (lines
+    160-166) already correctly charges cost at every position-change bar, INCLUDING the
+    exit-change bar; modifying it would DOUBLE-CHARGE. The fix is: extend the hold_cost
+    slice to include bar exit_i+1, OR add the exit-leg spread explicitly to hold_cost.
+    Verification requires a NEW, DISTINCT assertion — separate from the existing
+    run_f001_assertion(), which tests the unrelated flip-count fix and does NOT exercise
+    the hold_cost slice. The new assertion charges a synthetic hold (enter at bar 1, hold
+    through bar 3, exit/flatten at bar 4) and confirms RT cost is deducted at BOTH the
+    entry-change bar (bar 1) AND the exit-change bar (bar 4). The volume screen MUST use
+    the corrected trade-loop accounting."
+
+  - "COST-HURDLE-DEFINITION: RT cost per trade = spread_median_pips (real, per-bar, from
+    parquet) + 0.80 pips overhead (= 2 × (0.25 slippage + 0.15 paper haircut)). Pip
+    convention is pair-native: JPY pairs (USDJPY, EURJPY, AUDJPY) use 0.01 pip size;
+    all others use 0.0001. Do NOT apply uniform 0.0001 to JPY pairs."
+
+  - "EXCLUDE-NOT-IMPUTE: cost screen must use real per-bar spread_median_pips from parquet.
+    Zero-spread or missing-spread bars are EXCLUDED, never imputed or filled. Trades
+    where entry OR exit bar has zero/missing spread are dropped from the screen."
+
+  - "TICK-VOLUME-VS-VOLATILITY-GUARD: retail FX 'volume' in the 1h parquets is broker
+    tick-volume (count of price ticks per bar), NOT exchange-traded volume (FX is OTC;
+    no consolidated tape exists). Tick-volume correlates strongly with realized volatility.
+    Therefore ANY volume-conditioned candidate MUST (a) articulate WHY the conditioning is
+    not merely a volatility proxy, and (b) demonstrate or argue that the edge survives
+    controlling for realized range or ATR on the same bars — either by construction (the
+    strategy explicitly controls for range) or by analytical argument (the volume signal
+    contains information orthogonal to range). A candidate that cannot pass this test is
+    disqualified as a volatility-restatement of the retired F1-F6 families."
+
+  - "AMENDED-REGIME-AND-SIGNIFICANCE-GATE: any cost-feasibility PASS or STRETCH must
+    additionally survive all three sub-gates before it can be called a candidate worth a
+    counted trial: (a) REGIME-STRATIFICATION — drop the 2022-23 FOMC hiking cycle and
+    confirm the edge persists out-of-hike; (b) STATISTICAL-SIGNIFICANCE — per-event or
+    per-trade t-statistic >= 2.00 (H0: mean gross edge = 0); (c) NO-SINGLE-YEAR-DOMINATION
+    — no single residual year accounts for the entire positive mean. A nominally positive
+    mean that is noise (t < 2.00) or one-year-dependent does NOT advance to pre-registration.
+    LABELING DISCIPLINE (two orthogonal axes, never conflated): the cost axis takes one of
+    {PASS, STRETCH, FAIL} keyed ONLY to the gross-vs-RT-cost margin (defined in R1 above);
+    the gate axis takes one of {GATE-CLEAR, GATE-HELD} keyed ONLY to whether all three
+    sub-gates passed. A candidate ADVANCES iff cost-axis is PASS or STRETCH AND gate-axis
+    is GATE-CLEAR. A cost-PASS or cost-STRETCH candidate that fails any sub-gate is labeled
+    GATE-HELD (it retains its true cost label and is NOT downgraded to STRETCH); GATE-HELD
+    does NOT advance. The word STRETCH is reserved exclusively for the cost-margin meaning."
+
+  - "HONEST-N-PRESERVED: honest_N = 30 (ratified 2026-06-18, stable through 2026-06-24
+    9-pairs-landed). Trial counter MUST NOT increment this cycle. This is a DESCRIPTIVE
+    feasibility screen. No trials.jsonl entry with counts_toward_deflation_denominator: true
+    may be appended. Any entry appended must carry counts_toward_deflation_denominator: false
+    and event: descriptive-feasibility-screen."
+
+  - "NO-COUNTED-TRIAL-THIS-CYCLE: rule 4 (pre-registration before any committed CPCV
+    backtest) holds. Pre-registration is NOT in scope. It happens only in a FUTURE cycle
+    IF a candidate clears feasibility-PASS AND the amended regime+significance gate AND
+    CEO authorizes."
+
+  - "NO-LIVE-CAPITAL: no live capital deployment of any kind. Research and paper-trading
+    modes only."
+
+  - "GBPJPY-EXCLUDED: GBPJPY is not in scope (HoQR R3, ratified). Do not screen, design
+    for, or acquire GBPJPY."
+
+  - "NO-RETIRED-FAMILY-RERUN: retired F1-F6 (hourly-reversal, session-open-mom, intraday-
+    mom-3, vol-breakout, london-am-drift, spread-filt-reversal) and retired C1 and C2
+    must NOT be re-run under any framing construable as a new candidate. Volume conditioning
+    atop any retired family topology without genuine structural novelty fails this gate."
+
+  - "PRE-REGISTRATION-BEFORE-BACKTEST: no committed CPCV backtest runs without a frozen,
+    pre-registered hypothesis (rule 4). The feasibility screen is cheap and non-counting;
+    a CPCV backtest is counted and irreversible."
+
+criteria:
+  - "C2COST-FIXED-AND-VERIFIED: the trade-loop hold_cost accounting in
+    scripts/cost_feasibility_c1_c2.py (~line 575) is updated so the exit-leg RT cost is
+    correctly charged for all trades — the exit-change bar (exit_i+1) is included.
+    compute_rt_cost_series is NOT modified. QD documents the specific lines changed.
+    Verification requires a NEW, DISTINCT assertion that is SEPARATE from the existing
+    run_f001_assertion() (which tests the unrelated flip-count fix and does not exercise
+    the hold_cost slice — citing it does NOT satisfy this criterion). The new assertion
+    charges a synthetic hold (enter at bar 1, hold through bar 3, exit/flatten at bar 4)
+    and confirms RT cost is deducted at BOTH the entry-change bar (bar 1) AND the
+    exit-change bar (bar 4), and that the previously-buggy result under-charged by exactly
+    one exit leg. Assertion output is included in QD deliverable. OPEN-ITEM-C2COST formally
+    closed. PR independently spot-checks the new assertion output (per PR-REVIEWED)."
+
+  - "VOLUME-CONDITIONED-CANDIDATE-DESIGNED: at least 1 candidate family is fully specified
+    as a declarative TradeIntent artifact containing: (a) pair scope, (b) volume conditioning
+    rule (explicit threshold or percentile in tick-volume units), (c) entry trigger and
+    hold period, (d) exit rule, (e) estimated gross edge basis in pips per trade with
+    derivation rationale, (f) estimated fires/yr per pair, (g) explicit argument for WHY
+    the volume signal is not a volatility proxy — either by structural construction or
+    by a stated orthogonality argument the QD will test. NO implementation code by QR."
+
+  - "COST-FEASIBILITY-VERDICT-PER-CANDIDATE: for each candidate, QD produces a structured
+    record with: (a) estimated trades/yr per pair, (b) estimated gross pips/trade,
+    (c) RT cost/trade in pips using C2COST-fixed code + real spreads + pair-native pips,
+    (d) gross-minus-cost margin in pips, (e) explicit verdict PASS/STRETCH/FAIL with
+    deciding numbers. STRETCH must disclose margin and uncertainty."
+
+  - "VOLATILITY-CONTROL-CHECK: QD runs a control check showing whether the volume-conditioned
+    signal's gross edge survives when conditioning on ATR or realized range (same bars).
+    Acceptable forms: (a) regress gross edge on volume rank net of ATR rank and show
+    volume term survives, OR (b) stratify by volume-high/ATR-high and show volume
+    adds independent lift, OR (c) a documented argument why the candidate's structure
+    makes this check unnecessary (e.g., the entry requires BOTH volume AND tight spread,
+    which is anti-correlated with volatility spikes). QD may not skip this check without
+    HoQR sign-off."
+
+  - "HoQR-PRE-SCREEN-REVIEW-GATE: HoQR reviews each declarative candidate design BEFORE QD
+    runs the cost-feasibility screen, and records a structural-novelty verdict (does the
+    candidate have genuine structure distinct from retired F1-F6/C1/C2, and is the
+    tick-vs-volatility orthogonality argument adequate to proceed?). QD MUST NOT run the
+    screen on a candidate HoQR has not pre-cleared. The pre-screen verdict is documented
+    per candidate before any feasibility numbers exist."
+
+  - "AMENDED-GATE-APPLIED: HoQR applies the amended three-sub-gate test to any cost-PASS or
+    cost-STRETCH candidate and assigns the gate-axis label GATE-CLEAR or GATE-HELD:
+    regime-stratification verdict (in-hike vs out-of-hike comparison), t-statistic vs 2.00
+    threshold, and single-year-domination check. Results documented explicitly per candidate.
+    A cost-PASS/cost-STRETCH candidate that fails any sub-gate is labeled GATE-HELD and
+    retains its true cost label (NOT downgraded to STRETCH)."
+
+  - "ADVANCE-OR-KILL-DECISION: HoQR issues an explicit direction call after QD screen +
+    volatility-control check + amended gate: (a) ADVANCE — at least 1 candidate is
+    (cost-axis PASS or STRETCH) AND (gate-axis GATE-CLEAR); authorize for pre-registration
+    in a future cycle; or (b) KILL — no candidate is both cost-feasible and GATE-CLEAR;
+    state binding constraint and recommended next action. No ambiguous intermediate verdict."
+
+  - "NHT-NULL-EVALUATED: NHT evaluates whether each candidate's volume-conditioning
+    rationale survives the null (volume effect = 0; the apparent edge is volatility
+    in disguise). NHT dissent is verbatim and append-only in the consensus artifact if
+    filed. NHT may not be paraphrased or summarized by another agent."
+
+  - "TRIAL-COUNTER-UNCHANGED: trials.jsonl confirmed honest-N = 30 after this cycle.
+    Any new entries carry counts_toward_deflation_denominator: false. PM verifies."
+
+  - "CRO-STRUCTURED-FIELDS-COMPLETE: CRO artifact contains all required structured fields
+    (instrument_universe, hard_constraints, cost_hurdle, no_live_capital, honest_N,
+    no_counted_trial_this_cycle, amended_gate_conditions). No rationale in CRO task
+    statement (firewall enforced by PM at dispatch)."
+
+  - "PR-REVIEWED: Principal Reviewer issues a single-wave review verdict covering C2COST
+    fix (spot-check assertion output), candidate design spec (especially the
+    tick-vs-volatility argument), feasibility verdict numbers, and volatility-control
+    check methodology. Blocking finding count documented."
+
+  - "CONSENSUS-AUTHORED: PM synthesizes a CONSENSUS artifact in
+    .fintech-org/artifacts/2026-06-24-volume-conditioned-screen/CONSENSUS.md capturing:
+    C2COST closure, volume candidate design, feasibility verdict with deciding numbers,
+    volatility-control check result, HoQR advance/kill, amended-gate results, NHT dissent
+    (verbatim if filed), PR verdict, CRO position, trial-counter confirmation."
+
+out-of-scope:
+  - "Committed CPCV backtest or counted pre-registration this cycle — authorized only in a
+    future cycle if a candidate clears feasibility AND amended gate AND CEO authorizes."
+  - "Live capital deployment of any kind."
+  - "GBPJPY acquisition or screening."
+  - "Re-running retired F1-F6, C1, or C2 families under any framing as new candidates."
+  - "Volume-conditioned strategies that cannot articulate orthogonality from volatility
+    — these are disqualified as volatility-restatements."
+  - "Sub-1h data acquisition or strategies requiring data not in the existing 9-pair 1h
+    parquet store."
+  - "rho_bar_eff / G5 concentration gate recompute (moot until a cost-feasible signal
+    series exists)."
+  - "Implementation code authored by quant-researcher (declarative TradeIntent only)."
+  - "C1 re-screen (requires ECB/BOE verified decision dates not yet acquired;
+    OPEN-ITEM-C1FILTER unresolved)."
+
+roles-staffed:
+  - "quant-researcher: designs volume-conditioned candidate(s) as declarative TradeIntent;
+    articulates the tick-volume caveat and the orthogonality-from-volatility argument.
+    Produces feasibility hypothesis. NO code."
+  - "quant-developer: fixes OPEN-ITEM-C2COST (exit-leg cost under-count) with assertion
+    verification, then runs the R1 cost-feasibility screen with the corrected code and
+    the volatility-control check."
+  - "head-of-quant-research: reviews candidate design before screen; applies the amended
+    three-sub-gate test (regime + significance + no-single-year) after QD screen; issues
+    advance-or-kill. Owns the strategic finding."
+  - "cro: receives structured fields only — instrument-universe, hard-constraints, cost
+    hurdle definition, no-live-capital, honest-N=30, no-counted-trial, amended gate
+    conditions. No rationale in task statement. Produces disjoint structured risk position."
+  - "null-hypothesis-tester: mandatory structural skeptic — evaluates whether the
+    volume-conditioning effect is distinguishable from a volatility proxy; files verbatim
+    append-only dissent if any claim fails the null. Non-blocking unless pre-declared
+    threshold crossed."
+  - "principal-reviewer: independent single-wave review of C2COST fix (assertion spot-check),
+    candidate design (tick-vs-volatility argument), feasibility numbers, and volatility-
+    control check methodology."
+  - "pm (this role): authors acceptance criteria; dispatches roles with firewall enforced;
+    coordinates sequencing; synthesizes CONSENSUS; preserves NHT dissent verbatim."
+
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md — source of
+    OPEN-ITEM-C2COST (line 157: 'C2 exit-leg cost dropped in scripts/cost_feasibility_c1_c2.py'),
+    OPEN-ITEM-C1FILTER, C1/C2 retirement verdicts, F-001 closure, honest-N=30 confirmation."
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/principal-reviewer.yaml
+    — PR F-001 finding: 'C2 RT cost charges ONLY the entry leg; exit/flatten leg silently
+    dropped for all 366 C2 trades. Corrected USDJPY C2 margin: +1.807 → −0.743 (net negative).'"
+  - "scripts/cost_feasibility_c1_c2.py: compute_rt_cost_series (lines 160-166) correctly
+    charges cost at every position-change bar including the exit-change bar. The C2COST bug
+    is EXCLUSIVELY in the trade-loop hold_cost slice [entry_i:exit_i+1] at line ~575, which
+    stops one bar short of the exit-change bar (exit_i+1). Fix the slice; do NOT touch
+    compute_rt_cost_series (would double-charge)."
+  - "scripts/cost_feasibility_c1_c2.py lines 36-46 — pip-size table (pair-native convention,
+    JPY=0.01). Reuse verbatim in any volume screen script."
+  - ".fintech-org/trials.jsonl — honest-N = 30 (ratified 2026-06-18, unchanged through
+    2026-06-24 NO-SPEND)."
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/CONSENSUS.md — Board-ratified NO-SPEND;
+    F1-F6 retirement condition; 9-pair parquet confirmed ADMIT (zero zero/missing spread
+    bars for EURGBP, AUDJPY per DQ manifest)."
+
+assumptions:
+  - "The 9-pair 1h parquet store (including EURGBP and AUDJPY) is accessible and unchanged
+    from the 2026-06-24-9pairs-landed session. The `volume` column is non-zero on all
+    ~31k bars (median ~3,750–6,500 per pair per prompt context)."
+  - "The 1h data covering approximately 2021-01-03 to 2025-12-31 is the operative backtest
+    window; no new data ingestion is required for the feasibility screen."
+  - "The C2COST bug is exclusively the trade-loop hold_cost slice (line ~575); the shared
+    compute_rt_cost_series already charges the exit-change bar correctly. The fix is scoped
+    to the slice — modifying the shared function would double-charge."
+  - "Tick-volume in the parquets is broker tick-volume (confirmed OTC FX; no consolidated
+    tape). This assumption drives the volatility-control guard requirement."
+  - "QR produces a declarative design that QD can implement without back-and-forth. If the
+    design is ambiguous, QD flags and HoQR arbitrates before the screen runs."
+  - "HoQR advance-or-kill call is made AFTER — not before — QD feasibility numbers and
+    the volatility-control check are available."
+  - "The amended regime+significance gate (HoQR amendment 2026-06-24) is in force and
+    is a hard gate, not advisory."
+
+confidence: high
+
+body: |
+  ## Coordination notes
+
+  ### Sequencing (hard order)
+  1. QD fixes OPEN-ITEM-C2COST (the trade-loop hold_cost slice at line ~575, NOT the shared
+     compute_rt_cost_series) and verifies with a NEW assertion distinct from the existing
+     run_f001_assertion. QR designs volume-conditioned candidate(s) in parallel (no dependency).
+  2. HoQR PRE-SCREEN review (HoQR-PRE-SCREEN-REVIEW-GATE, enforced): reviews each declarative
+     design for structural novelty and tick-vs-volatility argument adequacy and records a
+     pre-clear verdict. QD MUST NOT run the screen on a candidate HoQR has not pre-cleared.
+  3. QD runs the R1 cost-feasibility screen with C2COST-fixed code on pre-cleared candidates.
+     QD also runs the volatility-control check (volume rank net of ATR rank, or stratification,
+     or documented exemption with HoQR sign-off).
+  4. NHT evaluates: is the volume-conditioning effect distinguishable from volatility?
+     Files verbatim append-only dissent if answer is NO or AMBIGUOUS.
+  5. HoQR applies the amended gate (regime-stratification, t >= 2.00, no-single-year) to any
+     cost-PASS or cost-STRETCH candidate, assigns GATE-CLEAR or GATE-HELD, and issues the
+     advance-or-kill call (ADVANCE iff a candidate is cost-PASS/STRETCH AND GATE-CLEAR).
+  6. PR single-wave review of C2COST fix, candidate design, screen numbers, and
+     volatility-control check.
+  7. CRO issues structured risk position (structured fields only; no rationale crossing
+     the firewall).
+  8. PM synthesizes CONSENSUS.md.
+
+  No committed backtest may be initiated in any step. Rule 4 holds throughout.
+
+  ### CRO firewall
+  The CRO task statement contains ONLY structured fields: instrument-universe,
+  hard-constraints, cost-hurdle definition, no-live-capital flag, honest-N=30,
+  no-counted-trial-this-cycle, amended-gate-conditions (regime/significance/no-single-year
+  sub-gate definitions). No rationale, no framing, no strategy description crosses the
+  firewall. PM enforces this at dispatch time.
+
+  ### Tick-volume vs volatility guard — why this matters for this screen
+  The retired F1-F6 families were killed partly because their apparent signals were
+  cost-saturated volatility bets. Retail FX tick-volume is a proxy for price-tick activity,
+  not traded notional — it rises and falls with realized volatility. A "volume-conditioned"
+  strategy that merely selects high-volatility bars is a volatility-restatement of the
+  retired families; it does not constitute a new alpha source. The guard is therefore not
+  advisory: a candidate that cannot articulate orthogonality from volatility is disqualified
+  before the screen runs. The acceptable orthogonality arguments are:
+    (a) STRUCTURAL: the strategy requires volume HIGH while spread is LOW — these are
+        anti-correlated with volatility spikes, so the joint conditioning is genuinely
+        different from a pure volatility filter.
+    (b) ANALYTICAL: volume rank after controlling for ATR rank shows an independent lift
+        (QD tests this via regression or stratification).
+    (c) MECHANISTIC: volume-informed liquidity clustering (e.g., institutional accumulation
+        at specific sessions) has a theoretical mechanism orthogonal to realized volatility.
+  NHT will probe these arguments independently.
+
+  ### Amended regime+significance gate
+  The 2026-06-24 HoQR amendment adds three sub-gates that MUST all clear before
+  advance-to-pre-registration:
+    (a) Regime-stratification: the edge must persist when the 2022-23 FOMC hiking cycle
+        is excluded. A strategy that only works in an extreme rate-volatility regime is
+        not a durable signal.
+    (b) t-statistic >= 2.00: the per-trade or per-event mean gross edge must be
+        statistically distinguishable from zero at this threshold.
+    (c) No-single-year-domination: no one residual year may account for the entire
+        positive mean. If removing any single year negates the edge, the signal is
+        episodic, not structural.
+  LABELING DISCIPLINE (two orthogonal axes): the cost axis is {PASS, STRETCH, FAIL}
+  (gross-vs-RT-cost margin only); the gate axis is {GATE-CLEAR, GATE-HELD} (all three
+  sub-gates passed or not). A candidate ADVANCES iff cost-axis is PASS or STRETCH AND
+  gate-axis is GATE-CLEAR. A cost-PASS or cost-STRETCH candidate that fails any sub-gate
+  is labeled GATE-HELD — it RETAINS its true cost label (never downgraded to STRETCH)
+  and does NOT advance. STRETCH means cost-margin near-miss only; it is never a
+  gate-failure label.
+
+  ### Why this cycle closes the last lever on existing data
+  The Board's decision logic: F1-F6 are cost-saturated 1h price-only families (retired).
+  C1 (CB-event drift) is killed pending ECB/BOE date acquisition and C1FILTER resolution.
+  C2 (carry multi-session) is killed (AUDJPY decisive fail; USDJPY negative after C2COST fix).
+  Volume-conditioned strategies are the one remaining structural novelty possible on the
+  9-pair 1h parquets given the existing data schema. If this screen also kills (FAIL or
+  FAIL-amended-gate), the firm's honest conclusion on existing data is: the data ceiling
+  has been reached and data-capability acquisition (intraday tick or L2) is the next
+  productive investment.
+
+  ### Open items NOT in scope this cycle
+  - OPEN-ITEM-C1FILTER: requires ECB/BOE verified decision timestamps. Held for a future
+    data-acquisition cycle.
+  - GBPJPY acquisition: explicitly held per HoQR R3.
+  - rho_bar_eff / G5 concentration gate: moot until a cost-feasible signal series exists.
+  - H1 un-freeze: prohibited while CD0 net SR = 0 positive candidates exist.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/principal-reviewer.yaml"
+  - "scripts/cost_feasibility_c1_c2.py"
+  - ".fintech-org/trials.jsonl"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/CONSENSUS.md"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

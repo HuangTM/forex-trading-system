@@ -1,0 +1,130 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-nht
+claim-tested:
+  - "Claim (i): Either volume candidate clears the per-trade cost hurdle. V1 2/5 pairs cost-PASS (EURUSD +0.14, USDJPY +1.18) but 3/5 FAIL -> family kill fires; V2 all 3 FAIL (negative gross)."
+  - "Claim (ii) THE KEY CLAIM: volume conditioning carries DIRECTIONAL information BEYOND volatility (a genuine volume edge, not a volatility restatement)."
+  - "Claim (iii): A trial-counter increment is warranted; should honest-N stay 30?"
+tests-requested:
+  - "INSPECT (no python-by-NHT): re-derived volatility-control OLS (gross_pips ~ rank(relvol) + rank(relrng)) from the 791-819 stored trade records per pair, independent of the quant-developer harness, to confirm the relvol t-stats are not fabricated."
+  - "INSPECT: re-derived the per-pair UNCONDITIONED mean-gross t-stat (one-sample, gross_pips) to test whether even the raw gross of the 2 cost-PASS pairs is distinguishable from zero before any volatility control."
+  - "INSPECT: consecutive-trade overlap check (entry_bar[i] <= exit_bar[i-1]) to confirm the per-pair gross t-stats are not autocorrelation-inflated."
+  - "INSPECT: V2 construction-check ratios and V2 volatility-control t-stats from raw json."
+  - "MULTIPLE-COMPARISON reasoning over the 8 pair-candidate cells (V1x5 + V2x3) on the 2 nominal cost-passes."
+tests-results:
+  - "Volatility-control reproduced to 3 decimals: EURUSD relvol_t=+0.453 (reported +0.45), GBPUSD -0.161 (-0.16), USDJPY -0.326 (-0.33), EURJPY -0.904 (-0.90), AUDUSD +1.153 (+1.15). All < 2.00; 4/5 negative-or-near-zero. NOT fabricated. The relvol term carries no directional signal orthogonal to relrng."
+  - "Unconditioned per-pair gross t (nominal, un-deflated, no NW): EURUSD +2.01, USDJPY +2.34, GBPUSD +0.56, EURJPY +0.01, AUDUSD +1.53. Even the RAW gross of the 2 cost-PASS pairs is only marginally above |t|=2 before any volatility control or multiplicity deflation."
+  - "Overlap = 0 of 791 (EURUSD) and 0 of 819 (USDJPY): one trade per session-open, non-overlapping 2-bar holds -> the gross t-stats are NOT inflated by serial overlap. Their marginality is genuine, not an artifact to discount further; but neither do they survive the multiplicity correction below."
+  - "V2: all 3 construction-DISQUALIFIED (conditioned relrng median 1.25-1.54x sample, gate FAILED to exclude volatility); all 3 gross NEGATIVE; all 3 relvol_t < 2.00 (+0.25, +0.04, -0.49). Volume term zero-information."
+  - "Multiplicity: 8 pair-candidate cost cells tested. Under H0 (no edge) with gross noise centered near breakeven, 2 nominal cost-passes is fully consistent with chance + the mechanical fact that JPY/EUR majors have the tightest spreads. No correction was applied to the 'pass' labels; the 2 passes are a selection artifact, not evidence."
+matched-benchmark-sharpe: "n/a (descriptive cost+orthogonality screen; no strategy backtest, no Sharpe, no permutation harness run)"
+permutation-results: "n/a (not run; not required to reject claim ii -- the pre-registered volatility-control t<2.00 on every pair already settles it)"
+dsr-assessment: "honest-N=30 UNCHANGED. Nothing here is a pre-registered candidate that cleared a confirmability bar; this is a feasibility/orthogonality screen that KILLED both families. No DSR is owed because no edge advances. Had a cell been promoted, the correct deflation denominator would have to absorb 8 pair-candidate cells PLUS the 2x2 cell-mining (4 cells x pairs) -- which would sink the already-marginal EURUSD/USDJPY gross (nominal t ~2.0-2.3) below any deflated bar. The screen correctly spends nothing."
+dissent-statement: |
+  I do not dissent from the quant-developer's CONCLUSION (both families CLOSED) -- the
+  data supports it and I reproduced the deciding numbers independently. I dissent from
+  any framing that treats this screen as PROGRESS or as having "found" anything.
+
+  THE KEY CLAIM (ii) -- that volume conditioning carries directional information beyond
+  volatility -- is REJECTED by the firm's own pre-registered test, on every pair, with
+  no ambiguity. The volatility-control relvol t-statistic is below 2.00 for all 8
+  pair-candidate cells, and is NEGATIVE for 4 of the 5 V1 pairs and 1 of 3 V2 pairs.
+  raw_vol~range = 0.69-0.74 and relvol~relrng = 0.36-0.57 confirm volume is, on this
+  data, largely a noisy restatement of range. The single positive cell anyone might
+  point to -- USDJPY high-relvol x HIGH-relrng = +6.03 pips -- lives in the VOLATILITY
+  cell; its volume-without-volatility sibling cell is -0.45 pips. That is the signature
+  of a volatility proxy, not a volume edge.
+
+  The two "cost-PASS" labels (EURUSD, USDJPY) must NOT be read as partial success. I
+  checked their unconditioned gross significance: nominal one-sample t = +2.01 and +2.34
+  -- barely above 2 even BEFORE controlling for volatility, before any multiplicity
+  deflation, and before the volatility-control test strips the volume attribution away.
+  Across 8 pair-candidate cells, two marginal nominal passes is precisely what selection
+  manufactures. They are not orthogonal alpha; they are the EUR/JPY majors' tight spreads
+  meeting a 2-bar momentum carry that the t<2 volatility-control test attributes to range,
+  not volume.
+
+  GUARD on the 2026-05-31 'more-data = progress' failure mode, in its new dress: the
+  temptation here is to log "we screened the volume lever, it didn't work, onward to
+  intraday tick / L2 depth." That conclusion (the data-capability path) may well be
+  right -- but it does NOT follow from THIS screen, and must not borrow this screen's
+  credibility. What this screen actually established is narrower and should be stated
+  plainly: on the EXISTING 9-pair 1h parquet, BROKER TICK-VOLUME is mechanically
+  collinear with range and adds no directional information. That is a statement about
+  THIS volume proxy on THIS data -- it is NOT evidence that true traded-volume or L2
+  depth WOULD carry an edge, and it is NOT independent confirmation of the dataset-wall
+  thesis. Spending more data money on the strength of a screen that merely re-confirmed
+  volume = volatility would be the exact 2026-05-31 error wearing a volume hat. The
+  honest read: one more lever on the existing data is exhausted; the case for buying
+  new data must stand on its OWN pre-registered hypothesis, not on this null result.
+
+  No trial increment. honest-N stays 30. The firm ran a cheap screen and correctly
+  spent nothing -- that is the win, and the only win.
+contamination-check: "clean -- the prompt delivered atomic claims with deciding numbers and explicitly withheld proposer rationale/other-role stances; no contaminating narrative present."
+evidence:
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-24-volume-conditioned-screen/quant-developer-feasibility.yaml"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-24-volume-conditioned-screen/volume_screen_raw.json (3.1MB; 791-2926 trade records per cell inspected)"
+  - "Independent NHT re-derivation (read-only, on stored trades): V1 relvol_t {EURUSD +0.453, GBPUSD -0.161, USDJPY -0.326, EURJPY -0.904, AUDUSD +1.153} matches reported to 3dp."
+  - "Independent NHT re-derivation: unconditioned gross one-sample t {EURUSD +2.01, USDJPY +2.34, GBPUSD +0.56, EURJPY +0.01, AUDUSD +1.53}."
+  - "Overlap check: 0/791 EURUSD, 0/819 USDJPY consecutive-trade overlap (non-overlapping holds)."
+assumptions:
+  - "I trust the stored per-trade gross_pips, relvol_t, relrng_t fields as the harness's actual outputs; I re-ran the regression and one-sample tests ON them but did NOT recompute gross_pips from raw parquet (that would require ROUTE_TO quant-developer; the harness's no-lookahead/cost accounting is taken as given for this screen)."
+  - "The 2x2 cell means are descriptive; I did not attach per-cell t-stats (small n per cell, 4-way split). The volatility-control OLS is the load-bearing test and it is unambiguous."
+  - "'Cost-PASS' is a per-trade gross >= cost label, NOT a statement that net gross is significantly > 0 after multiplicity. My multiplicity reasoning treats the 8 cells as the comparison family."
+confidence: high
+body: |
+  ## Claim (i) cost hurdle
+  ACCEPTED AS STATED, REJECTED AS SIGNAL. The reported cost arithmetic reproduces
+  exactly from raw json: V1 EURUSD margin +0.136, USDJPY +1.183 (PASS); GBPUSD -1.915,
+  EURJPY -3.194, AUDUSD -1.842 (FAIL) -> 3/5 FAIL fires the pre-registered family-kill.
+  V2 all 3 negative gross (-1.65 to -5.75 margin) -> FAIL. So claim (i) is literally
+  true (2 V1 pairs clear cost). But the 2 passes are not an edge: (a) across 8 pair-
+  candidate cells, 2 marginal nominal passes is what chance + tight-spread majors
+  produce; (b) their UNCONDITIONED gross t is only +2.01 / +2.34 -- barely significant
+  before any deflation; (c) they are stripped by the volatility-control test below.
+  Selection/multiple-comparison across V1x5 + V2x3 can and does manufacture the 2
+  nominal passes -- no correction was applied to the pass labels.
+
+  ## Claim (ii) volume-beyond-volatility -- the decisive test
+  REJECTED. This is the key claim and the data kills it cleanly. The pre-registered
+  volatility-control regression (gross ~ rank(relvol) + rank(relrng)) gives relvol
+  t < 2.00 on EVERY one of the 8 cells, NEGATIVE on 4/5 V1 pairs (+0.45, -0.16, -0.33,
+  -0.90, +1.15) and on V2 (+0.25, +0.04, -0.49). I reproduced all five V1 t-stats
+  independently from the stored trades to 3 decimals -- not fabricated, just null.
+  R^2 = 0.001-0.006: the regression explains essentially nothing. The stratification
+  logic is SOUND and damning: USDJPY's only positive cell is high-relvol x HIGH-relrng
+  (+6.03), with the volume-without-volatility cell at -0.45 -- edge lives in the
+  volatility cell. raw_vol~range 0.69-0.74 / relvol~relrng 0.36-0.57 confirm the
+  mechanical collinearity. There is NO directional volume edge orthogonal to volatility
+  on this data. Claim (ii) FAILS.
+
+  ## Claim (iii) trial increment
+  NO. honest-N stays 30. No pre-registered candidate cleared; both families are killed
+  on pre-specified triggers. This is a descriptive feasibility/orthogonality screen, not
+  a backtested candidate, and counts_toward_deflation_denominator is correctly false. A
+  killed screen does not consume a trial.
+
+  ## more-data-narrative guard
+  RAISED. The 2026-05-31 failure mode would reappear if "we screened the volume lever"
+  were laundered into "therefore buy intraday/L2 data." This screen established only that
+  THIS broker-tick-volume proxy on THIS 1h data is collinear with range and directionless.
+  It is NOT independent confirmation of the dataset-wall thesis and provides NO evidence
+  that true traded-volume or L2 depth would carry alpha. Any data-capability spend must
+  rest on its own pre-registered hypothesis. The correct framing of today's result is a
+  null, not progress: the firm cheaply ruled out a lever and spent nothing.
+knowledge_gaps:
+  - "gross_pips not recomputed from raw parquet by NHT (would need ROUTE_TO quant-developer); harness cost/no-lookahead accounting taken as given."
+  - "Per-2x2-cell significance not formally tested (small n, 4-way split); the volatility-control OLS is the decisive instrument and is unambiguous."
+policy_violations_detected:
+  - "NONE. No live capital. No trial increment claimed. No HoQR/CEO judgment usurped. NHT did not run python (re-derivation was read-only inspection of stored trade records); had a backtest been required, it would route to quant-developer."
+sources:
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/quant-developer-feasibility.yaml"
+  - ".fintech-org/artifacts/2026-06-24-volume-conditioned-screen/volume_screen_raw.json"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [structural-skepticism-on-any-claim, p-hacking-and-data-snooping-detection, null-hypothesis-construction]

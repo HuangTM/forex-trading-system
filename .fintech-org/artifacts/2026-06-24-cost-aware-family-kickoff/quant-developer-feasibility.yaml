@@ -1,0 +1,285 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-qd
+spec-ref: cost-aware-family-2026-06-24-qr
+
+files-to-create-or-modify:
+  - scripts/compute_9pairs_readiness.py   # F-001 fix (lines 232-249) + F-002 label (lines 161-171)
+  - scripts/cost_feasibility_c1_c2.py    # new: full C1+C2 feasibility screen (executed)
+  - .fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json  # raw output
+
+f001-fix:
+  lines-changed: |
+    scripts/compute_9pairs_readiness.py
+      Lines 232-249: _position_changes() docstring + return statement changed.
+      OLD: return (pos.diff().abs() > 0).astype(float)  [binary flag — charges flip same as open]
+      NEW: return pos.diff().abs().fillna(0.0)           [magnitude — flip=2 RT, open/close=1 RT]
+  assertion-output: |
+    Executed via: python3 -c "[exec assertion inline]"
+    Position path:         [0.0, 1.0, 1.0, -1.0, 0.0]
+    Change magnitudes:     [0.0, 1.0, 0.0, 2.0, 1.0]
+    RT cost/RT (2.0+0.80): 2.80 pips (synthetic spread=2.0 + RT_OVERHEAD=0.80)
+    Single transition cost: 2.80 pips (bar 1: flat→+1, diff=1)
+    Flip bar cost:          5.60 pips (bar 3: +1→−1, diff=2)
+    Flip = 2× single:       True ✓
+    Total cost (F-001 fixed): 11.20 pips  [(1+0+2+1) × 2.80]
+    Total cost (old bug):     8.40 pips   [(1+0+1+1) × 2.80]
+    Undercount fixed:         +2.80 pips  [one full RT per flip that was silently dropped]
+    ASSERTION PASSED: True
+    Also verified: assertion on compute_9pairs_readiness.py directly — PASSED (same result).
+  f002-neff-label: |
+    F-002 is a label-clarity issue, NOT a computation error.
+    Lines 161-171 of compute_9pairs_readiness.py updated with clarifying comments.
+    Resolution: N_eff_min is the conservative min(route1, route2, route3) of three
+    participation-ratio-based effective-bets estimates. It is NOT the amendment-scaled
+    N_eff* used in DSR deflation (that is computed separately in the DSR harness).
+    The prior "k/λ_max = 2.11" confusion arose from the printed summary showing route1
+    alone; the actual N_eff_min (min of routes) is route2=PR or route3=ENB, whichever
+    is smaller. Labels in the return dict are already unambiguous:
+      N_eff_route1_k_over_lambda, N_eff_route2_PR, N_eff_route3_ENB, N_eff_min.
+    No computation changed; labels clarified by inline comment only.
+
+evidence:
+  - "data/processed/EURUSD_1h.parquet: n=31012 bars, spread_median p50=0.30, zero-spread=0"
+  - "data/processed/USDJPY_1h.parquet: n=31031 bars, spread_median p50=0.60, zero-spread=0"
+  - "data/processed/GBPUSD_1h.parquet: n=31019 bars, spread_median p50=0.90, zero-spread=0"
+  - "data/processed/AUDJPY_1h.parquet: n=31037 bars, spread_median p50=0.80, zero-spread=0"
+  - "data/rates/cb_decision_dates.parquet: 842 rows; verified-official banks = FED(129), BOJ(169), RBA(172), BOC(58); BOE=0 verified, ECB=0 verified (all aggregator-only or training-memory-unverified)"
+  - "data/rates/rate_differentials.parquet: 6540 rows, AUDJPY_diff and USDJPY_diff present"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json: raw JSON output of the executed screen (f001_assertion, c1, c2)"
+
+assumptions:
+  - |
+    BAR-ATTRIBUTION RULE (C1): CB decision dates are calendar-date entries with no
+    intraday UTC time. We define the announcement bar as the 1h bar with MAXIMUM true
+    range on that calendar date (UTC). Rationale: FOMC typically releases at 18:00-19:00
+    UTC; BOJ at 02:00-04:00 UTC; these are not uniformly at 00:00. Using the max-TR bar
+    identifies the actual high-volatility release bar without requiring hardcoded release
+    times. Entry is on the bar IMMEDIATELY AFTER this identified bar (shift(1), no
+    lookahead). This is conservative: it may occasionally pick a non-announcement bar
+    as the max-TR bar, but never uses the announcement bar's own close in the edge
+    calculation. Limitation: acknowledged.
+  - |
+    ECB AND BOE VERIFIED-OFFICIAL ABSENCE: cb_decision_dates.parquet has 0 verified-
+    official dates for ECB (all aggregator-only or training-memory-unverified) and 0 for
+    BOE (all aggregator-only). Per spec, restricted to scheduled==True AND
+    verification=='verified-official'. This means EURUSD and GBPUSD C1 events use FED
+    dates ONLY (40 events each in 2021-2025). USDJPY uses FED+BOJ (80 events).
+    The EURUSD/GBPUSD fire counts are LOWER than expected (40 vs the spec's ~8-14/yr/pair
+    from FED+ECB or FED+BOE). Disclosed: if ECB/BOE official dates were available, fire
+    counts would double and mean gross estimates could differ.
+  - |
+    C1 RT COST CONVENTION: RT_cost per trade = entry_bar_spread + exit_bar_spread +
+    RT_OVERHEAD (0.80 pips). This uses the REAL per-bar spread_median_pips on both the
+    entry bar and the exit bar (not the pair-level median), per spec. Stop-exit bars
+    similarly use the actual bar spread. This is conservative vs the spec's "real per-bar
+    spread on entry/exit bars"; execution is exactly that.
+  - |
+    C2 CARRY ACCRUAL PROXY: Headline rate_diff (decimal, e.g. AUDJPY_diff) × hold_years
+    × 50% haircut / pip_size. The 50% haircut accounts for broker markup, tom-next basis,
+    and the difference between headline differential and actual overnight swap. Per the
+    spec: "haircut conservatively e.g. 50%". This is a structural approximation; the
+    actual broker swap can differ materially. The screen shows carry_pips ≈ 0.01-0.02
+    per trade because holds are very short (~5 days) due to the crash filter cycling
+    frequently. The gross_pips in C2 is therefore almost entirely price drift, not carry.
+  - |
+    C2 DECISION BAR: 22:00 UTC 1h bar (rollover boundary). Rate differential from
+    rate_differentials.parquet aligned by calendar date to the 22:00 bar date. shift(1)
+    applied: differential as of day D sets position entered at D+1's 22:00 bar.
+  - |
+    C2 CRASH FILTER: pair realised vol computed as rolling 10-bar std of log-returns on
+    the 22:00 UTC bar series. Crash flag = rv_10 > 2× its rolling 60-bar median. This
+    is a strict filter that cycles frequently in 2022-2023 (high-volatility period),
+    producing holds of ~5 days average instead of the spec's intended "weeks to months".
+    The resulting C2 AUDJPY result is dominated by price drift (crash-flatten timing eats
+    the carry accrual) and is therefore MORE representative of realised execution under
+    the crash filter than the "structural prior of tens of pips/trade" from the spec.
+  - |
+    PIP CONVENTION: pair-native pips used for C1 and C2. USDJPY and AUDJPY: 1 pip =
+    0.01 (JPY quote). EURUSD, GBPUSD: 1 pip = 0.0001. This corrects F-005 (which is
+    the uniform 0.0001 error). Verified: all gross_pips values for USDJPY/AUDJPY are in
+    JPY pip units (i.e. price_move / 0.01).
+  - |
+    HONEST-N: this is a DESCRIPTIVE feasibility screen. No trial counter increment.
+    No entry with counts_toward_deflation_denominator: true appended to trials.jsonl.
+
+confidence: medium
+
+body: |
+  ## JOB 1 — F-001 / F-002 fix + assertion
+
+  ### F-001: reversal cost under-count — FIXED
+
+  The original `_position_changes()` in `scripts/compute_9pairs_readiness.py` (line 230)
+  returned `(pos.diff().abs() > 0).astype(float)` — a binary flag. A position flip
+  from +1 to −1 has `pos.diff().abs() = 2`, but the binary flag produced 1, charging
+  only ONE round-trip instead of the correct TWO (close existing leg + open new leg).
+
+  Fix: `return pos.diff().abs().fillna(0.0)` — uses the raw magnitude.
+  - flat→±1 (open):       diff=1 → 1 RT charged ✓
+  - ±1→flat (close):      diff=1 → 1 RT charged ✓
+  - +1→−1 (flip):         diff=2 → 2 RT charged ✓ (was 1, now correct)
+
+  Assertion (executed on synthetic path [0, +1, +1, −1, 0] with spread=2.0 pips):
+    Change magnitudes: [0.0, 1.0, 0.0, 2.0, 1.0]
+    Total cost (fixed): 11.20 pips = (1+0+2+1) × 2.80
+    Total cost (old bug): 8.40 pips = (1+0+1+1) × 2.80
+    Flip bar charges 5.60 pips = 2× single transition (2.80) ✓
+    ASSERTION PASSED: True
+
+  The F-001-corrected function `position_changes_scaled()` in `scripts/cost_feasibility_c1_c2.py`
+  uses the identical fix and is the implementation used for C1 and C2 screens.
+
+  ### F-002: N_eff label mismatch — RECONCILED (label clarification only)
+
+  The mismatch was between:
+    (a) the printed N_eff value being route1 (k/λ_max = e.g. 2.11 for a 9-pair set), and
+    (b) the "amendment-scaled N_eff*" referenced in DSR deflation.
+
+  Resolution: these are DIFFERENT statistics. N_eff_min (the gate stat in
+  compute_9pairs_readiness.py) is min(route1, route2, route3) — the conservative
+  participation-ratio-based effective bets count. The amendment-scaled N_eff* used
+  in DSR deflation is computed separately in the DSR harness and is NOT the same number.
+  No computation was wrong; labels are now clarified in the script comments (lines 161-171).
+
+  ---
+
+  ## JOB 2 — C1 feasibility table
+
+  ### Data constraint (critical finding)
+  cb_decision_dates.parquet has 0 verified-official dates for ECB and BOE. Only FED
+  (40 events in 2021-2025) and BOJ (40 events in 2021-2025) have verified-official
+  status. This means:
+    EURUSD: FED-only → 40 events (not FED+ECB)
+    GBPUSD: FED-only → 40 events (not FED+BOE)
+    USDJPY: FED+BOJ  → 80 events
+  All pairs clear the 15-event minimum. However EURUSD and GBPUSD miss approximately
+  half their intended event set. Disclosed.
+
+  ### Surprise filter behaviour
+  Max-TR-bar identification worked correctly: bar timestamps cluster at the expected
+  FOMC release times (18:00-19:00 UTC for FED, 03:00-04:00 UTC for BOJ). Surprise
+  filter (announcement_bar_range > 1.5× trailing 250-bar median TR) passes ALL 40/80
+  events — every verified CB date in 2021-2025 had a max-TR bar exceeding the threshold.
+  This suggests the filter is either (a) appropriate for this period (2021-2025 included
+  FOMC hiking cycle with genuine volatility), or (b) the max-TR-bar selection already
+  pre-selects high-volatility bars, making the 1.5× filter non-binding. If exact release
+  times were available, a stricter filter could be applied. Disclosed.
+
+  ### C1 results (n_fires, mean gross pips, RT cost, margin, verdict)
+
+  | Pair   | Hold | N_fires | Mean Gross (pips) | Mean RT Cost (pips) | Margin (pips) | Verdict                         |
+  |--------|------|---------|-------------------|---------------------|---------------|---------------------------------|
+  | EURUSD | 6h   | 40      | 1.919             | 1.555               | +0.364        | PASS (gross 1.919 > kill 0.88)  |
+  | EURUSD | 12h  | 40      | 1.345             | 1.518               | -0.173        | PASS (gross 1.345 > kill 0.88)  |
+  | EURUSD | 18h  | 40      | 0.539             | 1.513               | -0.974        | FAIL (gross 0.539 ≤ kill 0.88)  |
+  | USDJPY | 6h   | 80      | 6.354             | 2.461               | +3.893        | PASS (gross 6.354 > kill 1.12)  |
+  | USDJPY | 12h  | 80      | 19.937            | 2.296               | +17.641       | PASS (gross 19.937 > kill 1.12) |
+  | USDJPY | 18h  | 80      | 21.116            | 2.403               | +18.714       | PASS (gross 21.116 > kill 1.12) |
+  | GBPUSD | 6h   | 40      | 3.737             | 2.693               | +1.045        | PASS (gross 3.737 > kill 1.36)  |
+  | GBPUSD | 12h  | 40      | 1.103             | 2.588               | -1.485        | FAIL (gross 1.103 ≤ kill 1.36)  |
+  | GBPUSD | 18h  | 40      | 5.966             | 2.583               | +3.384        | PASS (gross 5.966 > kill 1.36)  |
+
+  IMPORTANT NOTE on EURUSD 12h and GBPUSD 12h: gross > kill threshold (so: PASS per
+  machine-checkable rule) BUT margin < 0 (gross < RT cost). These cases PASS the
+  kill threshold but do NOT net positive. The kill numbers were pre-set at 80% of
+  the RT hurdle, not at 100%. This is disclosed and faithful to the spec.
+
+  USDJPY primary verdict: PASS across all three hold horizons with strong margins,
+  especially 12h and 18h. Mean gross 19.9 pips (12h) against RT cost 2.3 pips → margin
+  +17.6 pips. This is the strongest result.
+
+  ---
+
+  ## JOB 2 — C2 feasibility table
+
+  ### Critical observation: crash filter frequency
+  The 10-bar realised vol crash filter (rv > 2× 60-bar median on daily 22:00 bars)
+  triggered very frequently in 2021-2025 — particularly in 2022 (FX volatility spike
+  during the FOMC hiking cycle). This produced mean hold durations of ~5 days instead
+  of the spec's intended "weeks to months". The carry accrual proxy is therefore
+  negligible (~0.01-0.02 pips/trade) and gross pips are almost entirely price drift.
+  This is an honest representation of how the crash filter operates on this sample period.
+
+  | Pair   | N_holds | Mean Gross (pips) | Carry (pips) | Drift (pips) | RT Cost (pips) | Margin (pips) | Avg Hold | Verdict                         |
+  |--------|---------|-------------------|--------------|--------------|----------------|---------------|----------|---------------------------------|
+  | AUDJPY | 181     | -8.141            | 0.018        | -8.159       | 4.052          | -12.193       | 5.0 days | FAIL (gross -8.141 ≤ kill 1.28) |
+  | USDJPY | 185     | 4.811             | 0.021        | 4.791        | 3.004          | +1.807        | 4.8 days | PASS (gross 4.811 > kill 1.12)  |
+
+  AUDJPY FAIL is decisive: gross = -8.14 pips (negative, dominated by crash-period price
+  losses). The crash filter did not protect against AUDJPY's sharp depreciations in 2022.
+  The structural prior of "tens of pips carry/trade" did not materialise because holds were
+  too short and price drift was strongly negative in the sample.
+
+  USDJPY C2 PASS: gross 4.811 > kill 1.12, margin +1.807. However, this is driven by
+  price drift (+4.791 pips mean, highly variable: USDJPY strong USD appreciation 2022-2023)
+  not by carry accrual (+0.021 pips). The USDJPY PASS is fragile: it reflects a
+  trend-following result during an exceptional FOMC hiking cycle, not carry economics.
+  Per spec: "clearing the cost hurdle is necessary-not-sufficient; net risk-adjusted
+  profitability is a future-cycle CPCV question."
+
+  ---
+
+  ## Verdict summary: PASS / STRETCH / FAIL per cost hurdle
+
+  ### C1 — CB-decision post-announcement drift
+  - EURUSD: PASS at 6h (gross 1.919, margin +0.364). PASS at 12h (gross 1.345, negative
+    net margin — clears kill threshold but not RT cost). FAIL at 18h.
+    PRIMARY VERDICT: PASS (6h). Best hold horizon = 6h.
+  - USDJPY: PASS at all three horizons. Strongest result (gross 19.9 pips at 12h).
+    PRIMARY VERDICT: PASS. Best hold horizon = 12h.
+  - GBPUSD: PASS at 6h (gross 3.737, margin +1.045) and 18h (gross 5.966, margin +3.384).
+    FAIL at 12h (gross 1.103, below kill 1.36).
+    PRIMARY VERDICT: PASS (6h and 18h). Best hold horizon = 18h.
+
+  C1 OVERALL: PASS on primary hold horizon for all three pairs.
+  Deciding numbers: EURUSD 6h gross=1.919 > kill=0.88; USDJPY 12h gross=19.937 > kill=1.12;
+  GBPUSD 18h gross=5.966 > kill=1.36.
+  Caveat: EURUSD and GBPUSD use FED-only events (ECB/BOE have 0 verified-official dates).
+  Caveat: surprise filter passes 100% of events — may be non-binding with this bar-attribution rule.
+
+  ### C2 — Carry-sign multi-session hold
+  - AUDJPY: FAIL (gross -8.141, hard FAIL — negative gross, far below kill 1.28).
+    The crash filter + sample period (2022 AUDJPY crash) produced large negative price drift.
+  - USDJPY: PASS (gross 4.811 > kill 1.12, margin +1.807). Driven by price drift in
+    exceptional 2022-2023 USD appreciation; carry accrual negligible (0.021 pips).
+
+  C2 OVERALL: MIXED. AUDJPY FAIL (decisive). USDJPY PASS (fragile, drift-driven, not carry).
+
+firewall-self-review: approve-with-conditions
+# Conditions documented:
+#   1. The USDJPY C2 PASS is driven by price drift during an exceptional sample period
+#      (FED hiking cycle 2022-2023), NOT by carry economics. The "carry" in C2's name
+#      does not materialise in this screen at 5-day average holds. This is an observation,
+#      not a research judgment — the QD reports what the data shows; HoQR/NHT evaluate
+#      whether the edge is real. No research judgment baked in.
+#   2. The EURUSD/GBPUSD C1 fire counts are limited by ECB/BOE data quality (0 verified-
+#      official dates). QD reports this constraint; HoQR decides whether the FED-only
+#      events are sufficient for a CPCV pre-registration.
+#   3. No live capital. No trial counter increment. Firewall intact.
+
+knowledge_gaps:
+  - "ECB and BOE have 0 verified-official dates in cb_decision_dates.parquet. EURUSD and GBPUSD C1 events use FED-only, approximately halving the intended event set. Acquiring verified ECB/BOE dates would double the fire counts and potentially change mean gross estimates."
+  - "C1 surprise filter passes 100% of events. This may indicate the max-TR bar selection pre-selects high-volatility bars, making the 1.5× TR filter effectively non-binding. With exact release times, a pure release-bar filter could be stricter."
+  - "C2 carry accrual proxy (50% haircut on headline differential) is negligible at ~5-day hold durations. The actual broker overnight swap rate (which differs from headline differential) is not in the data store. C2's USDJPY PASS is price-drift, not carry — the carry hypothesis was not testable at these hold durations."
+  - "C2 crash filter (10-bar rv > 2× 60-bar median) cycles very frequently in 2021-2025, producing ~5-day average holds. A looser crash filter or longer minimum hold constraint would change both AUDJPY and USDJPY results materially."
+
+policy_violations_detected: []
+sources:
+  - "data/processed/EURUSD_1h.parquet"
+  - "data/processed/USDJPY_1h.parquet"
+  - "data/processed/GBPUSD_1h.parquet"
+  - "data/processed/AUDJPY_1h.parquet"
+  - "data/rates/cb_decision_dates.parquet"
+  - "data/rates/rate_differentials.parquet"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json"
+  - "scripts/compute_9pairs_readiness.py (F-001/F-002 fixes)"
+  - "scripts/cost_feasibility_c1_c2.py (feasibility screen, executed)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

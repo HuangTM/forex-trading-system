@@ -1,0 +1,150 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-25T00:00:00Z"
+subtask_ref: cadjpy-10pairs-readiness
+subtask_id: cadjpy-10pairs-2026-06-25-qd
+spec-ref: cadjpy-10pairs-2026-06-25-pm
+files-to-create-or-modify:
+  - scripts/compute_10pairs_readiness.py
+  - config/data_quality_gates_1h.yaml  # CADJPY per_pair entry added
+evidence:
+  - "C1: scripts/compute_10pairs_readiness.py executed; raw JSON at .fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/compute_10pairs_raw.json"
+  - "C2: rho_bar_eff ALL-10=0.3716, ALL-9=0.4090 (confirmed), from compute_10pairs_readiness.py stdout"
+  - "C3: CADJPY F1-F6 net SR all FAIL, best=-2.1914 (F5), from compute_10pairs_readiness.py stdout"
+  - "config/data_quality_gates_1h.yaml: CADJPY entry added (spread_median_floor=0.2, ceiling=5.0, p90_ceiling=15.0)"
+assumptions:
+  - "Raw log-return proxy (not signal series) for rho_bar_eff — conservative/honest direction; no pre-registered signal series available at descriptive-readiness stage"
+  - "pip=0.0001 uniform across ALL pairs for F1-F6 cost denominator, matching prior canonical 9-pair spec; log_ret/0.0001 and spread costs both scale by the same factor so net SR is comparable across pairs including JPY"
+  - "CADJPY is JPY-quote (physical 1 pip = 0.01) but pip-convention consistent with prior cycle as disclosed in run_cd0_family docstring"
+  - "CADJPY DQ thresholds set equal to AUDJPY (same JPY-cross liquidity tier): spread_median_ceiling=5.0, spread_p90_ceiling=15.0"
+  - "ALL-9 n_obs=29805 vs ALL-10 n_obs=29660: the ~145-bar reduction is due to CADJPY's common-index start (2021-01-03 22:00 UTC); CADJPY data begins slightly after the other 9 pairs' intersection, reducing the aligned common window minimally"
+confidence: high
+body: |
+  ## C1 DQ CADJPY (verdict + numbers)
+
+  Gate run: 5yr trade window, config/data_quality_gates_1h.yaml (CADJPY entry added).
+
+  | Metric                        | Value                                              |
+  |-------------------------------|----------------------------------------------------|
+  | n_rows                        | 31,032                                             |
+  | UTC range                     | 2021-01-03 22:00 → 2025-12-31 21:00 UTC           |
+  | bar_coverage_pct              | 99.23%  (gate ≥ 85% → PASS)                       |
+  | measured_spread_coverage_pct  | 100.0%  (gate ≥ 90% → PASS)                       |
+  | max_contiguous_gap_h          | 24 h    (gate ≤ 24 → PASS; explained below)        |
+  | spread_median (global median) | 1.200 pips  (gate ceil = 5.0 → PASS)              |
+  | spread_p90_of_spread_median   | 2.000 pips                                         |
+  | spread_p90_pips (global med)  | 1.500 pips  (gate ceil = 15.0 → PASS)             |
+  | spread_max                    | 36.2 pips   (spike events, not structural)         |
+  | frac_bars_above_5pips         | 3.99%       (moderate; not a gate criterion)       |
+  | n_zero_spread_bars            | 0           (no SC-3 risk)                         |
+  | n_missing_spread_bars         | 0                                                  |
+
+  max_contiguous_gap_h = 24: exactly at the gate ceiling (24 h allowed). This means
+  the longest single in-session blackout is exactly one full day; the gate is inclusive
+  (≤ 24), so CADJPY passes. A gap of exactly 24 consecutive missing in-session hours
+  would typically correspond to one full UTC trading day absent from the parquet
+  (e.g. a national holiday or early-session data dropout). Given 0 zero-spread bars
+  and 100% spread coverage, this gap is a coverage gap rather than a spread-quality gap.
+
+  SC-4 cross-pair check: ADMIT (no SC-4 flags). CADJPY's spread median (1.2 pips) is
+  well within the JPY-vs-non-JPY ratio bounds relative to the non-JPY peer median.
+
+  VERDICT: **ADMIT**
+
+  ---
+
+  ## C2 rho_bar_eff table
+
+  Formula: rho_bar_eff = (lambda_max − 1) / (k − 1). Proxy: aligned raw log-returns,
+  Pearson correlation. N_eff = min(k/λmax, k²/Σλ²_i, exp(Shannon-entropy)) per amendment.
+
+  | Subset             | k  | n_obs  | lambda_max | PC1   | rho_bar_eff | gate (≤0.41) | N_eff_min |
+  |--------------------|-----|--------|------------|-------|-------------|--------------|-----------|
+  | ALL-10             | 10  | 29,660 | 4.3446     | 43.5% | **0.3716**  | **PASS**     | 2.302     |
+  | ALL-9 (reference)  | 9   | 29,805 | 4.2723     | 47.5% | 0.4090      | PASS         | 2.107     |
+  | JPY-cross-3        | 3   | 30,743 | 2.4958     | 83.2% | 0.7479      | FAIL         | 1.202     |
+  | CROSSES-4          | 4   | 30,588 | 2.4965     | 62.4% | 0.4988      | FAIL         | 1.602     |
+
+  ALL-9 confirmation: computed 0.4090, matches prior reference 0.4090 — confirmed.
+
+  Delta ALL-10 vs ALL-9: **−0.0374** (decreases = BETTER).
+  Adding CADJPY lowers rho_bar_eff from 0.4090 to 0.3716 — CADJPY adds breadth,
+  not concentration, at the portfolio level.
+
+  Gate direction: ALL-10 = 0.3716, well below the 0.41 gate. Safe margin = 0.038.
+
+  JPY-concentration note:
+  CADJPY is highly correlated with both EURJPY (0.757) and AUDJPY (0.776) individually
+  — the JPY-cross-3 subset shows rho_bar_eff = 0.7479 (FAIL), confirming strong JPY
+  factor concentration within that sub-cluster. However, CADJPY also has notable
+  NEGATIVE correlation with USDCAD (−0.403), EURUSD (−0.064), and EURGBP (−0.077),
+  providing partial hedge against USD-denominated pairs. The net portfolio effect of
+  adding CADJPY is breadth-adding: ALL-10 rho_bar_eff (0.3716) is LOWER than ALL-9
+  (0.4090), meaning the CAD−JPY residual (after the USD-JPY factor already present)
+  introduces enough diversification to offset the JPY-factor amplification.
+
+  Disclosure: rho_bar_eff uses raw log-return proxy (not signal/position series).
+  Raw returns are a CONSERVATIVE proxy (actual signal correlations can be lower if
+  strategies differ in timing/direction). The gate is directionally honest in this
+  conservative direction.
+
+  ---
+
+  ## C3 CADJPY CD0 sanity (F1–F6 net SR + verdict)
+
+  Settings: real per-bar spread_median_pips, EXCLUDE-NOT-IMPUTE (0 zero-spread bars
+  excluded), pip=0.0001 uniform (canonical prior spec), shift(1) no-lookahead,
+  RT cost = spread + 2×(0.25 + 0.15) = spread + 0.80 pips per position change,
+  direct flip (+1→−1) charged as 2 position changes (F-001 fix in effect).
+
+  | Family               | Gross SR | Net SR   | N_trades | Verdict  |
+  |----------------------|----------|----------|----------|----------|
+  | F1 hourly reversal   | −0.5979  | −14.8138 |  31,085  | **FAIL** |
+  | F2 session-open mom  |  0.4206  |  −3.8527 |   2,574  | **FAIL** |
+  | F3 intraday mom 3    |  0.8404  |  −7.1838 |  17,207  | **FAIL** |
+  | F4 vol breakout      |  1.2064  |  −7.2459 |  12,801  | **FAIL** |
+  | F5 London AM drift   |  0.1722  |  −2.1914 |   2,304  | **FAIL** |
+  | F6 spread-filt rev.  | −0.8720  | −11.8669 |  13,715  | **FAIL** |
+
+  Best net SR: −2.1914 (F5 London AM drift) → FAIL
+
+  All 6 families FAIL (net SR far below STRETCH bar 1.44). This is consistent with
+  the "retired-saturated" finding from prior 9-pair screens — the F1–F6 families
+  show no edge on any pair. CADJPY confirms the pattern. Nothing surprising.
+
+  ---
+
+  ## Reuse note + method disclosure
+
+  All computation functions (run_c1_dq, dq_detail, compute_rho_bar_eff,
+  pairwise_corr_matrix, run_c3_cd0, run_cd0_family, verdict) imported directly
+  from scripts/compute_9pairs_readiness.py. No reinvention. New script
+  scripts/compute_10pairs_readiness.py is a thin wrapper that calls these
+  functions with ALL-10 universe and CADJPY-specific subsets.
+
+  The CADJPY per_pair entry was added to config/data_quality_gates_1h.yaml
+  (spread_median_floor=0.2, ceiling=5.0, p90_ceiling=15.0) before running DQ,
+  matching AUDJPY thresholds (same JPY-cross liquidity tier; CADJPY median=1.2 pips
+  is well within the ceiling).
+
+  Eigenvalue-based rho_bar_eff: (λmax − 1)/(k − 1). Sign-blind (no coercion of
+  corr matrix to all-positive). N_eff = minimum of three routes: k/λmax, PR=k²/Σλᵢ²,
+  ENB=exp(Shannon entropy of normalized eigenvalues). Conservative direction.
+
+  counts_toward_deflation_denominator: false  # descriptive readiness, not a trial
+
+firewall-self-review: approve
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - "scripts/compute_10pairs_readiness.py (executed, stdout verified)"
+  - "scripts/compute_9pairs_readiness.py (imported helpers)"
+  - "src/forex_system/data/quality_gate_1h.py (DQ gate library)"
+  - "config/data_quality_gates_1h.yaml (CADJPY entry added)"
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/compute_10pairs_raw.json (raw output)"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json (prior ALL-9 reference)"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

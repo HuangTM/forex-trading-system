@@ -1,0 +1,233 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-pr
+artifact-under-review: quant-developer-compute.yaml (+ scripts/compute_9pairs_readiness.py, compute_9pairs_raw.json)
+rubrics-applied:
+  - "review-plan: spec-to-impl trace, completeness, executability — applied"
+  - "execution-firewall-review: spec-vs-impl drift (silent fillna/clip/winsorize, cost, EXCLUDE-NOT-IMPUTE) — applied"
+  - "log-as-decision-trace: applied lightly — this is a one-shot compute script, not a live service; the raw JSON + artifact tables ARE the decision trace; adequate for a descriptive screen"
+  - "python: numerical-correctness, pandas alignment, ddof, eigen-decomposition — applied"
+  - "probability-statistics: correlation matrix / eigenvalue concentration statistic, Sharpe annualization, N_eff routes — applied"
+  - "clock-and-ordering: applied — verified shift(1) no-lookahead and same-bar-leak sanity check on F1"
+independent-recompute:
+  rho_bar_eff_ALL9_mine: 0.40904259  # full precision; rounds to 0.4090
+  rho_bar_eff_ALL9_qd: 0.4090
+  rho_bar_eff_subsets_mine:
+    ALL_9: 0.4090   # lambda_max=4.272341, sum_eig=9.0, margin to gate = +0.000957
+    USD_majors_7: 0.5023   # FAIL — matches QD
+    USD_majors_6: 0.5971   # FAIL — matches QD
+    CROSSES_only: 0.3563   # PASS — matches QD
+    ALL_9_last3yr_2023_2025: 0.3918   # matches QD's 0.392
+  eigenvalues_ALL9_mine: [4.2723, 2.2317, 1.2869, 0.6802, 0.3700, 0.1427, 0.0061, 0.0054, 0.0046]  # sum=9.0, matches QD exactly
+  signed_mean_ALL9_mine: 0.0998   # reference only, matches QD
+  dq_EURGBP_mine: "ADMIT — bar_coverage=99.194%, measured_spread=100.0%, max_gap=24h, pair_spread_median=0.90 (ceil 3.0), p90_col_median matches, zero/missing spread bars=0. Matches QD."
+  dq_AUDJPY_mine: "ADMIT — bar_coverage=99.249%, measured_spread=100.0%, max_gap=24h, pair_spread_median=0.80 (ceil 5.0), zero/missing spread bars=0. Matches QD."
+  cd0_spotcheck_mine:
+    EURGBP_F1: "gross_SR=2.2948 net_SR=-8.2122 n_trades=16101 — matches QD exactly"
+    AUDJPY_F1: "gross_SR=-0.6208 net_SR=-5.7901 n_trades=15699 — matches QD exactly"
+    AUDJPY_F5: "gross_SR=0.1581 net_SR=-1.5555 n_trades=2240 — matches QD exactly (best-of-54 least-negative)"
+    lookahead_check: "F1 unshifted (cheat) gross_SR=-63.26 — confirms shift(1) is operative and removes same-bar leak (F1 is a reversal so unshifted is anti-correlated, not falsely positive)"
+  discrepancies: "none beyond rounding on the three load-bearing facts (rho_bar_eff ALL-9 = 0.4090 ≤ gate; DQ both ADMIT; all-54 net-negative). Two non-flipping spec-drift findings documented below (F-001, F-002)."
+findings:
+  - id: F-001
+    severity: major
+    location: scripts/compute_9pairs_readiness.py:228-231,260-261,374-377 (_position_changes / cost application)
+    category: spec-drift
+    observation: >
+      Cost is charged as `changes * rt_cost` where `changes = (pos.diff().abs() > 0)` is a
+      BINARY flag (1 per bar where position changed). A position REVERSAL (+1 -> -1, diff.abs()=2)
+      is therefore charged ONE full round-trip cost (spread + 2*(slip+haircut)), even though a flip
+      physically crosses the spread TWICE (close the existing leg, open the opposite leg = two
+      half-spread + slip + haircut crossings). High-turnover families (F1/F6, ~16k trades) flip
+      direction on most bars, so this under-counts a large fraction of crossings.
+    inference: >
+      INFERENCE: This UNDER-counts transaction cost, which makes net SR LESS negative than
+      reality — i.e. the error is in the ANTI-conservative direction for a FAIL screen (it makes
+      strategies look better than they are). It does NOT threaten the all-54-FAIL verdict: the
+      best result is -1.56 vs the +1.44 STRETCH bar (a 3.0-SR gap), and correcting the cost can
+      only widen that gap. But because a readiness screen is supposed to be conservative, a
+      cost-undercount in the wrong direction is a latent trap if any future family lands near the
+      bar. Should be corrected before any pre-registration reuses this cost code.
+    evidence: "Verified: pos=[0,1,1,-1,-1,0,1] -> change flags=[0,1,0,1,0,1,1], n_trades=4; the +1->-1 reversal at index 3 (diff.abs=2) is counted as a single change, charged one RT_cost."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-002
+    severity: minor
+    location: scripts/compute_9pairs_readiness.py:160-167 (N_eff routes)
+    category: spec-drift
+    observation: >
+      The 2026-06-19 amendment (hoqr-rho-bar-amendment.yaml §1) specifies
+      N_eff* = MIN( N_raw/lambda_max , N_raw·k/Σλ² , N_raw·k/ENB ) with floor/ceiling
+      N_raw/k ≤ N_eff ≤ N_raw — i.e. routes scaled by N_raw (the observation count, ~30k).
+      The script instead computes routes as k/lambda_max, PR=k²/Σλ², and ENB (a count-of-BETS
+      in [1,k], not deflated observations). The reported N_eff=2.11 for ALL-9 is a bets-count,
+      not the amendment's N_eff (which would be ~6,976 observations).
+    inference: >
+      INFERENCE: N_eff is NOT the load-bearing gate here (rho_bar_eff ≤ 0.41 is), and the
+      bets-count is internally consistent and arguably the more intuitive diversification
+      summary, so no verdict is affected. But the field is LABELED "N_eff (min)" against an
+      amendment that defines N_eff differently; a downstream consumer (e.g. H1's years_to_validate
+      via N_eff) that plugs 2.11 in where ~6,976 belongs would mis-deflate by 3 orders of
+      magnitude. Spec/label mismatch should be reconciled before N_eff feeds any power/validate
+      calc.
+    evidence: "amendment §1 n_eff_gate: 'N_eff* = MIN( N_raw/λ_max , N_raw·k/Σλ_i² , N_raw·k/ENB )'; script line 162-166 uses k/lambda_max, PR, ENB (no N_raw factor). My recompute of the N_raw-scaled MIN for ALL-9 = 6976.3 obs vs QD's reported 2.11."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-003
+    severity: minor
+    location: quant-developer-compute.yaml:133-146,304 (CRITICAL DISCLOSURE + knowledge_gaps); proxy = raw log-returns
+    category: numerical
+    observation: >
+      The gate stat per amendment §2 is rho_bar_eff on the per-pair PnL-CONTRIBUTION
+      (signal×return) correlation matrix; QD computes it on RAW log-return correlations as a
+      proxy (no signal series exists pre-pre-reg). QD discloses this and argues the proxy is
+      conservative (over-states concentration). The ALL-9 margin is 0.000957 (independently
+      confirmed: rho=0.40904 vs gate 0.41).
+    inference: >
+      INFERENCE: I independently confirm the raw-return rho_bar_eff = 0.40904 ≤ 0.41 — the
+      proxy clears. I do NOT independently confirm the CONSERVATISM DIRECTION claim (proxy ≥ true
+      PnL-contribution stat); that is a mathematical assertion inherited from the 2026-06-19
+      ruling and I did not re-derive it (and the true stat is uncomputable pre-pre-reg). The
+      load-bearing fact is the proxy value, which is correct, but the firm should treat the gate
+      as "clears on the raw-return proxy by 0.001" — NOT "clears the true gate." If any decision
+      (un-freeze H1 / SPEND) hinges on rho_bar_eff being ≤0.41, it hinges on a 0.001 proxy margin
+      whose sign-direction to the true stat is unverified-by-me. Owner judgment (HoQR) required.
+    evidence: "Independent full-precision recompute: lambda_max=4.272340752, rho_bar_eff=0.40904259, margin to 0.41 = +0.0009574. QD's conservatism-direction claim cites mathematician-rho-bar-analysis.yaml; not re-derived here."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: head-of-quant-research
+  - id: F-004
+    severity: observation
+    location: quant-developer-compute.yaml:307 (EURJPY F2 discrepancy)
+    category: correctness
+    observation: >
+      QD discloses its EURJPY F2 net = -4.0 vs prior PR-verified -0.872 (cycle-1). QD attributes
+      it to different session/cost-alignment logic and notes both FAIL.
+    inference: >
+      INFERENCE: This is a reproducibility gap (F1-F6 are reconstructed from prose, not frozen as
+      code — QD's own knowledge_gap). It does NOT threaten either load-bearing verdict: the
+      verdict is FAIL under both numbers, and the all-54 conclusion holds at a 3.0-SR margin. But
+      it confirms the F1-F6 family specs are NOT reproducible across cycles, so the EXACT net-SR
+      figures in the table are not authoritative — only their sign/FAIL-classification is. Any
+      future use of these specs MUST freeze them as code first. Flagged, not blocking.
+    evidence: "quant-developer-compute.yaml line 307; principal-reviewer-cycle1.yaml (cited by QD) confirmed -0.872 prior. I did not reconcile the two F2 implementations (out of scope; verdict-irrelevant)."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-005
+    severity: observation
+    location: scripts/compute_9pairs_readiness.py:404-406, run_cd0_family docstring
+    category: numerical
+    observation: >
+      pip=0.0001 is applied UNIFORMLY to all pairs including JPY (where the physical pip is 0.01).
+      For JPY pairs the gross PnL is expressed in "0.0001-units" (~100x the move) while spread
+      cost stays in instrument pips (0.01 basis, values like 0.8).
+    inference: >
+      INFERENCE: I tested the sensitivity directly. Under the TRUE JPY pip (0.01), AUDJPY F5 net
+      goes from -1.5555 to -21.35 (EURJPY -21.53, USDJPY -21.70); gross SR is UNCHANGED (0.1581,
+      scale-invariant). So the uniform-pip convention makes JPY pairs LESS negative than the true
+      basis would — the all-54-FAIL verdict is robust either way (true basis only deepens the
+      FAIL). No JPY pair can flip to PASS under any pip basis. The convention is acceptable for
+      this FAIL screen but the absolute net-SR magnitudes for JPY pairs are NOT physically
+      meaningful and should not be carried forward as cost estimates.
+    evidence: "Independent recompute: AUDJPY F5 pip=0.0001 -> net=-1.5555; pip=0.01 -> net=-21.35. Gross SR identical (0.1581) both ways."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+coverage-statement: >
+  I independently recomputed BOTH load-bearing facts I was asked to verify: (a) rho_bar_eff +
+  N_eff for all 4 required subsets (ALL-9, USD-7, USD-6, CROSSES) with full-precision gate
+  comparison, plus the 3yr robustness cut; (b) DQ ADMIT/EXCLUDE verdicts for EURGBP and AUDJPY
+  with all key numbers (coverage, measured-spread, gap, spread medians vs ceilings, zero/missing
+  runs). For C3 I verified cost-application + no-lookahead end-to-end on the F1 family (both new
+  pairs) and the F5 best-case, plus a same-bar-leak sanity check and a JPY-pip sensitivity test;
+  I did NOT reproduce all 54 combos (verified the family-mechanics and the binding least-negative
+  result -1.56, which is 3.0 SR below the STRETCH bar — no combo can flip). rho_bar_eff and DQ
+  recompute matched QD to full precision; CD0 spot-checks matched exactly.
+contamination-check: "clean — the prompt revealed no other role's decision/approval/stance on this computation; I assessed it cold."
+time-spent-reasoning: "~35 min (4 independent recompute scripts + 5 cross-checks)"
+evidence:
+  - "Independent rho_bar_eff recompute (own script, did NOT import QD's): ALL-9=0.40904259, USD-7=0.5023, USD-6=0.5971, CROSSES=0.3563, 3yr=0.3918; eigenvalues sum=9.0; all match QD."
+  - "Independent DQ gate run via coverage_gate(): EURGBP ADMIT (99.194%/100.0%/24h/0.90), AUDJPY ADMIT (99.249%/100.0%/24h/0.80); all match QD."
+  - "Independent F1 reproduction: EURGBP gross 2.2948/net -8.2122/16101; AUDJPY -0.6208/-5.7901/15699 — exact match."
+  - "Lookahead sanity: F1 unshifted gross_SR=-63.26 (shift is operative; no same-bar leak)."
+  - "JPY pip sensitivity: AUDJPY F5 net -1.5555 (pip 0.0001) vs -21.35 (pip 0.01); gross invariant — FAIL robust to basis."
+  - "Reversal cost semantics: pos flip +1->-1 charged 1 RT not 2 (cost under-count, anti-conservative)."
+  - "N_eff route definition vs amendment §1: script uses k-normalized routes (2.11), amendment specifies N_raw-scaled (~6976) — label/spec mismatch, non-gate."
+assumptions:
+  - "I take the eigenvalue/sign-blind formula rho_bar_eff=(lambda_max-1)/(k-1) as the ratified gate stat per hoqr-rho-bar-amendment.yaml — I verified the formula's implementation, not the choice of 0.41 or the proxy-conservatism math (inherited from prior rulings)."
+  - "DQ gate library (quality_gate_1h.py) is itself trusted/prior-reviewed; I ran it as the authority for ADMIT/EXCLUDE and confirmed its inputs (config ceilings, spread medians) independently."
+  - "The all-54 conclusion is verified by family-mechanics + the binding least-negative combo, not by re-running 54 combos; the 3.0-SR gap to the STRETCH bar makes a flip impossible under any cost/pip variant tested."
+confidence: high
+body: |
+  ## Verdict: approve-with-conditions
+
+  All THREE load-bearing facts independently reproduce to full precision:
+
+  1. **rho_bar_eff(ALL-9) = 0.40904 ≤ 0.41** — confirmed. My own eigen-decomposition (not
+     importing QD's code) gives lambda_max=4.272341, rho=0.40904259, margin +0.000957. Every
+     subset (USD-7 0.5023 FAIL, USD-6 0.5971 FAIL, CROSSES 0.3563 PASS) and the 3yr robustness
+     cut (0.3918) match. Eigenvalues sum to 9.0 (validates the decomposition). The gate genuinely
+     clears on the raw-return proxy.
+
+  2. **DQ: EURGBP ADMIT, AUDJPY ADMIT** — confirmed by an independent coverage_gate() run.
+     Coverage 99.19%/99.25%, measured-spread 100%, max-gap 24h (at the limit, legitimate New-Year
+     closure), pair-spread-medians 0.90/0.80 vs ceilings 3.0/5.0, zero zero-spread and zero
+     missing-spread bars. No SC flags. Numbers match exactly.
+
+  3. **All 54 CD0 combos net-negative** — verified via family-mechanics (F1 both new pairs + F5
+     best-case reproduce exactly) and the binding result: least-negative is AUDJPY F5 at -1.5555,
+     which is 3.0 SR below the +1.44 STRETCH bar.
+
+  ## Why approve-WITH-CONDITIONS rather than clean approve
+
+  The numbers are correct, but three things must travel WITH this artifact so the firm doesn't
+  over-read it:
+
+  - **F-001 (major, cost under-count):** reversals are charged 1 RT not 2. Error is
+    anti-conservative for a FAIL screen. Verdict-safe here (3.0-SR gap) but the cost code must be
+    fixed before any pre-reg reuses it — a conservative screen must not under-count cost.
+
+  - **F-003 (proxy margin):** the gate clears by 0.000957 on the RAW-RETURN proxy. The true
+    PnL-contribution stat is uncomputable pre-pre-reg, and I did NOT re-derive the "proxy ≥ true"
+    conservatism direction (inherited from the 2026-06-19 ruling). Any SPEND/un-freeze decision
+    that leans on "ALL-9 clears G5" is leaning on a 0.001 proxy margin, NOT a measured true-gate
+    clearance. This is exactly QD's own top knowledge_gap; I confirm it is load-bearing. Route to
+    HoQR for the conservatism-direction sign-off before treating the gate as cleared.
+
+  - **F-002 / F-004 / F-005 (non-flipping):** N_eff is a bets-count not the amendment's
+    N_raw-scaled deflation (label mismatch, non-gate); F1-F6 are not frozen-as-code so EURJPY F2
+    differs from cycle-1 (-4.0 vs -0.87, both FAIL); JPY uniform-pip makes JPY net-SR magnitudes
+    non-physical (true basis only deepens the FAIL). None threaten a verdict.
+
+  ## What I did NOT find
+  No silent fillna/clip/winsorize that distorts a verdict (the clip(-1,1) in F5 is intentional
+  direction-not-accumulation; the fillna(0) on shift/log-ret boundaries is benign). No lookahead
+  (shift(1) verified operative). No EXCLUDE-vs-IMPUTE violation (zero/missing spread bars excluded
+  from both gross and cost; and there are ZERO such bars in EURGBP/AUDJPY anyway). Annualization
+  sqrt(6150) is reasonable and applied uniformly (cannot flip a sign).
+
+  ## Bottom line
+  The three load-bearing facts are CORRECT and independently reproduced. Approve the COMPUTATION.
+  Conditions: (1) HoQR signs off that the raw-return proxy clearing at margin 0.001 is acceptable
+  as the G5 input given the true stat is unmeasurable pre-pre-reg [F-003]; (2) QD fixes the
+  reversal cost under-count [F-001] and reconciles the N_eff label [F-002] before this cost/Neff
+  code feeds any pre-registration. No live capital implicated; descriptive in-sample screen only.
+knowledge_gaps:
+  - "I did not re-derive the proxy-conservatism direction (raw-return rho_bar_eff ≥ true PnL-contribution rho_bar_eff); it is inherited from mathematician-rho-bar-analysis.yaml. The true gate stat is uncomputable pre-pre-reg, so the 0.001 margin's relation to the true gate is unverified-by-me."
+  - "I did not reconcile QD's EURJPY F2 (-4.0) against cycle-1's PR-verified -0.872; both FAIL and it is verdict-irrelevant, but the F1-F6 specs are demonstrably non-reproducible across cycles (not frozen as code)."
+  - "I verified the all-54 conclusion via family-mechanics + the binding least-negative combo, not by independently recomputing all 54 cells."
+policy_violations_detected: []
+sources:
+  - "data/processed/{EURUSD,GBPUSD,USDJPY,EURJPY,AUDUSD,USDCAD,NZDUSD,EURGBP,AUDJPY}_1h.parquet"
+  - "config/data_quality_gates_1h.yaml"
+  - "src/forex_system/data/quality_gate_1h.py"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json"
+  - "scripts/compute_9pairs_readiness.py"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, spec-vs-implementation-drift-detection, hidden-bug-and-edge-case-surfacing, numerical]

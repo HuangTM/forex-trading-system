@@ -1,0 +1,139 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-25T00:00:00Z"
+subtask_ref: cadjpy-10pairs-readiness
+subtask_id: cadjpy-10pairs-2026-06-25-pm
+task-statement: >
+  DQ-admit CADJPY; recompute rho_bar_eff on 10-pair universe; run CADJPY CD0 sanity;
+  confirm 10th same-class pair does not change ratified NO-SPEND/EXHAUSTED posture.
+deliverable-type: backtest-eval
+deadline: "2026-06-26T00:00:00Z"
+instrument-universe:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - EURJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURGBP
+  - AUDJPY
+  - CADJPY
+
+hard-constraints:
+  - "rho_bar_eff gate: G5 requires rho_bar_eff <= 0.41 (eigenvalue/sign-blind statistic per 2026-06-19 rubric amendment); signed-mean is FORBIDDEN as gate input"
+  - "honest_N=30 (ratified 2026-06-18); no trial-counter increment without a pre-registered candidate clearing at minimum STRETCH bar (net annualized SR >= 1.44)"
+  - "paper_only: true; no_live_capital: true — absolute; no exception path exists"
+  - "no_trial_increment_without_pre_registration: true — a descriptive CD0 screen is NOT a trial; must carry counts_toward_deflation_denominator: false"
+  - "DQ EXCLUDE gate applies to CADJPY; CADJPY has no per-pair entry in config/data_quality_gates_1h.yaml — QD must add CADJPY per-pair thresholds before running the gate (JPY cross: spread_median_ceiling and spread_p90_ceiling must follow JPY-cross precedent from AUDJPY/EURJPY); EXCLUDE-NOT-IMPUTE; a failing CADJPY cannot enter the H1 universe"
+  - "CRO cost-coverage EXCLUDE gate applies: per-bar measured spread must be present on >= 90% of in-session bars; spread_p90_pips is the charge rate for cost modeling"
+  - "A 10th pair of the SAME retail OHLCV+spread class is BREADTH, not a data-capability change; it does NOT re-open retired families F1-F6 and does NOT constitute progress toward a new data tier"
+  - "F1-F6 declared RETIRED-AS-SATURATED on 1h data per 2026-06-25 consensus (78 evaluations, best net SR = -1.56); the 10th pair adds one more evaluation to an already-saturated and falsified space — it cannot reverse that verdict"
+  - "Posture-change from NO-SPEND/EXHAUSTED requires a NEW data CLASS (intraday tick/L2, event-conditioned feeds, non-retail source), not a new retail pair"
+  - "CD0 screen on CADJPY: expected FAIL (all 54 prior combos net-negative; CADJPY CAD/JPY cross structure provides no structural reason for exception); QD must nonetheless execute and report — expected-FAIL must be verified, not assumed"
+  - "rho_bar_eff must be reported for ALL-10 at minimum; JPY-cross subset (USDJPY, EURJPY, AUDJPY, CADJPY) required as a secondary sanity check on concentration direction; prior ALL-9 = 0.4090 is the reference baseline"
+  - "no_trial_increment: descriptive-screen event to be appended to .fintech-org/trials.jsonl with counts_toward_deflation_denominator: false"
+  - "NHT guard: framing more-breadth-same-class as 'progress' without CD0 net SR >= STRETCH is a policy violation; NHT must test this claim explicitly"
+
+criteria:
+  - "C1 (DQ ADMIT/EXCLUDE): CADJPY DQ manifest covering: n_rows, UTC range, bar_coverage_pct, measured_spread_min_pct, max_contiguous_gap_h (with gap explanation), zero_spread_run check, spread_median_pips and spread_p90_pips vs. per-pair config thresholds; NOTE: config/data_quality_gates_1h.yaml currently has no CADJPY per-pair entry — QD must add it using JPY-cross precedent (AUDJPY spread_median_ceiling 5.0 / p90_ceiling 15.0 as reference floor; justified ceiling choice required) and document the new entry as a precondition of the gate run; verdict ADMIT or EXCLUDE with failing gate identified; pre-check data: 31,032 rows, spread_median_pips median=1.2, spread_p90_pips median=1.5, zero spread bars=0, bar_coverage ~99.2%, max_contiguous_gap_hours=24 (holiday closure)"
+  - "C2 (rho_bar_eff recompute): rho_bar_eff and N_eff reported for (a) ALL-10 and (b) JPY-cross subset (USDJPY/EURJPY/AUDJPY/CADJPY); delta vs. prior ALL-9 (rho_bar_eff=0.4090, N_eff=2.11) stated explicitly; direction of change (toward/away from 0.41 gate) stated; if ALL-10 clears the 0.41 gate the H1 freeze/unfreeze call still requires CD0 Gate B — state this explicitly; proxy disclosure required (raw-return proxy acceptable pre-pre-reg; conservative direction stated)"
+  - "C3 (CADJPY CD0 sanity): CADJPY CD0 screen across all 6 canonical families (F1-F6 as defined in prior consensus); cost model: spread_median_pips (real per-bar half-spread) + 2×(0.25 slip + 0.15 Saxo haircut) per-bar; annualization sqrt(6150); FAIL/STRETCH/PASS thresholds (STRETCH=1.44, PASS=1.76); EXCLUDE-NOT-IMPUTE; all 6 family results (gross SR, net SR, n_trades, verdict) reported; expected outcome: FAIL across all 6 — if any result is != FAIL, QD must flag immediately and PR must independently verify before consensus is signed"
+  - "C4 (posture assessment — primary deliverable): explicit YES or NO: does CADJPY landing change the ratified NO-SPEND/EXHAUSTED strategic posture? Expected NO; the deciding factors are: (i) CD0 net SR for CADJPY vs STRETCH bar — if FAIL (as expected), no change; (ii) rho_bar_eff ALL-10 direction — breadth without edge is vacuous regardless of concentration metric movement; (iii) F1-F6 retirement is unconditional on pair count; HoQR must state the posture verdict and the data-capability constraint explicitly: more same-class pairs do not break the data-capability ceiling, which requires intraday tick/L2 or event-conditioned data, not additional Dukascopy OHLCV pairs"
+  - "C5 (NHT null tests): NHT must test at minimum: (i) Claim — CADJPY landing constitutes progress toward alpha or H1 unfreeze; (ii) Claim — CADJPY is structurally different from the 9 prior pairs in a way that makes F1-F6 net-of-cost feasibility plausible; (iii) Claim — the 10th pair changes the strategic posture; all three nulls explicitly accepted or rejected with deciding numbers; dissent is append-only and survives any consensus"
+  - "C6 (PR independent verification): principal-reviewer independently verifies rho_bar_eff for ALL-10 from raw parquet and spot-checks at least 2 of 6 CADJPY CD0 family results; any discrepancy vs QD numbers triggers a rework request before consensus is signed"
+  - "C7 (descriptive log): .fintech-org/trials.jsonl entry appended with counts_toward_deflation_denominator: false and event: descriptive-screen; trial counter does NOT increment; honest-N remains 30"
+
+out-of-scope:
+  - "Re-opening retired families F1-F6 on any pair in this cycle"
+  - "Live deployment or paper trading authorization"
+  - "GBPJPY (mid-ingest; explicitly held per 2026-06-25 consensus open item)"
+  - "Full H1 pre-registration authoring or freeze (Gate B categorically fails; Gate A marginal margin insufficient to trigger)"
+  - "Any backtest run constituting a trial (counter-burning) without a pre-registered frozen spec"
+  - "CD0 screen on pairs other than CADJPY (already screened in 2026-06-25 cycle)"
+  - "Data-acquisition decision for a new data tier (separate Board item; covered in 2026-06-07T-data-capability)"
+  - "Re-derivation of the 0.41 G5 threshold (separately frozen)"
+  - "Any discussion of rho_bar_eff as evidence the concentration wall is 'broken' without a positive-net-SR candidate to apply it to"
+  - "Any subset run of frozen H1 on CADJPY — that constitutes a trial requiring pre-registration"
+  - "New family design or R2 cost-aware family work (covered under 2026-06-24-cost-aware-family-kickoff)"
+
+roles-staffed:
+  - "quant-developer: adds CADJPY per-pair DQ config entry; runs CADJPY DQ gate; recomputes rho_bar_eff for ALL-10 and JPY-cross subset from raw parquet; runs CADJPY CD0 screen (6 families, real per-bar spreads)"
+  - "head-of-quant-research: issues posture assessment (C4) — changed or unchanged, with explicit data-capability binding constraint rationale; references F1-F6 retirement and the R2 redesign trajectory from prior consensus"
+  - "cro: receives ONLY structured fields (instrument-universe + hard-constraints); veto authority on any trial spend, any H1 subset run without pre-registration, any cost modeling deviating from EXCLUDE-NOT-IMPUTE; concurs or vetoes C4 posture assessment"
+  - "null-hypothesis-tester: mandatory structural skeptic; tests Claims i/ii/iii (C5); guards the more-breadth-is-progress narrative trap; dissent append-only and survives any consensus"
+  - "principal-reviewer: independently verifies rho_bar_eff ALL-10 and spot-checks >= 2 CADJPY CD0 family results from raw parquet; single review wave with rework-request authority before consensus is signed"
+  - "pm: authors this acceptance-criteria artifact; synthesizes consensus; ensures dissent preservation; does not make technical calls"
+
+evidence:
+  - "data/processed/CADJPY_1h.parquet — 31,032 rows; index range 2021-01-03 22:00 UTC to 2025-12-31 21:00 UTC; spread_median_pips min=0.70 max=36.20 nulls=0; spread_p90_pips min=0.80 max=39.00 nulls=0; zero spread bars=0; bar_coverage ~99.2%; max_contiguous_gap_hours=24 (verified via trading-hour-aware gap counter, same logic as quality_gate_1h.py)"
+  - "data/processed/CADJPY_daily.parquet — present (companion daily file; not used in 1h DQ gate)"
+  - "config/data_quality_gates_1h.yaml — CADJPY has NO per-pair entry; must be added by QD before DQ gate run; AUDJPY entry (spread_median_ceiling 5.0, p90_ceiling 15.0) is the JPY-cross precedent reference"
+  - "src/forex_system/data/quality_gate_1h.py — confirmed max_contiguous_gap_hours uses trading-hour-aware counter (weekend resets gap; holiday closures within a trading week counted as in-session gaps); the 24h max gap is the New Year 2024 closure (same pattern as AUDJPY in prior cycle)"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/CONSENSUS.md — ALL-9 rho_bar_eff=0.4090, N_eff=2.11; F1-F6 RETIRED-AS-SATURATED (78 evaluations, best net SR=-1.56); NO-SPEND ratified; H1 REMAINS FROZEN; strategic posture: no-edge wall is binding constraint, data-capability ceiling requires new data class not new pair"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/pm-acceptance-criteria.yaml — prior PM AC for structural continuity"
+  - ".fintech-org/trials.jsonl — honest-N=30; last entry: descriptive-screen 2026-06-23 counts_toward_deflation_denominator: false"
+
+assumptions:
+  - "CADJPY max_contiguous_gap_h=24 is the New Year 2024 / Christmas 2023 holiday closure (same as AUDJPY in prior cycle); legitimate market closure, not a data defect — QD must confirm with the same explicit gap-window identification used for AUDJPY"
+  - "CADJPY spread characteristics (median 1.2 pips, p90 1.5 pips, zero nulls) are plausible for a JPY cross at Dukascopy retail; no anomaly pre-check flags; per-pair DQ gate may still find issues QD must report"
+  - "The 9-pair rho_bar_eff ALL-9=0.4090 is the baseline for comparison; the 10th pair's contribution to the correlation matrix is likely additive with the JPY-cross cluster (CADJPY correlates with AUDJPY/USDJPY), which may push ALL-10 rho_bar_eff above 0.41 — this is an open empirical question QD must answer, not assume"
+  - "F1-F6 CD0 expected-FAIL on CADJPY is well-grounded given 78 prior negative evaluations; however it remains a firm assumption until QD runs and PR spot-checks"
+  - "GBPJPY remains mid-ingest and is not part of this readiness cycle; the 10-pair universe is EURUSD through CADJPY as listed"
+  - "The R2 cost-aware family redesign (2026-06-24-cost-aware-family-kickoff) is proceeding in parallel; this readiness reassessment does not interfere with or gate that work"
+
+confidence: high
+
+body: |
+  ## Coordination notes
+
+  This is a READINESS UPDATE, not a fresh alpha hunt. The task is specifically bounded:
+  DQ-admit CADJPY, recompute rho_bar_eff, run one expected-FAIL CD0 sanity screen, and
+  confirm posture unchanged. The primary deliverable (C4) is the explicit posture statement.
+
+  The firm has ratified across 3 cycles that the existing-data strategy space is EXHAUSTED
+  and the binding constraint is DATA CAPABILITY (intraday tick/L2 or event-conditioned feeds),
+  not more pairs. A 10th retail OHLCV+spread pair is breadth. The purpose of this wave is to
+  honestly update the numbers and close the accounting — not to re-litigate the settled finding.
+
+  ## CRO firewall
+
+  CRO receives ONLY structured fields (instrument-universe + hard-constraints). No rationale,
+  no background narrative, no strategic context has been passed to CRO in the task statement.
+  CRO's hard-constraints encode: rho_bar_eff gate 0.41 (eigenvalue/sign-blind), honest_N=30
+  no-increment, paper_only/no_live_capital, EXCLUDE-NOT-IMPUTE, DQ EXCLUDE gate applies to
+  CADJPY, a 10th same-class pair does NOT re-open retired families, posture-change requires a
+  new data CLASS not a new pair.
+
+  ## Key pre-checks completed (PM layer, not QD gate)
+
+  The following are observational pre-checks only. They do not substitute for QD's formal
+  gate execution. QD must run and report independently.
+  - CADJPY_1h.parquet: 31,032 rows, 2021-2025, no null spreads, no zero spreads, bar_coverage
+    ~99.2%, max_contiguous_gap_hours=24 (holiday closure per trading-hour-aware counter).
+  - CADJPY has NO per-pair entry in config/data_quality_gates_1h.yaml — this is a hard
+    precondition: QD adds the entry before the gate runs, PR verifies the threshold choice.
+  - F1-F6 CD0 on CADJPY is expected FAIL (78 prior negatives; CADJPY has no structural
+    exception). If any result is != FAIL, it is an anomaly requiring immediate flag + PR verify
+    before consensus is signed.
+  - The NHT guard is especially important here: CADJPY landing is the simplest narrative hook
+    for framing breadth as progress. NHT must test this explicitly.
+
+  ## What changes vs. 9-pair wave
+
+  Scope is deliberately narrower than the 9-pair wave:
+  - Only 1 new pair (CADJPY) vs 2 (EURGBP + AUDJPY) in the prior cycle.
+  - CD0 screen is a sanity check, not a full 9×6 re-run — only CADJPY × 6 families required.
+  - Posture assessment (C4) is the primary deliverable; DQ/rho/CD0 are its inputs.
+  - No H1 unfreeze path is open: Gate B (CD0 net SR >= 1.76) fails categorically on the
+    existing universe and CADJPY's expected FAIL cannot change this.
+  - NHT dissent protocol and CRO veto authority carry forward unchanged from prior cycle.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

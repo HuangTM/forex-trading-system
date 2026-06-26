@@ -1,0 +1,509 @@
+role: generator-contrarian-outsider
+artifact_type: idea-slate
+lens: contrarian-outsider
+timestamp: "2026-06-25T06:00:00Z"
+subtask_ref: new-alpha-exploration
+
+# --------------------------------------------------------------------------
+# FRAMING NOTE
+# The standard quant question is: "What signal predicts the next bar's
+# direction?" This lens BREAKS that framing. It asks instead: "What would
+# you do if the answer to that question is provably 'nothing on retail OHLCV'?"
+# The four walls (W1–W4) are accepted as closed. The question becomes:
+# how do you build a systematic-return source that doesn't need the walls
+# to be open?
+# --------------------------------------------------------------------------
+
+directions:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 1: VOLATILITY-RISK-PREMIUM HARVEST (sell realized/implied gap)
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "FX-VRP: Harvest the Realized-vs-Implied Volatility Gap via Options"
+    hypothesis: >
+      IF implied vol in short-dated FX options (1W–1M tenor) systematically
+      exceeds subsequent realized vol (the FX volatility risk premium, VRP),
+      THEN a delta-hedged short-vega strategy earns positive expected return
+      net of hedge costs, estimable at gross Sharpe ~0.4–0.7 from academic
+      OOS evidence — without predicting FX direction at all.
+    mechanism: >
+      Options market-makers price a variance risk premium into FX implied vol
+      to compensate for inventory and jump risk. Retail and corporate hedgers
+      are structural buyers of optionality; there is no countervailing retail
+      seller. The premium is documented in G10 currencies (Carr & Wu 2009,
+      Menkhoff et al. 2012) and survives the post-2008 OOS period in several
+      academic replications. The edge is NOT directional — it is about who
+      bears the variance risk, not what the exchange rate does next. W1
+      (cost-dominance on turnover) is circumvented because the position is
+      hold-to-expiry with delta-hedging, not high-frequency turnover. The
+      direction of EURUSD is irrelevant to whether implied > realized by
+      maturity.
+    data-class-required: >
+      FX options quotes (implied vols by strike/tenor) for G10 pairs — either
+      from a broker options feed (Saxo Bank FX options desk), Bloomberg OVDV,
+      or a vendor such as OptionMetrics/HistoricalOptionData.com. The firm
+      already holds the underlying 1h OHLCV (needed for realized vol
+      computation). The new class is the implied vol surface, not the
+      underlying.
+    cheap-feasibility-test: >
+      (1) Download Carr & Wu (2009) Table 3 OOS average VRP by currency pair
+      (EUR, GBP, JPY, CHF, AUD). If the median annualized VRP across G10 is
+      < 0.5 vol-point, the gross edge is too thin to survive delta-hedging
+      friction — kill. (2) Contact Saxo Bank options desk for a sample 1M
+      ATM implied vol quote on EURUSD; compute the 1M trailing realized vol
+      from existing 1h data; if implied < realized (premium inverted this
+      environment), flag as regime-dependent risk before any commitment.
+      Both checks executable in < 1 hour, zero data spend.
+    walls-attacked: >
+      W1 (cost-dominance): hold-to-expiry + periodic delta-hedge is low
+      turnover; spread costs hit once per option, not per bar.
+      W3 (regime-dependence): VRP tends to widen in high-uncertainty regimes
+      (vol-of-vol increases the seller's premium). This is an anti-correlated
+      regime exposure vs. the firm's prior carry trade — potentially a
+      diversifier.
+      W4 (no-volume): options open interest and term structure encode aggregate
+      hedging demand — a genuine order-flow signal not present in spot OHLCV.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $500–$2,000/yr for an FX options implied vol data subscription (retail
+      end); or zero if Saxo Bank's API surfaces options quotes (requires
+      investigation). Full Bloomberg OVDV license: ~$20K+/yr (prohibitive for
+      a small firm). HistoricalOptionData.com FX vol surface: ~$500–$800/yr.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 2: REDEPLOY THE HARNESS — COMMODITY FUTURES TREND-FOLLOWING
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "Asset-Class Transplant: Run the Firm's Validated Harness on Commodity Futures Trend"
+    hypothesis: >
+      IF commodity futures (energy, metals, agriculture) exhibit robust
+      trend-following alpha with Sharpe ~0.4–0.7 OOS (Hurst et al. 2017,
+      AQR "A Century of Evidence"), THEN transplanting the firm's
+      backtesting-plus-confirmability harness to this market produces a
+      positive-edge candidate with the firm's existing methodology — without
+      requiring FX directional alpha at all.
+    mechanism: >
+      Commodity futures have genuine open interest, volume, and deliverable
+      constraints that create structural momentum effects (hedger/speculator
+      imbalance documented in Keynes' "normal backwardation"; roll yield
+      adds a second return stream). The firm's most valuable asset is NOT
+      its FX signals (exhausted) — it is the rigorous anti-overfitting
+      harness (CPCV, deflated Sharpe, confirmability rubric). That
+      harness has genuine value in markets where alpha actually exists.
+      This is the "redeploy the factory" insight: the factory is good;
+      the raw material (retail FX OHLCV) is the problem.
+    data-class-required: >
+      CME/NYMEX continuous futures contracts with genuine volume and open
+      interest. Available via Quandl/Nasdaq Data Link (futures continuous
+      contracts, ~$35/mo for the relevant series), or free for 1-day
+      resolution via Yahoo Finance (CL, GC, ZC, etc.) with volume. The
+      firm's existing data pipeline (Parquet, OHLCV) is directly compatible
+      with volume-inclusive futures OHLCV.
+    cheap-feasibility-test: >
+      TWO analytical checks, no backtest. (1) PUBLISHED-EVIDENCE READ: from
+      Hurst, Ooi & Pedersen (2017) Exhibit 2, read the OOS gross Sharpe of
+      the commodity-sector trend sleeve (1880–2016, and the post-2000
+      sub-period specifically). Kill if the post-2000 OOS commodity-trend
+      Sharpe reported in the paper is < 0.3 — that is the literature's own
+      verdict on the edge's persistence, no firm data required. (2) COST
+      HURDLE: compute the round-trip cost of CL/GC/ZC futures (commission
+      ~$1–2/contract + ~1–2 tick bid-ask) as a fraction of notional, and
+      compare to the per-trade gross edge IMPLIED by the published Sharpe
+      at the published rebalancing frequency (roughly monthly). Kill if
+      modeled round-trip cost > 25% of the implied per-rebalance gross edge.
+      Both are desk computations on published numbers + public exchange fee
+      schedules — NOT a signal backtest. Cost: zero. Time: ~1 hour. A
+      committed CPCV backtest is explicitly DEFERRED to a future authorized
+      cycle if both checks clear.
+    walls-attacked: >
+      Reframes so all four walls become non-binding:
+      W1 (cost-dominance): futures commissions ~$1–$2/contract round-trip;
+      bid-ask ~1–2 tick; trend-following is low-turnover by construction.
+      W2 (USD-concentration): commodity futures universe spans uncorrelated
+      macro themes (energy, metals, ags, soft commodities) — de facto
+      cross-asset diversification.
+      W3 (regime-dependence): commodity trend has documented performance
+      across multiple macro regimes; diversification across sectors
+      mechanically reduces single-regime dependence.
+      W4 (no-volume): futures have genuine exchange-reported volume and open
+      interest — the data class that closes this wall entirely.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0 (daily OHLCV+volume, Yahoo Finance, 3–10 markets) to
+      $420/yr (Nasdaq Data Link Quandl continuous futures, ~$35/mo).
+      Intraday depth: $200–$1,500/yr depending on vendor and resolution.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 3: RETAIL-FLOW AS CONTRARIAN SIGNAL (model the 2/3-lose prior)
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "Exploit the ~2/3-Lose Prior: Retail Positioning as a Contrarian Signal"
+    hypothesis: >
+      IF retail trader net positioning (from broker-published or CFTC
+      non-commercial data) is a persistent fade — because ~2/3 of retail
+      traders lose and their net positions reflect crowd sentiment errors —
+      THEN a systematic contrarian strategy against retail net longs/shorts
+      earns positive expected return, testable via CFTC Commitments of
+      Traders (COT) data (free, weekly, 20+ years of history).
+    mechanism: >
+      The ~2/3 retail-loss base rate (CFTC-documented) implies that the
+      aggregate retail positioning is on the wrong side of the market more
+      often than chance. This is NOT a claim that each trade loses; it is a
+      structural prior that aggregate retail flows are mean-reverting
+      sentiment rather than informed order flow. CAVEAT (load-bearing): the
+      ~2/3-lose figure comes from CFTC RFED retail OTC-broker disclosure,
+      NOT from CME futures positioning. The COT report separates commercial
+      (hedger), non-commercial (large speculator), and non-reportable
+      positions — but "non-reportable" is NOT a clean retail proxy: it
+      includes small commercial hedgers and sub-threshold institutional
+      accounts, not only retail traders. The mapping from "retail loses 2/3
+      of the time" to "non-reportable COT positioning is a fade" is an
+      ASSERTED bridge, not an established one — this is precisely why the
+      evidence-grade below is THEORY-GROUNDED-UNTESTED, and why the
+      feasibility test must validate the signal empirically rather than
+      assume the bridge holds. A genuine retail-flow source (broker
+      "% clients long" feeds: Oanda fxBook, IG sentiment) would be a
+      cleaner instrument if accessible. The "fade the retail crowd" mechanism has
+      been documented in partial OOS evidence (Oanda fxBook positioning,
+      some broker-published "% of clients long" correlations). The critical
+      question is whether the signal has enough edge above transaction costs
+      at weekly rebalancing frequency — which the cheap feasibility test
+      addresses.
+    data-class-required: >
+      CFTC Commitments of Traders (COT) weekly positioning data — free from
+      CFTC website, 20+ years, covers major FX pairs as CME futures
+      equivalents (EUR, GBP, JPY, AUD, CAD, CHF). Requires translation from
+      futures notional to FX pair positioning, which is straightforward.
+      The firm's existing daily OHLCV covers the same pairs. No paid data
+      required for the feasibility test.
+    cheap-feasibility-test: >
+      Download COT FX positioning history (CFTC, free). Compute a z-score
+      of non-reportable net positioning for EUR/USD and USD/JPY.
+      Back-of-envelope: at weekly rebalancing, spread cost is ~1–2 pips
+      one-way; gross edge needs ~4 pips/trade to survive costs. Test whether
+      the contrarian signal's predicted move (next-week return when
+      z-score > 1 SD extreme) exceeds 4 pips on average across the 20-year
+      series. This is a published-data pattern-match, not a committed
+      pre-registration. Kill condition: mean next-week return in the
+      signal-extreme quintile < cost hurdle over the full 2000–2024 period.
+    walls-attacked: >
+      W4 (no-volume/order-flow): COT is the closest available proxy for
+      aggregate positioning flow in FX — it does not give tick-level L2
+      depth but it gives the structural inventory position of each trader
+      class, which is the load-bearing information.
+      W3 (regime-dependence): a crowd-fade mechanism is driven by behavioral
+      error, which is arguably less regime-dependent than macro carry or
+      momentum; the structural source (retail overconfidence + margin calls)
+      is plausibly persistent across regimes.
+      W2 (USD-concentration): COT covers AUD, CAD, GBP, EUR, JPY, CHF
+      separately — diversification across non-USD pairs is feasible.
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    approx-data-cost: >
+      $0 (CFTC COT data is free). Implementation requires only the existing
+      firm pipeline. The main cost is researcher time (~1–2 days to clean
+      and align COT with OHLCV). Paid retail positioning (Oanda fxBook
+      historical, IG client sentiment API): ~$0–$200/yr if accessible.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 4: CROSS-ASSET FACTOR BASKET (FX as ONE ingredient, not hero)
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "Demote FX to One Sleeve: Build a Multi-Asset Factor Portfolio (Carry + Momentum + Vol-Target across FX, Rates, Commodities)"
+    hypothesis: >
+      IF the carry and momentum factors are documented OOS survivors across
+      asset classes (Asness et al. 2013, "Value and Momentum Everywhere"),
+      THEN a risk-parity factor portfolio combining FX carry + rates carry +
+      commodity momentum earns gross Sharpe > 0.5 OOS with lower regime
+      dependence than any single-sleeve strategy — because the factors are
+      empirically low-correlated across asset classes even when correlated
+      within them.
+    mechanism: >
+      FX carry's documented weakness is crash-risk and regime-dependence
+      (it works during carry regimes, collapses in risk-off). The academic
+      fix is diversification ACROSS asset classes carrying the same factor
+      risk premium. When FX carry blows up (2008, 2015 CNY shock), rates
+      carry and commodity trend tend to be partially uncorrelated. The
+      firm's vol-target carry infrastructure (R5 USDJPY) is the seed; the
+      reframe is to treat it as ONE sleeve of a factor portfolio, not the
+      whole strategy. This directly addresses W2 (USD-concentration) and
+      W3 (regime-dependence) in a single architectural decision.
+    data-class-required: >
+      Treasury futures (TY, FV contracts) for rates carry sleeve — free
+      via Yahoo Finance or Quandl at daily resolution. Commodity trend
+      sleeve as per Direction 2 above. The existing FX daily OHLCV covers
+      the FX carry sleeve already. The new data class is rates futures
+      OHLCV — daily, exchange-traded, volume-inclusive.
+    cheap-feasibility-test: >
+      Replicate Asness et al. (2013) Figure 1 (equal-weighted carry +
+      momentum factor returns across 4 asset classes). Read the published
+      OOS Sharpe ratios for each sleeve and for the combined portfolio from
+      Table 1. If the reported combined Sharpe is < 0.4 (gross, before the
+      firm's costs), kill. If it is > 0.4, the feasibility question becomes
+      cost estimation: at what rebalancing frequency is rates futures carry
+      net of cost positive? Back-of-envelope: TY futures bid-ask ~0.5
+      tick, round-trip ~$15 on $130K notional = ~1bp — far below FX
+      spread cost. Kill condition: published OOS combined Sharpe < 0.4 OR
+      rates futures cost hurdle > gross edge at monthly rebalancing.
+    walls-attacked: >
+      W2 (USD-concentration): rates futures (non-USD asset class) and
+      commodity futures (independent macro factor) reduce USD-loading by
+      construction.
+      W3 (regime-dependence): multi-asset factor diversification is the
+      academically documented remedy for single-asset factor blowup.
+      W1 (cost-dominance): factor portfolios rebalance monthly or quarterly;
+      futures costs are 10–20x lower than FX spot spread per unit of
+      notional.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0 (daily Treasury/equity futures via Yahoo Finance for feasibility).
+      $420/yr Quandl for clean continuous futures if feasibility passes.
+      Institutional quality (clean rolls, intraday): $2,000–$10,000/yr.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 5: CENTRAL-BANK TEXT AS REGIME CLASSIFIER (LLM / NLP)
+  # — CHALLENGES THE CEO STEER (ML on same data = bad;
+  #   but ML on NEW data type = structurally different)
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "CB-Text Regime Classifier: LLM Embeddings of Central-Bank Statements as a Regime-Identification Tool"
+    hypothesis: >
+      IF large-language-model embeddings of FOMC/ECB/BOE/BOJ statements
+      can classify the current monetary-policy regime (hawkish tightening /
+      dovish easing / on-hold uncertain) with > 70% accuracy before
+      market pricing fully adjusts (within the first trading session post-
+      release), THEN conditioning any carry/trend signal on the CB-text
+      regime classification removes the firm's documented W3 regime-
+      dependence failure — because the classification is EXOGENOUS to the
+      price signal and captures the regime shift before the price-only
+      signal can detect it.
+    mechanism: >
+      W3 (regime-dependence) was the identified cause of the R5 carry
+      USDJPY concentration: 53–54% of gross edge came from the FOMC 2022–23
+      hiking cycle. A price-only strategy cannot know when the regime ends
+      until the price series shows it — too late. Text classification of CB
+      communications provides a leading indicator of regime transitions that
+      is ORTHOGONAL to price. The CEO steer correctly identifies "ML on
+      same data" as circular; this direction avoids that trap by changing
+      the INPUT DATA MODALITY (text, not OHLCV) while solving a specific,
+      documented structural failure. LLMs are genuinely good at text
+      classification; they are not good at price-prediction from price
+      sequences. This is the one ML/LLM use-case where the tool is
+      well-matched to the problem.
+    data-class-required: >
+      Full-text FOMC statements, minutes, and press conference transcripts
+      (free from federalreserve.gov, 1996–present). ECB press conference
+      transcripts (free from ecb.europa.eu). BOE minutes (free,
+      bankofengland.co.uk). BOJ statements (free). These are public
+      documents with no cost barrier. The LLM classifier itself can be
+      run locally (Llama 3 or similar) or via API with negligible inference
+      cost (~$0.01–$0.10 per document at current API pricing).
+    cheap-feasibility-test: >
+      (1) Download ALL FOMC statements 2010–2024 (~120 documents, free —
+      8 meetings/yr × 15 yr). (2) Auto-label each with an OBJECTIVE rule,
+      not manual judgment: label = sign of the change in the fed funds
+      target over the following 90 days (hike / cut / hold), which is known
+      history — this yields a full labeled set of ~120 with zero manual
+      effort and no labeler bias. (3) Pass all ~120 through a zero-shot LLM
+      classifier ("hawkish / dovish / neutral"). (4) Measure accuracy on the
+      full ~120-example set (NOT a 10-example subset — N=10 on a 3-class
+      problem has a ~±25-point confidence interval and cannot distinguish a
+      real classifier from chance). Kill condition: accuracy < 70% with the
+      lower bound of the 95% Wilson confidence interval still above the
+      3-class chance rate of 33%. With N≈120 the CI half-width is ~±8 points,
+      which is decisive. This is a half-day test, zero data cost, completely
+      non-committed. If classification clears, the next question — whether the
+      regime label, used as a gating filter on existing FX carry, improves
+      the carry Sharpe net of cost — is a SEPARATE future step, not this test.
+    walls-attacked: >
+      W3 (regime-dependence): the explicit stated purpose. A reliable
+      regime classifier converts a regime-dependent strategy into a
+      regime-conditioned one — the carry position scales with regime
+      confidence, not just price trend.
+      W4 (no-volume/order-flow): CB text is a fundamentally different
+      data class from price data; it carries the INTENTION of the central
+      bank before the market has had time to fully price it.
+      CHALLENGE TO CEO STEER: The CEO steer cautions against
+      "ML-on-same-data." This direction challenges that frame: LLM text
+      classification on CB communications is NOT ML-on-same-OHLCV-data.
+      The wall it attacks (W3 regime-dependence) is real and documented;
+      the tool (LLM text classification) is genuinely suited to the task
+      (classifying structured prose); the input data is categorically
+      different (unstructured text vs. price/spread). The steer is right
+      that LLMs do not add value on OHLCV — but they may add value on
+      CB text, and this distinction is load-bearing.
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    approx-data-cost: >
+      $0 for CB text data (all public). ~$5–$50 in LLM API inference
+      costs for the feasibility test and initial classifier. If a local
+      model is used (Llama 3 8B, runs on a MacBook Pro), inference cost
+      is zero after download. Annual ongoing cost: near-zero.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 6: DEFEND THE CEO STEER — CROSS-ASSET CARRY BREADTH
+  # (the steer's strongest version, steelmanned)
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "Steelman of CEO Steer: Multi-Currency Carry via EM FX + DM Rates Differentials (Factor-Harvest, Low-Turnover)"
+    hypothesis: >
+      IF the carry factor in EMERGING MARKET FX (TRY, ZAR, MXN, BRL vs.
+      USD) offers gross Sharpe ~0.6–1.0 (Lustig & Verdelhan 2007; AQR EM
+      carry basket) at monthly rebalancing — well above the cost-dominance
+      threshold even at wider EM spreads — THEN extending the firm's carry
+      framework to EM currencies addresses W2 (USD-factor-concentration)
+      and provides genuine carry yield where the interest rate differential
+      is large enough to survive transaction costs, unlike G10 carry at
+      current near-zero DM rate differentials.
+    mechanism: >
+      G10 carry's documented degradation post-2008 (rate differentials
+      near zero; all CB rates converged) is not present in EM FX. Turkey
+      (TRY), South Africa (ZAR), Brazil (BRL), and Mexico (MXN) carry
+      annual interest rate differentials of 5–40% vs USD. At monthly
+      rebalancing, the carry yield dwarfs the typical spread cost on EM
+      pairs (~10–25 pips for liquid EM majors at institutional tier),
+      making W1 (cost-dominance) less binding — especially if the strategy
+      is pure carry (swap income, not capital-gain prediction). The
+      mechanism is the same as R5 carry USDJPY (risk premium compensation)
+      but applied to a universe where the yield differential is an order
+      of magnitude larger.
+    data-class-required: >
+      EM FX daily OHLCV PLUS a HISTORICAL TIME SERIES of the carry input —
+      and the load-bearing distinction is that a backtest needs historical
+      carry, not a current spot quote. The economically clean proxy is the
+      published policy-rate / short-rate DIFFERENTIAL time series per pair
+      (e.g., BIS policy rates, or central-bank short-rate series from FRED:
+      Turkey/SA/Brazil/Mexico vs US — all free, monthly, 20+ yr), which is
+      the academic carry definition. A broker swap-rollover time series
+      (Saxo/Dukascopy) is the execution-accurate version but is generally
+      only available as a current/spot quote, NOT as a clean multi-year
+      history — so it cannot, by itself, back a historical backtest.
+      Dukascopy covers some EM pairs (USDMXN, USDZAR) at 1h for the OHLCV
+      leg; the carry leg comes from the rate-differential series.
+    cheap-feasibility-test: >
+      (1) From Lustig & Verdelhan (2007) or AQR's published carry
+      research, read the OOS Sharpe of a dollar carry basket (sorted on
+      interest rate differentials) for the post-2010 period. If the reported
+      OOS Sharpe is < 0.3, gross edge is insufficient — kill.
+      (2) COST-vs-CARRY using a HISTORICAL rate series (not a spot quote):
+      pull the FREE FRED/BIS policy-rate differential history for USDTRY,
+      USDZAR, USDMXN and take the MEDIAN annualized differential over the
+      last 10 years (this is the historical carry the backtest would
+      actually earn — using today's spot swap quote would be the exact
+      error of mistaking a point quote for a time series). Compare that
+      median to a conservative round-trip cost (~10–25 pips for liquid EM
+      majors). Kill if the 10-yr-median differential, net of modeled
+      round-trip cost at monthly rebalancing, is not comfortably positive
+      on at least 2 of the 3 pairs. Both checks: zero spend, < 1 hour. A
+      broker spot swap quote may be glanced at as a sanity check on the
+      CURRENT environment only — it is explicitly NOT the backtest input.
+    walls-attacked: >
+      W1 (cost-dominance): partially addressed by the magnitude of EM carry
+      yield (high rate differentials mean carry income > cost even at wider
+      spreads). Not fully addressed — EM spreads can spike dramatically in
+      stress; a cost-coverage gate is mandatory.
+      W2 (USD-concentration): EM FX basket deliberately spans non-JPY,
+      non-EUR macro drivers; the risk factors (EM growth, commodity prices,
+      political risk) are partially orthogonal to DM USD-factor exposure.
+      W3 (regime-dependence): EM carry IS regime-dependent (risk-off events
+      cause EM FX blowups — TRY 2018, ZAR 2016, MXN 2016). This is the
+      same crash-risk profile as DM carry but with larger expected return.
+      This direction DEFENDS the CEO steer with a clear-eyed acknowledgment
+      that it does not solve W3 — it improves the return-per-unit-of-risk
+      by widening the yield differential, not by reducing crash correlation.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    approx-data-cost: >
+      $0 for feasibility check (Saxo API, public swap rate data).
+      EM FX historical data (1h resolution, Dukascopy): accessible at
+      zero cost via the firm's existing backfill tool for pairs that
+      Dukascopy covers (USDMXN: covered; USDZAR: covered; USDTRY: check
+      coverage). Paid EM FX data with clean swap history: $500–$3,000/yr.
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DIRECTION 7 (BONUS): SELL THE HARNESS, NOT THE ALPHA
+  # The boldest reframe: accept FX retail alpha is exhausted, monetize
+  # the confirmability infrastructure itself.
+  # ─────────────────────────────────────────────────────────────────────────
+  - name: "Meta-Reframe: Monetize the Harness Not the Signal (Research-as-a-Service or Strategy Licensing)"
+    hypothesis: >
+      IF the firm's most durable competitive advantage is its
+      anti-overfitting harness (CPCV, deflated Sharpe, confirmability
+      rubric, honest-N tracking) — rather than any specific alpha signal —
+      THEN the highest-ROI path is to apply the harness to a DIFFERENT
+      market where paying clients have weaker methodology (prop trading
+      shops, family offices, startup quant funds) and either charge for
+      the verification service or license the infrastructure, rather than
+      trading on the firm's own capital.
+    mechanism: >
+      The honest finding of this firm's research program is that retail FX
+      OHLCV alpha is exhausted AS OF THE CURRENT DATA CLASS. The harness
+      itself, however, is rare: most quant funds at the sub-$50M AUM tier
+      do NOT run deflated Sharpe ratios, do NOT use combinatorial
+      purged cross-validation, and do NOT track an honest trial counter.
+      This creates an information asymmetry: the firm can credibly audit
+      and certify strategies that other shops can't self-audit. This is
+      not a trading direction — it is a business-model reframe that makes
+      the four walls irrelevant by changing what is being sold.
+    data-class-required: >
+      Not applicable — this direction requires no new data class. The
+      harness operates on whatever data a client provides.
+    cheap-feasibility-test: >
+      Market research question: are there sub-$100M quant funds or prop
+      shops actively seeking independent strategy validation? A two-week
+      outreach to 10 such shops (LinkedIn, quant forums) would surface
+      whether demand exists before any development cost. Kill condition:
+      zero expressed interest from 10 outreach contacts.
+    walls-attacked: >
+      Reframes so all four walls are irrelevant — they are FX-specific
+      constraints; this direction exits the FX market entirely.
+      The underlying meta-point: when you run into four walls in a market,
+      the most contrarian move is to change what you're selling, not what
+      you're trading.
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    approx-data-cost: >
+      $0 data cost. Business development cost: researcher time only.
+
+challenges-steer:
+  - "CB-Text Regime Classifier (Direction 5) — CHALLENGES the steer's ML caution with a specific carve-out: LLM text classification on CB communications is not 'ML on same data'; it is ML on a categorically different input addressing a documented structural failure (W3). The challenge is: the anti-ML prior should be applied modality-specifically, not categorically."
+  - "Volatility-Risk-Premium Harvest (Direction 1) — CHALLENGES the implicit assumption that 'trading FX' means predicting direction; VRP harvesting trades implied vs realized vol, not spot levels. The objective change (sell variance, not pick direction) is the most fundamental possible reframe within the FX asset class."
+  - "Sell the Harness (Direction 7) — CHALLENGES the most fundamental assumption: that the firm's goal is to find and trade alpha. A harness monetization model makes this assumption optional."
+  - "Multi-Currency EM Carry (Direction 6) — DEFENDS the CEO steer. Factor-harvesting (low-turnover carry) applied to a universe with genuine yield differentials (EM FX) is the steer's strongest valid form. The defense is explicit about what it does not solve (W3 crash-risk) and what it does (W1 partially, W2 meaningfully)."
+  - "Asset-Class Transplant (Direction 2) — DEFENDS the steer's 'factor-harvesting' framing by taking it to its logical extreme: if the factory is good but the raw material is bad, change the raw material. Commodity futures trend is the canonical example where the harness should work."
+
+honest-note: |
+  HIGHEST-CONVICTION REFRAME: Direction 2 (asset-class transplant).
+
+  The firm has spent significant research capital discovering that retail FX
+  OHLCV is an inhospitable raw material for systematic alpha. The harness —
+  the CPCV methodology, the deflated Sharpe, the honest trial counter, the
+  confirmability rubric — is the real intellectual property.
+
+  The boldest test is this: take the harness, point it at commodity futures
+  (free data, genuine volume, documented OOS trend-following evidence), and
+  run the exact same pre-registration + CPCV protocol the firm already built.
+  If the harness produces a positive finding in commodity trend-following, the
+  firm has a validated edge in a non-FX market. If it doesn't, the finding is
+  valuable too: the firm has tested the hypothesis that its methodology works
+  in principle vs. that its methodology is good and FX is just exhausted.
+  This is the experiment that would MOST efficiently distinguish between those
+  two hypotheses — and it requires near-zero data spend.
+
+  BOLDEST CHEAP TEST: Direction 5 (CB-text classifier).
+  Cost: $0, time: 2 hours, failure mode: clearly defined (< 70% accuracy).
+  If it passes, it directly addresses the firm's most documented structural
+  failure (W3 regime-dependence). It is the highest-information-per-dollar
+  test in the slate.
+
+  NOTE ON THE CEO STEER: The steer (factor-harvesting, not faster/HFT) is
+  well-grounded. The contrarian amendment is: the steer should be read as
+  "factor-harvest in a market WHERE FACTORS ACTUALLY WORK" — which may not
+  be retail FX on any new data class; it may be commodity futures or a
+  multi-asset sleeve. The steer is right about the mechanism and wrong about
+  limiting the target market to FX.
+
+sources:
+  - "Carr & Wu (2009) — 'Variance Risk Premiums' — Journal of Finance"
+  - "Menkhoff, Sarno, Schmeling, Schrimpf (2012) — 'Carry Trades and Global Foreign Exchange Volatility' — Journal of Finance"
+  - "Hurst, Ooi, Pedersen (2017) — 'A Century of Evidence on Trend-Following Investing' — Journal of Portfolio Management"
+  - "Asness, Moskowitz, Pedersen (2013) — 'Value and Momentum Everywhere' — Journal of Finance"
+  - "Lustig & Verdelhan (2007) — 'The Cross Section of Foreign Currency Risk Premia and Consumption Growth Risk' — American Economic Review"
+  - "CFTC Commitments of Traders (COT) report — https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm"
+  - "Park & Irwin (2007) — 'What Do We Know About the Profitability of Technical Analysis?' — Journal of Economic Surveys (95 studies meta-analysis)"
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md — binding NO-EDGE wall; all 84 pair×family combos net SR < 0"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md — cost-dominance wall; F1-F6 retired-as-saturated"
+  - "forex-trading SKILL.md evidence layer — CFTC ~2/3 retail-loss base rate; carry + momentum as documented OOS factors with cost caveats"
+
+no-capital-instruction: true

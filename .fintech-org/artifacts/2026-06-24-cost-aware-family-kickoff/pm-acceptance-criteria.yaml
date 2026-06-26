@@ -1,0 +1,255 @@
+role: pm
+artifact_type: acceptance-criteria
+decision: implement
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-pm
+task-statement: >
+  Fix OPEN-ITEM-F001, design >=1 cost-feasible lower-turnover/event-conditioned
+  candidate family, run cheap cost-feasibility verdict. No committed backtest.
+deliverable-type: strategy-design
+deadline: "2026-06-26T00:00:00Z"
+instrument-universe:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - EURJPY
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  - EURGBP
+  - AUDJPY
+
+hard-constraints:
+  - "COST-FEASIBILITY-GATE-FIRST: the CD0 cost-feasibility screen is the FIRST gate.
+    No pair acquisition, no rho_bar recompute, and no further infrastructure work may
+    precede a feasibility verdict on any candidate family. Gate definition: estimated
+    gross-edge-per-trade (pips) must plausibly exceed round-trip cost-per-trade =
+    spread_median_pips (real per-bar, from parquet) + 2×(0.25 slip + 0.15 paper
+    haircut) = spread_median_pips + 0.80 pips. Feasibility-PASS requires gross-edge-per-
+    trade > RT-cost-per-trade for the candidate's trading style (holding period,
+    expected fires/yr); STRETCH is a qualitative near-miss with explicit margin disclosure."
+
+  - "F-001-FIX-PRECONDITION: before the cost-feasibility screen executes, Quant Developer
+    MUST fix scripts/compute_9pairs_readiness.py lines 228-231/260-261/374-377 — the
+    reversal cost under-count. A position flip +1→−1 or −1→+1 MUST be charged 2 round-
+    trips (close existing leg + open new leg). The current binary change-flag charges 1.
+    The fix is a pre-condition for any cost-screen run this cycle. Fix must be verified by
+    an independent assertion: charge a synthetic +1→−1→0 sequence and confirm 3 half-
+    spreads are deducted (2 RT for the flip + 1 RT for the close)."
+
+  - "N-EFF-LABEL-FIX (F-002): QD must also reconcile the N_eff label mismatch in lines
+    160-167 of the same script (reported k/λ_max = 2.11 vs the amendment-scaled ~6,976)
+    before the script's output feeds any power or deflation calculation."
+
+  - "CANDIDATE-FAMILY-CONSTRAINT: the candidate family MUST be genuinely different from
+    the retired F1-F6 canonical families (hourly-reversal, session-open-mom, intraday-
+    mom-3, vol-breakout, london-am-drift, spread-filt-reversal). Acceptable directions:
+    event-conditioned entries (scheduled-event windows, session-open with a hard volatility
+    or spread filter), longer holds (multi-session or swing), or a cost-aware rule that only
+    fires when an estimated gross edge per trade exceeds the cost hurdle. NOT acceptable:
+    a price-only high-frequency variant of any retired family, or adding a 10th pair."
+
+  - "EXCLUDE-NOT-IMPUTE: cost screen must use real per-bar spread data from parquet.
+    Zero-spread or missing-spread bars are EXCLUDED, never imputed. EURGBP and AUDJPY
+    are confirmed ADMIT (zero zero/missing spread bars per DQ manifest in CONSENSUS.md).
+    Pip convention: use pair-native pips (JPY pairs = 0.01; all others = 0.0001) — do not
+    apply uniform 0.0001 to JPY pairs (F-005 error must not propagate)."
+
+  - "HONEST-N-PRESERVED: honest_N = 30 (ratified 2026-06-18, stable through 2026-06-24
+    9-pairs-landed NO-SPEND). The trial counter MUST NOT increment this cycle.
+    This is a DESCRIPTIVE feasibility screen, not a committed pre-registered backtest.
+    No entry with counts_toward_deflation_denominator: true may be appended to
+    trials.jsonl this cycle. Any trials.jsonl entry appended must explicitly carry
+    counts_toward_deflation_denominator: false and event: descriptive-feasibility-screen."
+
+  - "NO-COUNTED-TRIAL-THIS-CYCLE: firm rule 4 (pre-registration before any committed CPCV
+    backtest) holds. A committed pre-registration is NOT in scope this cycle. Pre-
+    registration happens only in a FUTURE cycle IF a candidate clears feasibility-PASS
+    or STRETCH and CEO authorizes the advance."
+
+  - "NO-LIVE-CAPITAL / PAPER-ONLY: no live capital deployment of any kind. Research and
+    paper-trading modes only."
+
+  - "GBPJPY-EXCLUDED: GBPJPY is not in scope (HoQR R3, ratified in CONSENSUS). Do not
+    screen, design for, or acquire GBPJPY this cycle."
+
+  - "NO-F1-F6-RERUN: retired F1-F6 canonical families on 1h data must NOT be re-run with
+    any framing that could be construed as a new candidate. Machine-checkable retirement
+    condition met: max net SR = -1.56 across 54 pair×family combos in two independent
+    cycles (78 total evaluations), 3.00 SR units below STRETCH."
+
+criteria:
+  - "F-001-FIXED-AND-VERIFIED: scripts/compute_9pairs_readiness.py updated so a +1→-1
+    flip is charged 2 round-trips. Verification: a unit assertion on a synthetic
+    [+1, -1, 0] position sequence confirms 3 half-spread deductions. QD documents the
+    specific lines changed and the assertion output."
+
+  - "F-002-RECONCILED: N_eff label in the script is reconciled with the 2026-06-19
+    amendment definition. Either (a) the label is corrected to 'effective_bets_count'
+    (k/λ_max = 2.11 framing) with a note that N_raw-scaled N_eff* is a separate statistic,
+    OR (b) the script computes both and labels each unambiguously. QD documents the
+    reconciliation."
+
+  - "CANDIDATE-FAMILY-DESIGNED: at least 1 candidate family is fully specified as a
+    declarative TradeIntent artifact — pair scope, entry trigger (event-conditioned or
+    volatility-filtered or cost-gated), hold period, exit rule, estimated gross edge
+    basis (in pips per trade, with derivation rationale), estimated fires/yr per pair.
+    NO implementation code authored by the quant-researcher. The design must articulate
+    WHY this family's gross-edge-per-trade plausibly exceeds the RT-cost hurdle — the
+    feasibility hypothesis must be explicit."
+
+  - "COST-FEASIBILITY-VERDICT-PER-CANDIDATE: for each candidate family, the CD0 screen
+    produces a structured record with: (a) estimated trades/yr per pair, (b) estimated
+    gross pips/trade, (c) RT cost/trade in pips (using F-001-fixed code, real spreads,
+    pair-native pips), (d) gross-minus-cost margin in pips, (e) explicit verdict:
+    PASS / STRETCH / FAIL with deciding numbers. STRETCH must disclose margin."
+
+  - "ADVANCE-OR-KILL-DECISION: Head of Quant Research issues an explicit advance-or-kill
+    direction call: (a) ADVANCE — at least 1 candidate clears PASS or STRETCH; authorize
+    candidate for pre-registration in a future cycle; or (b) KILL — no candidate clears
+    feasibility; state the binding constraint and recommended next action."
+
+  - "NHT-NULL-EVALUATED: NHT evaluates whether any candidate's posited gross-edge-per-trade
+    rationale survives the cost null (gross edge = 0, indistinguishable from random on
+    available evidence). NHT dissent is append-only and verbatim-preserved in the consensus
+    artifact if filed."
+
+  - "TRIAL-COUNTER-UNCHANGED: trials.jsonl confirmed honest-N = 30 after this cycle;
+    any new entries carry counts_toward_deflation_denominator: false. PM verifies."
+
+  - "CRO-STRUCTURED-FIELDS-COMPLETE: CRO artifact contains all required structured fields
+    (instrument_universe, hard_constraints, cost_hurdle, no_live_capital,
+    no_counted_trial_this_cycle, honest_N). No rationale embedded in CRO task statement."
+
+  - "PR-REVIEWED: Principal Reviewer issues a single-wave review verdict. Blocking finding
+    count documented. Any F-001 fix is independently spot-checked (verify the unit
+    assertion output, not just the code change)."
+
+  - "CONSENSUS-AUTHORED: PM synthesizes a CONSENSUS artifact in
+    .fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md capturing:
+    design, feasibility verdict with deciding numbers, HoQR advance/kill, NHT dissent
+    (verbatim if filed), PR verdict, CRO position, trial-counter confirmation. Append-only."
+
+out-of-scope:
+  - "Committed CPCV backtest or counted pre-registration this cycle — authorized only in a
+    FUTURE cycle if a candidate clears feasibility and CEO authorizes."
+  - "Live capital deployment of any kind."
+  - "Pair acquisition (GBPJPY or any new pair)."
+  - "Re-running retired F1-F6 canonical families on 1h data as new candidates."
+  - "rho_bar_eff / G5 concentration gate recompute (moot until a cost-feasible candidate
+    exists — a concentration gate over an empty edge set certifies nothing, per CONSENSUS)."
+  - "Implementation code authored by quant-researcher (declarative TradeIntent only)."
+  - "BGPJPY — explicitly excluded per HoQR R3."
+  - "Sub-1h data acquisition or volume-conditioned families that require new data not yet
+    in the 9-pair parquet store."
+
+roles-staffed:
+  - "quant-researcher: authors the candidate family design as a declarative TradeIntent
+    specification with explicit gross-edge-per-trade rationale; produces the feasibility
+    hypothesis. NO code."
+  - "quant-developer: fixes F-001 (reversal cost under-count) and F-002 (N_eff label),
+    verifies the fix with a unit assertion, then runs the CD0 cost-feasibility screen
+    on each candidate family using the corrected code and real per-bar spreads."
+  - "head-of-quant-research: reviews candidate family designs before screen; issues
+    advance-or-kill direction call after feasibility verdict; owns the strategic finding."
+  - "cro: receives structured fields only (instrument-universe, hard-constraints, cost hurdle,
+    no-live-capital, honest-N, no-counted-trial); produces disjoint structured risk position.
+    No rationale in task statement."
+  - "null-hypothesis-tester: mandatory structural skeptic; evaluates whether each candidate's
+    gross-edge rationale survives the cost null; files verbatim append-only dissent if any
+    claim fails the null. Non-blocking unless a pre-declared threshold is crossed."
+  - "principal-reviewer: independent single-wave review of F-001 fix (spot-check unit
+    assertion), candidate design spec, and feasibility verdict numbers; issues approve-or-
+    blocking verdict."
+  - "pm (this role): authors acceptance criteria; coordinates sequencing; synthesizes
+    CONSENSUS; preserves dissent verbatim; does NOT make technical calls."
+
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/CONSENSUS.md — Board-ratified NO-SPEND
+    consensus; source of F1-F6 retirement condition, F-001/F-002 findings, R1/R2
+    recommendations, honest-N=30 confirmation, and NHT dissent."
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/principal-reviewer.yaml — F-001 (major),
+    F-002 (minor), F-004, F-005 findings with line references."
+  - "scripts/compute_9pairs_readiness.py — the script carrying F-001 (lines 228-231,
+    260-261, 374-377) and F-002 (lines 160-167); QD's fix target."
+  - ".fintech-org/trials.jsonl — honest-N = 30 (ratified honest-n-classification entry
+    2026-06-18; confirmed unchanged through 2026-06-24)."
+
+assumptions:
+  - "9-pair parquet store (including EURGBP and AUDJPY, ADMIT per DQ manifest) is
+    accessible and unchanged from the 2026-06-24 landing session."
+  - "The 1h data covering 2021-01-03 to 2025-12-31 is the operative backtest window;
+    no new data ingestion is required for the feasibility screen."
+  - "The cost model (spread_median_pips + 0.80 pips RT overhead) is the same model
+    used in the 2026-06-24 CD0 screen; any change requires CRO sign-off."
+  - "Quant-researcher produces a declarative design that can be implemented by QD without
+    back-and-forth; if the design is ambiguous, QD flags and HoQR arbitrates before the
+    screen runs (not after)."
+  - "HoQR advance-or-kill call is made after — not before — the QD feasibility screen
+    numbers are available."
+  - "This cycle's scope does NOT resolve C-i (HoQR sign-off that 0.001 proxy clearance
+    is acceptable as G5 input) — C-i remains OPEN and moot until a confirmable signal
+    series exists."
+
+confidence: high
+
+body: |
+  ## Coordination notes
+
+  ### Sequencing (hard order)
+  1. QD fixes F-001 and F-002 in scripts/compute_9pairs_readiness.py and verifies with
+     unit assertion. Quant-researcher designs candidate family in parallel (no dependency).
+  2. HoQR reviews the declarative design. If design passes sanity, QD runs the CD0 screen
+     with F-001-fixed code.
+  3. NHT evaluates feasibility hypothesis vs the cost null simultaneously with or
+     immediately after QD screen.
+  4. HoQR issues advance-or-kill based on QD numbers + NHT evaluation.
+  5. PR single-wave review of F-001 fix, design spec, and screen numbers.
+  6. CRO issues structured risk position.
+  7. PM synthesizes CONSENSUS.md.
+
+  No committed backtest may be initiated in any step. Firm rule 4 holds throughout.
+
+  ### CRO firewall
+  The CRO task statement contains ONLY structured fields: instrument-universe,
+  hard-constraints, cost-hurdle definition, no-live-capital flag, honest-N=30,
+  no-counted-trial-this-cycle. No rationale, no framing, no strategy description.
+  This is enforced by PM at dispatch time. The CRO synthesizes risk from the
+  structured fields; any rationale crossing the firewall is a violation.
+
+  ### Feasibility-gate definition (machine-checkable)
+  - PASS: gross_edge_per_trade_pips > RT_cost_per_trade_pips for the candidate's
+    holding-period regime, using real per-bar spread_median_pips from parquet,
+    pair-native pip conventions, and F-001-fixed reversal-cost accounting.
+  - STRETCH: gross_edge_per_trade_pips is within 20% of RT_cost_per_trade_pips
+    with explicit margin and uncertainty disclosure.
+  - FAIL: gross_edge_per_trade_pips <= 80% of RT_cost_per_trade_pips, or the
+    gross-edge rationale is based on an untestable or unfalsifiable claim.
+
+  ### Why this is non-counting by design (R1's point)
+  The 2026-06-24 CONSENSUS found that all 54 canonical-family combos fail by 3.00
+  SR units. The binding constraint is cost-dominance on HIGH-TURNOVER price-only
+  families. R1's insight: running a CPCV backtest on a family that can't pass the
+  cost-feasibility screen wastes the trial counter and inflates the DSR denominator
+  (honest-N penalty) for a result that is knowable cheaply. The feasibility screen
+  IS the cheap decisive test; it produces a verdict without consuming honest-N.
+  Pre-registration and honest-N increment happen only if and when feasibility clears.
+
+  ### Open items NOT in scope this cycle
+  - C-i (rho_bar proxy conservatism sign-off): moot until a signal series exists.
+  - GBPJPY acquisition: explicitly held per HoQR R3.
+  - F1-F6 re-examination: retired-as-saturated per machine-checkable condition.
+  - H1 un-freeze: prohibited while CD0 net SR = 0 positive candidates exist.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/principal-reviewer.yaml"
+  - "scripts/compute_9pairs_readiness.py"
+  - ".fintech-org/trials.jsonl"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

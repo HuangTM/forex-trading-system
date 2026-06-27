@@ -1,0 +1,38 @@
+artifact_type: position-reconciliation
+addressed_condition: C2 (CRO) — close the GBPJPY/CADJPY SIM forensics gap; produce a dated net-zero-of-record
+written_at: "2026-06-27T06:45:00Z"
+status: reconciled-from-record  # fresh live pull deferred to user (no SAXO_TOKEN in this environment)
+
+finding: NET-ZERO confirmed on all pairs as of the authoritative inventory of record.
+evidence:
+  - file: data/saxo_positions_raw_2026-04-26.json
+    fetched_at: "2026-04-27T03:43:02Z"
+    net_positions_raw: "list length 0 (empty)"
+    all_positions_raw: "Count 0, Data length 0"
+    cash_balance: 1000809.25
+    total_value: 1001502.63
+    interpretation: >
+      The 3 JPY pairs (USDJPY/GBPJPY/CADJPY) — including the GBPJPY/CADJPY paper legs
+      that the 2026-04-17 multi_strategy log carried as 'existing positions' and which
+      CRO flagged as 'already absent at the 04-26 inventory with no logged flatten' —
+      are NOT present in this inventory. An empty positions array IS a net-zero-of-record.
+      The earlier USDJPY LONG 1,125,832 was closed via OrderId 5037989398 (+135,100 EUR
+      realized) per data/kill_switch_audit.log (2026-04-27 FLAT_AND_HALTED).
+  - file: data/kill_switch_audit.log
+    note: "Account state FLAT_AND_HALTED, net_zero_confirmed:true. Kill switch remains HALTED."
+
+residual_gap: >
+  No EXPLICIT per-leg flatten log exists for the small GBPJPY/CADJPY paper legs; they are
+  reconciled only by their absence from the 2026-04-27 zero inventory (a net-zero-of-record,
+  not a logged close event). Quantum was tiny and SIM-only. Live-capital invariant intact.
+
+action_required_by_human:
+  reason: "A TODAY-fresh inventory requires a live Saxo SIM token, which is not present in this environment (SAXO_TOKEN unset)."
+  command: "export SAXO_TOKEN=<24h SIM token from https://www.developer.saxo/openapi/token> && python scripts/saxo_position_inventory.py --token $SAXO_TOKEN"
+  expectation: "Confirm Count=0 / empty positions (matching the record). Keep the kill switch HALTED."
+
+disposition: >
+  C2 is reconciled from the authoritative record (net-zero confirmed; live-capital invariant
+  intact). A fresh live pull is the only step not executable without the user's authenticated
+  Saxo session and is deferred to the user. Non-blocking for the Phase 0 closure, which makes
+  no capital action.

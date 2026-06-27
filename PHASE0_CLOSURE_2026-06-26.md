@@ -113,13 +113,19 @@ It was never blocked on process, code, or discipline. The governance machinery (
 
 ## Cleanup items (ledger hygiene)
 
-- **`.fintech-org/trials.jsonl` line 24 (trial `87fa1d23` "momentum") still reads
-  `"verdict": "passed"`** despite the later DSR-deflation correction (line 36 supersedes
-  it with `"verdict": "rejected"`; DSR recomputed 0.999 → ~0.13, below gate). This is
-  the SOLE stale `"passed"` row — grep confirms `verdict "passed"` appears only on line
-  24 (PR ratification corrected an earlier draft that wrongly implicated lines ~36/46/50).
-  Recommend reconciling line 24 (mark deprecated in place) so a future Phase 1 screen
-  cannot read a corrected-down trial as a standing pass.
+- **[FIXED 2026-06-27, C4] `.fintech-org/trials.jsonl` line 24 (`87fa1d23` "momentum")
+  stale `"verdict": "passed"`** — reconciled in place (append-only): added
+  `superseded: true`, `standing: false`, `final_verdict: rejected`, and a `superseded_by`
+  pointer to the 2026-06-02 DSR correction; the original `verdict: "passed"` is retained
+  for audit. A `verdict==passed AND standing` screen now matches 0 rows; all 64 entries
+  remain valid JSON. (This was the SOLE stale `"passed"` row; PR corrected an earlier
+  draft that wrongly implicated lines ~36/46/50.)
+- **[RECONCILED-FROM-RECORD 2026-06-27, C2] SIM position reconciliation** — the
+  authoritative inventory (`data/saxo_positions_raw_2026-04-26.json`, fetched 2026-04-27)
+  shows Count=0 / empty positions → NET-ZERO on all pairs incl GBPJPY/CADJPY; account
+  FLAT_AND_HALTED, live-capital invariant intact. A today-fresh live pull needs the user's
+  `SAXO_TOKEN` (deferred; command in `c2-position-reconciliation.yaml`). Non-blocking —
+  closure makes no capital action.
 - **[FIXED 2026-06-27] HARNESS BUG — `run_phase1_revalidate.py` capital inconsistency**
   (NHT, B1): the script ran the candidate at $1M but the null-gate/walk-forward/arson
   controls at the $100k default, where `ContinuousSizer.min_order_size` zeroes all

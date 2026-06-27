@@ -4,10 +4,14 @@
 #     SYNTHETIC GBM data (USDJPY values ~6.47 vs real ~159). It does NOT hold.
 #
 # REAL-DATA REVALIDATION (scripts/run_phase1_revalidate.py, 2026-06-26):
-#   Portfolio Sharpe:     0.04   (claim was 0.59)
+#   Portfolio Sharpe:     0.04   (claim was 0.59; candidate run at $1M)
 #   Annual return:        0.01%
-#   Null-hypothesis gate: FAILED all 3 pairs (p=1.000 — worse than random)
-#   Walk-forward:         avg SR 0.00, Consistent: NO
+#   Sizing robustness:    continuous vol-target at $1M gives per-pair 0.06/0.32/-0.16
+#                         (avg ~0) — no edge regardless of sizing mode.
+#   Null-hypothesis gate: FAILS (fair test, randoms at $1M: ~20-28th pct, p≈0.98).
+#                         NOTE: the script's printed "p=1.000/WF 0.00/arson 0.00" are
+#                         a $100k-default min-order-size artifact, NOT no-edge evidence
+#                         — see PHASE0_CLOSURE harness-bug item. Fair test still fails.
 #   Cost-sensitivity:     NOT cost-bound (~5 trades/yr; Sharpe moves <0.07
 #                         across retail→frictionless). NO-EDGE result, not a
 #                         cost result — cheaper execution does not save it.
@@ -15,6 +19,14 @@
 # Disposition: retained as a falsification record only. See PHASE0_CLOSURE_2026-06-26.md.
 # Superseded prior header (kept for audit):
 #   "Phase 1 Validated | Sharpe 0.59 (16 years) | WF consistent | null passed p=0.000"
+
+# Machine-readable deploy block — enforced by core.config.assert_deployable().
+# Deployment entrypoints (run_paper_trading, run_multi_strategy) HARD-FAIL on this;
+# backtests/research load it freely. This is the control behind the DO-NOT-DEPLOY label.
+deploy_status:
+  status: FALSIFIED
+  do_not_deploy: true
+  reason: "Real-data revalidation Sharpe 0.04 (claim 0.59 was synthetic-data); fails null gate. Ratified 2026-06-26. See PHASE0_CLOSURE_2026-06-26.md."
 
 system:
   name: "jpy-carry-momentum"

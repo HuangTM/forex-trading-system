@@ -34,7 +34,8 @@ import requests
 
 from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
-from forex_system.core.config import load_config
+from forex_system.core.config import assert_deployable, load_config
+from forex_system.core.errors import ConfigError
 from forex_system.core.types import Direction
 from forex_system.features.registry import compute_indicators
 from forex_system.risk.kill_switch import KillSwitch, TriggerReason
@@ -48,7 +49,10 @@ from forex_system.strategies.carry_momentum import CarryMomentumStrategy
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = "config/carry_momentum_portfolio.yaml"
+# No default config: there is no validated strategy to deploy (Phase 0 closed
+# negative, 2026-06-26). A config must be passed explicitly, and it must not be
+# flagged FALSIFIED/DO-NOT-DEPLOY (enforced by assert_deployable below).
+DEFAULT_CONFIG = None
 REBALANCE_THRESHOLD = 0.20  # Rebalance if target differs from current by >20%
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)  # No notifications between 8pm and 8am local time
@@ -370,8 +374,10 @@ def main():
                             help="Static bearer token (24h dev token)")
     auth_group.add_argument("--oauth", metavar="CLIENT_ID",
                             help="OAuth PKCE login with Saxo client_id")
-    parser.add_argument("--config", default=DEFAULT_CONFIG,
-                        help=f"Config file path (default: {DEFAULT_CONFIG})")
+    parser.add_argument("--config", required=True,
+                        help="Config file path (required; no default — Phase 0 has no deployable strategy)")
+    parser.add_argument("--force-falsified", action="store_true",
+                        help="Override the DO-NOT-DEPLOY guard for a FALSIFIED config (NOT recommended)")
     parser.add_argument("--auto", action="store_true",
                         help="Auto-approve all trades (Supervised mode)")
     parser.add_argument("--loop", action="store_true",
@@ -394,6 +400,12 @@ def main():
 
     # Load config from YAML
     config = load_config(args.config)
+    # DEPLOY GUARD (CRO C1): refuse to paper/live-trade a FALSIFIED/DO-NOT-DEPLOY config.
+    try:
+        assert_deployable(config, force=args.force_falsified)
+    except ConfigError as e:
+        print(f"Error: {e}")
+        sys.exit(2)
     portfolio_pairs = config.pair_symbols
     strategy_cfg = next(
         (s for s in config.strategies if s.name == "carry_momentum"), None,

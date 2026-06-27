@@ -19,11 +19,25 @@ answer: NO. Closed with a negative result. No strategy validated across 60 trial
   not fixable by execution venue, broker, or further parameter search.
 
 evidence:
-  - scripts/run_phase1_revalidate.py (REAL-DATA run 2026-06-26): equal-weighted
-    USDJPY/GBPJPY/CADJPY portfolio Sharpe = 0.04 (claim was 0.59); annual return
-    0.01%; null-hypothesis gate FAILED all 3 pairs (p=1.000, rank 0.0% — worse than
-    random shuffles); walk-forward avg SR 0.00, Consistent = NO. Per-pair Sharpe:
-    USDJPY 0.16, GBPJPY -0.21, CADJPY 0.10.
+  - scripts/run_phase1_revalidate.py (REAL-DATA run 2026-06-26, candidate at $1M):
+    equal-weighted USDJPY/GBPJPY/CADJPY portfolio Sharpe = 0.04 (claim was 0.59);
+    annual return 0.01%; per-pair Sharpe USDJPY 0.16, GBPJPY -0.21, CADJPY 0.10.
+    CORROBORATED (NHT ratification 2026-06-26): continuous vol-target sizing at $1M
+    gives per-pair 0.06 / 0.32 / -0.16 (avg ~0) — the no-edge result is ROBUST to
+    sizing mode, not an artifact of fixed-unit positions.
+  - EVIDENCE CORRECTION (NHT, blocking-on-document): the null-hypothesis gate, walk-
+    forward, and arson outputs as printed by run_phase1_revalidate.py are DEGENERATE
+    artifacts of a capital/min-order-size mis-specification — the candidate runs at
+    $1M but the gate/WF/arson controls run at the $100k default, where
+    ContinuousSizer.min_order_size=1000 zeroes EVERY position (base_size ~175-350
+    units < floor). So the printed "p=1.000, rank 0.0%, worse than random / WF 0.00 /
+    arson all-0.00" are NOT evidence of no-edge. A FAIR null test (randoms also at
+    $1M) ranks the candidate at the ~20-28th percentile (p≈0.98) — it STILL fails the
+    95% gate, so the directional conclusion holds, but "worse than random" is FALSE.
+    HARNESS BUG FILED: run_phase1_revalidate.py must pass initial_capital consistently
+    to gate/WF/arson; left unfixed this bug could manufacture a false POSITIVE in the
+    opposite direction. The no-edge conclusion rests ONLY on the valid evidence: the
+    $1M headline 0.04, the continuous-mode replication, and the intraday cost wall.
   - scripts/run_phase1_revalidate.py docstring: the original "Sharpe 0.59 / Validated
     2026-04-07" was computed on SYNTHETIC GBM data (USDJPY values ~6.47 vs real ~159).
     The headline never held on real data.
@@ -38,11 +52,11 @@ evidence:
     CarryMomentumStrategy.generate_signals, fixed-unit + magnitude-aware): portfolio
     Sharpe moves only ~0.06-0.07 across retail(5-7.5pip)→frictionless. ~5 trades/yr →
     cost is structurally NOT the binding constraint for the daily framework.
-  - .fintech-org/trials.jsonl: 60 ledger entries, 0 with verdict "validated",
-    honest-N = 30. (Ledger-hygiene caveat: trial 87fa1d23 "momentum" still reads
-    verdict "passed" in the ledger though ceo-digest records it later corrected/
-    retired after a DSR-deflation fix — the ledger row was never updated. See
-    Cleanup items below.)
+  - .fintech-org/trials.jsonl: 64 registry objects (60 with trial_id; the rest are
+    event rows), 0 with verdict "validated", honest-N = 30. (Count corrected post-
+    merge per PR ratification; the pre-merge doc said 60. Ledger-hygiene caveat:
+    trial 87fa1d23 "momentum" still reads verdict "passed" though ceo-digest records
+    it later corrected/retired after a DSR-deflation fix. See Cleanup items below.)
   - .fintech-org/ceo-digest.jsonl (2026-06-26): trend-on-futures FROZEN pre-reg fires
     F7 DO-NOT-RUN; "binding constraint is statistical CONFIRMABILITY of any modest-Sharpe
     edge at this scale/horizon — ARITHMETIC not data-class." Return to OBSERVE-ONLY.
@@ -86,20 +100,40 @@ It was never blocked on process, code, or discipline. The governance machinery (
 
 ## Phase 0 disposition
 
-- **Status:** CLOSED — negative result. No live capital. No strategy graduates.
-- **Honest-N preserved at 30.** This closure spends no trial.
-- **Retained as falsification records:** all 60 trial entries, the corrected `carry_momentum_portfolio.yaml`, the CD0 screens, and this document.
+- **Status:** RATIFIED-WITH-DISSENT (NHT/CRO/HoQR/PR quorum, 2026-06-26) — negative
+  result. No live capital. No strategy graduates. Two blocking conditions remain open
+  before this is archive-clean: the harness-capital bug fix and the loader DO-NOT-DEPLOY
+  enforcement (see Cleanup items + ratification artifact).
+- **Closure is NOT authorization to deploy or to reset the kill switch** (CRO C3). The
+  no-live-capital invariant stays in force; the Saxo account remains HALTED/flat-of-record
+  through and after closure. Last inventory: position_count 0 (saxo_positions_2026-04-26.json).
+- **Honest-N preserved at 30.** This closure (and its ratification) spends no trial.
+- **Retained as falsification records:** all trial entries, the corrected `carry_momentum_portfolio.yaml`, the CD0 screens, this document, and the ratification artifact + NHT dissent.
 - **The engineering is sound and reusable:** clean-architecture engine, sacred no-lookahead test, realistic cost model, walk-forward, null-hypothesis gate, confirmability rubric, falsification ledger. A genuine asset for any future phase.
 
 ## Cleanup items (ledger hygiene)
 
-- **`.fintech-org/trials.jsonl` row for trial `87fa1d23` ("momentum") still reads
-  `"verdict": "passed"`** despite the later DSR-deflation correction recorded in
-  ceo-digest (DSR 0.999 → ~0.13, below gate). The ledger row was never reconciled
-  to the corrected outcome. Other rows may carry similarly stale `"passed"` verdicts
-  (lines ~36, ~46, ~50). Recommend a one-pass ledger reconciliation so the registry
-  reflects final, post-correction verdicts — otherwise a future reader (or a Phase 1
-  hypothesis screen) could treat a corrected-down trial as a standing pass.
+- **`.fintech-org/trials.jsonl` line 24 (trial `87fa1d23` "momentum") still reads
+  `"verdict": "passed"`** despite the later DSR-deflation correction (line 36 supersedes
+  it with `"verdict": "rejected"`; DSR recomputed 0.999 → ~0.13, below gate). This is
+  the SOLE stale `"passed"` row — grep confirms `verdict "passed"` appears only on line
+  24 (PR ratification corrected an earlier draft that wrongly implicated lines ~36/46/50).
+  Recommend reconciling line 24 (mark deprecated in place) so a future Phase 1 screen
+  cannot read a corrected-down trial as a standing pass.
+- **[FIXED 2026-06-27] HARNESS BUG — `run_phase1_revalidate.py` capital inconsistency**
+  (NHT, B1): the script ran the candidate at $1M but the null-gate/walk-forward/arson
+  controls at the $100k default, where `ContinuousSizer.min_order_size` zeroes all
+  positions. Fixed by passing `initial_capital=INITIAL_PER_PAIR` to all three. Re-ran:
+  null gate now rank 28.0/20.5/28.0%, p=0.982–0.993 (still FAILS the 95% gate); WF
+  −0.02/−0.03/−0.15; arson non-degenerate. Matches the fair-test figures; conclusion
+  unchanged. (The corrected evidence above already reflects these numbers.)
+- **[FIXED 2026-06-27] ENFORCEMENT — the DO-NOT-DEPLOY label is now a control** (CRO C1,
+  B2): added a machine-readable `deploy_status:` block to the config and a
+  `core.config.assert_deployable()` guard wired into both live loops
+  (`run_paper_trading.py`, `run_multi_strategy.py`); removed the falsified `DEFAULT_CONFIG`
+  (`--config` is now required). Verified: deployment refuses the falsified config (exit 2),
+  allows clean configs, `--force-falsified` overrides with a loud log, and backtests still
+  load it freely. 56 config tests pass.
 - This does not change the Phase 0 verdict: even counting every `"passed"` row at
   face value, none survived its later correction and 0 carry the `"validated"` mark.
 

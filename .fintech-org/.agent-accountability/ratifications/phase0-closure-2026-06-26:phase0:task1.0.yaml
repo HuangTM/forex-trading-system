@@ -1,0 +1,90 @@
+schema_version: "1.0"
+v04_extension_version: "1.0"
+artifact_type: ratification
+track_id: phase0-closure-2026-06-26
+addressed_unit: phase0-closure-2026-06-26:phase0:task1.0
+written_at: "2026-06-27T05:40:00Z"
+approver:
+  role_or_human: role
+  name: "null-hypothesis-tester,cro,head-of-quant-research,principal-reviewer"
+  authority_basis: "Distributed quorum under the autonomous default (v0.6.0) per protocols/distributed-ratification.md; CRO required (risk/relabel in scope) and signed."
+decision:
+  outcome: ratified_with_dissent
+  rationale: |
+    The DECISION to close Phase 0 with a negative result is RATIFIED by all four roles.
+    NHT attempted refutation four ways (fair null gate, continuous sizing, intraday
+    gross-edge, ledger audit) and FAILED to break it: the daily carry-momentum config
+    has no edge at deployable scale (portfolio Sharpe 0.04 at $1M; continuous vol-target
+    replication 0.06/0.32/-0.16, avg ~0), and the intraday CD0 families are cost-destroyed
+    (0/54 net-positive). CRO confirms the live/SIM book is FLAT of record (account HALTED)
+    and that false-positive risk (deploying a falsified strategy) dominates decisively.
+    HoQR confirms consistency with the prior arc (Board OBSERVE-ONLY 2026-06-25;
+    trend-futures DO-NOT-RUN 2026-06-26) and sound Phase 1 scope. honest-N stays 30 — no
+    trial spent.
+
+    TWO BLOCKING CONDITIONS apply to the DOCUMENT/ENFORCEMENT, not the decision:
+    (B1, NHT) the closure's null-gate / walk-forward / arson evidence were degenerate
+    artifacts of a $100k-default min-order-size bug in run_phase1_revalidate.py (candidate
+    runs at $1M; controls at $100k where ContinuousSizer.min_order_size=1000 zeroes all
+    positions). "p=1.000 / worse than random" is FALSE; fair test (randoms at $1M) ranks
+    the candidate ~20-28th percentile (p≈0.98), still failing the 95% gate. Corrected in
+    PHASE0_CLOSURE_2026-06-26.md + config header; harness bug filed.
+    (B2, CRO C1) the DO-NOT-DEPLOY relabel is a comment the loader ignores —
+    run_paper_trading.py:51 defaults to the falsified config with no guard. Must enforce
+    in code + drop the default. NOT YET IMPLEMENTED (code change; own PR pass).
+    NHT dissent preserved verbatim in linked CONSENSUS (append-only, rule 6).
+accountable_party:
+  role_or_human: agent
+  name: "fintech-org orchestrator (autonomous default)"
+linked_dissents:
+  - path: ../../artifacts/2026-06-26-phase0-closure-ratification/CONSENSUS.md
+    note: "NHT append-only dissent preserved verbatim in the '## NHT dissent' section"
+linked_consensus:
+  path: ../../artifacts/2026-06-26-phase0-closure-ratification/CONSENSUS.md
+quorum_signers:
+  - role: null-hypothesis-tester
+    decision: dissent-nonblocking-on-decision-blocking-on-document
+    reviewed_at: "2026-06-27T05:40:00Z"
+  - role: cro
+    decision: approve-with-conditions
+    reviewed_at: "2026-06-27T05:40:00Z"
+  - role: head-of-quant-research
+    decision: approve-with-conditions
+    reviewed_at: "2026-06-27T05:40:00Z"
+  - role: principal-reviewer
+    decision: approve-with-conditions
+    reviewed_at: "2026-06-27T05:40:00Z"
+quorum_basis:
+  detected_domains: [strategy-kill-decisions, risk-sign-off, config-relabel, independent-artifact-review, falsification-archive-integrity]
+  cro_required: true
+  cro_note: "Risk + config relabel in scope; CRO signed approve-with-conditions (C1 blocking)."
+  topic_detection_method: "substring-match-against-domains_owned"
+cross_session_lookup:
+  searched_paths: [.fintech-org/deferred-decisions.jsonl, .fintech-org/.agent-accountability/ratifications/]
+  found: false
+honest_N: 30
+posture: observe-only
+open_blocking_conditions:
+  - id: B1-harness-capital-bug
+    owner: NHT
+    desc: "run_phase1_revalidate.py must pass initial_capital consistently to null-gate, walk-forward, arson; $100k default zeroes positions via min_order_size."
+    status: FIXED-AND-VERIFIED
+    resolution: "Passed initial_capital=INITIAL_PER_PAIR ($1M) to run_walkforward, gate.test, and arson.run. Re-ran: null gate now rank 28.0/20.5/28.0%, p=0.982-0.993 (was false 0.0%/p=1.000) — still FAILS the 95% gate; WF now -0.02/-0.03/-0.15 (was degenerate 0.00); arson non-degenerate. Matches NHT's predicted fair-test figures. Conclusion unchanged."
+  - id: B2-loader-enforcement
+    owner: CRO
+    desc: "run_paper_trading.py:51 defaults to the falsified config with no guard; enforce FALSIFIED-config refusal in the loader and drop the default."
+    status: FIXED-AND-VERIFIED
+    resolution: "Added machine-readable deploy_status block to the config + core.config.assert_deployable() guard + do_not_deploy property; wired into run_paper_trading.py and run_multi_strategy.py (both live loops). Removed the falsified DEFAULT_CONFIG (--config now required). Verified: deployment refuses the falsified config (exit 2), allows clean configs, --force-falsified overrides with a loud log, backtests still load freely. 56 config tests pass."
+  - id: C2-sim-inventory-reconcile
+    owner: CRO
+    desc: "Pull fresh live+paper inventory to close the GBPJPY/CADJPY SIM forensics gap."
+    status: open
+  - id: C4-ledger-hygiene
+    owner: PR/HoQR
+    desc: "Reconcile trials.jsonl line 24 (87fa1d23 stale verdict 'passed')."
+    status: open
+decision_disposition:
+  decision_status: ratified
+  document_status: corrected-for-B1-and-PR-findings
+  enforcement_status: B2-implemented-and-verified
+  note: "Closure decision is binding governance. B1 (harness bug) and B2 (loader enforcement) both FIXED-AND-VERIFIED 2026-06-27. Remaining: C2 (SIM inventory reconcile) and C4 (ledger line-24 hygiene) — non-blocking housekeeping."

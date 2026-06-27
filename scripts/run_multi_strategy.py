@@ -29,6 +29,8 @@ import yaml
 
 from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
+from forex_system.core.config import assert_deployable
+from forex_system.core.errors import ConfigError
 from forex_system.core.types import Direction
 from forex_system.features.registry import compute_indicators
 from forex_system.risk.kill_switch import KillSwitch, TriggerReason
@@ -377,6 +379,8 @@ def main():
     parser.add_argument("--token", default=os.environ.get("SAXO_TOKEN"),
                         help="Saxo SIM bearer token")
     parser.add_argument("--config", required=True, help="Portfolio config YAML")
+    parser.add_argument("--force-falsified", action="store_true",
+                        help="Override the DO-NOT-DEPLOY guard for a FALSIFIED config (NOT recommended)")
     parser.add_argument("--auto", action="store_true", default=True,
                         help="Auto-approve trades (default: True)")
     parser.add_argument("--loop", action="store_true", help="Run continuously")
@@ -390,6 +394,13 @@ def main():
     # Load config
     with open(args.config) as f:
         config = yaml.safe_load(f)
+
+    # DEPLOY GUARD (CRO C1): refuse to live/paper-trade a FALSIFIED/DO-NOT-DEPLOY config.
+    try:
+        assert_deployable(config, force=getattr(args, "force_falsified", False))
+    except ConfigError as e:
+        print(f"Error: {e}")
+        sys.exit(2)
 
     pairs = [p["symbol"] for p in config["pairs"]]
     portfolio = config["portfolio"]

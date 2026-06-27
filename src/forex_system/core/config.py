@@ -1,5 +1,6 @@
 """Configuration loading and validation."""
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -7,6 +8,13 @@ import yaml
 
 from forex_system.core.errors import ConfigError
 from forex_system.core.types import PairInfo
+
+logger = logging.getLogger(__name__)
+
+# Statuses that block live/paper deployment (machine-readable, set under the
+# config's top-level `deploy_status:` block). Researchers/backtests ignore this;
+# only deployment entrypoints call assert_deployable().
+_NON_DEPLOYABLE_STATUSES = {"FALSIFIED", "RETIRED", "DO_NOT_DEPLOY", "DO-NOT-DEPLOY"}
 
 
 @dataclass
@@ -70,6 +78,19 @@ class SystemConfig:
     @property
     def pair_symbols(self) -> list[str]:
         return [p.symbol for p in self.pairs]
+
+    @property
+    def deploy_status(self) -> dict:
+        """The config's `deploy_status:` block (empty if absent)."""
+        return self.raw.get("deploy_status", {}) or {}
+
+    @property
+    def do_not_deploy(self) -> bool:
+        """True if this config is flagged FALSIFIED / DO-NOT-DEPLOY / RETIRED."""
+        ds = self.deploy_status
+        return bool(ds.get("do_not_deploy")) or str(
+            ds.get("status", "")
+        ).upper() in _NON_DEPLOYABLE_STATUSES
 
 
 def load_config(path: str | Path) -> SystemConfig:
@@ -136,3 +157,36 @@ def load_config(path: str | Path) -> SystemConfig:
 
     except (KeyError, TypeError) as e:
         raise ConfigError(f"Invalid config structure: {e}") from e
+
+
+def assert_deployable(config: "SystemConfig | dict", *, force: bool = False) -> None:
+    """Refuse to deploy/paper-trade a config flagged FALSIFIED / DO-NOT-DEPLOY.
+
+    Call this from LIVE/PAPER deployment entrypoints only — researchers and
+    backtests load falsified configs freely for analysis (e.g. revalidation).
+    This is the code-level enforcement of the `deploy_status:` marker so the
+    label is a control, not a comment a loader ignores (CRO C1, 2026-06-26).
+
+    Accepts a SystemConfig or a raw parsed-YAML dict (for entrypoints that
+    bypass load_config). Pass force=True to override deliberately (logged loud).
+    """
+    if isinstance(config, SystemConfig):
+        ds = config.deploy_status
+        blocked = config.do_not_deploy
+    else:
+        ds = (config or {}).get("deploy_status", {}) or {}
+        blocked = bool(ds.get("do_not_deploy")) or str(
+            ds.get("status", "")
+        ).upper() in _NON_DEPLOYABLE_STATUSES
+    if not blocked:
+        return
+    status = ds.get("status", "DO_NOT_DEPLOY")
+    reason = ds.get("reason", "config marked do-not-deploy")
+    msg = (
+        f"REFUSING TO DEPLOY: config is flagged '{status}'. Reason: {reason}. "
+        "Pass --force-falsified to override (NOT recommended)."
+    )
+    if force:
+        logger.warning("DEPLOY OVERRIDE (--force-falsified): %s", msg)
+        return
+    raise ConfigError(msg)

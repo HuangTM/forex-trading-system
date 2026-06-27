@@ -140,6 +140,7 @@ def main():
             data=e, strategy=strat, pair=pair,
             cost_model=cost_model, sizer=sizer,
             train_days=504, test_days=126, step_days=63,
+            initial_capital=INITIAL_PER_PAIR,  # B1 fix: match candidate scale; $100k default zeroes positions via min_order_size
         )
         consistent = "YES" if wf.consistent else "NO"
         print(f"  {pair:<10} {len(wf.windows):>8} {wf.avg_sharpe:>8.2f} "
@@ -159,7 +160,8 @@ def main():
             initial_capital=INITIAL_PER_PAIR,
         )
         gate = NullHypothesisGate(n_random=200, percentile=95.0, seed=42)
-        gr = gate.test(held_r, held, pair, cost_model, sizer=sizer, total_trials=10)
+        gr = gate.test(held_r, held, pair, cost_model, sizer=sizer, total_trials=10,
+                       initial_capital=INITIAL_PER_PAIR)  # B1 fix: randoms must use the same capital as the candidate
         status = "PASSED" if gr.passed else "FAILED"
         print(f"  {pair:<10} {status:<8} Sharpe={gr.candidate_sharpe:>6.2f}  "
               f"Rank={gr.candidate_rank_pct:>5.1f}%  p={gr.dsr_adjusted_pvalue:.3f}")
@@ -169,7 +171,8 @@ def main():
     print("=" * 72)
     e, s, _, _, _ = results["USDJPY"]
     arson = BacktestArsonTest(seed=42)
-    ar = arson.run(e, s, "USDJPY", "carry_momentum", cost_model, sizer=sizer)
+    ar = arson.run(e, s, "USDJPY", "carry_momentum", cost_model, sizer=sizer,
+                   initial_capital=INITIAL_PER_PAIR)  # B1 fix: arson must use the candidate's capital scale
     print(ar.summary())
 
 

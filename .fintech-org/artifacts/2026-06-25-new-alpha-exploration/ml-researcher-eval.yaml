@@ -1,0 +1,277 @@
+role: ml-researcher
+artifact_type: eval-report
+decision: approve   # approve = >=1 ML/text direction belongs on shortlist (CB-text regime classifier, narrowly scoped)
+timestamp: "2026-06-25T00:00:00Z"
+subtask_ref: new-alpha-exploration
+subtask_id: new-alpha-exploration-2026-06-25-mlr
+trial_id: new-alpha-exploration-2026-06-25-mlr
+
+ml-directions-evaluated:
+
+  - name: "CB-Text Regime Classifier (contrarian Direction 5) — LLM embeddings of FOMC/ECB/BOE/BOJ statements"
+    ml-helps-or-overfits: >
+      ML-WHERE-IT-HELPS — but ONLY in its honestly-scoped form, and the slate's own
+      framing of it is partially wrong. LLM text classification of CB communications
+      is genuinely the one task class where the tool matches the problem: LLMs are
+      strong at mapping unstructured prose to a small label set (hawkish/dovish/hold),
+      and weak at price-sequence prediction. The input modality is categorically
+      different from OHLCV (the firm's falsified families), so this is NOT "more
+      powerful overfitting on the same price data." HOWEVER, two cautions are
+      load-bearing: (1) The hypothesis claims the classifier fires "before market
+      pricing fully adjusts." That is FALSE as stated for the FEASIBILITY TEST, and
+      must not be conflated with it. The feasibility test labels each statement by the
+      sign of the fed-funds change over the FOLLOWING 90 days — that is a
+      LOOK-AHEAD-LABELED accuracy test of "can an LLM read the document's stance,"
+      NOT a tradable leading-indicator test. A classifier scoring 75% on
+      already-realized-outcome labels proves text-readability, not predictive edge over
+      the market. The market reads the same statement in milliseconds; an LLM reading
+      it has zero latency or information advantage on the STATEMENT itself. (2) The real
+      (and legitimate) value is downstream and unproven: using the regime LABEL as a
+      slow-moving GATING/CONDITIONING variable on an existing carry/trend sleeve to
+      attack W3 regime-dependence. That is a separate, future, properly-pre-registered
+      test — and it is where the overfitting risk actually lives.
+    new-data-required: >
+      NEW data class = unstructured central-bank TEXT (FOMC statements/minutes/press
+      transcripts, ECB/BOE/BOJ equivalents). All public, $0 acquisition. LLM inference
+      ~$5-50 for the feasibility classifier, or $0 on a local model. This is genuinely
+      a different modality from the falsified retail-OHLCV families — it clears the
+      FOUR-WALLS-STAY-CLOSED data-class gate. Note: ~8 FOMC meetings/yr is a SMALL
+      effective sample for the eventual downstream conditioning test (see gates).
+    methodology-gates-needed: >
+      FEASIBILITY STAGE (this cycle, non-committed): the contrarian generator already
+      corrected the worst error — N=120 not N=10, 3-class Wilson CI lower bound above
+      the 0.33 chance rate. ACCEPT that as a sound classifier-readability screen. ADD:
+      report the confusion matrix (hawkish/dovish are easy; the "hold/uncertain" class
+      is where accuracy collapses and where regime-transition value actually lives);
+      and reframe the success criterion honestly as "the LLM can read CB stance," NOT
+      "the LLM predicts the regime before the market."
+      DOWNSTREAM STAGE (future committed pre-registration, where the gates BITE):
+      (1) CV-NO-LEAK: the regime label is a multi-month-spanning, serially-correlated
+      state variable. Standard k-fold is disqualified. REQUIRE walk-forward or CPCV
+      with PURGE (label spans the inter-meeting window) and an EMBARGO sized to the
+      regime autocorrelation (months, not 1-5 days — the embargo heuristic must be
+      computed from the label horizon, not recalled). Text leakage is a special hazard:
+      the LLM's pretraining corpus post-dates the statements, so the model may "know"
+      the realized regime — a strict point-in-time / contamination check on the model's
+      knowledge cutoff vs. statement date is MANDATORY (this is a leakage mode that
+      does not exist for price models).
+      (2) DEFLATED-SHARPE under org-wide N=30 (+effective-N inflation from the
+      hawkish/dovish/hold threshold choices, gating-percentile choices, and the
+      carry-sleeve params it conditions): DSR must clear, computed for the ACTUAL
+      T/skew/kurtosis of the conditioned-carry return stream — not a recalled threshold.
+      Given only ~8 regime-transition events/yr, the events-per-year × per-event-edge
+      arithmetic is the CONFIRMABILITY killer this firm already hit twice (QRB-6
+      power=9%; the dataset wall). The downstream test must pass a years-to-validate
+      <=3yr pre-check or it is the same un-confirmable trap.
+      (3) REGIME-STRATIFIED eval with PRE-DECLARED strata — but note the circularity
+      hazard unique to this direction: the thing being evaluated IS a regime classifier,
+      so "stratify by regime" must use an INDEPENDENT regime axis (e.g., vol-percentile),
+      not the classifier's own output, or the evaluation begs the question.
+    expected-value-vs-simpler: >
+      HONESTLY MODEST and not yet established. A simpler baseline — a rules-based
+      hawkish/dovish dictionary (e.g., a tightening-language word-count, or even just
+      the realized policy-rate-change sign as a one-month-lagged state) — captures most
+      of the regime signal at near-zero overfitting surface. The LLM's marginal value
+      over a keyword/dictionary classifier is an OPEN question the feasibility test
+      should measure directly (run the dictionary baseline alongside the LLM; if the LLM
+      does not BEAT the dictionary by more than its CI, the ML adds complexity, not
+      signal). The defensible claim is: text-as-regime-input may help W3; the LLM
+      specifically (vs. a linear/keyword classifier) is unproven incremental value.
+    shortlist-verdict: include   # narrowly: as a $0, regime-CONDITIONING research direction with the feasibility framing corrected — NOT as a standalone price predictor
+
+  - name: "Option Risk-Reversal / 25-delta skew as directional/regime signal (academic D6 carry-timing-via-skew; practitioner D3 RR-as-tell; contrarian/academic FX-VRP)"
+    ml-helps-or-overfits: >
+      NOT AN ML DIRECTION — and that is the correct verdict. These are LINEAR/FACTOR
+      signals on a genuinely new data class (option-implied vol surface / risk-reversal).
+      No ML is required or advisable: the edge, if real, is a low-dimensional
+      conditioning variable (skew percentile → carry sizing) best fit with a simple
+      monotone/linear rule. Adding ML here would be the firm's documented failure mode
+      (more parameters, faster overfitting) on a signal that a 1-parameter threshold
+      captures. I flag it only to make the boundary explicit: the option-data
+      directions belong on the shortlist on the QR/HoQR factor track, NOT the ML track.
+    new-data-required: >
+      FX option implied-vol surface / 25-delta risk reversals. Partial free coverage
+      (FRBNY option-implied moments for EUR/JPY; CBOE EUVIX/JYVIX), $500-15k/yr for full
+      G10. New modality, clears the data-class wall.
+    methodology-gates-needed: >
+      If ever modeled, the SAME CPCV+purge+embargo+DSR discipline applies, but the
+      dimensionality is low enough that a linear factor test (not ML) is the right tool.
+      DSR under org-wide N still required. No ML-specific leakage surface.
+    expected-value-vs-simpler: >
+      The SIMPLER approach IS the recommended approach. Expected value of an ML layer
+      over a linear skew→sizing rule is NEGATIVE (overfitting cost > flexibility benefit)
+      at the firm's sample sizes.
+    shortlist-verdict: cut   # cut FROM THE ML TRACK specifically; these are legitimate FACTOR directions for HoQR — not my call to rank, but they are not ML-where-it-helps
+
+  - name: "Retail Sentiment / COT positioning contrarian (practitioner D7; contrarian D3) as ML feature"
+    ml-helps-or-overfits: >
+      WOULD-OVERFIT if dressed as ML. The signal is a single low-dimensional
+      positioning z-score; the OOS edge is thin (SR ~0.3-0.5 gross, practitioner-grade,
+      not academic). Throwing a classifier/ensemble at a 1-D z-score is exactly
+      "more powerful overfitting on weak signal." The data class (COT, broker SSI) is
+      legitimately new and W4-attacking, but the modeling layer must stay linear.
+      Additional ML-specific hazard for broker SSI: if the firm is itself a retail Saxo
+      client, the SSI feed is self-referentially contaminated — an ML model will
+      happily fit that contamination.
+    new-data-required: >
+      CFTC COT (free) or broker SSI (free-ish). New data class vs OHLCV. No ML data
+      need beyond it.
+    methodology-gates-needed: >
+      CPCV+purge+embargo at the 1-4 week label horizon; DSR under N=30; reject any ML
+      model class richer than a linear/logistic fit on the positioning z-score.
+    expected-value-vs-simpler: >
+      Simpler linear z-score rule strictly dominates an ML layer here. ML EV is negative.
+    shortlist-verdict: cut   # cut from ML track; COT is a fine factor direction for the QR/HoQR track, not ML
+
+  - name: "Generic 'any ML signal on price/volume features' (the implicit steer target)"
+    ml-helps-or-overfits: >
+      OVERFITS — confirmed, and this is the firm's hard-won prior, which I CONFIRM
+      rather than challenge. The CADJPY consensus established net-of-cost SR < 0 across
+      all 84 pair×family combos on retail OHLCV. ML on the SAME OHLCV (+tick-count, which
+      is not true volume) does not create signal that is not there; it raises the
+      effective trial count and the expected max-in-sample Sharpe (N=128 → >2.6 at
+      true-zero skill), making the deflation problem WORSE while OOS gets worse with more
+      in-sample optimization on memory-bearing series (Bailey et al.). No data-class
+      change → no admissible ML direction.
+    new-data-required: >
+      NONE proposed — that is precisely the disqualifier. Same data, more model.
+    methodology-gates-needed: >
+      N/A — fails the FOUR-WALLS data-class gate before CPCV/DSR are even reached.
+    expected-value-vs-simpler: >
+      Negative. Strictly worse than the linear families already falsified.
+    shortlist-verdict: cut   # hard cut — this is the canonical "more powerful overfitting on no new signal"
+
+hft-verdict: >
+  NOT-VIABLE-FOR-RETAIL — CONFIRMED with specifics. (1) Latency: competitive FX
+  HFT/market-making operates at single-digit microseconds; retail order paths (broker
+  aggregator → LP → ECN) are tens-to-hundreds of MILLISECONDS — 3-5 orders of magnitude
+  slower. The retail player is, by construction, the last to see and last to act. (2)
+  Co-location: the edge requires cross-connects in LD4 (London/Slough), NY4, TY3 —
+  $tens-of-thousands/mo plus membership; not a retail capability. (3) True L2 / order
+  flow: real spot-FX depth-of-book is interbank (EBS/Reuters Matching) or bank-internal;
+  retail "depth" is a broker-curated approximation. Genuine L2 costs $50k+/yr (the
+  practitioner slate's own number) and is still a PROXY for spot. (4) Cost: HFT profits
+  per trade are sub-pip; at retail spreads (0.4 normal, 3-5 pip at news release) the
+  spread alone exceeds the entire edge — this is W1 head-on. The practitioner
+  "Scheduled Economic Surprise" direction is the honest near-boundary case and the slate
+  is RIGHT that its tradability is gated NOT by latency but by spread-widening-at-release;
+  its claimed escape (enter 30-60s after the print, capture residual drift, ~70 low-freq
+  events/yr) is an EVENT-DRIVEN low-turnover bet, NOT HFT — and even so it is
+  THEORY-GROUNDED-UNTESTED post-2015 because algos compressed the post-release drift. The
+  firm's prior ("HFT on retail infra is a latency game retail loses") stands unchallenged
+  on the evidence.
+
+shortlist-recommendation: >
+  ONE ML/text direction belongs on the Board shortlist: the CB-TEXT REGIME CLASSIFIER
+  (contrarian Direction 5) — and ONLY in its honestly-scoped form: a $0, public-text,
+  feasibility-gated research direction whose PURPOSE is regime CONDITIONING of an
+  existing carry/trend sleeve to attack W3, NOT standalone price prediction, and whose
+  feasibility test must be reframed as "can an LLM read CB stance" (it is look-ahead
+  labeled), with a dictionary/keyword baseline run alongside to prove the LLM earns its
+  incremental complexity. It is the highest-information-per-dollar ML test in the slate
+  ($0 data, $0-50 inference, decisive N=120 screen). ALL OTHER ML framings are CUT:
+  ML-on-OHLCV (no new signal — the firm's prior, confirmed), and ML-layers-on-option-skew
+  / COT / sentiment (legitimate FACTOR directions but linear-not-ML; an ML layer there is
+  negative-EV overfitting). HFT: none — not viable on retail infra.
+
+evidence:
+  - "financial-ml-methodology SKILL §rubric-1 (CV-no-leak): k-fold disqualified on serially-correlated labels; CPCV+purge+embargo required; embargo computed from label horizon, not recalled (1-5d heuristic is for daily bars, NOT a multi-month regime label)."
+  - "financial-ml-methodology SKILL §rubric-2 (multiple-testing/DSR): expected max in-sample Sharpe grows with N even at true-zero skill (N=10→~1.57, N=128→>2.6); Sharpe without org-wide N is meaningless; DSR computed for actual T/skew/kurtosis, not a memorized threshold; org-wide N is the canonical counter."
+  - "financial-ml-methodology SKILL §evidence-base (Bailey et al.): with memory in the series, MORE in-sample optimization makes OOS WORSE — the core argument that ML-on-same-data overfits faster; McLean-Pontiff anomaly decay 35-58% post-publication."
+  - "financial-ml-methodology SKILL §rubric-4 (regime-stratified): strata must be PRE-DECLARED; interpreting the model-feature-vs-eval asymmetry — and the unique circularity that a regime-classifier must be stratified on an INDEPENDENT regime axis, not its own output."
+  - "financial-ml-methodology SKILL §anti-patterns: 'standard ML practice on time series' and 'reporting Sharpe without N' as the two most common forms of unintentional fraud — the exact failure modes the CB-text downstream test must avoid."
+  - "probability-statistics SKILL §1.5 (LLN/CLT): N=10 is not enough; the contrarian generator's own N=120 + 3-class Wilson CI correction is sound; ~8 regime-transitions/yr is the binding sample constraint for the downstream conditioning test."
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md — net-of-cost SR<0 across 84 pair×family combos on retail OHLCV: the empirical basis for 'ML on same data finds nothing.'"
+  - "references/pre-registrations/CONSENSUS_2026-06-07_qrb6_winddown.md — QRB-6 power=9% at the 2030 look: the confirmability wall any low-event-rate (incl. ~8 CB-meetings/yr) direction must clear."
+  - ".fintech-org/trials.jsonl — honest-N=30; mlr descriptive-exploration-screen entry present with counts_toward_deflation_denominator:false (non-counting confirmed)."
+  - "Practitioner slate (gen-practitioner-microstructure.yaml) honest-note on retail microstructure access: real L2 $50k+/yr, no dealer flow, no fixing-book access — the HFT-infeasibility specifics."
+
+assumptions:
+  - "The 4 walls and honest-N=30 are accurate per the governing CADJPY/cost-aware consensus artifacts; I did not re-derive them."
+  - "LLM text-classification capability on CB prose is taken as a given (well-established); the open question is incremental value over a keyword/dictionary baseline and downstream tradability, not raw classification ability."
+  - "This cycle is non-committed exploration; all CPCV/DSR/embargo gates I specify govern a FUTURE pre-registered backtest, not this screen. No backtest runs."
+  - "The CB-text feasibility test as written uses look-ahead labels (sign of fed-funds change over following 90d); I treat that as a readability screen, NOT evidence of predictive edge, and flag the conflation explicitly."
+
+confidence: medium
+
+body: |
+  ## ML-where-it-helps vs ML-where-it-overfits — the firm's prior, confirmed and sharpened
+
+  The firm's prior is correct and I CONFIRM it rather than challenge it: ML is a method,
+  not an edge; ML on the same price/volume features just overfits faster (the deflation
+  math is explicit — expected max in-sample Sharpe grows with N even at zero true skill,
+  and on memory-bearing series more in-sample optimization makes OOS WORSE). ML earns its
+  keep ONLY with a genuinely new signal modality AND proper CPCV+DSR validation. The
+  exploration slate contains exactly ONE direction that satisfies the modality test where
+  ML (specifically, LLMs) is the right tool: CB-TEXT.
+
+  ## The one legitimate ML angle: CB-text regime classifier — but de-hyped
+
+  Two things are true at once. (a) It is the right tool on the right modality: LLMs map
+  prose→labels well; the input is categorically non-OHLCV; data is $0 public. This clears
+  the data-class wall that all OHLCV-ML fails. (b) The slate over-claims it. The hypothesis
+  says the classifier fires "before market pricing fully adjusts." That is NOT what the
+  feasibility test measures. The test labels each statement by the realized fed-funds path
+  over the next 90 days and asks "can the LLM read the stance" — a LOOK-AHEAD-LABELED
+  readability test, decisively answerable at N=120 with a 3-class Wilson CI (the generator
+  already fixed the N=10 error — good). But reading a statement the market read in
+  milliseconds gives zero edge ON THE STATEMENT. The real, legitimate value is downstream
+  and unproven: the regime LABEL as a slow gating variable on an existing carry/trend
+  sleeve, to convert a regime-DEPENDENT strategy (R5 carry, 53-54% of edge from the
+  2022-23 hiking regime) into a regime-CONDITIONED one. That downstream test is where the
+  overfitting risk lives and where the gates bite.
+
+  ## Gates that prevent the firm's documented failure modes (downstream, future)
+
+  1. CV-no-leak (rubric 1): regime labels span months and autocorrelate. k-fold is
+     disqualified; CPCV/walk-forward with PURGE (inter-meeting label span) and an EMBARGO
+     sized to the regime autocorrelation (months) is required. A leakage mode UNIQUE to
+     text-ML: the LLM's pretraining cutoff post-dates the statements, so the model may
+     "know" the realized regime — a strict knowledge-cutoff-vs-statement-date contamination
+     check is mandatory and has no analogue in price models.
+  2. DSR (rubric 2): under org-wide N=30 plus the effective-N inflation from
+     stance-threshold, gating-percentile, and carry-sleeve param choices; computed for the
+     conditioned stream's actual T/skew/kurtosis. With only ~8 transitions/yr, the
+     confirmability arithmetic (events/yr × per-event-edge → years-to-validate) is the
+     same wall QRB-6 died on (power 9%). A <=3yr years-to-validate pre-check is required or
+     it is the same un-confirmable trap.
+  3. Regime-stratified eval (rubric 4): strata PRE-DECLARED and on an INDEPENDENT axis
+     (vol-percentile), never the classifier's own output — else the eval begs the question.
+  4. Beat the baseline: run a keyword/dictionary classifier (and a one-month-lagged
+     realized-rate-sign state) ALONGSIDE the LLM in the feasibility screen. If the LLM does
+     not beat the dictionary by more than its CI, the LLM is complexity without signal —
+     use the dictionary. This is the single most important honesty gate, because it
+     directly tests whether the "ML" is earning its overfitting surface.
+
+  ## What I cut, and why
+
+  - ML-on-OHLCV (the implicit steer target): hard cut. No new modality → no admissible ML
+    direction → "more powerful overfitting on no signal." Confirms the prior.
+  - ML-layer on option-skew / COT / retail-sentiment: cut FROM THE ML TRACK. These are
+    legitimate NEW-DATA-CLASS FACTOR directions (option vol surface, exchange positioning),
+    but they are low-dimensional signals best captured by a linear/threshold rule. An ML
+    layer there is negative-EV — it adds overfitting surface to a 1-D signal. They belong
+    on the QR/HoQR factor track, not mine. (Ranking them is HoQR's call.)
+  - HFT / latency / microstructure-execution: cut. Not viable on retail infra (see
+    hft-verdict). The "economic surprise" event-driven bet is low-turnover, not HFT, and is
+    THEORY-GROUNDED-UNTESTED post-2015 — a factor/event direction, not an ML or HFT one.
+
+  ## Bottom line for the Board
+
+  APPROVE one ML/text direction onto the shortlist: the CB-text regime classifier, scoped
+  as a $0 regime-CONDITIONING research probe with the feasibility framing corrected
+  (readability screen, dictionary baseline, look-ahead-label honesty) and the downstream
+  CPCV/DSR/confirmability gates pre-specified. It is the highest-information-per-dollar ML
+  test available and attacks the firm's most-documented structural failure (W3). Every
+  other ML framing, and all HFT, is cut. honest-N stays 30; no counted trial this cycle.
+
+knowledge_gaps:
+  - "Whether an LLM beats a simple keyword/dictionary CB-stance classifier by more than CI — the decisive incremental-value question — is unmeasured and is exactly what the corrected feasibility test should resolve at $0."
+  - "Downstream tradable edge of regime-conditioning on carry (does the W3 attack survive net-of-cost and clear DSR at ~8 events/yr?) is unknown and is the real risk; deferred to a future pre-registered cycle."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [model-evaluation-and-validation, cross-validation-design, overfitting-detection]

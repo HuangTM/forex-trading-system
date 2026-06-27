@@ -1,0 +1,168 @@
+role: null-hypothesis-tester
+artifact_type: review                       # dual ruling (anti-fraud definition + governance); contains append-only dissent
+decision: approve-with-dissent
+timestamp: 2026-06-19T21:03:12Z
+subtask_ref: "rho-bar-definition-and-frozen-prereg-amendment-governance"
+subtask_id: nht-rho-bar-ruling
+no-capital-instruction: true
+no_execution_code: true
+
+claimed_domains:
+  - p-hacking-and-data-snooping-detection
+  - effective-N-and-pooling-fraud-detection
+  - pre-registration-integrity-and-freeze-governance
+  - structural-skepticism-on-any-claim
+  - null-hypothesis-and-deflation-construction
+
+context:
+  hypothesis: "H1 — pooled 8-major session-open momentum (h1_session_open_momentum_pooled), FROZEN-AWAITING-DATA, counter NOT burned (honest-N=48)."
+  under_specified_term: "rho_bar in N_eff = N_raw / (1 + (k-1)*rho_bar), k=8, gate rho_bar <= 0.41 (prereg pass-cond 3 + KILL-4 + rubric G5)."
+  ambiguity: "rho_bar = 'mean cross-pair signal correlation' — SIGNED vs MAGNITUDE (|.|) vs EIGENVALUE-based unspecified."
+  measured_3pair_evidence:
+    EURGBP_vs:  "EUR-GBP +0.749"
+    EURJPY_vs:  "EUR-JPY -0.459"
+    GBPJPY_vs:  "GBP-JPY -0.414"
+    signed_mean: -0.04        # H1 PASSES the <=0.41 gate
+    magnitude_mean: 0.54      # H1 FAILS the <=0.41 gate
+  note: "Universe is USD-factor-dominated and sign-mixed. short-EUR + long-JPY during a common USD move is the SAME directional bet; their PnL is POSITIVELY correlated even though one signal-return series carries a minus sign from quote convention."
+
+# =====================================================================
+# RULING A — ANTI-FRAUD DEFINITION OF rho_bar
+# =====================================================================
+ruling_A:
+  verdict: "SIGNED simple mean is REJECTED as the rho_bar statistic. It is the gameable definition and is itself the exact fraud G5 exists to stop."
+
+  A1_signed_mean_is_the_gameable_definition:
+    finding: "A naive SIGNED mean of pairwise signal correlations lets anti-correlated entries CANCEL, laundering a one-factor (USD) basket into a count of nominally-independent events. The minus signs are an artifact of quote convention (which currency is numerator), NOT of independent risk. Diversification credit must be earned by orthogonal RISK, never granted by a sign flip."
+    classification: "SD2-class UNDER-DEFLATION (data-snooping / effective-N inflation). Mechanism: over-states N_eff -> shrinks years_to_validate -> lowers the bar H1 must clear -> manufactures a FALSE confirmation. It is a self-serving error in the PASS direction."
+    cross_ref: "Rubric G5 names this verbatim: 'A pooled USD-bloc momentum signal ... is NOT k independent events — they share the USD leg. This is the easiest way to fake confirmability.' Signed-mean IS the lever that fakes it."
+    concrete_instance: "On the 3 landed pairs: signed mean -0.04 declares the basket ~uncorrelated -> N_eff ~ N_raw -> H1 PASSES. But all three pairs load on the same USD factor; their TRADE PnL co-moves. The -0.04 is fabricated independence."
+
+  A2_minimum_anti_fraud_property:
+    property_name: "REDUNDANT-PAIR MONOTONICITY (sign-invariance under perfect redundancy)"
+    statement: >
+      Adding a perfectly redundant, sign-flipped duplicate of an existing pair (same risk, opposite
+      quote convention) must NOT decrease rho_bar and must NOT increase N_eff. A definition that lets
+      a redundant pair make the gate EASIER to pass is fraudulent by construction. Formally: the
+      effective-N functional must be non-increasing in N_eff (non-decreasing in rho_bar) under the
+      addition of any pair that is a deterministic function of pairs already in the pool.
+    why_minimum: "This is the weakest property that still blocks the launder. Any statistic violating it can be gamed by padding the universe with sign-flipped redundant legs to dilute the mean toward zero."
+
+    test_of_signed_mean_against_property:
+      setup: "Pool = {A}. Add B = -A (perfectly redundant, sign-flipped). True independent risk is UNCHANGED (B carries zero new information)."
+      signed_mean_behavior: "corr(A, B) = -1. Pairwise signed mean over {A,B} = -1.0. Plugged into N_eff = N_raw/(1+(k-1)*rho_bar) with k=2: 1 + (1)*(-1) = 0 -> N_eff = N_raw/0 = +INFINITY."
+      result: "FAILS the property catastrophically. A redundant, zero-information pair drives rho_bar DOWN (to -1) and N_eff UP (to infinity). The gate gets EASIER — the worst possible direction. Signed-mean rewards redundancy with infinite fake independence."
+      magnitude_mean_behavior: "|corr(A,B)| = 1. Magnitude mean = 1.0 -> 1+(1)*1 = 2 -> N_eff = N_raw/2. The redundant pair is correctly counted as ZERO new independent events. PASSES the property."
+      verdict: "Signed-mean FAILS redundant-pair monotonicity; magnitude-mean PASSES it. Signed-mean is therefore disqualified as the anti-fraud statistic."
+
+  A3_recommended_statistic:
+    primary: "Defer the FINAL closed form to the Mathematician (deriving the formally-correct statistic in parallel). NHT's BINDING ANTI-FRAUD FLOOR: whatever statistic is adopted MUST satisfy redundant-pair monotonicity (A2) and must NOT use signed simple mean."
+    nht_acceptable_family:
+      - "MAGNITUDE mean of pairwise correlations (mean |rho_ij|) — passes A2; simple; the conservative interim floor."
+      - "EIGENVALUE / effective-rank haircut on the RETURN (PnL) covariance, e.g. N_eff = (sum lambda_i)^2 / sum(lambda_i^2) (participation ratio) or k/lambda_max — passes A2 and is the risk-correct object; PREFERRED if the Mathematician derives it."
+    binding_constraint_on_inputs:
+      - "rho_bar must be measured on the SIGNAL-CONDITIONED TRADE-RETURN (PnL) series — the actual pooled return stream the DSR is computed on — NOT on raw price returns and NOT on the signed quote-convention series. The object of interest is co-movement of REALIZED EDGE, which is sign-agnostic to quote convention."
+      - "If raw-price correlation is used as a proxy, take magnitude (or eigenvalue), never signed mean."
+    direction_of_conservatism: "Where magnitude and eigenvalue disagree, take the one yielding the SMALLER N_eff (larger deflation). Under-deflation is the fraud; over-deflation only costs us a real edge we can re-pursue. Consistent with role mandate: prefer false-negative."
+
+# =====================================================================
+# RULING B — GOVERNANCE OF AMENDING H1'S FROZEN PRE-REGISTRATION
+# =====================================================================
+ruling_B:
+  question: "Is fixing rho_bar's definition in H1's FROZEN prereg a legitimate pre-result clarification, a forbidden post-freeze p-hack, or does the fix belong only in the rubric?"
+
+  disposition: "RUBRIC-FIRST, then INHERIT — with a NARROW in-place clarification permitted ONLY under strict conditions. H1 is NOT re-frozen and the counter is NOT touched."
+
+  enforceable_disposition:
+    step_1_fix_the_rubric_G5:
+      action: "Amend rubric G5 (references/intraday_confirmability_screening_rubric.md) to define rho_bar with the anti-fraud statistic from Ruling A (magnitude/eigenvalue, redundant-pair-monotonic), explicitly forbidding signed simple mean. The rubric is the firm-wide, forward-looking control surface; this is its correct home."
+      rationale: "G5 carries the IDENTICAL under-specification ('mean cross-pair signal correlation') and its worked example (EURUSD+GBPUSD+AUDUSD) is same-sign USD-bloc, which silently dodges the sign-mixed case. Fix the CLASS, not the instance (engineer-mindset #9). Every future pooled hypothesis inherits the fix. This change is purely additive (a definition where one was missing) and STRICTER."
+    step_2_h1_inherits_by_reference:
+      action: "H1's prereg already binds itself to the rubric ('Source rubric', 'These three are the rubric's G1/G2/G3/G5 instantiated'). H1 INHERITS the clarified G5 by reference. Add a one-line dated clarification NOTE to H1's prereg + triggers stating: 'rho_bar follows rubric G5 as clarified 2026-06-19 (anti-fraud statistic; signed simple mean forbidden); see nht-rho-bar-ruling.yaml. No structural DoF changed; gate threshold 0.41 unchanged.'"
+      what_is_NOT_changed: "No entry/exit rule, no universe, no window, no DoF, no kill threshold, no 0.41 break-even is altered. Only the MEANING of an already-present, already-frozen symbol is disambiguated toward its sole anti-fraud reading."
+    step_3_counter_and_freeze_status:
+      counter_burned: false
+      honest_N_unchanged: 48
+      h1_re_frozen: false
+      basis: "H1 has not been spawned; no PnL/Sharpe/verdict exists; this disambiguation does not consume a trial. The freeze is preserved, not reset."
+
+  why_legitimate_clarification_NOT_phack:
+    test_applied: "A frozen-prereg edit is a p-hack iff (i) it is made AFTER seeing a result/verdict, OR (ii) it moves the gate in a SELF-SERVING (easier-to-pass) direction, OR (iii) it adds a researcher degree of freedom. Fail ANY -> forbidden."
+    i_post_result:  "NO. H1 has NOT been backtested. No PnL, no Sharpe, no DSR, no KILL-gate verdict has been produced. There is no result to reverse-engineer toward."
+    ii_self_serving_direction: "NO — and this is decisive. The change is unambiguously STRICTER: it moves H1 from PASS (signed -0.04) toward FAIL (magnitude 0.54). A p-hack makes passing EASIER; this makes it HARDER. It is structurally impossible to be self-dealing when the amendment can only HURT one's own hypothesis. This is the single strongest signal of good faith."
+    iii_new_dof: "NO. It REMOVES a degree of freedom (collapses three candidate definitions to one), the opposite of a p-hack. Under-specification IS a hidden researcher DoF; resolving it pre-result is hygiene, not fishing."
+    conclusion: "On all three prongs this is a LEGITIMATE pre-result, anti-gaming clarification — provided the 3-pair-peek condition (below) holds."
+
+  the_3pair_peek_contamination_question:
+    finding: "The orchestrator measured raw-return correlation on 3 pairs (signed -0.04 / magnitude 0.54) BEFORE proposing the fix. This is a genuine peek and must be ruled on, not waved away."
+    does_it_contaminate_the_AMENDMENT: "NO — the DEFINITION choice is not contaminated. Here is the discriminating test, and it is decisive: the peek told us signed=-0.04 (H1 lives) and magnitude=0.54 (H1 dies). A contaminated, self-serving actor who had seen those numbers would choose SIGNED to keep H1 alive. The firm is choosing MAGNITUDE — the definition that KILLS its own hypothesis on the very data it peeked at. The choice runs OPPOSITE to the peek's self-interest. Peek-driven motivated reasoning is therefore ruled out by the direction of the decision itself."
+    what_the_peek_DOES_contaminate: "The 3-pair peek DOES burn the ability to claim rho_bar was measured 'blind' for H1. It is a partial-universe (3 of 8) look at a STRUCTURAL statistic (correlation), not at returns/Sharpe/verdict — the prereg already designates rho_bar a 'blind STRUCTURAL pass ... NOT a return-fishing pass'. The peek is in the structural category the prereg itself contemplates measuring pre-slot. It does not touch the PnL/DSR object. Contamination of the RESULT: none. Contamination of the 'never-looked' provenance: yes, and it must be disclosed."
+    binding_remediation:
+      - "DISCLOSE the 3-pair peek explicitly in H1's amended prereg provenance ('rho_bar structurally pre-measured on 3 of 8 pairs on 2026-06-19; magnitude 0.54 already indicative of FAIL; full 8-pair rho_bar to be re-measured on landed gate-cleared data before the slot decision')."
+      - "RE-MEASURE rho_bar on the FULL 8-pair landed universe with the Ruling-A statistic before the slot is granted; the 3-pair number is NOT the gate input."
+      - "The peek does NOT permit relaxing any threshold. 0.41 stays. If full-8 magnitude rho_bar > 0.41 -> H1 is STRETCH / no slot, exactly as written."
+    conclusion: "The peek contaminates PROVENANCE (disclose it) but NOT the amendment's legitimacy, because the chosen definition is the one that harms H1. Direction-of-harm is the firewall."
+
+  when_each_option_is_correct:
+    amend_in_place_clarification:
+      correct_when: "ALL hold: (a) no result/verdict seen for the hypothesis; (b) change resolves genuine under-specification, adds no DoF; (c) direction is neutral-or-stricter (never easier); (d) no relaxation of any threshold. This case qualifies. Permitted, but execute it as inherit-from-rubric + a dated disclosure NOTE, NOT a silent edit of the symbol's meaning."
+    re_freeze_fresh_old_retired:
+      correct_when: "ANY of: a structural DoF changes (entry/exit/universe/window/threshold); the change could make passing EASIER; or a RESULT/Sharpe/verdict has already been seen. Then the old prereg is RETIRED, a NEW one frozen, and — if a trial was already burned — honest-N implications apply. NOT triggered here (nothing structural changed, direction is stricter, no result seen)."
+    rubric_only_future_inherit:
+      correct_when: "Default and PRIMARY home for any cross-hypothesis definition fix. ALWAYS do this. H1 inherits because it binds the rubric by reference. The in-place NOTE is only a disclosure pointer, not an independent edit."
+    chosen: "rubric_only (primary) + amend_in_place as a thin dated disclosure note (permitted under the conditions above). NOT re-freeze."
+
+# =====================================================================
+# APPEND-ONLY DISSENT (preserved verbatim in CONSENSUS; cannot be softened)
+# =====================================================================
+dissent_statement: |
+  DISSENT — PRESERVE VERBATIM. I approve the rho_bar fix and the rubric-first/inherit
+  disposition, but I dissent on the PRECEDENT and attach four non-negotiable guardrails.
+
+  1. THIS IS NOT A LICENSE TO EDIT FROZEN PREREGS. Approval here rests on a single,
+     load-bearing fact: the amendment moves H1 toward FAIL (magnitude 0.54 > 0.41), never
+     toward pass. The ONLY frozen-prereg edits ever permissible are those that (a) precede
+     any result/verdict, (b) add no degree of freedom, and (c) can only make passing HARDER.
+     The instant a proposed "clarification" would help a hypothesis live, or arrives after a
+     Sharpe/verdict is seen, it is a p-hack and I will VETO it. Direction-of-harm is the
+     whole firewall. Do not generalize this ruling into "preregs are editable."
+
+  2. THE PEEK IS A STAIN, NOT A WOUND — BUT IT IS A STAIN. The 3-pair raw-correlation look
+     happened before the definition was fixed. It is exonerated ONLY because the firm chose
+     the self-harming definition; had signed-mean been chosen, I would treat the peek as
+     outcome-driven p-hacking and veto. The peek MUST be disclosed in H1's provenance and
+     rho_bar MUST be re-measured on the full 8-pair landed universe with the Ruling-A
+     statistic. The 3-pair -0.04/0.54 numbers are NOT the gate input. Anyone citing the
+     3-pair number as the decision is overruled.
+
+  3. THE THRESHOLD DOES NOT MOVE. 0.41 was frozen pre-data and stays frozen. If full-8
+     magnitude/eigenvalue rho_bar exceeds 0.41, H1 is STRETCH, no slot, counter unburned —
+     exactly as written. No "the definition changed so let's re-tune the threshold" follow-on.
+     Re-deriving the break-even threshold under the new statistic is itself a NEW frozen
+     decision requiring its own pre-result freeze, not a quiet ride-along on this ruling.
+
+  4. SIGNED MEAN IS FRAUD, NAMED. For the record, independent of H1: a signed simple mean of
+     cross-pair correlations is a fabricated-independence machine. It rewards sign-flipped
+     redundant legs with INFINITE fake effective-N (k=2, corr=-1 -> N_eff = N_raw/0). Any
+     future artifact, any role, that computes pooled effective-N from a signed mean is
+     producing an under-deflated, non-confirmable result, and I will reject it on sight under
+     veto-authority 'sharpe-not-distinguishable-from-noise-under-deflation'. The anti-fraud
+     floor is: redundant-pair monotonicity (a zero-information pair must never raise N_eff).
+
+  I do not have a fix-the-Mathematician's-statistic mandate; I have a floor: whatever closed
+  form is adopted must satisfy redundant-pair monotonicity and be measured on the PnL stream,
+  not the quote-convention-signed series. Approve-with-dissent.
+
+contamination-check: "clean — prompt contained the measured 3-pair numbers and the 'same bet' mechanism (these are data references and the structural object under audit, not proposer narrative/why-it-will-work pleading or another role's approval stance). No expected-to-be-true market thesis was injected. Proceeding."
+
+decision_rule_for_orchestrator:
+  - "ADOPT magnitude (interim) or eigenvalue (preferred, pending Mathematician) for rho_bar; FORBID signed simple mean firm-wide."
+  - "FIX rubric G5 (primary); H1 inherits by reference + thin dated disclosure NOTE; do NOT re-freeze H1; do NOT burn the counter."
+  - "DISCLOSE the 3-pair peek in H1 provenance; RE-MEASURE rho_bar on full-8 landed data with the Ruling-A statistic before the slot decision."
+  - "0.41 threshold UNCHANGED; any re-derivation of the break-even under the new statistic is a SEPARATE pre-result freeze."
+  - "On current 3-pair evidence (magnitude 0.54 > 0.41) H1 is trending toward STRETCH/FAIL on G5 — no slot unless full-8 magnitude rho_bar <= 0.41."
+
+trial_counter_touched: false
+sources: []
+web_research_conducted: false
+confidence: high

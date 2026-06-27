@@ -92,9 +92,27 @@ def sweep_setup(tmp_path, monkeypatch):
     import forex_system.harness.run_trial as rt_mod
     import forex_system.harness.sweep as sw_mod
 
-    monkeypatch.setattr(rt_mod, "_TRIALS_REGISTRY", tmp_path / "trials.jsonl")
+    import json
+    registry_path = tmp_path / "trials.jsonl"
+    # Updated from 'honest-n-reconciliation' (retired) to 'honest-n-classification'
+    # per the 2026-06-18 QD rebuild. Empty counted_trial_ids = fresh test environment.
+    classification = {
+        "event": "honest-n-classification",
+        "version": 1,
+        "ratified_n": 0,
+        "ratified_by": ["test-fixture"],
+        "counted_trial_ids": [],
+        "excluded_trial_ids": [],
+        "n_legacy_classified": 0,
+        "forward_classification": "all new trials classify mechanically",
+        "ts": "2026-06-18T00:00:00Z",
+    }
+    with open(registry_path, "w") as f:
+        f.write(json.dumps(classification) + "\n")
+
+    monkeypatch.setattr(rt_mod, "_TRIALS_REGISTRY", registry_path)
     monkeypatch.setattr(rt_mod, "_RESULTS_DIR", tmp_path / "results")
-    monkeypatch.setattr(sw_mod, "_TRIALS_REGISTRY", tmp_path / "trials.jsonl")
+    monkeypatch.setattr(sw_mod, "_TRIALS_REGISTRY", registry_path)
     monkeypatch.setattr(sw_mod, "_SWEEP_LOG", tmp_path / "sweeps.jsonl")
 
     # Minimal YAML config for EURUSD

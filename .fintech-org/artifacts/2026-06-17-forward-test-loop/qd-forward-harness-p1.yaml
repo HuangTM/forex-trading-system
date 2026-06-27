@@ -1,0 +1,311 @@
+# =============================================================================
+# QD IMPLEMENTATION — Forward-Test Harness P1
+# freeze.py + forward_eval.py + forward_registry.jsonl
+# =============================================================================
+role: quant-developer
+artifact_type: implementation
+decision: implement
+timestamp_utc: "2026-06-18T04:51:40Z"
+authored_by: quant-developer
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+git_sha_at_authoring: "44851289205d"   # short; full via git rev-parse HEAD
+branch: ingest-spread-column
+no-capital-instruction: true           # no live capital; M2 paper-forward only
+claimed_domains:
+  - cross-validation-design-CPCV-purged-embargoed
+  - deflated-sharpe-and-multiple-testing-correction
+  - out-of-sample-integrity
+  - p-hacking-and-data-snooping-detection
+
+inputs_read:
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/cto-build-spec.yaml
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/ml-forward-test-and-pooling.yaml
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-integrity-controls.yaml
+  - src/forex_system/harness/run_trial.py
+  - src/forex_system/harness/honest_n.py
+  - src/forex_system/harness/preregistration.py
+  - src/forex_system/harness/dsr.py
+  - .fintech-org/trials.jsonl
+
+# =============================================================================
+# WHAT WAS BUILT
+# =============================================================================
+
+modules_created:
+  - path: src/forex_system/harness/freeze.py
+    description: >
+      Records a cryptographic freeze anchor. Public API: freeze_structure(prereg_path,
+      config_path, mechanism, custody, ...) -> FreezeRecord. Appends one 'freeze' record
+      to .fintech-org/forward_registry.jsonl (open_count=0, burned=false). Full sha256
+      hashes (wider than run_trial's [:12] short hashes): prereg_content_hash covers
+      prereg.md || triggers.yaml bytes; code_config_hash covers the config YAML; git_sha
+      is the full HEAD SHA. M1 hard-block: refuses M1 without a development_start_attestation
+      predating dev start (ValueError, not VOID — the freeze is illegitimate by construction).
+      Emits freeze.sealed and freeze.m1_blocked structured events.
+    key_functions:
+      - freeze_structure()
+      - load_freeze_record()
+      - load_freeze_record_with_state()
+      - update_freeze_record_burned()
+      - _full_config_hash()  # full sha256; wider than run_trial._config_hash[:12]
+      - _full_git_sha()      # full SHA; wider than run_trial._git_hash(--short)
+      - _prereg_content_hash()
+      - _check_m1_eligibility()
+
+  - path: src/forex_system/harness/forward_eval.py
+    description: >
+      Scores a frozen candidate on its forward window. Public API: forward_evaluate(
+      freeze_id, forward_bars, pair, config_path, prereq_path, ...) -> ForwardResult.
+      Steps: (1) load freeze record + assert not burned; (2) recompute content hashes,
+      assert match or sys.exit(1) + print 'hash-match: OK'; (3) M2: assert all bar
+      timestamps > freeze_utc or VOID; (4) score via run_backtest + RealisticCostModel;
+      (5) compute net Sharpe, DSR at ic9_dsr_denominator(), concentration metrics;
+      (6) evaluate frozen .triggers.yaml gates via parse_pre_registration (no hardcoded
+      thresholds); (7) emit verdict + atomically burn window. Appends counts_toward=True
+      trial to trials_registry (IC-7) on PASS, FAIL, and VOID-after-data. Does NOT write
+      to the production .fintech-org/trials.jsonl when tests supply a custom trials_registry
+      path, preventing test pollution of the ledger.
+    verdict_states: [VALIDATED, FALSIFIED, INCONCLUSIVE_UNDERPOWERED, VOID]
+    key_functions:
+      - forward_evaluate()
+      - _verify_integrity()
+      - _assert_all_bars_post_freeze()
+      - _evaluate_triggers()
+      - _determine_verdict()
+      - _record_trial_and_result()
+      - _build_forward_cost_model()
+      - _compute_concentration()
+
+  - path: .fintech-org/forward_registry.jsonl
+    description: >
+      Append-only ledger. Created by freeze.py on first freeze. Three record kinds:
+      'freeze' (anchor tuple, open_count=0, burned=false, custody),
+      'freeze-update' (open_count=1, burned=true, written atomically by forward_eval),
+      'forward-result' (verdict, net_sharpe, DSR, gate-by-gate results, realized N).
+    status: not yet created (will be created on first freeze_structure() call)
+
+# =============================================================================
+# IC-1..IC-14 ENFORCEMENT MAPPING
+# =============================================================================
+# Code-fail-closed = the harness ABORTS / REFUSES / produces VOID in Python code.
+# Procedural-with-CI-hook = cannot be enforced in Python alone; requires OS/CI.
+# =============================================================================
+
+ic_enforcement:
+  IC-1_cryptographic-freeze:
+    enforcement: code-fail-closed
+    where: freeze.py::freeze_structure() — writes full anchor tuple (prereg_content_hash,
+      code_config_hash, git_sha, freeze_utc) to forward_registry.jsonl BEFORE forward_eval
+      is called. forward_eval.py REFUSES if no prior freeze record exists (IC-8 check).
+    residual: >
+      'pushed to origin before any forward bar' cannot be verified by Python reading a
+      local .jsonl. Pushed-ness requires a CI hook (flagged as procedural residual per CTO spec).
+
+  IC-2_forward-postdates-freeze:
+    enforcement: code-fail-closed
+    where: forward_eval.py::_assert_all_bars_post_freeze() — step 3; asserts every M2 bar
+      timestamp > freeze_utc using pd.Timestamp comparison; single violation -> VOID.
+
+  IC-3_result-cites-frozen-sha:
+    enforcement: code-fail-closed (IC-14a)
+    where: forward_eval.py::_verify_integrity() + step 2; recomputes prereg_content_hash +
+      code_config_hash, compares to frozen values; on mismatch: sys.exit(1) + prints the
+      mismatch detail to stderr. Prints 'hash-match: OK (git_sha=...)' on success. A result
+      without that machine-printed line is INADMISSIBLE. git_sha is informational (M2 paper-
+      forward expects commits after freeze); content hashes are the binding lock.
+
+  IC-4_physically-sequestered-holdout:
+    enforcement: code-fail-closed (reuse)
+    where: existing run_trial.py / load_parquet holdout enforcement; the no-lookahead engine
+      shift (entry_delay_bars) is preserved in forward_eval step 4.
+
+  IC-5_holdout-access-enforced-not-just-logged:
+    enforcement: procedural-with-CI-hook (UNMET until hook ships)
+    where: >
+      CANNOT be fail-closed in Python. Needs OS filesystem permissions gating the holdout
+      file to the scoring harness only, OR a pre-commit/CI hook that greps codebase +
+      notebooks for direct reads of the forward/holdout path and BLOCKS the commit. Per
+      IC-14: IC-5 is UNMET until that hook exists. CTO owns the hook.
+    test_hook: >
+      Recommend CI step: grep -r 'forward_registry\|holdout' --include='*.py' --include='*.ipynb'
+      | grep -v 'harness/freeze\|harness/forward_eval\|tests/' and fail on any match.
+
+  IC-6_one-score-per-candidate:
+    enforcement: code-fail-closed
+    where: forward_eval.py step 1 — load_freeze_record_with_state() checks open_count==0
+      and burned==False; raises RuntimeError on violation (hard abort before scoring).
+      Step 7: update_freeze_record_burned() sets open_count=1 + burned=True atomically.
+
+  IC-7_every-attempt-burns-N:
+    enforcement: code-fail-closed
+    where: forward_eval.py::_record_trial_and_result() — appends counts_toward_deflation_
+      denominator=True on PASS, FAIL, AND VOID-after-data. VOID-after-data=True is set when
+      forward_bars are already in scope at the time of the failure (step 3 M2 timestamp
+      violation, or any exception after data_was_loaded=True).
+
+  IC-8_no-quiet-attempts:
+    enforcement: code-fail-closed (local existence check)
+    where: forward_eval.py step 1 — load_freeze_record_with_state() raises FileNotFoundError/
+      KeyError if no freeze record exists for freeze_id. Enforces 'no forward run without a
+      prior freeze record'. Pushed-ness check requires CI (same residual as IC-1).
+
+  IC-9_full-deflation-denominator:
+    enforcement: code-fail-closed
+    where: forward_eval.py step 5 — ic9_dsr_denominator(trials_path, is_search_family_size,
+      forward_attempt_budget) computes org_wide_honest_N + IS-family + attempt-budget.
+      org_wide_honest_N is sourced from honest_n_deflation_denominator() (ratified N=30).
+      NEVER typed. Verified: honest_n_deflation_denominator() returns 30 on the current ledger.
+
+  IC-10_net-of-conservative-cost:
+    enforcement: code-fail-closed
+    where: forward_eval.py::_build_forward_cost_model() — raises ConfigError if pair not in
+      config cost coverage (EXCLUDE-not-impute). Uses RealisticCostModel. Cost config is part
+      of code_config_hash so loosening post-freeze changes the hash -> VOID (IC-3).
+
+  IC-11_pre-declared-gates-and-power:
+    enforcement: code-fail-closed (gates); procedural (power calc origin)
+    where: forward_eval.py step 6 — parse_pre_registration() loads frozen .triggers.yaml;
+      _evaluate_triggers() evaluates ONLY those (no hardcoded thresholds, firewall A1).
+      _extract_power_floor() finds metric='n_realized' / operator='<' trigger; realized N <
+      floor -> INCONCLUSIVE_UNDERPOWERED (not FALSIFIED). DSR < 0.95 always -> FALSIFIED.
+      Missing metric in metrics_map -> fail-closed (treat as fired).
+    residual: >
+      That the power floor came from an 80%-power calc is a research input; only the gate
+      value in .triggers.yaml is machine-enforced.
+
+  IC-12_forward-data-immutable-post-freeze:
+    enforcement: code-fail-closed
+    where: IC-3 hash check covers code_config_hash. A restatement touching the IS window
+      would change code_config_hash or prereg_content_hash -> VOID. M1 holdout_content_hash
+      is recorded in the freeze record (recomputed at open for M1). The is_data_hash field
+      mentioned in the CTO spec is a P2 addition (not yet implemented); the current
+      implementation covers the config+prereg binding (IC-3) but NOT a full IS-bar content
+      hash. This is an HONEST GAP flagged below.
+
+  IC-13_attempt-budget-pre-frozen:
+    enforcement: partial-procedural
+    where: ic9_dsr_denominator() includes forward_attempt_budget in the denominator. The
+      discipline of declaring the budget before the first candidate spawn is procedural;
+      forward_eval.py does not currently assert a budget-declaration record exists in
+      trials.jsonl with ts < earliest freeze_utc (that CI check is a future P1.1 hardening).
+
+  IC-14_mechanized-not-human-enforcement:
+    enforcement: satisfied piecewise
+    notes:
+      - "(a) hash-mismatch abort: sys.exit(1) in forward_eval.py step 2 [code — DONE]"
+      - "(b) reject hand-entered DSR denominator: ic9_dsr_denominator() mechanical [code — DONE]; pushed-freeze check needs CI [procedural residual]"
+      - "(c) forward file OS-gated or CI-grep-blocked: IC-5 [procedural residual — UNMET until CI hook ships]"
+      - "(d) honest-N recomputed from ledger: honest_n_deflation_denominator() replaces every typed literal [code — DONE; verified returns 30]"
+
+# =============================================================================
+# IC-9 DENOMINATOR VERIFICATION
+# =============================================================================
+ic9_honest_n_verification:
+  function: honest_n_deflation_denominator(Path('.fintech-org/trials.jsonl'))
+  verified_return_value: 30
+  verified_by: "python3 -c 'from forex_system.harness.honest_n import honest_n_deflation_denominator; from pathlib import Path; print(honest_n_deflation_denominator(Path(\".fintech-org/trials.jsonl\")))'"
+  output: "30"
+  note: "NOT 48 (prior prose counter), NOT 49 (raw line count), NOT 11 (de-dup families). 30 is the ratified value per HoQR+NHT convergence 2026-06-18 (ceo-digest.jsonl DSR-DENOMINATOR-RECONCILED-CONVERGED)."
+
+# =============================================================================
+# HONEST GAPS (flagged, not buried)
+# =============================================================================
+honest_gaps:
+  - id: GAP-1
+    control: IC-12 IS-data content hash
+    description: >
+      The ML spec mentions is_data_hash (sha256 of the IS bar bytes the candidate was
+      developed on). The current implementation records code_config_hash (config YAML)
+      and prereg_content_hash (prereg + triggers) but NOT a hash of the actual IS bar
+      bytes. A config-identical restatement of the IS window (changing bar values but
+      not the config) would NOT be caught by IC-3 alone. Full IC-12 compliance requires
+      computing sha256(is_bar_bytes) at freeze time and asserting equality at eval time.
+      Deferred to P1.1: requires the data manifest ingest_time provenance (KG-5 / KG-CTO-2).
+    severity: medium
+    owner: quant-developer + cto (data manifest)
+
+  - id: GAP-2
+    control: IC-5 OS/CI gating
+    description: >
+      IC-5 (holdout unreadable during dev) is UNMET as a pure Python guarantee. The forward
+      registry file is readable by any process in the dev environment. Per IC-14: until a
+      pre-commit/CI hook blocks direct reads of the forward/holdout path, IC-5 is UNMET.
+      CTO owns this as a procedural residual.
+    severity: medium
+    owner: cto
+
+  - id: GAP-3
+    control: IC-8 / IC-13 pushed-before ordering
+    description: >
+      The freeze record existence check (forward_eval step 1) verifies local existence.
+      Whether the freeze was PUSHED to origin BEFORE the eval runs requires a CI job.
+      Similarly, IC-13's attempt-budget-pre-frozen check requires a CI job comparing
+      budget-declaration record timestamps to first-freeze timestamps. Both are procedural
+      until CI is wired.
+    severity: low
+    owner: cto
+
+# =============================================================================
+# TEST RESULTS (ACTUAL OUTPUT — rule 13: verify means execute)
+# =============================================================================
+test_results:
+  command_harness: "python3 -m pytest tests/harness/ -q"
+  output: "548 passed, 3 skipped in 16.36s"
+  new_tests_pass: true
+
+  command_forward_harness: "python3 -m pytest tests/harness/test_forward_harness.py -v"
+  output: |
+    11 passed in 0.15s
+    test_ic9_uses_honest_n_30                            PASSED
+    test_hash_mismatch_voids                             PASSED
+    test_m2_pre_freeze_bar_voids                         PASSED
+    test_m1_blocked_for_unattested_family                PASSED
+    test_clean_m2_forward_eval                           PASSED
+    test_one_shot_burned_refuses                         PASSED
+    test_void_after_data_burns_n                         PASSED
+    test_forward_attempt_counts_n                        PASSED
+    test_verdict_dsr_fail_and_underpowered_is_falsified  PASSED
+    test_verdict_underpowered_only_is_inconclusive       PASSED
+    test_verdict_real_kill_gate_beats_underpowered       PASSED
+
+  command_sacred: "python3 -m pytest -k 'test_no_lookahead' -q"
+  output: "12 passed, 1645 deselected in 0.71s"
+  sacred_test_green: true
+
+  command_ruff: "python3 -m ruff check src/forex_system/harness/freeze.py src/forex_system/harness/forward_eval.py tests/harness/test_forward_harness.py"
+  output: "All checks passed!"
+  ruff_clean: true
+
+  production_ledger_clean: "0 forward-eval entries in .fintech-org/trials.jsonl; honest_n stays 30 (tests route to temp trials_registry)."
+
+critic_pass_fixes:
+  - finding: "Verdict priority inversion — INCONCLUSIVE checked before FALSIFIED."
+    severity: real-important
+    fix: >
+      _determine_verdict() reordered: KILL gates (excluding the power-floor gate) and
+      DSR<0.95 are evaluated FIRST (hard FALSIFIED); the power floor LAST (INCONCLUSIVE,
+      M2 only). The min-events gate (power_floor_label) is excluded from the hard-kill
+      loop so a short window routes to INCONCLUSIVE, not FALSIFIED — while a REAL KILL
+      gate on a short window still FALSIFIES (NHT SD1 / no_gate_softening). Locked by
+      3 new unit tests (test_verdict_*).
+  - finding: "data_was_loaded=True set before cost-model build -> cost-coverage ConfigError over-counts N as VOID-after-data."
+    severity: real
+    fix: >
+      data_was_loaded=True moved to AFTER cost model + strategy build succeed. A
+      cost-coverage ConfigError (pre-data setup failure) now raises as a non-N-burning
+      refuse, not VOID-after-data. The M2 timestamp guard still explicitly sets
+      void_after_data=True (it inspects bar timestamps = sees the data; IC-7 correct).
+  - finding: "test_ic9_uses_honest_n_30 reads production ledger via cwd-relative path."
+    severity: brittleness
+    fix: >
+      Path anchored to repo root via _repo_root() (walks up to pyproject.toml).
+      Documented as a DELIBERATE live-ledger pin: the ratified N=30 must not drift
+      silently; intentionally coupled to the honest-n-classification record.
+
+# =============================================================================
+# ROUTING
+# =============================================================================
+notify: [cto, cro, nht, head-of-quant-research, principal-reviewer, ml-researcher]
+NEXT: PR review of freeze.py + forward_eval.py against IC-14 enforcement map above.
+      CTO: wire IC-5 CI hook (UNMET). Resolve GAP-1 (is_data_hash) in P1.1.

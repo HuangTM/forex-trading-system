@@ -1,0 +1,123 @@
+# Phase 0 Closure — Negative Result
+
+```yaml
+role: ceo
+artifact_type: phase-closure
+decision: close-phase-0-negative
+timestamp: 2026-06-26T22:24:00-07:00
+subtask_ref: CEO-PHASE0-CLOSE-2026-06-26 (external progress review + real-data revalidation)
+
+charter_question: >
+  "Phase 0 baseline forex trading system — proving alpha exists before building
+  complexity." (CLAUDE.md). Does an extractable, cost-surviving, statistically
+  confirmable systematic edge exist in this retail FX universe?
+
+answer: NO. Closed with a negative result. No strategy validated across 60 trials
+  (honest-N = 30). Both surviving candidate frameworks falsified through the firm's
+  own tooling. The binding constraints are structural (cost wall at high frequency;
+  no edge at low frequency; USD-correlation breadth wall; confirmability arithmetic),
+  not fixable by execution venue, broker, or further parameter search.
+
+evidence:
+  - scripts/run_phase1_revalidate.py (REAL-DATA run 2026-06-26): equal-weighted
+    USDJPY/GBPJPY/CADJPY portfolio Sharpe = 0.04 (claim was 0.59); annual return
+    0.01%; null-hypothesis gate FAILED all 3 pairs (p=1.000, rank 0.0% — worse than
+    random shuffles); walk-forward avg SR 0.00, Consistent = NO. Per-pair Sharpe:
+    USDJPY 0.16, GBPJPY -0.21, CADJPY 0.10.
+  - scripts/run_phase1_revalidate.py docstring: the original "Sharpe 0.59 / Validated
+    2026-04-07" was computed on SYNTHETIC GBM data (USDJPY values ~6.47 vs real ~159).
+    The headline never held on real data.
+  - config/carry_momentum_portfolio.yaml (header corrected 2026-06-26 to FALSIFIED /
+    DO NOT DEPLOY; prior "validated" header preserved for audit).
+  - External cost-sensitivity sweep over scripts/compute_9pairs_readiness.run_cd0_family
+    (1h CD0 families F1-F6, 11 pairs, 2021-2025): best GROSS (zero-cost) Sharpe 2.295
+    (single EURGBP F1, inconsistent across pairs); only 5/66 clear SR>=1.0 even
+    frictionless; at a 0.5-pip round-trip ECN cost, 0/66 net-positive. Cost IS the
+    wall intraday, and ECN is the cost floor — a cheaper broker cannot rescue it.
+  - External cost-sensitivity sweep on the daily carry-momentum signal (reusing
+    CarryMomentumStrategy.generate_signals, fixed-unit + magnitude-aware): portfolio
+    Sharpe moves only ~0.06-0.07 across retail(5-7.5pip)→frictionless. ~5 trades/yr →
+    cost is structurally NOT the binding constraint for the daily framework.
+  - .fintech-org/trials.jsonl: 60 ledger entries, 0 with verdict "validated",
+    honest-N = 30. (Ledger-hygiene caveat: trial 87fa1d23 "momentum" still reads
+    verdict "passed" in the ledger though ceo-digest records it later corrected/
+    retired after a DSR-deflation fix — the ledger row was never updated. See
+    Cleanup items below.)
+  - .fintech-org/ceo-digest.jsonl (2026-06-26): trend-on-futures FROZEN pre-reg fires
+    F7 DO-NOT-RUN; "binding constraint is statistical CONFIRMABILITY of any modest-Sharpe
+    edge at this scale/horizon — ARITHMETIC not data-class." Return to OBSERVE-ONLY.
+  - RETIREMENT_DECISION_2026-04-25.md: vol_target_carry placed in
+    retire-pending-reconciliation (NOT a hard retire — a return path is preserved
+    on successful reconciliation) on an engine-vs-script equivalence failure
+    (script Sharpe ~0.76, engine ~-0.08; gap ~0.84).
+
+assumptions:
+  - The two external cost-sensitivity sweeps were authored during a 2026-06-26 outside
+    progress review. The daily-carry headline (Sharpe 0.04) is from the firm's OWN
+    run_phase1_revalidate.py and is independently reproducible: `python3 scripts/run_phase1_revalidate.py`.
+  - The intraday sweep reuses the firm's run_cd0_family verbatim, varying only the
+    per-trade cost term; signals and bar-set are unchanged.
+  - This closure is a CEO-level decision. It has NOT been run through the firm's
+    NHT/CRO/PR ratification quorum; apply that gate before treating it as ratified
+    governance if desired. No role signatures are fabricated here.
+
+confidence: high (charter question answered NO; carry framework falsified via the
+  firm's own gate; intraday cost wall reproducible). The 0.59→0.04 collapse is not an
+  interpretation — it is the firm's own revalidation output.
+```
+
+---
+
+## What was tested, and how each door closed
+
+| Framework | Frequency | Verdict | Binding constraint | Broker/venue fix? |
+|---|---|---|---|---|
+| **Intraday CD0 (1h, F1–F6)** | ~hourly | Edge exists but is destroyed by cost | **Cost** — 0/66 net-positive even at 0.5-pip ECN | **No** — ECN is the cost floor |
+| **Daily carry-momentum (3 JPY pairs)** | ~5 trades/yr | No edge on real data | **No edge** — Sharpe 0.04, fails null (p=1.000) | **No** — cost is not the lever |
+| **"Phase 1 Validated 0.59" claim** | — | Synthetic-data artifact | Real-data revalidation: 0.04 | — |
+
+The two frameworks fail for **opposite** reasons — one has a narrow edge it cannot outrun cost to harvest, the other has no edge while cost is irrelevant — and **neither is rescued by changing execution.** That hypothesis is empirically dead from both ends.
+
+This is consistent with the broader Phase 0 record: 60 trials, 0 validated, and the firm's own June-26 finding that the binding constraint is the **statistical confirmability of any modest-Sharpe edge at retail scale/horizon** — arithmetic, not data quality.
+
+## Why the project *felt* stuck
+
+It was never blocked on process, code, or discipline. The governance machinery (pre-registration gates, OOS holdout, DSR deflation, null-hypothesis gates, falsification archive) is rigorous and load-bearing — it caught the vol_target_carry script-vs-engine gap and the momentum DSR bug. The "stuck" feeling came from the loop continuing to spend cycles *after the answer was already in*: motion without displacement. Closing Phase 0 formally is the act of accepting the negative result the evidence already produced.
+
+## Phase 0 disposition
+
+- **Status:** CLOSED — negative result. No live capital. No strategy graduates.
+- **Honest-N preserved at 30.** This closure spends no trial.
+- **Retained as falsification records:** all 60 trial entries, the corrected `carry_momentum_portfolio.yaml`, the CD0 screens, and this document.
+- **The engineering is sound and reusable:** clean-architecture engine, sacred no-lookahead test, realistic cost model, walk-forward, null-hypothesis gate, confirmability rubric, falsification ledger. A genuine asset for any future phase.
+
+## Cleanup items (ledger hygiene)
+
+- **`.fintech-org/trials.jsonl` row for trial `87fa1d23` ("momentum") still reads
+  `"verdict": "passed"`** despite the later DSR-deflation correction recorded in
+  ceo-digest (DSR 0.999 → ~0.13, below gate). The ledger row was never reconciled
+  to the corrected outcome. Other rows may carry similarly stale `"passed"` verdicts
+  (lines ~36, ~46, ~50). Recommend a one-pass ledger reconciliation so the registry
+  reflects final, post-correction verdicts — otherwise a future reader (or a Phase 1
+  hypothesis screen) could treat a corrected-down trial as a standing pass.
+- This does not change the Phase 0 verdict: even counting every `"passed"` row at
+  face value, none survived its later correction and 0 carry the `"validated"` mark.
+
+---
+
+## What a different-edge-class Phase 1 would require (scope, not a commitment)
+
+Phase 0 falsified the *retail-archetype* hypothesis class on *price-only daily/1h data in a USD-correlated pair universe*. A Phase 1 should not reopen that class. The evidence points at three hard requirements; a Phase 1 charter is only worth writing if it can satisfy at least the first plus one of the others.
+
+1. **A genuinely different EDGE CLASS** (price-only technical/carry archetypes are exhausted here):
+   - order-flow / positioning data (CFTC COT, dealer-flow, options-implied skew),
+   - macro/event microstructure (CB-text ML — flagged exploratory but zero-cost),
+   - or cross-asset signals not expressible from spot OHLCV alone.
+
+2. **Real diversifying breadth** (the USD-correlation wall: rho_bar_eff ≈ 0.60 vs ≤0.41 gate; N_eff ≈ 1.5 from 8 USD-majors). Requires **non-USD crosses** (EURGBP, GBPJPY, AUDJPY…) or other-asset legs whose effective independent-bet count actually clears the gate. This is a **data-acquisition** task, not a research task.
+
+3. **Confirmability honesty up front.** The firm's own arithmetic: a modest single-leg Sharpe needs ~37–92 years to confirm at this horizon. A Phase 1 must either (a) target an edge large/frequent enough to confirm in ≤3 years, or (b) explicitly adopt a **portfolio-of-many-weak-uncorrelated-signals** thesis (Fundamental Law of Active Management) where the *aggregate* is confirmable even when no leg is — and pre-register the aggregate test, not per-leg.
+
+**Phase 1 entry gate (proposed):** Do NOT author a Phase 1 pre-registration until a candidate edge clears a $0 descriptive feasibility probe showing (i) gross Sharpe that survives realistic cost with margin, AND (ii) an effective-N / breadth profile that can clear the confirmability gate in ≤3 years. Absent both, the correct posture is OBSERVE-ONLY — the same conclusion the June-26 trend-on-futures probe reached.
+
+> **CEO note:** If the goal is *capital return* rather than *research*, the highest-EV action given this evidence is to NOT fund systematic retail FX and to treat Phase 0's negative result as the deliverable. A Phase 1 in a new edge/data class is a separate, larger commitment that should be scoped against expected capital, data cost, and time-to-confirmability before any spend.

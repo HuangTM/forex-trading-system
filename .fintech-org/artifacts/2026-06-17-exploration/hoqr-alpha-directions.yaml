@@ -1,0 +1,488 @@
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — strategic exploration"
+timestamp: '2026-06-18T01:50:00Z'
+subtask_ref: ceo-strategic-exploration-beyond-1h
+subtask_id: alpha-directions-2026-06-17:exploration:task1.0
+no-capital-instruction: true
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - research-capacity-allocation
+  - strategy-kill-decisions
+  - falsification-archive-curation
+confidence: medium
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+# ============================================================================
+# FRAMING (read first)
+# ============================================================================
+framing:
+  ceo_question: >-
+    "What if 1H data won't help? What ELSE should we explore?" This is DIVERGENT
+    idea-generation, honestly scored. NOT a decision to ratify, NOT a
+    pre-registration. The trial counter is NOT incremented (still 49 in
+    trials.jsonl as of this write).
+  the_wall_restated: >-
+    years_to_validate = N_required / events_per_year, with
+    N_required ≈ 6.18 / IR_per_event^2 (alpha=0.05 1-sided, power=0.80; from the
+    frozen intraday confirmability rubric). The 12-efficient-FX-pair / zero-volume
+    universe is stuck because it makes BOTH events/yr small AND IR-per-event small
+    (often cost-dominated). To get years_to_validate <= 2.0yr you must raise the
+    PRODUCT, and the two levers fight each other: more events on the same arbed-out
+    pairs come with proportionally smaller IR. 1H is a bet on raising events/yr;
+    if it fails it is because the extra events arrived with proportionally smaller
+    IR (autocorrelated, arbed-out, cost-eaten) — the wall MOVES, it does not break.
+  what_actually_breaks_the_wall: >-
+    Only TWO things structurally break (not move) the wall: (a) a NEW DATA MODALITY
+    that is orthogonal to price-on-12-pairs and carries genuinely independent
+    information (so IR_per_event is high and not already in the price), or (b) a
+    NEW ASSET CLASS whose microstructure supplies BOTH more events AND higher
+    per-event IR AND real volume (so the cost denominator and the IR numerator both
+    improve at once). Everything that stays inside "price of 12 efficient FX pairs"
+    is a lateral move at best.
+  honesty_defaults_applied: >-
+    Per the frozen rubric: IR_per_event uses the LOW end of the plausible range,
+    post-cost; events/yr counted AFTER quality filters and freq caps; pooling
+    always gets the G5 correlation haircut N_eff = N_raw/(1+(k-1)*rho_bar). Every
+    years_to_validate below is the HONEST (pessimistic) read, not the marketing read.
+  no_profit_promise: >-
+    Passing confirmability means "detectable/rejectable in <=2yr", NOT "profitable".
+    The base rate stands: most hypotheses that clear this screen still FAIL OOS.
+  archive_dedup_check: >-
+    Checked against trials.jsonl (49 lines) and the 2026-06-06 kickoff ranking.
+    Already heavily explored and NOT re-proposed here: carry (6+ vol_target_carry,
+    2 carry, long_only_carry), momentum (3), MA-crossover (2), bollinger/RSI
+    mean-reversion (2, 0/3 record), turn-of-month (QRB-3, queued), CB-decision
+    event study (QRB-6, wound down RULE_4_AMBIGUOUS — real but un-confirmable edge),
+    rate-shock (QRB-1, killed underpowered), triangular-arb (QRA-1), session-reversion
+    (QRA-5), overnight-gap (QRA-2). New directions below must be ORTHOGONAL to these.
+
+# ============================================================================
+# RANKED CANDIDATES (best confirmability-adjusted value first)
+# Each: mechanism | lever | events/yr x IR -> years | data | top failure | verdict
+# ============================================================================
+candidates:
+
+  - rank: 1
+    id: AD-CRYPTO-MICRO
+    name: Crypto perps / spot microstructure with REAL L2 + volume (24/7 retail-inefficient venue)
+    lever: NEW ASSET CLASS + new modality (real volume) + events/yr UP + IR-per-event UP simultaneously
+    mechanism: >-
+      The wall is a property of the 12-efficient-FX universe, not of "trading". Crypto
+      (BTC/ETH/major-alt perps and spot) supplies the three things FX-majors structurally
+      deny us AT ONCE: (1) real, public, free order-book depth + traded VOLUME (Binance/
+      Coinbase/Kraken/Bybit L2 and trades feeds) — so volume-based signals (OBV, VWAP
+      deviation, order-flow imbalance, liquidation cascades) become testable for the first
+      time; (2) a documented, structurally-constrained loser class — over-leveraged retail
+      perp longs/shorts who are force-liquidated by the exchange engine regardless of price
+      (the liquidation cascade is a price-INSENSITIVE flow forced by a margin mandate — this
+      is the rubric's Anchor-4/5 "constraint that forces them to keep losing"); (3) 24/7
+      operation and far higher base volatility, so events/yr and per-event IR are both larger.
+      The edge should exist because the marginal participant is unsophisticated leveraged
+      retail and the venue mechanics (funding rate, forced liquidation, fee/rebate tiers)
+      create recurring, mechanically-driven flow.
+    confirmability:
+      events_per_year_honest: ">=2000 (24/7 across BTC/ETH/top-5 alts, even after a strict liquidation/funding-event quality filter)"
+      IR_per_event_honest: "0.06-0.12 (LOW end 0.06; order-flow edges in retail-heavy venues are documented but decay)"
+      N_required_at_low_IR: "6.18/0.06^2 ~= 1717 events"
+      years_to_validate: "~0.86yr at 2000 ev/yr and IR=0.06 -> PASSES <=2yr with margin; even IR=0.04 (N~3863) -> ~1.9yr still PASSES"
+      verdict_on_2yr: "YES — clears <=2yr even on pessimistic IR, because events/yr is an order of magnitude above FX-majors"
+    data: NEW DATA + NEW ASSET CLASS (free: exchange REST/WS for OHLCV+trades+L2; CCXT-style ingest). Does NOT use the 12 FX pairs.
+    top_failure_mode: >-
+      (1) Non-stationarity / regime fragility: crypto microstructure mutates fast (venue
+      rule changes, the 2022 deleveraging, market-maker entry) so an edge confirmed on
+      2021-2023 may be dead by validation. (2) Capacity/cost reality: tightest edges live
+      in fast order-flow where OUR fill assumptions (we are backtest-only, no real latency
+      model) may be fantasy — slippage on a liquidation spike is brutal. (3) It is OUTSIDE
+      the firm's chartered FX mandate — a scope decision only the CEO can make.
+    unlock_vs_lateral: >-
+      CEILING UNLOCK. This is the single direction that changes BOTH terms of the
+      confirmability equation (events AND IR AND a real cost/volume denominator) at once,
+      using only free data. It does not move the wall; it leaves the FX wall behind. The
+      cost is a mandate expansion and an honest reckoning that our fill model is weaker on
+      a fast venue.
+
+  - rank: 2
+    id: AD-RATES-EQIDX-FUT
+    name: Rates / equity-index futures with real exchange volume + economic grounding
+    lever: NEW ASSET CLASS + new modality (real volume, real open-interest) + IR-per-event UP (economic grounding)
+    mechanism: >-
+      Liquid futures (ES/NQ equity-index; ZN/ZB/ZF Treasury; Bund; SOFR/ZQ rate futures;
+      VX) trade on regulated exchanges with PUBLISHED volume and open interest, and are
+      the instruments through which scheduled-information (FOMC, NFP, CPI, auctions,
+      roll/rebalance dates) is FIRST priced. The economic mechanism is concrete: pre-FOMC
+      drift (Lucca-Moench), the equity-index roll, Treasury auction concessions, the
+      VIX-futures roll/contango. Crucially these are the SAME macro events that drive FX,
+      but on instruments where (a) volume confirms the move, (b) the event calendar is
+      scheduled and unambiguous (no event-identification snooping), and (c) per-event IR
+      is plausibly higher than the FX shadow of the same event because we are at the
+      instrument where the information lands first. This is the steelman of "trade the
+      cause, not the FX echo."
+    confirmability:
+      events_per_year_honest: "150-400 (scheduled macro events x ~5-8 liquid contracts; lower than crypto because event-gated)"
+      IR_per_event_honest: "0.10-0.20 (LOW end 0.10; scheduled-info events on the primary instrument carry more signal than the FX echo)"
+      N_required_at_low_IR: "6.18/0.10^2 ~= 618 events"
+      years_to_validate: "~1.5-4.1yr (PASSES at 400 ev/yr & IR=0.10 -> 1.55yr; STRETCH/FAIL at 150 ev/yr -> 4.1yr). Confirmability hinges on contract breadth + pooling honesty (G5 haircut: ES & NQ are ~0.9 correlated, count once)."
+      verdict_on_2yr: "CONDITIONAL — PASSES if pooled across genuinely independent contract families (equity-index vs rates vs vol) and event-gated; STRETCH if narrow"
+    data: NEW DATA + NEW ASSET CLASS. Futures continuous-contract data + volume/OI. Free tiers limited (much daily free; intraday + L2 often paid). Roll-adjustment is a real ingest hazard.
+    top_failure_mode: >-
+      (1) Pooling fraud risk (G5): the "many contracts" are highly correlated (ES~NQ,
+      ZN~ZB~ZF) so the honest N_effective is far smaller than the raw count — this can
+      silently push years_to_validate back above 2yr. (2) These are the MOST-studied,
+      most-arbed instruments on earth (CTAs, dealers, every macro fund); the pre-FOMC-drift
+      literature itself shows post-publication decay. (3) Data cost/quality: clean intraday
+      futures + roll handling is the costliest ingest of any candidate here.
+    unlock_vs_lateral: >-
+      CEILING UNLOCK (conditional). Real volume + economic grounding + scheduled events is
+      a genuine modality change. But it is a NARROWER unlock than crypto: fewer independent
+      events, heavier arb, and the data is not free. Strong second precisely because the
+      mechanism is the most economically defensible of all candidates.
+
+  - rank: 3
+    id: AD-OPT-IMPLIED-FX
+    name: FX options-implied signals -> spot (risk-reversals / vol-skew / vol-risk-premium) on EXISTING pairs
+    lever: NEW MODALITY (orthogonal information not in spot price) on the existing 12 pairs; IR-per-event UP
+    mechanism: >-
+      Spot price is the one thing the firm has fully mined. FX options markets price a
+      SEPARATE, forward-looking quantity: 25-delta risk-reversals (the skew = the market's
+      paid-up price for crash protection in one direction) and implied vol vs subsequent
+      realized vol (the variance risk premium). The economic mechanism is a documented
+      risk-premium: dealers who sell options must be paid to bear gamma/vega risk, and the
+      risk-reversal encodes positioning/hedging demand that is NOT visible in spot until it
+      resolves. Signals: (a) extreme risk-reversal as a contrarian/positioning gauge for
+      spot direction; (b) implied-minus-realized vol as a carry-of-volatility harvest;
+      (c) skew steepening as a risk-off lead indicator. This is genuinely orthogonal to
+      every archived family (all of which are spot-price functions).
+    confirmability:
+      events_per_year_honest: "60-250 (daily/weekly RR & IV obs x ~6-8 pairs with liquid option markets, after G5 USD-leg haircut)"
+      IR_per_event_honest: "0.08-0.15 (LOW end 0.08; risk-premium signals are real but the premium is small and time-varying)"
+      N_required_at_low_IR: "6.18/0.08^2 ~= 966 events"
+      years_to_validate: "~3.9-16yr at the LOW end (966-3863 events / 60-250 ev/yr). PASSES <=2yr ONLY at the optimistic corner (250 ev/yr, IR>=0.14). Honestly STRETCH-to-FAIL on confirmability."
+      verdict_on_2yr: "MOSTLY NO — confirmability is weak (low event rate x modest IR). High mechanism quality, poor confirmability."
+    data: NEW DATA on the EXISTING pairs. FX implied-vol surfaces / risk-reversals are NOT free (Bloomberg/Refinitiv/Saxo-feed territory). Acquisition is the gating risk and may not be free. The firm's Saxo account MAY expose some option data — UNVERIFIED.
+    top_failure_mode: >-
+      (1) Data acquisition: clean historical FX vol surfaces are expensive/proprietary; this
+      may be uncapturable for a backtest-only Phase-0 firm. (2) Even with data, the event
+      rate is low and the risk premium is small and regime-dependent (it inverts in crises),
+      so confirmability stays >2yr — the SAME wall, just on a different axis. (3) Survivor of
+      QRB-6's lesson: a real-but-modest low-frequency edge that cannot confirm in 2yr.
+    unlock_vs_lateral: >-
+      MODALITY-ADD but NOT a ceiling unlock. The information is genuinely orthogonal (good),
+      but the confirmability math stays bad (low events x modest IR) AND the data likely is
+      not free. Pursue only if a free/owned data source is confirmed. Otherwise this is
+      QRB-6 in a new costume: high prior, un-confirmable in <=2yr.
+
+  - rank: 4
+    id: AD-CROSS-ASSET-RATES
+    name: Cross-asset / rates-driven FX (yield-curve & relative-rates signals into existing pairs)
+    lever: NEW MODALITY (rates/cross-asset info) on existing pairs; modest events/yr UP via daily cadence
+    mechanism: >-
+      FX is, at the macro horizon, a rates-differential instrument — but the firm has only
+      tested the LEVEL (carry, exhaustively) and the monthly-lagged CHANGE (QRB-1, killed).
+      Untested: the SHAPE and DYNAMICS of the rate complex as a daily signal — 2s10s slope
+      changes, short-end (policy-expectation) repricing via OIS/SOFR-implied paths, and the
+      lead-lag between the rates market repricing and the FX pair adjusting. Mechanism: the
+      rates market is deeper and faster than spot FX at digesting policy-path information;
+      a measurable lead-lag would mean rate-complex moves predict the FX adjustment. This is
+      distinct from carry (level) and from QRB-1 (stale monthly change) because it uses the
+      DAILY, market-priced forward path, not the realized policy level.
+    confirmability:
+      events_per_year_honest: "~250 daily obs x effective ~4-5 independent USD/EUR/JPY/GBP blocs (G5 haircut heavy) -> ~1000-1250 raw, but autocorrelation makes independent N far smaller"
+      IR_per_event_honest: "0.04-0.08 (LOW end 0.04; if a lead-lag existed it would be among the most-arbed in macro)"
+      N_required_at_low_IR: "6.18/0.04^2 ~= 3863 events"
+      years_to_validate: "~3-8yr honest (high autocorrelation collapses the effective daily N; the lead-lag, if any, is tiny and fast-arbed). Likely FAILS <=2yr."
+      verdict_on_2yr: "NO — autocorrelated daily signal + tiny fast-arbed edge = same wall on a rates axis"
+    data: PARTIALLY existing (firm has rate_differentials.parquet) + NEW (OIS/SOFR-implied path, yield-curve slope data — some free via FRED, some not). Mixed.
+    top_failure_mode: >-
+      Lead-lag between rates and FX is the textbook efficient-market casualty: if it ever
+      existed at daily cadence it is gone. Daily autocorrelation also means the raw event
+      count massively overstates independent N. This is the wall MOVING to a rates axis,
+      not breaking.
+    unlock_vs_lateral: >-
+      LATERAL (mostly). Mechanism is sound but the confirmability math is the same trap:
+      low independent N x tiny arbed edge. Only marginally interesting because some data is
+      already owned (FRED). Not a ceiling unlock.
+
+  - rank: 5
+    id: AD-COT-POSITIONING
+    name: COT (Commitment of Traders) positioning extremes -> contrarian FX-futures signal
+    lever: NEW MODALITY (positioning data) on existing currencies; low events/yr (weekly), IR uncertain
+    mechanism: >-
+      CFTC publishes weekly COT positioning (large speculators vs commercials) for the
+      CME currency futures that shadow the firm's FX pairs — free, public. Mechanism:
+      crowded spec positioning at an extreme is a contrarian signal (the marginal long has
+      no one left to buy; commercials are the structurally-constrained hedger on the other
+      side). This is the classic sentiment-extreme play and is genuinely orthogonal to all
+      price-based archived families.
+    confirmability:
+      events_per_year_honest: "~52/yr/currency x ~6 currencies, but extremes (the actual signal) fire maybe ~5-15/yr/currency -> ~30-90 honest events/yr pooled (G5: shared USD leg haircut)"
+      IR_per_event_honest: "0.10-0.20 (LOW end 0.10; positioning extremes have a documented but weak/decayed contrarian edge)"
+      N_required_at_low_IR: "6.18/0.10^2 ~= 618 events"
+      years_to_validate: "~7-20yr (618 events / 30-90 ev/yr). FAILS <=2yr badly — the weekly-and-only-at-extremes cadence starves the event count."
+      verdict_on_2yr: "NO — too few events/yr; the signal only fires at extremes, and COT is a famously low-frequency series"
+    data: NEW DATA, FREE (CFTC weekly COT) on currency futures shadowing existing pairs. Trivial ingest. But the data CADENCE is the killer, not the cost.
+    top_failure_mode: >-
+      Event starvation. COT is weekly and the tradeable signal is only the extremes, so
+      events/yr is structurally tiny — exactly the low-events term that the wall punishes.
+      Also a 3-day reporting lag and heavy decay (widely watched since the 1990s).
+    unlock_vs_lateral: >-
+      LATERAL. Free + orthogonal + sound-mechanism, but the confirmability math is
+      hopeless (weekly cadence -> <2yr is unreachable). A nice diagnostic/overlay feature,
+      not a standalone alpha that can confirm in time. Candidate for the KILL slot.
+
+  - rank: 6
+    id: AD-ECON-SURPRISE-EVENT
+    name: Economic-surprise event study (actual-vs-consensus shock -> short-horizon FX drift) on existing pairs
+    lever: events/yr UP (scheduled-data calendar) + IR-per-event UP (surprise = genuine new info) on existing pairs
+    mechanism: >-
+      Distinct from QRB-6 (CB DECISIONS) and QRB-1 (stale monthly rate level): trade the
+      SURPRISE component (actual minus consensus) of high-frequency scheduled releases —
+      NFP, CPI, PMI, retail sales — across the 8 currencies, in the minutes-to-hours after
+      release on 1h bars. Mechanism: the surprise is, by construction, NEW information not
+      previously in the price; the post-release drift reflects gradual information diffusion
+      and dealer inventory rebalancing. Requires a consensus-forecast dataset to compute the
+      surprise (the firm does not have one).
+    confirmability:
+      events_per_year_honest: "~8-12 high-impact releases/mo x ~8 currencies, but cross-currency correlation on USD days is high (G5) -> ~150-300 honest independent events/yr"
+      IR_per_event_honest: "0.08-0.15 (LOW end 0.08; surprise drift is real intraday but decays within hours and is cost-sensitive)"
+      N_required_at_low_IR: "6.18/0.08^2 ~= 966 events"
+      years_to_validate: "~3.2-6.4yr honest (966 / 150-300). STRETCH at the optimistic corner (IR>=0.12 & 300 ev/yr -> ~1.4yr). Confirmability is borderline, hinges on event rate after G5 haircut."
+      verdict_on_2yr: "BORDERLINE/STRETCH — passes only at the optimistic corner; honest read is ~3yr"
+    data: NEW DATA (consensus-forecast series — Bloomberg/Econoday territory, partial free via investing.com/ForexFactory scraping but quality/licensing uncertain) + EXISTING 1h OHLCV. The consensus data is the gating dependency.
+    top_failure_mode: >-
+      (1) Consensus-forecast data is the hard dependency and may not be cleanly/freely
+      available with point-in-time integrity (revisions, look-ahead). (2) The drift decays
+      within hours and the release minute has the widest spreads of the day — cost can eat
+      it (G3). (3) Overlaps conceptually with QRB-6's wound-down finding (scheduled-event
+      drift is real but modest and post-2015-decayed).
+    unlock_vs_lateral: >-
+      MODALITY-ADD, borderline. Better events/yr than COT/options, and the surprise is
+      genuine new info. But it inherits QRB-6's decay lesson and needs a consensus dataset
+      we lack. Park as STRETCH; only advances if free point-in-time consensus data is
+      confirmed.
+
+  - rank: 7
+    id: AD-PORTFOLIO-ENSEMBLE
+    name: Portfolio-of-weak-edges / ensemble (combine many sub-threshold signals into one risk unit)
+    lever: ENSEMBLE / portfolio unit — raises the PORTFOLIO IR via diversification of weak independent edges
+    mechanism: >-
+      The firm's near-misses (R5 carry AMBIGUOUS, QRB-6 RULE_4 real-but-modest, QRB-3
+      queued) each have a small, possibly-real edge that individually cannot clear the bar.
+      The portfolio identity: SR_portfolio = SR_single x sqrt(M) for M UNCORRELATED edges.
+      If the firm holds, say, 4 genuinely-uncorrelated weak edges each at SR~0.3, the
+      ensemble is SR~0.6 — which DOES clear typical bars. Mechanism is pure diversification
+      math, not a new economic claim. This is how real multi-strategy funds survive: no
+      single edge is impressive; the COMBINATION is.
+    confirmability:
+      events_per_year_honest: "inherits the components' rates (no new events created)"
+      IR_per_event_honest: "portfolio IR ~ component IR x sqrt(M_effective); the catch is M_EFFECTIVE not M_nominal"
+      N_required_at_low_IR: "lower than any single component IF the components are truly uncorrelated"
+      years_to_validate: "POTENTIALLY <=2yr for the PORTFOLIO claim IF >=3-4 genuinely-uncorrelated components exist — but the firm does not yet HAVE that many independent confirmed edges; it has near-misses that share macro drivers (carry & rates & CB-drift are all rates-correlated)"
+      verdict_on_2yr: "CONDITIONAL — the math works ONLY if the components are genuinely uncorrelated; the firm's current near-misses are NOT (all rates-flavored), so today this is premature"
+    data: EXISTING (uses already-explored signals) — no new data. This is the ONLY candidate that needs no acquisition.
+    top_failure_mode: >-
+      Correlated components. sqrt(M) is a LIE when the edges share a driver — the firm's
+      candidate components (carry, CB-drift, rate-shock) are all rates-correlated, so
+      M_effective ~= 1 and the diversification benefit evaporates. Also: combining edges
+      that are each individually un-validated risks multiple-testing laundering (pick the
+      4 that happened to work IS). NHT will (correctly) hammer this.
+    unlock_vs_lateral: >-
+      LATERAL NOW, UNLOCK LATER. The ensemble is the RIGHT eventual structure, but it is a
+      MULTIPLIER on a set of independent edges the firm does not yet possess. It cannot
+      manufacture alpha from correlated near-misses. Revisit AFTER >=2 genuinely
+      uncorrelated edges are independently validated (e.g. one FX-calendar + one crypto
+      order-flow). Premature today.
+
+  - rank: 8
+    id: AD-LOWFREQ-ECONOMIC
+    name: Honest low-frequency economic bet (carry / value / trend as a TIERED long-horizon allocation)
+    lever: LOW-FREQ ECONOMIC — strong priors, deliberately accepts un-confirmability in 2yr
+    mechanism: >-
+      The academically most-robust FX edges — carry (rate differential risk premium),
+      value (PPP/REER mean-reversion), and trend (time-series momentum) — have decades of
+      cross-market evidence and clear economic mechanisms (carry = compensation for crash
+      risk; value = long-run convergence; trend = under-reaction). The firm has tested
+      carry/momentum and found them AMBIGUOUS, not dead. The honest framing: these are
+      LOW-frequency (rebalance monthly/quarterly) so they CANNOT confirm in 2yr by
+      construction (years_to_validate tens-to-hundreds of yr at honest IR) — but the PRIOR is strong enough that a
+      small, pre-committed, calendar-locked allocation is a defensible "slow bet" distinct
+      from the fast-confirmable research track.
+    confirmability:
+      events_per_year_honest: "12-50/yr (monthly-to-weekly rebalance across the panel)"
+      IR_per_event_honest: "0.05-0.15 (decades of evidence but heavily decayed in majors post-2008)"
+      N_required_at_low_IR: "6.18/0.05^2 ~= 2472 events"
+      years_to_validate: "~49-206yr at the HONEST LOW end (2472 events / 12-50 ev/yr). Even at the HIGH-end IR=0.15 (N~275) it is ~5.5-23yr. Un-confirmable in 2yr under ANY plausible IR. This is acknowledged, not a defect of the analysis. (Earlier '5-15yr' wording was an optimism leak — corrected to the LOW-end honest figure.)"
+      verdict_on_2yr: "NO BY DESIGN — un-confirmable by orders of magnitude; this path explicitly trades confirmability for strong priors"
+    data: EXISTING 12 pairs (+ optional REER/PPP from free sources). No new acquisition needed.
+    top_failure_mode: >-
+      It is un-confirmable in the firm's horizon (that is the whole point) AND the majors-
+      only carry/value/trend edges have decayed most where the data is cleanest. A "strong
+      prior" that you cannot test in time is a faith position dressed as research — exactly
+      the trap the honest-review reset was built to prevent. Calendar-locked confirmatory
+      design (as already done for carry) is the only honest way to hold it.
+    unlock_vs_lateral: >-
+      NEITHER unlock NOR busywork — it is a SEPARATE TRACK. It does not break the
+      confirmability wall (it concedes the wall) but it is the honest home for "we believe
+      this on priors, we will hold a tiny calendar-locked allocation and let a multi-year
+      confirmatory settle it." Keep as a parallel low-bandwidth track, NOT as the answer to
+      "escape the wall."
+
+# ============================================================================
+# RANKING TABLE (compact)
+# ============================================================================
+ranking_table:
+  - rank: 1
+    name: Crypto microstructure (L2+volume)
+    lever: new-asset + volume modality + events&IR up
+    confirmability: "~2000 ev/yr x IR>=0.06 -> ~0.9yr -> PASSES"
+    data: new (free)
+    top_failure: non-stationary microstructure + fill-model fantasy + mandate scope
+    verdict: CEILING-UNLOCK
+  - rank: 2
+    name: Rates / equity-index futures
+    lever: new-asset + volume + economic grounding
+    confirmability: "150-400 ev/yr x IR>=0.10 -> 1.5-4.1yr -> CONDITIONAL"
+    data: new (mostly paid)
+    top_failure: pooling-correlation fraud (G5) + heavily arbed + data cost
+    verdict: CEILING-UNLOCK (conditional, narrower)
+  - rank: 3
+    name: FX options-implied (RR / vol-skew)
+    lever: new modality on existing pairs
+    confirmability: "60-250 ev/yr x IR~0.08 -> ~3.9-16yr -> MOSTLY FAILS"
+    data: new (likely paid; Saxo unverified)
+    top_failure: vol-surface data not free + low events x modest IR
+    verdict: MODALITY-ADD, not unlock
+  - rank: 4
+    name: Cross-asset / rates-dynamics FX
+    lever: new modality on existing pairs
+    confirmability: "autocorr-collapsed N x IR~0.04 -> 3-8yr -> FAILS"
+    data: partial existing (FRED) + new
+    top_failure: lead-lag is the textbook efficient-market casualty
+    verdict: LATERAL
+  - rank: 5
+    name: COT positioning extremes
+    lever: new modality (positioning), existing currencies
+    confirmability: "30-90 ev/yr x IR~0.10 -> 7-20yr -> FAILS"
+    data: new (FREE, CFTC)
+    top_failure: event starvation (weekly, extremes-only)
+    verdict: LATERAL (KILL candidate)
+  - rank: 6
+    name: Economic-surprise event study
+    lever: events&IR up on existing pairs
+    confirmability: "150-300 ev/yr x IR~0.08 -> 3.2-6.4yr (STRETCH at corner)"
+    data: new (consensus data, partial free)
+    top_failure: consensus-data point-in-time integrity + release-spread cost
+    verdict: MODALITY-ADD, borderline STRETCH
+  - rank: 7
+    name: Portfolio-of-weak-edges ensemble
+    lever: ensemble / portfolio IR multiplier
+    confirmability: "PORTFOLIO <=2yr IFF >=3-4 uncorrelated edges exist (they don't yet)"
+    data: existing (no acquisition)
+    top_failure: components are correlated (all rates-flavored) -> sqrt(M) is a lie
+    verdict: LATERAL NOW, UNLOCK LATER
+  - rank: 8
+    name: Low-freq economic (carry/value/trend)
+    lever: low-freq economic, strong priors
+    confirmability: "12-50 ev/yr x IR~0.05 -> ~49-206yr -> NO BY DESIGN"
+    data: existing
+    top_failure: un-confirmable in horizon; majors-decayed
+    verdict: SEPARATE TRACK (concedes the wall)
+
+# ============================================================================
+# THE THREE VERDICTS
+# ============================================================================
+top_2_ceiling_unlocks:
+  - id: AD-CRYPTO-MICRO
+    why: >-
+      The only direction that improves EVERY term of the confirmability equation at once
+      (events/yr UP ~10x, IR-per-event UP via a genuinely-constrained retail loser class,
+      AND a real volume/L2 denominator for cost+order-flow) — all on FREE data. It clears
+      <=2yr even on pessimistic IR (~0.9yr). It does not move the FX wall; it leaves it.
+      Cost: a CEO mandate-expansion beyond FX, and honest acknowledgment that our
+      backtest-only fill model is weaker on a fast venue (must be modeled conservatively).
+  - id: AD-RATES-EQIDX-FUT
+    why: >-
+      A CONDITIONAL unlock (NOT unconditional — restating the candidate-section math: it
+      PASSES at ~1.55yr only with broad cross-family pooling at ~400 ev/yr & IR>=0.10, and
+      STRETCHES/FAILS at ~4.1yr if the contract set is narrow at ~150 ev/yr). The most
+      economically DEFENSIBLE direction: real exchange volume + open interest +
+      scheduled-event grounding on the instruments where macro information lands FIRST.
+      The clean intraday data is the costliest to acquire, and the G5 pooling-correlation
+      haircut (ES~NQ, ZN~ZB~ZF) is the live risk that could push it back above 2yr — but
+      the mechanism quality is the highest of any candidate. Strong, narrower, CONDITIONAL
+      complement to crypto; choose based on (a) data budget, (b) the G5-honest independent-
+      contract count (KG-4), and (c) whether the CEO prefers a regulated-exchange asset
+      class over crypto.
+
+direction_to_kill:
+  id: AD-COT-POSITIONING
+  ruling: KILL (do not allocate research bandwidth)
+  reason: >-
+    COT positioning is the textbook "feels-like-edge" trap that fails the wall on the
+    events/yr term specifically. It is free and orthogonal (the seductive part), but the
+    data is WEEKLY and the tradeable signal fires only at extremes (~5-15/yr/currency),
+    so honest events/yr is ~30-90 pooled -> years_to_validate ~7-20yr. No amount of
+    pooling fixes a weekly-cadence, extremes-only series (G5 haircut on the shared USD leg
+    makes it worse). It also carries a 3-day reporting lag and decades of decay. It is
+    strictly dominated: as a standalone alpha it cannot confirm in time; as a feature it
+    is a weak overlay. Spending bandwidth here is the exact "free + orthogonal but
+    un-confirmable" mistake the dataset-wall lesson warned against. Archive it as a
+    diagnostic feature only; do not grant it a research slot.
+
+# ============================================================================
+# KNOWLEDGE GAPS (route as RESEARCH_REQUEST — no web tools used here)
+# ============================================================================
+knowledge_gaps:
+  - id: KG-1
+    gap: >-
+      Whether free, sufficient-quality crypto L2 + trades history (BTC/ETH/top-alts,
+      2-4yr, sub-hour) is actually obtainable for backtest (CCXT/exchange archives), and
+      what an HONEST slippage/fill model on a liquidation spike looks like for a
+      backtest-only firm. This determines whether AD-CRYPTO-MICRO's IR survives realistic
+      execution. RESEARCH_REQUEST -> CTO/Quant-Developer + CRO cost model.
+  - id: KG-2
+    gap: >-
+      Whether the firm's existing Saxo Bank account exposes ANY FX options-implied data
+      (risk-reversals / vol surfaces) at no extra cost. If yes, AD-OPT-IMPLIED-FX's
+      acquisition blocker partially lifts. Memory says Saxo FX account exists; option-data
+      entitlement is UNVERIFIED. RESEARCH_REQUEST -> Execution-Trader / Saxo API research.
+  - id: KG-3
+    gap: >-
+      Whether free, point-in-time consensus-forecast data (NFP/CPI/PMI actual-vs-consensus
+      with no revision look-ahead) is obtainable for AD-ECON-SURPRISE-EVENT. ForexFactory/
+      investing.com may provide it but licensing + point-in-time integrity is unverified.
+      RESEARCH_REQUEST.
+  - id: KG-4
+    gap: >-
+      Cost and quality of clean intraday + roll-adjusted futures data (ES/NQ/ZN/VX) for
+      AD-RATES-EQIDX-FUT, and the honest cross-contract correlation matrix needed to size
+      the G5 pooling haircut. This determines whether its confirmability lands at 1.5yr or
+      4yr. RESEARCH_REQUEST -> CTO data-sourcing + Quant-Researcher correlation estimate.
+
+# ============================================================================
+# WHAT THIS ARTIFACT IS / IS NOT
+# ============================================================================
+disposition:
+  this_is: >-
+    Divergent strategic exploration of alpha DIRECTIONS to escape the dataset wall,
+    honestly confirmability-scored. A menu for the CEO's strategic fork, NOT a ratified
+    plan and NOT a pre-registration.
+  this_is_not: >-
+    A pre-registration, a trial, a capacity commitment, or a profit claim. No trial counter
+    increment (trials.jsonl stays at 49). Any direction the CEO selects must then run the
+    full pipeline: QRB/intraday confirmability rubric -> NHT null battery -> PreRegistration
+    -> PR verification, before any backtest slot is granted.
+  recommended_next_step: >-
+    CEO chooses between the two ceiling-unlocks (crypto vs futures) — primarily a
+    data-budget + mandate-scope decision, informed by KG-1 and KG-4. The FX-only modality
+    adds (options-implied, econ-surprise) are worth pursuing ONLY if their gating free-data
+    questions (KG-2, KG-3) resolve favorably; otherwise they are QRB-6-class un-confirmable
+    traps. The ensemble path is correct but premature. The low-freq economic path stays a
+    separate low-bandwidth track. COT is killed.
+  no_capital_note: >-
+    Phase-0 backtest-only. No live capital implied by any direction here. Asset-class
+    pivots (crypto/futures) are RESEARCH-data decisions, not trading-capital decisions.

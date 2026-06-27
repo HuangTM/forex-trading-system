@@ -1,0 +1,584 @@
+# ============================================================================
+# CTO SPEC — Make the continuous backtest engine SHORT-CAPABLE (H1 enablement)
+# ============================================================================
+role: cto
+artifact_type: methodology-design          # architecture decision + implementation spec
+decision: approve                           # approve the design; QD implements
+rubric-applied:
+  - execution-firewall-review
+  - clock-and-ordering
+timestamp_utc: 2026-06-17T23:34:08Z
+authored_by: cto
+no-capital-instruction: true                # backtest-only; no live capital touched
+claimed_domains:
+  - architecture-decisions
+  - cross-system-blast-radius
+  - firewall-enforcement-between-research-and-execution
+  - logging-and-observability-standards
+
+spec_id: cto-short-engine-spec-2026-06-16
+implements_for: H1-directional-session-open-momentum   # frozen hypothesis; trades SIGN of impulse
+ceo_authorization: C-1
+implementer: quant-developer                # CTO does NOT write production code
+
+# ----------------------------------------------------------------------------
+# 0. PROBLEM STATEMENT (grounded in real line numbers)
+# ----------------------------------------------------------------------------
+problem: >
+  H1 trades the SIGN of the session-open impulse and therefore MUST hold shorts.
+  src/forex_system/backtest/engine.py::_run_continuous clamps the signal to >=0 at
+  line 331 (clamped_signal = max(raw_signal, 0.0)), so the engine never holds a
+  short. A short-accrual swap branch already exists (lines 397-413, `elif cur_units < 0`)
+  but is DEAD because the clamp guarantees cur_units >= 0. The Principal Reviewer
+  confirmed the mark-to-market (line 536, `if cur_units > 0`) and the end-of-run
+  close (line 544, `if cur_units > 0`) are also long-only. CLAUDE.md documents
+  signals as floats in [-1, +1] with -1 = max short, so the engine is SUPPOSED to
+  support shorts but does not.
+
+scope:
+  in_scope:
+    - src/forex_system/backtest/engine.py::_run_continuous   # H1 is continuous mode
+    - src/forex_system/sizing/vol_target.py::VolTargetSizer  # sign passthrough (see Site S)
+    - src/forex_system/core/config.py::BacktestConfig        # opt-in flag plumbing
+    - config/default.yaml                                    # opt-in flag default
+  out_of_scope:
+    - src/forex_system/backtest/engine.py::_run_discrete
+    # RATIONALE for _run_discrete OUT: H1 runs continuous (rebalance_mode='continuous',
+    # per scripts/run_falsification_trial.py:501 sourcing config.backtest.rebalance_mode).
+    # Critically, _run_discrete ALREADY computes positions via np.sign(delayed_signals)
+    # (line 143) and _close_position already derives Direction.SHORT when position<0
+    # (line 599) with the correct PnL sign (line 606: price_diff * position). The
+    # discrete path is short-aware ALREADY; touching it is unnecessary surface area and
+    # risks the equivalence gate. If a future discrete short strategy is needed, that is
+    # a SEPARATE spec. CTO disposition: rip-it-out / minimum surface area.
+    - src/forex_system/costs/model.py                        # NO change needed; see Site F note
+
+# ----------------------------------------------------------------------------
+# 1. OPT-IN FLAG (backward-compat mechanism) — THE core of bit-identical default
+# ----------------------------------------------------------------------------
+opt_in_flag:
+  name: allow_shorts
+  type: bool
+  default: false                            # DEFAULT = today's exact long-only behavior
+  rationale_for_name: >
+    Positive framing 'allow_shorts=False' (not 'long_only=True') so the DEFAULT
+    literally reads as the restrictive state. New capability is opt-in; absence of
+    the flag at any call site = unchanged long-only. This is what keeps every
+    existing validated trial and BOTH equivalence tests bit-identical.
+
+  locations:
+    # The flag lives at THREE layers, all defaulting to the long-only value:
+    - layer: engine_param
+      file: src/forex_system/backtest/engine.py
+      where: >
+        Add `allow_shorts: bool = False` to the signature of run_backtest() (after
+        constant_capital_sizing, ~line 47) AND to _run_continuous() (after
+        constant_capital_sizing, ~line 269). run_backtest threads it into the
+        _run_continuous(...) call (~lines 97-110). Do NOT pass it to _run_discrete()
+        (out of scope; discrete is already sign-aware and we are not enabling it here).
+      default: false
+    - layer: typed_config
+      file: src/forex_system/core/config.py
+      where: >
+        Add `allow_shorts: bool = False` field to BacktestConfig (after
+        rebalance_threshold, ~line 44). Parse it in load_config from the execution
+        sub-section: `allow_shorts=bool(exec_raw.get("allow_shorts", False))`
+        (~line 121, alongside rebalance_mode/rebalance_threshold).
+      default: false
+    - layer: yaml_config
+      file: config/default.yaml
+      where: >
+        Under backtest.execution (~line 70, next to entry_delay_bars), the key MAY be
+        added explicitly as `allow_shorts: false` for documentation. It is OPTIONAL —
+        the parser default is False, so omitting it preserves current behavior. Do NOT
+        set it true in default.yaml. H1's run config (the falsification-trial config)
+        sets allow_shorts: true in ITS OWN config file, not the shared default.
+
+  clamp_becomes_conditional:
+    file: src/forex_system/backtest/engine.py
+    line: 331
+    current: "clamped_signal = max(raw_signal, 0.0)"
+    new: |
+      # When allow_shorts: pass the signed signal through so the sizer can produce
+      # negative (short) target units. Default (allow_shorts=False) is the original
+      # long-only clamp — BIT-IDENTICAL for every existing caller.
+      clamped_signal = raw_signal if allow_shorts else max(raw_signal, 0.0)
+    note: >
+      Variable name 'clamped_signal' is retained to minimize the diff; in the
+      allow_shorts branch it is no longer clamped, but renaming it ripples through the
+      decision-trace log at 351 and is not worth the churn. QD MAY rename to
+      'target_signal' if it updates the log line too — reviewer's discretion.
+
+# ----------------------------------------------------------------------------
+# 2. PER-SITE CHANGE LIST (full short-correctness across the blast radius)
+#    Each site = the exact line(s) that assume cur_units>=0 or Direction.LONG,
+#    and the required short-aware fix. ALL gated so default stays bit-identical.
+# ----------------------------------------------------------------------------
+sites:
+
+  - id: Site-A-clamp
+    file: src/forex_system/backtest/engine.py
+    line: 331
+    assumes: signal >= 0 (long-only clamp)
+    fix: see opt_in_flag.clamp_becomes_conditional above.
+    bit_identical_when: allow_shorts=False (max(raw_signal,0.0) unchanged)
+
+  - id: Site-S-sizer-sign
+    file: src/forex_system/sizing/vol_target.py
+    lines: 72, 75, 78
+    assumes: >
+      VolTargetSizer.calculate_size returns 0.0 for signal_strength <= 0 (line 72)
+      and uses scale = min(signal_strength, 1.0) (line 75). It returns MAGNITUDE only
+      and refuses negative signals. Sign therefore CANNOT flow to units through the
+      sizer today.
+    fix: >
+      The sizer must return SIGNED exposure when fed a negative signal, but ONLY
+      under allow_shorts. The cleanest firewall-clean approach (CTO decision): keep
+      the sizer magnitude-based and apply the SIGN in the ENGINE, NOT inside the
+      sizer. Specifically:
+        (a) In _run_continuous, feed the sizer abs(clamped_signal) so the sizer's
+            min_order_size / leverage_cap / max_order_units logic is unchanged and
+            operates on magnitude.
+        (b) Capture the sign: `signal_sign = 1.0 if clamped_signal >= 0 else -1.0`.
+        (c) usd_nominal = signal_sign * sizer.calculate_size(abs(clamped_signal), ...).
+        (d) target_units = _to_engine_units(usd_nominal, pair, price) — _to_engine_units
+            is sign-preserving (usd_nominal/price keeps the sign for JPY; identity for
+            USD-quoted), so a negative usd_nominal yields negative target_units. VERIFIED
+            sign-safe by reading engine.py:692-694.
+    rationale: >
+      Applying sign in the engine (not the sizer) means VolTargetSizer needs ZERO change
+      and stays a pure magnitude function — its existing unit tests and the
+      always-long-equals-bh equivalence test (which calls it with signal=1.0) are
+      untouched. This is the rip-it-out / least-surface choice. The clamp at line 331
+      under allow_shorts=False still produces clamped_signal>=0, so abs() and the
+      sign-multiply are no-ops on the default path → bit-identical.
+    firewall_note: >
+      The sign IS the strategy (H1 trades the sign). It must NOT be silently injected
+      or transformed. The sign comes directly from the delayed signal (raw_signal),
+      with NO winsorize / tanh / clip. execution-firewall-review Section A5 (signal
+      transformations) is satisfied: abs()+sign reconstructs exactly raw_signal's sign
+      and magnitude, no information added or removed.
+    bit_identical_when: >
+      allow_shorts=False → clamped_signal = max(raw,0) >= 0 → signal_sign = +1.0,
+      abs(clamped_signal) = clamped_signal → identical call to today.
+
+  - id: Site-B-swap-accrual-long
+    file: src/forex_system/backtest/engine.py
+    lines: 381-396
+    assumes: cur_units > 0 (long branch)
+    fix: NO CHANGE. The long branch is correct as-is.
+
+  - id: Site-C-swap-accrual-short
+    file: src/forex_system/backtest/engine.py
+    lines: 397-413
+    assumes: >
+      `elif cur_units < 0` branch EXISTS and is correct for the rollover-aware path,
+      but is currently DEAD (clamp guarantees cur_units >= 0). It also has NO
+      else-branch for the pro-rata (daily RealisticCostModel) path.
+    fix: >
+      (1) Confirm-reachable: once Site-A allows shorts, cur_units < 0 occurs and this
+          branch fires. The rollover-aware accrual (lines 410-413) is correct:
+          rollover_cost_for_bar(pair, Direction.SHORT, ts) reads swap_short_pips_per_day
+          (model.py:312-313), negated and applied to abs(cur_units) — VERIFIED correct
+          sign/magnitude by reading model.py:273-326.
+      (2) Pro-rata gap: the short branch has NO `else` (pro-rata) arm — see the inline
+          KNOWN-GAP comment at lines 404-409. H1 is intraday (rollover-aware path,
+          use_rollover_accrual=True), so this gap does NOT block H1. DECISION: leave the
+          pro-rata short arm ABSENT but make the omission LOUD — QD MUST add, in the
+          else case (use_rollover_accrual False AND cur_units<0 AND allow_shorts True),
+          an explicit `raise NotImplementedError("daily/pro-rata short swap accrual not
+          implemented; H1 is intraday rollover-aware only")`. Rationale: silently
+          accruing zero swap on a daily short is a research-class decision the engine
+          must not make on its own (firewall). Fail loud, do not silently no-op.
+    clock_note: >
+      rollover_cost_for_bar keys off bar_ts.hour==21 UTC and weekday (model.py:300-320).
+      This is EXCHANGE/event-time on the bar's own UTC timestamp — correct per
+      clock-and-ordering item 2/6. Short path uses the SAME ts, no new clock source.
+    bit_identical_when: allow_shorts=False → cur_units never < 0 → branch never executes.
+
+  - id: Site-D-rebalance-denominator
+    file: src/forex_system/backtest/engine.py
+    lines: 419-420
+    assumes: "denominator = cur_units if cur_units > 0 else 1.0"
+    fix: >
+      For a short position cur_units < 0, the fractional-delta denominator must be the
+      magnitude: `denominator = abs(cur_units) if cur_units != 0 else 1.0`. Otherwise a
+      short never rebalances (cur_units<0 falls into the `else 1.0` branch, which over-
+      triggers rebalances on large unit counts). frac_delta = abs(target_units - cur_units)
+      / denominator (line 420) already uses abs() in the numerator, so it is sign-safe
+      once the denominator is magnitude.
+    bit_identical_when: >
+      allow_shorts=False → cur_units >= 0 → abs(cur_units)==cur_units and the
+      `cur_units>0 else 1.0` and `cur_units!=0 else 1.0` branches agree for all
+      cur_units>=0 EXCEPT cur_units==0, where BOTH yield 1.0. Bit-identical. (QD MUST
+      verify the cur_units==0 case maps to 1.0 in both forms — it does.)
+
+  - id: Site-E-delta-direction-blocks
+    file: src/forex_system/backtest/engine.py
+    lines: 422-533
+    assumes: >
+      The `if delta > 0` block (425-465) = "increase long / fresh long entry"; the
+      `else` block (467-533) = "decrease long / exit long". target_units <= 0.0 is
+      treated as "full exit to flat" (line 471). Direction.LONG is hardcoded at 444
+      and 511. Weighted-average entry_price update (436-438) guards `total_new > 0`.
+    critical_flaw_in_existing_branch_structure: >
+      THE EXISTING `delta > 0` / `else` SPLIT IS SIGNED, AND IT BREAKS FOR SHORTS IN
+      TWO DISTINCT WAYS — DO NOT generalize the existing branches in place; the branch
+      KEY itself (sign of delta + `target_units <= 0.0`) is wrong for shorts:
+        (a) FLIP (long->short): cur=+N, target=-M → delta=-M-N<0 hits `else`, and
+            `target_units <= 0.0` (line 471) is TRUE → full-exit-to-flat → the short
+            leg is NEVER opened. Short silently dropped. (Critic finding #1a.)
+        (b) INCREASE-A-SHORT: cur=-500, target=-1000 → delta=-500<0 hits `else`, and
+            `target_units=-1000 <= 0.0` (line 471) is TRUE → full-exit-to-flat →
+            instead of ADDING to the short it FLATTENS it. (Critic finding #1b — the
+            most insidious: the position oscillates flat<->short every rebalance.)
+      Because `target_units <= 0.0` is the existing full-exit trigger and EVERY short
+      target is <= 0.0, the existing branch structure routes ALL short operations to
+      full-exit. QD MUST NOT keep the `if delta > 0 / else` + `target_units <= 0.0`
+      structure. It MUST be REPLACED with the magnitude+sign decision tree in Section 3.
+    fix: >
+      REPLACE the 422-533 block with the explicit four-case magnitude+sign tree in
+      Section 3 (from-flat-entry / same-sign-increase / same-sign-reduce-or-exit /
+      FLIP). The branch decision is on sign(target) vs sign(cur) and abs() magnitudes,
+      NEVER on `delta > 0` or `target_units <= 0.0`. SEE SECTION 3 — load-bearing.
+    direction_tag_sites:
+      - line: 444   # Trade direction in the increase block — hardcoded Direction.LONG
+      - line: 511   # Trade direction in the partial-reduce block — hardcoded Direction.LONG
+      note: >
+        Both hardcoded Direction.LONG must become
+        `Direction.LONG if <side_units> > 0 else Direction.SHORT` where <side_units> is
+        the cur/target side being traded.
+    bit_identical_when: allow_shorts=False → target_units>=0 always → flip and
+      increase-short cases unreachable; the magnitude+sign tree reduces to today's exact
+      long arithmetic (see Section 3 bit_identical_when).
+
+  - id: Site-F-close-position-include-swap
+    file: src/forex_system/backtest/engine.py
+    function: _close_position (lines 579-625)
+    assumes: >
+      _close_position ALREADY derives `direction = Direction.LONG if position > 0 else
+      Direction.SHORT` (line 599) and computes price_diff_pips = (exit-entry)/pip *
+      position (line 606), so a position=-1.0 ALREADY yields Direction.SHORT and the
+      correct short PnL sign (profit when exit<entry). holding_cost(pair, SHORT, ...)
+      at line 603 reads swap_short. _close_position is ALREADY short-correct.
+    fix: >
+      The CALLERS pass `position=1.0` hardcoded (lines 478, 552) for the long full-exit
+      and end-of-run close. For shorts the caller MUST pass `position=-1.0` and pass the
+      MAGNITUDE as size (abs(cur_units)). In continuous mode swap is daily-accrued, so
+      include_swap=False is preserved for BOTH long and short closes (no double-count —
+      see Section 4). NOTE on model.py: holding_cost is only invoked when
+      include_swap=True; continuous mode always passes include_swap=False, so the
+      RolloverAwareRealisticCostModel.holding_cost short path is NOT exercised here →
+      costs/model.py needs NO change.
+    bit_identical_when: >
+      allow_shorts=False → only long closes occur → callers still pass position=1.0,
+      cur_units>0 → unchanged.
+
+  - id: Site-G-mark-to-market
+    file: src/forex_system/backtest/engine.py
+    lines: 536-540
+    assumes: "`if cur_units > 0:` ... else equity_curve = equity (short = flat MtM)"
+    fix: >
+      Change guard to `if cur_units != 0:`. The unrealized formula at 537-538 is
+      `unrealized_pips = (price - entry_price)/pip_value` then `equity + unrealized_pips
+      * pip_value * cur_units`. With cur_units < 0 this AUTOMATICALLY gives the correct
+      short PnL sign: price rises (price>entry) AND cur_units<0 → negative unrealized
+      (a loss); price falls → positive unrealized (a gain). VERIFIED sign-correct by
+      inspection. Only the GUARD needs widening from `>0` to `!=0`.
+    bit_identical_when: >
+      allow_shorts=False → cur_units >= 0 → `!=0` and `>0` agree for all cur_units>0;
+      at cur_units==0 both take the else branch (equity_curve=equity). Bit-identical.
+
+  - id: Site-H-end-of-run-close
+    file: src/forex_system/backtest/engine.py
+    lines: 544-562
+    assumes: "`if cur_units > 0:` — only a remaining LONG is closed at the last bar."
+    fix: >
+      Change guard to `if cur_units != 0:`. Pass direction-aware args to _close_position:
+      `position = 1.0 if cur_units > 0 else -1.0` and `size = abs(cur_units)`. Keep
+      include_swap=False (daily-accrued). This closes the KNOWN-GAP flagged in the
+      inline comment at lines 404-409 ("a held short would be silently abandoned at run
+      end"). Without this fix a short open at the last bar is dropped from PnL.
+    bit_identical_when: >
+      allow_shorts=False → cur_units>=0 → guard `!=0` == `>0` for cur_units>0; position
+      arg resolves to 1.0; size=abs(cur_units)==cur_units. Bit-identical.
+
+# ----------------------------------------------------------------------------
+# 3. POSITION-MANAGEMENT REDESIGN (replaces engine.py 422-533) — the load-bearing
+#    rebalance block. Covers flip AND increase-a-short, both of which the existing
+#    signed `delta>0 / else / target<=0` structure mishandles. (Critic findings #1-#4.)
+# ----------------------------------------------------------------------------
+position_management_redesign:
+  hazard_site: Site-E (engine.py lines 422-533)
+  why_full_replace: >
+    The existing branch key (`if delta > 0` at 425, `if target_units <= 0.0` at 471)
+    is signed and routes EVERY short operation to full-exit-to-flat (every short
+    target is <= 0.0). Two failure modes result: (a) a long->short FLIP drops the
+    short leg, (b) INCREASING a short flattens it. Neither is fixable by patching the
+    existing arms; the decision KEY must be magnitude+sign. QD REPLACES 422-533 with
+    the ordered four-case tree below.
+
+  decision_key: >
+    Compute once inside `if frac_delta > rebalance_threshold:`
+      cur_sign    = 0 if cur_units == 0 else (1 if cur_units > 0 else -1)
+      tgt_sign    = 0 if target_units == 0 else (1 if target_units > 0 else -1)
+    Branch on (cur_sign, tgt_sign), NEVER on the sign of delta or on `target<=0.0`.
+    Evaluate the four cases in THIS ORDER (mutually exclusive; order documents intent):
+
+  cases:
+    - id: C1-to-flat
+      condition: "tgt_sign == 0  (target_units == 0)"
+      action: >
+        Full close of the current side via _close_position(position=float(cur_sign),
+        size=abs(cur_units), include_swap=False); equity += trade.pnl_dollars; append
+        trade; THEN reset entry_price=0.0, entry_time=None, cur_units=0.0. (If cur_sign
+        is already 0 this case cannot be reached because frac_delta from 0 to 0 is 0 and
+        the outer threshold gate is not crossed.)
+
+    - id: C2-from-flat-entry
+      condition: "cur_sign == 0 AND tgt_sign != 0  (fresh entry, either side)"
+      action: >
+        Fresh entry. entry_price = price; entry_time = ts. Charge entry_cost on
+        abs(target_units). Append a Trade with direction = LONG if tgt_sign>0 else SHORT,
+        size=abs(target_units), cost_dollars = cost_pips*pip_value*abs(target_units).
+        cur_units = target_units. (This is the generalization of the existing
+        `cur_units == 0.0` fresh-entry arm at lines 430-433/440-457.)
+
+    - id: C3-same-sign-resize
+      condition: "cur_sign != 0 AND tgt_sign == cur_sign  (adjust same side, no zero-cross)"
+      action: >
+        Resize on the SAME side. Let m_cur=abs(cur_units), m_tgt=abs(target_units).
+          IF m_tgt > m_cur  → INCREASE (add to the side):
+              delta_mag = m_tgt - m_cur; charge entry_cost on delta_mag;
+              update weighted-avg entry_price using MAGNITUDES:
+                entry_price = (entry_price*m_cur + price*delta_mag) / m_tgt   # m_tgt>0 always here
+              (NOTE: the existing formula at line 438 uses signed units and happens to be
+               arithmetically equivalent for a pure short because the negatives cancel,
+               BUT the guard at line 437 `if total_new > 0` would SKIP the update for a
+               short. QD MUST rewrite this update in MAGNITUDE form as shown — do NOT
+               rely on the signed formula's accidental cancellation. Critic finding #2.)
+              append Trade(direction = LONG if cur_sign>0 else SHORT, size=delta_mag).
+          IF m_tgt < m_cur  → PARTIAL REDUCE (trim the side, stay same sign):
+              reduce_mag = m_cur - m_tgt; charge exit_cost on reduce_mag;
+              realized PnL on the trimmed chunk uses the SIGNED side:
+                price_diff_pips = (price - entry_price)/pip_value * cur_sign
+                realized = price_diff_pips*pip_value*reduce_mag - cost_pips*pip_value*reduce_mag
+              equity += realized; append Trade(direction = LONG if cur_sign>0 else SHORT,
+              size=reduce_mag); cur_units = target_units.  entry_price UNCHANGED (still on
+              the open remainder). (m_tgt == m_cur cannot occur here: equal magnitudes with
+              same sign ⇒ frac_delta==0 ⇒ outer gate not crossed.)
+
+    - id: C4-FLIP-cross-zero
+      condition: "cur_sign != 0 AND tgt_sign != 0 AND tgt_sign != cur_sign"
+      decision: CLOSE-THEN-OPEN (two legs in-bar), NEVER net.
+      action: >
+        TWO legs, IN THIS ORDER:
+          (1) CLOSE current side fully: _close_position(position=float(cur_sign),
+              size=abs(cur_units), include_swap=False); equity += trade.pnl_dollars;
+              append trade.
+          (2) RESET BOOKKEEPING BEFORE OPENING (Critic finding #4 — foot-gun):
+              _close_position does NOT mutate entry_price/entry_time; QD MUST explicitly
+              set entry_price = price; entry_time = ts here, BEFORE the open leg, or the
+              new short inherits the stale long entry_price and computes wrong PnL.
+          (3) OPEN new side: charge entry_cost on abs(target_units); append a fresh Trade
+              with direction = LONG if tgt_sign>0 else SHORT, size=abs(target_units);
+              set cur_units = target_units.
+        Emit a decision-trace log `continuous.flip: ts=.. from_units=.. to_units=..` per
+        log-as-decision-trace (flip is a decision boundary, must replay from logs alone).
+
+  flip_cost_rationale: >
+    CLOSE-THEN-OPEN charges BOTH the exit cost on the closed side AND the entry cost on
+    the opened side — the economically honest cost and faithful to real execution (no
+    broker nets a long fill into a short in one ticket). Netting would charge cost on
+    abs(target-cur) only, understating TC and silently inflating H1's Sharpe — the exact
+    implementation-drift the firewall exists to stop.
+
+  reviewer_warning: >
+    REJECT criteria for QD's implementation:
+      - Branching on sign(delta) or `target_units <= 0.0` anywhere in the rebalanced
+        block (the bug that flattens shorts).
+      - FLIP collapsed into a single net-delta trade (cost understatement).
+      - INCREASE-A-SHORT (C3, m_tgt>m_cur, short side) routing to any close/exit path.
+      - entry_price not reset between the close and open legs of a flip.
+      - signed weighted-average formula left in place with the `total_new > 0` guard
+        (skips short rebalance-up entry_price updates).
+
+  rebalance_threshold_interaction:
+    note: >
+      (Critic finding #3.) The four-case tree lives INSIDE `if frac_delta >
+      rebalance_threshold:` (line 422). For a FLIP, frac_delta = abs(target-cur)/abs(cur)
+      = (m_cur+m_tgt)/m_cur > 1.0 always, so a flip fires under any sane threshold
+      (H1/default 0.10-0.20). EDGE CASE: a pathological rebalance_threshold >= 1.0 could
+      suppress a small flip and strand the wrong side. DECISION: this is out-of-band
+      config; QD MUST add a one-line guard at config-parse OR engine-entry: if
+      allow_shorts AND rebalance_threshold >= 1.0, log a WARNING (a flip may be
+      suppressed). Do NOT silently allow a >=1.0 threshold with shorts enabled. Default
+      0.20 is safe; this is a defensive rail, not a behavior change for any current config.
+
+  bit_identical_when: >
+    allow_shorts=False → tgt_sign and cur_sign are always >= 0 → C4 (flip) and the
+    short side of C3 are UNREACHABLE. The reachable cases reduce exactly to today's
+    arithmetic: C2 == existing fresh-entry arm (430-457); C3 increase == existing
+    `delta>0` increase arm (425-465) with delta_mag==delta (both positive); C3 reduce
+    + C1 == existing `else` arm (467-533) where `target_units <= 0.0` ⇒ C1 full-close
+    and `target_units > 0` ⇒ C3 partial-reduce. Same costs, same PnL, same entry_price
+    updates, same trade records → equivalence gate stays green. (QD MUST diff a
+    long-only run before/after to confirm zero equity-curve delta.)
+
+# ----------------------------------------------------------------------------
+# 4. NO-LOOKAHEAD + NO-DOUBLE-COUNT confirmation (clock-and-ordering)
+# ----------------------------------------------------------------------------
+no_lookahead:
+  status: PRESERVED
+  evidence: >
+    The clamp (line 331) is applied to delayed_signals (line 292:
+    signals.shift(entry_delay_bars).fillna(0.0)), computed ONCE before the loop.
+    Every short change operates on raw_signal = delayed_signals.iloc[i] (line 327),
+    which already saw only data up to bar i-1. The sign flip, abs(), and sign-multiply
+    are pure arithmetic on an already-delayed value — they touch NO future bar and
+    add NO new .shift()/.rolling()/time-series op. clock-and-ordering item 5
+    (lookahead) and item 7 (backtest clock equivalence) are unaffected: no new now()
+    call, no new time-series indexing. The sacred test test_no_lookahead in
+    tests/backtest/test_engine.py must remain green and MUST be run by QD.
+no_double_count_swap:
+  status: PRESERVED for shorts
+  evidence: >
+    Continuous mode accrues swap per-bar (Site-B long lines 381-396; Site-C short
+    lines 397-413) and passes include_swap=False to EVERY _close_position call (lines
+    484, 558, and the new flip-close). The short close MUST also pass include_swap=False
+    so the daily-accrued short swap is not re-charged as a lump sum at exit. QD MUST NOT
+    set include_swap=True on any continuous-mode close (long or short).
+
+# ----------------------------------------------------------------------------
+# 5. TEST OBLIGATIONS FOR QD (execution-firewall-review Section E)
+# ----------------------------------------------------------------------------
+test_obligations:
+  must_stay_green_by_default:
+    - tests/equivalence/test_always_long_equals_bh.py    # allow_shorts default False
+    - tests/equivalence/test_engine_vs_script.py         # allow_shorts default False
+    - tests/backtest/test_engine.py::test_no_lookahead   # sacred; run explicitly
+    note: >
+      These call run_backtest WITHOUT allow_shorts → default False → every Site reduces
+      to today's code path. If ANY of these moves, the change is NOT bit-identical and
+      the pre-commit EQUIVALENCE GATE blocks. This is the primary acceptance criterion.
+  new_short_path_tests:                                  # all with allow_shorts=True
+    - id: T-short-pnl-sign
+      asserts: >
+        A pure short (signal=-1.0 constant, zero-cost model) on a DOWN-drifting price
+        series ends with equity > initial (profit when price falls); on an UP-drifting
+        series ends with equity < initial (loss when price rises). Mirror of the
+        always-long-equals-bh test with sign inverted. Section E1 (entry-condition →
+        expected action).
+    - id: T-short-entry-exit-cost
+      asserts: >
+        Short entry charges entry_cost on abs(target_units) and short exit charges
+        exit_cost on abs(size); cost_dollars on the emitted SHORT Trade is positive
+        and equals cost_pips * pip_value * abs(size). Section A (no cost sign error).
+    - id: T-short-swap-accrual-through-engine
+      asserts: >
+        With RolloverAwareRealisticCostModel and a short held across a 21:00-UTC
+        (non-Fri/Sat/Sun) bar, the engine equity reflects swap_short accrual on the
+        crossing bar and ZERO on non-crossing bars. MUST drive this through
+        run_backtest (engine-level), NOT a direct rollover_cost_for_bar unit call —
+        this proves the dead branch at lines 397-413 is now REACHABLE. (Closes the
+        KG-QD-3 known gap.)
+    - id: T-long-to-short-flip-one-bar
+      asserts: >
+        A signal that flips +1 → -1 within one bar produces (a) cur_units crossing
+        from positive to negative, (b) TWO trades in that bar (a closing LONG and an
+        opening SHORT), (c) BOTH exit cost (on the long) and entry cost (on the short)
+        charged — verify total cost_dollars ≈ exit_cost*|N| + entry_cost*|M|, NOT a
+        single netted cost, and (d) the opening SHORT Trade's entry_price == the flip
+        bar's price (NOT the stale long entry_price). Section A / case C4 / finding #4.
+    - id: T-increase-a-short
+      asserts: >
+        A short whose target magnitude GROWS across bars (e.g. -500 → -1000 units, same
+        sign) ADDS to the short (cur_units becomes more negative) and does NOT flatten.
+        Verify cur_units == target (negative, larger magnitude), entry_cost charged on
+        the magnitude delta (500), entry_price is the magnitude-weighted average, and NO
+        full-exit trade is emitted. This is the case the existing `target_units <= 0.0`
+        full-exit trigger silently flattens. Case C3-increase / Critic finding #1b.
+        (Mirror also REDUCE-a-short: -1000 → -500 trims without flipping/flattening.)
+    - id: T-end-of-run-short-close
+      asserts: >
+        A short open at the final bar emits a SHORT Trade in trade_log with correct
+        PnL sign and the last equity_curve value reflects the close. Proves Site-H.
+    - id: T-default-still-long-only
+      asserts: >
+        With allow_shorts=False (default) and a signal that goes negative, the engine
+        holds FLAT (cur_units==0) on the negative bars — identical to today. A
+        non-entry / invalidation test per Section E2.
+  observability:
+    requirement: >
+      Per log-as-decision-trace, the flip decision boundary MUST emit a structured log
+      (continuous.flip with from_units/to_units/ts). The existing per-bar decision log
+      (lines 351-362) already carries signal/clamped/target_units/cur_units; verify it
+      remains accurate for negative values (it uses %.2f/%.4f — sign prints correctly).
+
+# ----------------------------------------------------------------------------
+# FIREWALL / CLOCK REVIEW VERDICTS
+# ----------------------------------------------------------------------------
+execution_firewall_review:
+  section_A_transformations: >
+    PASS-by-design. The sign is the strategy (H1 trades the sign). It flows from the
+    delayed raw signal with NO winsorize/clip/tanh. abs()+sign reconstructs raw_signal
+    exactly. The ONLY new research-class decision (flip = close-then-open vs net) is
+    made HERE in the spec by the CTO, not silently by QD — and the cost-honest choice
+    (close-then-open) is mandated. QD implementing 'net' would be a Section A reject.
+  section_B_spec_completeness: >
+    The H1 TradeIntent must still supply sizing rule, slippage, retirement triggers.
+    This spec is the ENGINE-capability spec, not the H1 strategy spec; H1's TradeIntent
+    completeness is a SEPARATE firewall gate at H1 implementation time.
+  section_D_observability: PASS — flip + per-bar decision logs cover the new boundaries.
+  section_E_integration_tests: covered by test_obligations.new_short_path_tests.
+clock_and_ordering_review:
+  clock-sources-named: 1   # exchange/event-time on bar_ts (rollover_cost_for_bar)
+  lookahead-found: false
+  decision: approve   # no new now() call, no new shift/rolling, clamp on delayed signal
+
+# ----------------------------------------------------------------------------
+# ROLLBACK PATH (architecture-decision-has-rollback-path)
+# ----------------------------------------------------------------------------
+rollback_path: >
+  Every change is gated on `allow_shorts` defaulting False. Rollback = set/leave
+  allow_shorts=False everywhere (or revert the single engine commit). No data
+  migration, no schema change, no validated-trial re-run. The equivalence gate is the
+  automated proof that the default path is untouched.
+
+failure-modes-considered:
+  - Position-flip silently goes flat (short leg dropped) — addressed: Section 3 case C4
+    mandates explicit close-then-open; T-long-to-short-flip-one-bar test.
+  - INCREASE-a-short silently flattens it (target<=0.0 hits full-exit) — addressed:
+    Section 3 replaces the `target_units<=0.0` branch key with magnitude+sign tree
+    (case C3-increase); T-increase-a-short test. (Critic finding #1b — the most
+    insidious: short would oscillate flat<->short every rebalance.)
+  - Flip new-leg inherits stale long entry_price (no reset between close/open) —
+    addressed: case C4 step (2) mandates explicit entry_price/entry_time reset;
+    T-long-to-short-flip-one-bar asserts entry_price == flip-bar price. (Finding #4.)
+  - Short rebalance-up entry_price update skipped by `total_new>0` guard / signed
+    formula — addressed: case C3-increase mandates MAGNITUDE-form weighted-avg.
+    (Finding #2.)
+  - Pathological rebalance_threshold >= 1.0 suppresses a flip — addressed: defensive
+    WARNING rail at config/engine entry when allow_shorts AND threshold>=1.0.
+    (Finding #3.)
+  - End-of-run short silently abandoned — addressed: Site-H guard `!=0` + sign-aware
+    close; T-end-of-run-short-close test (closes KG-QD-3 known gap).
+  - Cost understatement on flip (net instead of close-then-open) — addressed:
+    reviewer_warning + cost assertion in flip test.
+  - Double-counted short swap (per-bar accrual + lump at close) — addressed:
+    include_swap=False mandated on all continuous closes incl. short.
+  - Daily/pro-rata short swap silently zero — addressed: NotImplementedError fail-loud
+    (Site-C), since H1 is intraday only.
+  - Sizer sign regression breaking always-long-equals-bh — addressed: sign applied in
+    engine, sizer left magnitude-only and untouched.
+  - Rebalance denominator sign bug (short never rebalances) — addressed: Site-D
+    abs(cur_units) denominator.
+
+what-you-refused-to-do:
+  - I did NOT write the production engine code. This is a SPEC; quant-developer implements.
+  - I did NOT modify _run_discrete (out of scope; already sign-aware).
+  - I did NOT design the H1 strategy or its signal math (Quant Researcher / Mathematician).
+  - I did NOT author the new tests' code — I specified their obligations; QD writes them.
+  - I did NOT change costs/model.py (verified no change needed under include_swap=False).
+
+routed-to: quant-developer

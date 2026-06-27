@@ -1,0 +1,147 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-nht
+claim-tested:
+  - "Claim (i): C1 'post-CB-decision drift' clears the per-trade cost hurdle (gross pips/trade > round-trip cost) on its primary hold horizon for EURUSD, USDJPY, GBPUSD."
+  - "Claim (ii): the C1 PASS is a genuine cost-feasible edge, NOT an artifact of (a) horizon-selection across 3 holds x 3 pairs, (b) regime-concentration in the 2022-23 FOMC hiking cycle, or (c) the small event count."
+  - "Claim (iii): C2 'carry-sign hold' clears the hurdle (AUDJPY FAIL gross -8.14; USDJPY PASS gross +4.81)."
+
+tests-requested:
+  - "Per-cell t-statistic of mean gross-pips vs zero, from the emitted per-event gross_pips and gross_pips_std (9 cells)."
+  - "Regime-stratification: per-year mean, and a DROP-2022/2023 vs ONLY-2022/2023 recomputation of mean and t-stat for every pair x hold (computed directly from the 80/40 per-event records in cost_feasibility_raw.json — no re-backtest needed)."
+  - "Mean-vs-median dispersion check (fat-tail / single-event domination)."
+  - "Multiple-comparison count = number of pair x hold cells screened (9), plus the implicit family-of-2 (C1, C2) and the per-pair best-horizon cherry-pick."
+  - "C2: inspect whether the carry channel was exercised (carry_pips magnitude vs gross_pips and avg hold duration)."
+  - "NOT requested as a new backtest: all of the above were computable from the emitted per-event arrays; ROUTE_TO quant-developer is NOT required to reach the verdict. (If HoQR wants a forward-validation, see 'What a NON-snooped confirmatory test would require'.)"
+
+tests-results:
+  - "Per-cell t-stats (gross vs 0): EURUSD 6h=0.49, 12h=0.27, 18h=0.07; USDJPY 6h=0.99, 12h=2.33, 18h=2.37; GBPUSD 6h=0.94, 12h=0.17, 18h=0.55. EIGHT of nine cells have |t|<1 — gross is statistically indistinguishable from zero. Only USDJPY 12h/18h exceed t=2, and that is the RAW, pre-multiple-comparison t."
+  - "Regime stratification is decisive. USDJPY 12h: ALL mean=19.94 (t=2.33) -> DROP-2022/2023 mean=5.87 (t=0.62); the 2022-23 subset alone is 41.0 pips (t=2.65). USDJPY 18h: 21.12 (t=2.37) -> 7.00 (t=0.66) on drop. USDJPY 6h: 6.35 (t=0.99) -> 0.73 (t=0.10) on drop, and 2024 is NEGATIVE (-12.2). Every EURUSD/GBPUSD 'PASS' cell either flips sign or goes to |t|<0.8 when 2022-23 is removed (e.g. GBPUSD 6h ALL +3.74 -> DROP -1.05; GBPUSD 18h +5.97 -> -6.08)."
+  - "Per-year USDJPY 12h means: 2021=0.2, 2022=28.1, 2023=54.0, 2024=0.7, 2025=16.7. Outside the hiking cycle the edge is ~0. The 'edge' IS the 2022-23 USD/JPY trend."
+  - "Mean >> median everywhere (USDJPY 12h: mean 19.94 vs median 6.90; USDJPY 18h: mean 21.12 vs median 4.95; std 76-80 pips on n=80). The reported mean is driven by a fat right tail, not a central tendency."
+  - "C2: carry_pips = 0.018 (AUDJPY) / 0.021 (USDJPY) at ~5-day avg holds. The carry channel contributes <0.5% of gross. C2 did NOT test the carry hypothesis at all; the USDJPY +4.81 'pass' is price drift."
+
+matched-benchmark-sharpe: "n/a — no Sharpe was computed by the screen; this is a per-trade gross-vs-cost feasibility test. The closest matched-benchmark analogue here is the DROP-2022/2023 subsample, which serves as the out-of-regime control: USDJPY 12h/18h mean collapses to ~6-7 pips (t~0.6), indistinguishable from a flat (zero-edge) benchmark."
+permutation-results: "n/a — not run. Not needed to reject: the in-sample raw t-stats are already <1 in 8/9 cells, and the 2 survivors fail the regime control. A permutation/block-bootstrap would only further widen the CIs given std=76-80 pips."
+dsr-assessment: |
+  Deflated-Sharpe framing under honest-N=30 plus these new looks. This screen adds
+  AT LEAST 9 new looks (3 pairs x 3 holds) on C1, plus 2 on C2, plus the implicit
+  best-horizon cherry-pick per pair (3 more selection events) and the family-of-2
+  (C1, C2) choice. The honest comparison count for any 'best cell' here is therefore
+  ~14, on top of the org-wide N=30 -> an effective deflation denominator of ~44.
+  Even the strongest cell (USDJPY 18h, raw t=2.37) does not survive Bonferroni at
+  9 looks: the per-look alpha needed for family-wise 0.05 is ~0.0056, requiring
+  |t|>~2.77 (two-sided), which neither USDJPY cell reaches. Under the harsher ~14-look
+  or N=44 deflation it is not close. A Deflated-Sharpe Ratio computed on this best cell
+  would sit well below the 0.95 ratified bar (cf. the firm's repeated AMBIGUOUS_GATE
+  outcomes at DSR ~0.90 with FAR cleaner t-stats than this). The raw t-survivors are
+  also exactly the cells that evaporate when the 2022-23 regime is removed, so the
+  selection is correlated with a single macro episode, not 9 independent bets — the
+  effective number of independent looks is closer to ONE (the FED-hiking JPY trend).
+dissent-statement: |
+  DISSENT (verbatim for CONSENSUS.md): This is NOT the firm's first non-negative signal
+  in any sense that survives scrutiny; it is a regime artifact. The only cells with a
+  raw t-stat above 2 are USDJPY 12h and 18h, and BOTH are manufactured entirely by the
+  2022-2023 USD/JPY trend (Fed hiking + BOJ YCC -> JPY collapse 115->150). Dropping just
+  those two years takes USDJPY 12h from mean 19.94 pips / t=2.33 to mean 5.87 / t=0.62,
+  and 18h from 21.12 / t=2.37 to 7.00 / t=0.66 — i.e. to noise. Eight of the nine C1
+  cells are |t|<1 BEFORE any correction. The EURUSD/GBPUSD 'PASS' verdicts are an
+  artifact of the kill threshold being set at 80% of the RT hurdle (so two cells that
+  do NOT even net positive are labelled PASS), plus a per-pair best-horizon cherry-pick
+  across 3 holds. The C2 'pass' is mislabelled: the carry channel contributed 0.02 pips
+  (<0.5%) at 5-day holds — C2 never tested carry; it tested USD/JPY drift again, the same
+  2022-23 episode. Net: a per-trade cost screen that clears a hurdle on a mean dominated
+  by a fat tail (mean >> median in every cell) and a single macro regime is data-snooping,
+  not evidence of edge. I oppose treating any C1/C2 cell as VALIDATED or near-validated.
+  At most this is a HYPOTHESIS-GENERATING note: 'is there post-FOMC USD/JPY drift OUTSIDE
+  hiking cycles?' — which the data already answers NO (drop-regime t=0.6).
+contamination-check: "clean — the Context and Claims sections supplied numbers, data references, and analytical directives ('test this hard', 'consider what dominates a 2021-2025 USDJPY post-FOMC sample'). No sentence asserted WHY the edge should be real, and no other role's stance was relayed as persuasion. The quant-developer artifact's own caveats (USDJPY C2 is drift not carry; FED-only events) are its disclosed limitations, not a proposer narrative arguing for the edge."
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json (per-event gross_pips, cb_date, direction for all 80/40 C1 events x 3 holds x 3 pairs; gross_pips_std per cell)"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/quant-developer-feasibility.yaml (C1/C2 tables, kill thresholds, disclosed constraints: ECB/BOE 0 verified-official, C2 carry≈0.02 pips, 80%-of-hurdle kill threshold)"
+  - ".fintech-org/trials.jsonl (honest-N=30 deflation denominator)"
+  - "Computed t-stats and DROP-2022/2023 stratification (from emitted per-event arrays): USDJPY 12h t 2.33->0.62; USDJPY 18h t 2.37->0.66; 8/9 cells raw |t|<1."
+assumptions:
+  - "Per-event gross_pips arrays in cost_feasibility_raw.json are faithful (the QD artifact's reported mean/std reconcile with my recomputation: e.g. USDJPY 12h mean 19.937, std 76.46 match)."
+  - "t-test on per-event gross pips is a first-order screen; the true null distribution has fat tails (std 76-80 pips), so the t-stats I report are if anything OPTIMISTIC — a heavy-tailed or block-bootstrap test would widen CIs further. The verdict (noise-indistinguishable) is robust to that direction."
+  - "Multiple-comparison count of 9 (C1 cells) + 2 (C2) + best-horizon selection is the honest family; I do not assume the proposer pre-committed a single horizon (the QD verdict explicitly picks a best hold per pair)."
+  - "DROP-2022/2023 is a valid out-of-regime control because the macro episode (Fed hiking / JPY collapse) is concentrated there; per-year means confirm the concentration."
+confidence: high
+body: |
+  ## Claim (i) — does C1 clear the cost hurdle
+  As a mechanical exercise: yes, several cells have mean gross > RT cost (USDJPY 12h
+  +17.6, USDJPY 18h +18.7, GBPUSD 18h +3.4, etc.). But "clears a per-trade cost hurdle
+  on a sample mean" is not "an edge." Two structural problems make the PASS labels
+  unreliable on their own terms:
+    1. The kill threshold is 80% of the RT hurdle, so EURUSD 12h (margin -0.17) and
+       GBPUSD 12h (margin -1.49) are labelled PASS by the machine rule despite NOT
+       netting positive. The QD discloses this. Strip it and the C1 PASS set shrinks.
+    2. Eight of nine cells have a t-stat of the mean-vs-zero below 1.0. A mean that is
+       within one standard error of zero "clears a hurdle" only by accident of the sign.
+  So Claim (i) is true only as a descriptive arithmetic statement on selected cells; it
+  carries no inferential weight.
+
+  ## Claim (ii) — horizon-selection / regime-concentration / small-N attack
+  REJECTED on all three sub-claims.
+  (a) Horizon-selection: the screen ran 3 holds x 3 pairs = 9 cells and the QD picks a
+      best horizon per pair (EURUSD 6h, USDJPY 12h, GBPUSD 18h). The horizon that "wins"
+      is inconsistent across pairs (EURUSD only 6h; GBPUSD fails 12h but passes 6h AND
+      18h) — the signature of selecting on noise, not a structural drift with a stable
+      decay profile. Multiple-comparison count for any "best cell" >= 9 (and ~14 with C2
+      and the per-pair pick).
+  (b) Regime-concentration — the killer. USDJPY (the only pair with raw t>2) earns its
+      entire signal in 2022-2023:
+        USDJPY 12h per-year mean: 2021=0.2, 2022=28.1, 2023=54.0, 2024=0.7, 2025=16.7.
+        DROP-2022/2023: mean 19.94 -> 5.87, t 2.33 -> 0.62.
+        USDJPY 18h DROP-2022/2023: mean 21.12 -> 7.00, t 2.37 -> 0.66.
+        USDJPY 6h DROP-2022/2023: mean 6.35 -> 0.73 (2024 is NEGATIVE).
+      Every EURUSD/GBPUSD PASS cell flips sign or collapses to |t|<0.8 on the same drop.
+      The "post-CB-decision drift" is the 2022-23 USD/JPY trend captured by post-FOMC
+      entries in a one-directional pair — a macro episode, not a decision-reaction edge.
+  (c) Small-N: n=40 (FED-only, EURUSD/GBPUSD) and n=80 (USDJPY). Combined with std of
+      24-80 pips, the standard error on the mean is 4-9 pips — wider than most of the
+      reported means. And the n=80 is not 80 independent bets: it is dominated by ~32
+      events inside one macro regime. Effective independent looks ~ 1.
+  Mean-vs-median everywhere confirms fat-tail domination (USDJPY 12h mean 19.94, median
+  6.90). The headline ~20 pips is a tail artifact.
+
+  ## Claim (iii) — did C2 test carry at all
+  NO. The crash filter cycled to ~5-day holds, so carry accrual = 0.018 (AUDJPY) /
+  0.021 (USDJPY) pips — <0.5% of gross. The carry mechanism was effectively switched off.
+  AUDJPY gross -8.14 is crash-period price loss; USDJPY +4.81 is the same 2022-23 USD/JPY
+  drift seen in C1, not carry. C2 as-run is a price-drift screen mislabelled as carry.
+  The carry HYPOTHESIS is untested by this artifact. Verdict on Claim (iii): unsupported —
+  C2 neither passes as carry (channel inert) nor was the hypothesis exercised.
+
+  ## What a NON-snooped confirmatory test would require
+  1. PRE-COMMIT one horizon and one entry rule per family BEFORE seeing pair-level means
+     (no per-pair best-hold pick). Register it.
+  2. REGIME-STRATIFY: report the edge OUT of the 2022-23 hiking cycle and require it to
+     survive there (it does not: drop-regime t~0.6). Or block-bootstrap by macro regime
+     so a single episode cannot drive significance.
+  3. EXPAND the event set with VERIFIED-OFFICIAL ECB/BOE dates so EURUSD/GBPUSD are not
+     FED-only proxies (currently the "ECB/BOE reaction" is measured on FED events — a
+     spec-implementation mismatch).
+  4. ACTUALLY EXERCISE carry for C2: a minimum-hold constraint (weeks) and a crash filter
+     that does not flatten every 5 days, OR use real broker swap, so carry_pips is a
+     material fraction of gross. Otherwise C2 is just a second drift test.
+  5. HEAVY-TAIL-aware inference: t-stat on std-76 data is optimistic; use median/sign
+     test or a Newey-West/bootstrap CI, and DEFLATE for the >=9 looks here plus org N=30.
+  6. FORWARD-test the pre-committed rule on held-out 2024-2025 (which the data already
+     shows is ~flat for USDJPY) before any capital or pre-registration claim.
+  Only if the pre-committed, regime-robust, deflated cell still clears with |t| above the
+  multiple-comparison-corrected threshold should this be called a non-negative signal.
+knowledge_gaps:
+  - "No intraday CB release timestamps; announcement bar is the max-TR bar proxy. A mis-identified announcement bar would add noise but cannot manufacture the 2022-23 concentration, which is a macro-trend fact independent of bar attribution."
+  - "ECB/BOE verified-official dates absent — EURUSD/GBPUSD C1 measures FED-event reactions, not the named central bank. The drift claim for those pairs is untested on its own banks."
+  - "No volume/order-flow; cannot separate decision-reaction from generic trend-following at post-FOMC entries."
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [p-hacking-and-data-snooping-detection, structural-skepticism-on-any-claim, null-hypothesis-construction, replication-protocol-design]

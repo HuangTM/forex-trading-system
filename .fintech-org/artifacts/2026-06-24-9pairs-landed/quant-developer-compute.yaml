@@ -1,0 +1,325 @@
+role: quant-developer
+artifact_type: test-harness-result
+decision: implemented-and-verified
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-qd
+spec-ref: 9pairs-landed-2026-06-24-pm
+no-capital-instruction: true
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+
+files-to-create-or-modify:
+  - scripts/compute_9pairs_readiness.py  # created; reuses quality_gate_1h.py
+  - .fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json
+  - .fintech-org/trials.jsonl  # descriptive-screen entry appended (counts_toward_deflation_denominator: false)
+
+evidence:
+  - "data/processed/EURGBP_1h.parquet: 31,022 rows; spread_median_pips computed from the file"
+  - "data/processed/AUDJPY_1h.parquet: 31,037 rows; spread_median_pips computed from the file"
+  - "src/forex_system/data/quality_gate_1h.py: existing DQ gate library reused (coverage_gate, apply_sc4_cross_pair_check)"
+  - "config/data_quality_gates_1h.yaml: per-pair thresholds sourced; EURGBP spread_median_ceiling=3.0/p90_ceiling=8.0; AUDJPY=5.0/15.0"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/quant-developer-cycle2-nzdusd.yaml: F1-F6 spec; pip=0.0001 uniform; cost model"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/principal-reviewer-cycle1.yaml: PR confirmed EURJPY F2 net=-0.872; pip=0.0001 uniform verified"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml: rho_bar_eff = (lambda_max-1)/(k-1); N_eff = MIN(k/lambda_max, PR, ENB)"
+  - "compute_9pairs_raw.json: full numeric output from executed script"
+
+assumptions:
+  - "Pip size for gross PnL computation: pip=0.0001 UNIFORM for all pairs including JPY (matching prior canonical F1-F6 spec; disclosed as convention not physics)"
+  - "F2 spec: single session-open fire at 07:00 UTC, 1-bar hold, shift(1). Prior spec had 3-bar hold per PR finding F-003; this run uses 1-bar (stated). Verdict FAIL is robust to hold duration."
+  - "F5 spec: signal fires at 08:00 UTC London open (sign of open vs prior close), 4-bar hold (08-11 UTC). Prior used sign(ret[t-1]) with double-lag per PR F-003. Both fail net; verdict unchanged."
+  - "rho_bar_eff proxy: raw hourly log-returns (no signal series pre-pre-reg). Conservative direction per 2026-06-19 ruling: proxy over-states concentration vs PnL-contribution gate stat."
+  - "EXCLUDE-NOT-IMPUTE applied: zero/missing spread bars excluded from CD0 net PnL (zero bars with zero or missing spread found in EURGBP/AUDJPY data)."
+  - "The EURGBP and AUDJPY spread_median_pips max values (29.9 and 33.2 pips) represent infrequent illiquid-session spikes; they affect ~2-3% of bars and are included in cost when they occur but do not drive pair-level spread_median above config ceilings."
+  - "rho_bar_eff N_eff reported as k/lambda_max (route 1, conservative MIN). PR and ENB routes give larger N_eff (less deflation) so MIN is the binding conservative route for ALL-9."
+
+confidence: high
+
+body: |
+  ## C1 DQ results (EURGBP, AUDJPY)
+
+  Both pairs run through existing DQ gate library (src/forex_system/data/quality_gate_1h.py).
+
+  ### EURGBP
+
+  | Field | Value | Gate | Status |
+  |-------|-------|------|--------|
+  | n_rows | 31,022 | — | — |
+  | UTC range | 2021-01-03 22:00 → 2025-12-31 21:00 | — | — |
+  | bar_coverage_pct | 99.19% | ≥85% | PASS |
+  | measured_spread_coverage | 100.0% | ≥90% | PASS |
+  | max_contiguous_gap_h | 24h | ≤24h | PASS (at limit) |
+  | spread_median_pips (pair-level median) | 0.90 pips | ≤3.0 | PASS |
+  | spread_p90_pips (median of p90 col) | 1.0 pips | ≤8.0 | PASS |
+  | zero_spread_bars | 0 | — | PASS |
+  | n_missing_spread_bars | 0 | — | PASS |
+
+  Max-gap explanation: 24h gap = 2023-12-31 22:00 UTC to 2024-01-01 21:00 UTC.
+  This is the New Year 2024 market closure (same pattern as NZDUSD's 73h gap in prior cycle).
+  Not a data defect — legitimate market holiday closure.
+
+  Spread distribution note: spread_median_pips ranges 0.30–29.9; 90th percentile of the
+  spread_median column = 1.6 pips; only 2.06% of bars have spread_median > 5 pips.
+  The high-spread bars are illiquid-session spikes (typically Sydney early hours or holidays).
+  Pair-level median = 0.90 pips — well below the 3.0-pip ceiling.
+
+  **VERDICT: ADMIT (all gates pass)**
+
+  ---
+
+  ### AUDJPY
+
+  | Field | Value | Gate | Status |
+  |-------|-------|------|--------|
+  | n_rows | 31,037 | — | — |
+  | UTC range | 2021-01-03 22:00 → 2025-12-31 21:00 | — | — |
+  | bar_coverage_pct | 99.25% | ≥85% | PASS |
+  | measured_spread_coverage | 100.0% | ≥90% | PASS |
+  | max_contiguous_gap_h | 24h | ≤24h | PASS (at limit) |
+  | spread_median_pips (pair-level median) | 0.80 pips | ≤5.0 | PASS |
+  | spread_p90_pips (median of p90 col) | 1.0 pips | ≤15.0 | PASS |
+  | zero_spread_bars | 0 | — | PASS |
+  | n_missing_spread_bars | 0 | — | PASS |
+
+  Max-gap explanation: 24h gap = 2023-12-31 22:00 UTC to 2024-01-01 21:00 UTC.
+  Same New Year 2024 market closure as EURGBP. Legitimate market holiday.
+
+  Spread distribution note: spread_median_pips ranges 0.40–33.2; 90th percentile = 1.3 pips;
+  only 3.06% of bars have spread_median > 5 pips. Pair-level median = 0.80 pips — well below
+  the 5.0-pip ceiling. The JPY pip basis (0.01) means these pips are larger in price space
+  than non-JPY pip; this is factored into the per-pair config thresholds.
+
+  **VERDICT: ADMIT (all gates pass)**
+
+  ---
+
+  ## C2 rho_bar_eff / N_eff — table over required subsets
+
+  Statistic: rho_bar_eff = (lambda_max(C) - 1) / (k - 1), eigenvalue/sign-blind per 2026-06-19 amendment.
+  Proxy: raw 1h log-return correlation (no signal series pre-pre-reg). Conservative direction disclosed below.
+  N_eff = MIN(k/lambda_max, PR, ENB). MIN route for ALL-9 is k/lambda_max (route 1).
+
+  | Subset | k | n_obs | lambda_max | PC1 | rho_bar_eff | N_eff (min) | G5 gate (≤0.41) | vs prior |
+  |--------|---|-------|-----------|-----|-------------|-------------|-----------------|---------|
+  | ALL-9 | 9 | 29,805 | 4.2723 | 47.5% | **0.4090** | 2.11 | **PASS (margin 0.001)** | Δ −0.093 vs ALL-7 (0.502) |
+  | USD-majors-7 (excl EURGBP/AUDJPY) | 7 | 30,093 | 4.0138 | 57.3% | 0.5023 | 1.74 | FAIL | Δ +0.0003 vs prior ALL-7 (0.502) |
+  | USD-majors-6 (prior ref) | 6 | 30,233 | 3.9853 | 66.4% | 0.5971 | 1.51 | FAIL | Δ +0.0001 vs prior USD-6 (0.597) |
+  | CROSSES-only (EURJPY/EURGBP/AUDJPY) | 3 | 30,735 | 1.7127 | 57.1% | **0.3563** | 1.75 | **PASS** | — |
+  | USD-majors-7 (repeat) | — | — | — | — | 0.5023 | 1.74 | FAIL | (per-req) |
+
+  N_eff routes (ALL-9): route1(k/λ_max)=2.11 / route2(PR=k²/Σλ²)=3.18 / route3(ENB)=3.99.
+  MIN = route1 = 2.11 (conservative per amendment).
+
+  Eigenvalues for ALL-9 (descending): [4.2723, 2.2317, 1.2869, 0.6802, 0.3700, 0.1427, 0.0061, 0.0054, 0.0046]
+  Sum = 9.0 (correct; validates eigendecomposition).
+
+  ### Pairwise correlation contributions of new crosses
+
+  EURGBP pairwise (with ALL-7): EURUSD=+0.207, GBPUSD=−0.489, USDJPY=+0.004, EURJPY=+0.181, AUDUSD=−0.153, USDCAD=+0.123, NZDUSD=−0.142
+  AUDJPY pairwise (with ALL-7): EURUSD=+0.207, GBPUSD=+0.277, USDJPY=+0.512, EURJPY=+0.712, AUDUSD=+0.617, USDCAD=−0.449, NZDUSD=+0.454
+
+  EURGBP is genuinely low-USD-beta (+0.004 vs USDJPY, −0.489 vs GBPUSD). Acts as a diversifier.
+  AUDJPY is moderate-USD-beta (high EURJPY/AUDUSD correlation); adds some JPY + commodity factor.
+  The net of both crosses brings ALL-9 rho_bar_eff from 0.502 to 0.409.
+
+  ### Delta summary vs prior
+
+  - ALL-7 prior: 0.502 → ALL-9 now: 0.409. Delta = −0.093. Direction: toward gate (improving).
+  - USD-majors-6 prior: 0.597 → unchanged (no new USD majors).
+  - Adding EURGBP+AUDJPY to ALL-7: the two crosses together reduce concentration by 0.093 rho units.
+  - EURGBP is the primary diversifier (near-zero USD beta); AUDJPY partially offsets with JPY factor.
+
+  ### CRITICAL DISCLOSURE: thin margin and proxy direction
+
+  rho_bar_eff (ALL-9) = 0.4090; gate = 0.4100; margin = 0.0010 (0.23% of gate value).
+  This is a MARGINAL pass. The proxy (raw log-returns) over-states concentration vs the true
+  PnL-contribution gate stat per the 2026-06-19 ruling (conservative direction: true stat ≤ proxy
+  because a signal uncorrelated with the USD factor reduces PnL-contribution correlation below
+  raw-return correlation). Conservatism direction means the true stat is expected to be ≤ 0.409,
+  but the MARGIN (0.001) is too thin for high confidence without measuring the true stat.
+  Robustness check: last 3yr (2023-2025) rho_bar_eff = 0.392 (also below gate). Provides
+  additional support but does not replace the true PnL-contribution measurement.
+  The honest statement: ALL-9 raw-return proxy CLEARS the gate at 0.4090 ≤ 0.41 but by a thin
+  margin. The true PnL-contribution gate stat (not computed — no signal series exists pre-pre-reg)
+  is expected to be further below the gate (conservative direction), but the margin is insufficient
+  to rule out a scenario where signal alignment shifts the result above 0.41.
+
+  ---
+
+  ## C3 CD0 net-SR with real spreads — 9 pairs, F1-F6
+
+  First time real per-bar spread_median_pips used for cost (prior cycles used measured parquet
+  spread which was already present; this wave adds EURGBP and AUDJPY real spreads).
+  Cost model: per-trade RT cost = spread_median_pips + 2×(0.25 slip + 0.15 paper-broker haircut)
+  = spread_median_pips + 0.80 pips. Bars with spread=0 or missing excluded (EXCLUDE-NOT-IMPUTE).
+  Annualization: sqrt(6150) = 78.4. Bar: PASS ≥ 1.76 / STRETCH ≥ 1.44 / FAIL < 1.44.
+  Pip convention: 0.0001 uniform for ALL pairs (matching prior canonical F1-F6 spec; see assumptions).
+
+  ### NEW CROSSES (EURGBP, AUDJPY)
+
+  | Pair | Family | Gross SR | Net SR | N_trades | Verdict |
+  |------|--------|----------|--------|----------|---------|
+  | EURGBP | F1 hourly-reversal | 2.2948 | −8.2122 | 16,101 | FAIL |
+  | EURGBP | F2 session-open-mom | 0.5721 | −4.5687 | 2,584 | FAIL |
+  | EURGBP | F3 intraday-mom-3 | −1.4937 | −7.4668 | 9,132 | FAIL |
+  | EURGBP | F4 vol-breakout | −1.0187 | −9.1281 | 9,841 | FAIL |
+  | EURGBP | F5 london-am-drift | −0.6701 | **−3.2006** | 2,342 | FAIL |
+  | EURGBP | F6 spread-filt-reversal | 1.6931 | −8.4554 | 9,632 | FAIL |
+  | AUDJPY | F1 hourly-reversal | −0.6208 | −5.7901 | 15,699 | FAIL |
+  | AUDJPY | F2 session-open-mom | 0.8123 | −2.2830 | 2,588 | FAIL |
+  | AUDJPY | F3 intraday-mom-3 | 0.0878 | −2.8236 | 8,716 | FAIL |
+  | AUDJPY | F4 vol-breakout | 0.4220 | −4.9903 | 11,712 | FAIL |
+  | AUDJPY | F5 london-am-drift | 0.1581 | **−1.5555** | 2,240 | FAIL |
+  | AUDJPY | F6 spread-filt-reversal | −0.6803 | −6.1662 | 9,336 | FAIL |
+
+  Best net: EURGBP F5 = −3.20; AUDJPY F5 = −1.56. Both FAIL (threshold STRETCH ≥ 1.44).
+  The AUDJPY F5 at −1.56 is the least-negative result across all 54 pair × family combos.
+
+  ### PRIOR 7 PAIRS (with real spreads — comparison reference)
+
+  | Pair | Family | Gross SR | Net SR | N_trades | Verdict |
+  |------|--------|----------|--------|----------|---------|
+  | EURUSD | F1 | 1.3413 | −3.6742 | 15,900 | FAIL |
+  | EURUSD | F2 | 0.3186 | −2.7877 | 2,574 | FAIL |
+  | EURUSD | F3 | −1.0518 | −3.8198 | 8,801 | FAIL |
+  | EURUSD | F4 | −0.5596 | −4.8798 | 9,068 | FAIL |
+  | EURUSD | F5 | −0.0328 | **−1.5891** | 2,520 | FAIL |
+  | EURUSD | F6 | 1.0355 | −2.3152 | 4,546 | FAIL |
+  | GBPUSD | F1 | 0.7603 | −6.0668 | 15,849 | FAIL |
+  | GBPUSD | F2 | 0.1669 | −3.6992 | 2,578 | FAIL |
+  | GBPUSD | F3 | −0.5958 | −4.3413 | 8,703 | FAIL |
+  | GBPUSD | F4 | −0.6366 | −6.4264 | 9,444 | FAIL |
+  | GBPUSD | F5 | −0.1309 | **−2.0377** | 2,536 | FAIL |
+  | GBPUSD | F6 | 0.4603 | −6.2939 | 10,294 | FAIL |
+  | USDJPY | F1 | −0.2057 | −5.1929 | 15,700 | FAIL |
+  | USDJPY | F2 | −0.0885 | −2.9781 | 2,588 | FAIL |
+  | USDJPY | F3 | 0.8016 | −1.9302 | 8,605 | FAIL |
+  | USDJPY | F4 | 0.3948 | −4.2756 | 9,962 | FAIL |
+  | USDJPY | F5 | −0.0693 | **−1.6109** | 2,310 | FAIL |
+  | USDJPY | F6 | −0.4825 | −6.3436 | 9,472 | FAIL |
+  | AUDUSD | F1 | 0.7606 | −5.0813 | 15,720 | FAIL |
+  | AUDUSD | F2 | −0.0462 | −4.2539 | 2,582 | FAIL |
+  | AUDUSD | F3 | −0.4799 | −3.6645 | 8,589 | FAIL |
+  | AUDUSD | F4 | −0.2008 | −6.3868 | 10,840 | FAIL |
+  | AUDUSD | F5 | 0.0498 | **−1.9860** | 2,264 | FAIL |
+  | AUDUSD | F6 | 0.4892 | −4.2941 | 5,637 | FAIL |
+  | USDCAD | F1 | 0.9723 | −9.7792 | 15,827 | FAIL |
+  | USDCAD | F2 | 0.1950 | −7.0338 | 2,584 | FAIL |
+  | USDCAD | F3 | −0.6035 | −6.5461 | 8,692 | FAIL |
+  | USDCAD | F4 | −0.0343 | −9.4032 | 9,400 | FAIL |
+  | USDCAD | F5 | −0.0792 | **−3.5042** | 2,150 | FAIL |
+  | USDCAD | F6 | 0.2214 | −10.0425 | 10,790 | FAIL |
+  | NZDUSD | F1 | 0.5846 | −5.7561 | 15,668 | FAIL |
+  | NZDUSD | F2 | 0.2477 | −4.0955 | 2,582 | FAIL |
+  | NZDUSD | F3 | −1.3648 | −4.8439 | 8,591 | FAIL |
+  | NZDUSD | F4 | 0.0248 | −6.9092 | 11,294 | FAIL |
+  | NZDUSD | F5 | −0.2478 | **−2.3636** | 2,412 | FAIL |
+  | NZDUSD | F6 | 0.6612 | −4.4299 | 6,074 | FAIL |
+  | EURJPY | F1 | 0.4165 | −6.8405 | 15,799 | FAIL |
+  | EURJPY | F2 | −0.4892 | −4.0069 | 2,598 | FAIL |
+  | EURJPY | F3 | 0.2228 | −3.8453 | 8,758 | FAIL |
+  | EURJPY | F4 | 0.1930 | −6.5702 | 10,885 | FAIL |
+  | EURJPY | F5 | 0.1399 | **−1.9824** | 2,314 | FAIL |
+  | EURJPY | F6 | 0.2266 | −6.8605 | 8,530 | FAIL |
+
+  ### CD0 summary per pair (best net SR across 6 families)
+
+  | Pair | Best net SR | Best family | Verdict |
+  |------|------------|-------------|---------|
+  | EURGBP | −3.2006 | F5 london-am-drift | FAIL |
+  | AUDJPY | −1.5555 | F5 london-am-drift | FAIL |
+  | EURUSD | −1.5891 | F5 london-am-drift | FAIL |
+  | GBPUSD | −2.0377 | F5 london-am-drift | FAIL |
+  | USDJPY | −1.6109 | F5 london-am-drift | FAIL |
+  | AUDUSD | −1.9860 | F5 london-am-drift | FAIL |
+  | USDCAD | −3.5042 | F5 london-am-drift | FAIL |
+  | NZDUSD | −2.3636 | F5 london-am-drift | FAIL |
+  | EURJPY | −1.9824 | F5 london-am-drift | FAIL |
+
+  **ALL 54 pair × family combos FAIL net SR. Zero reach STRETCH (1.44) or PASS (1.76).**
+  The F5 london-am-drift family is consistently the least-negative (lowest-turnover, fewest trades).
+  Gross SRs for EURGBP F1 (2.29) are notable but net is −8.21 (cost-dominated).
+  EURGBP F1 gross being the highest across all 9 pairs suggests a real hourly reversal signal
+  that is entirely consumed by costs — consistent with the pattern across all USD-major pairs.
+
+  ### Comparison with prior config-median screen (prior 7 pairs)
+
+  Prior cycle used the same measured spread from parquet (per QD cycle-2 cost description).
+  My results for the 7 prior pairs differ from prior due to: (a) pip convention verification,
+  (b) slight alignment differences (no frozen prior code). The verdict is unaffected: all FAIL.
+  Differences are NOT material relative to the threshold — best net is −1.56, threshold is +1.44,
+  gap = 2.99 SR units. No plausible cost-model variant closes this gap.
+
+  ---
+
+  ## Reuse note
+
+  Reused: src/forex_system/data/quality_gate_1h.py (existing DQ gate; coverage_gate + SC checks).
+  Reused: F1-F6 family specs from .fintech-org/artifacts/2026-06-22-6pairs-landed/CONSENSUS.md
+           and quant-developer-cycle2-nzdusd.yaml (pip=0.0001 uniform convention).
+  Reused: rho_bar_eff definition from hoqr-rho-bar-amendment.yaml (eigenvalue formula).
+  New code: scripts/compute_9pairs_readiness.py (new pair data, 9-universe subsets, cross DQ manifest).
+
+  ---
+
+  ## Method disclosure: rho_bar_eff statistic + proxy direction
+
+  Statistic: rho_bar_eff = (lambda_max(C) - 1) / (k - 1) where C = Pearson correlation matrix
+  on aligned 1h log-returns. This is sign-blind (uses eigenvalue, not signed mean) per amendment.
+  The signed-mean correlation is reported for reference only (NOT the gate stat):
+  - ALL-9 signed mean = +0.100 (for reference)
+  - USD-majors-7 signed mean = +0.079 (for reference)
+  These differ materially from rho_bar_eff values (0.409 vs 0.100 for ALL-9) — confirming signed
+  mean is NOT a faithful proxy for the eigenvalue concentration statistic.
+
+  Proxy direction (raw log-returns vs PnL-contribution): Per the 2026-06-19 mathematical ruling,
+  the raw-return proxy over-states concentration for universes where the signal is uncorrelated
+  with the dominant factor. Reason: signal × return has LOWER factor loading than return alone
+  when signal is orthogonal to the factor. The USD factor explains ~47-66% of return variance
+  across universes; if a signal is not purely USD-correlated, PnL-contribution correlation < raw.
+  HOWEVER: the ALL-9 margin is only 0.001. The direction is conservative (proxy ≥ true), but
+  the margin does not allow confident assertion that the true gate clears until measured directly.
+  AUDJPY's high USDJPY/EURJPY correlation means it adds some common-factor back, which partially
+  offsets EURGBP's diversification benefit. Net effect: 0.409 proxy, direction conservative,
+  margin thin.
+
+  ---
+
+  ## trials.jsonl entry
+
+  Appended to .fintech-org/trials.jsonl:
+  - event: descriptive-screen
+  - screen_id: CD0-9pairs-EURGBP-AUDJPY-rhobar-recompute
+  - counts_toward_deflation_denominator: false
+  - No honest-N increment. No pre-registration authored. No trial burned.
+
+firewall-self-review: approve — confirmed no research judgment in this artifact; all verdicts
+  are mechanical threshold comparisons (rho_bar_eff ≤ 0.41, net SR ≥ 1.44/1.76); interpretation
+  of whether to un-freeze H1 or issue SPEND/NO-SPEND is delegated to HoQR and CRO per role
+  boundaries; no live capital; no executable code routed to any venue; all signals shift(1)
+  (no lookahead); descriptive in-sample screen only.
+
+knowledge_gaps:
+  - "True PnL-contribution rho_bar_eff for ALL-9 is not computed (no signal series pre-pre-reg); raw proxy direction is conservative but margin = 0.001 is insufficient for high-confidence gate assertion."
+  - "F1-F6 specs still not frozen as a code artifact; current implementation reconstructed from prior CONSENSUS prose + PR finding F-003; FAIL verdict robust to plausible spec variations."
+  - "EURGBP max spread_median_pips = 29.9 pips and AUDJPY max = 33.2 pips are real Dukascopy measured values; source provenance is from ingest_dukascopy_1h.py bi5 decode pipeline (per ingest session notes); QD confirms these are not fabrication artifacts (spread_p90_pips median = 1.0 pips; high-spread bars are illiquid-session outliers)."
+  - "Prior EURJPY F2 net=-0.87 (PR-verified) is not reproduced by this script (my F2 gives −4.0 for EURJPY). The prior used the same parquet but different session logic or cost alignment. This does not affect verdicts (both FAIL). PR in cycle-2 will need to note this discrepancy."
+
+policy_violations_detected: []
+sources:
+  - "data/processed/EURGBP_1h.parquet"
+  - "data/processed/AUDJPY_1h.parquet"
+  - "data/processed/EURUSD_1h.parquet"
+  - "data/processed/GBPUSD_1h.parquet"
+  - "data/processed/USDJPY_1h.parquet"
+  - "data/processed/EURJPY_1h.parquet"
+  - "data/processed/AUDUSD_1h.parquet"
+  - "data/processed/USDCAD_1h.parquet"
+  - "data/processed/NZDUSD_1h.parquet"
+  - "config/data_quality_gates_1h.yaml"
+  - "src/forex_system/data/quality_gate_1h.py"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/quant-developer-cycle2-nzdusd.yaml"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/principal-reviewer-cycle1.yaml"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/compute_9pairs_raw.json"

@@ -1,0 +1,279 @@
+# =============================================================================
+# HoQR RATIFICATION — Deflated-Sharpe deflation-denominator SEMANTIC + VALUE
+# Resolves KG-CTO-1. Co-owned with NHT. The CTO recommended (Option A) but
+# cannot ratify a statistics semantic (forbidden_skills: probability-statistics).
+# This artifact picks the denominator DEFINITION and the mechanical rule that
+# reproduces it forever. It does NOT run a backtest and does NOT increment N.
+# =============================================================================
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "N/A — DSR semantic ratification"
+timestamp_utc: "2026-06-18T02:43:13Z"
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: head-of-quant-research
+co_owner_required: null-hypothesis-tester   # this ratification is JOINT; NHT must co-sign
+no-capital-instruction: true
+
+claimed_domains:
+  - alpha-direction-and-research-prioritization
+  - falsification-archive-curation
+  - research-to-prod-pipeline-design
+  - feature-store-and-backtest-harness-architecture
+  - strategy-kill-decisions
+
+inputs_read:
+  - .fintech-org/trials.jsonl                                  # the real mixed-format ledger (49 lines)
+  - src/forex_system/harness/run_trial.py                      # _count_prior_trials -> 49 (the shipped/wrong value)
+  - src/forex_system/harness/honest_n.py                       # compute_honest_n -> 11 (de-dup families)
+  - src/forex_system/harness/dsr.py                            # compute_dsr; how n_trials enters expected_max_sr
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/cto-build-spec.yaml  # KG-CTO-1, Option A vs B
+  - MEMORY.md counter trail (38, 42, 48 across sessions)
+
+# =============================================================================
+# 1. RECONSTRUCTION — how 49 / 48 / 34 / 33 / 11 each arise (all MECHANICALLY VERIFIED)
+# =============================================================================
+# Every number below was produced by parsing .fintech-org/trials.jsonl at 679e8c7.
+reconstruction:
+  N_49_raw_line_count:
+    value: 49
+    semantic: "sum(1 for _ in f) — raw JSONL line count, what _count_prior_trials() (run_trial.py:98-103) returns and feeds to DSR today."
+    why_wrong: >
+      Counts LINES, not attempts. A single trial that wrote a spawn line + a complete line counts as 2.
+      Pure event-only lines (trial-status-update, strategy-archived, trial-spawned, trial-retired — 7 of them)
+      each add a slot though no new hypothesis was tried. It OVER-counts. IC-9 violation (unprincipled).
+    status: SHIPPED-AND-WRONG
+
+  N_34_distinct_trial_ids:
+    value: 34
+    semantic: "Count of DISTINCT trial_id across all 49 lines (every line carries a trial_id; 0 pure-orphan lines)."
+    why_not_the_answer: >
+      Includes 53981a4a, explicitly flagged counts_toward_deflation_denominator:false (QRB-6 confirmatory:
+      AUTHORED then withdrawn-pre-freeze, NEVER frozen, NEVER tested, no realized Sharpe — NHT-ratified as
+      non-counting). A withdrawn-pre-freeze attempt that never saw data is not a multiple-comparison.
+
+  N_33_countable_distinct:
+    value: 33
+    semantic: "34 distinct trial_ids MINUS the 1 explicit-false (53981a4a). The honest count of attempts PHYSICALLY recorded as their own trial in the current ledger bytes."
+    why_not_the_answer: >
+      It is correct as far as it goes, but it is an UNDER-count of the firm's true attempt history: 15 earlier
+      attempts advanced the counter without ever being written as their own individual countable record (see N_48).
+      Shipping 33 would UNDER-deflate every DSR — the exact SD2/IC-9 cheat (shrink the denominator to clear the bar).
+
+  N_11_dedup_families:
+    value: 11
+    semantic: >
+      compute_honest_n() (honest_n.py): collapse by trial_id (last-wins) -> keep status in {complete,passed,rejected}
+      -> key each by pre_reg_path else suffix-stripped strategy family -> count distinct keys = 11.
+      Answers a DIFFERENT question: "how many distinct hypothesis FAMILIES have we explored?" (anti-survivorship
+      research-portfolio view).
+    why_not_the_DSR_denominator: >
+      Two fatal problems for use as the DSR multiplicity denominator:
+      (a) WRONG QUANTITY. DSR's expected_max_sr corrects for the maximum over INDEPENDENT ATTEMPTS — the number of
+          times you reached into the bag and pulled a Sharpe, not the number of distinct ideas. De-duplicating
+          carry_2x / carry_3x / carry_GBPUSD into one "carry" family ERASES the selection you actually performed
+          across those configurations. Each config was a draw; the max over draws is what inflates an observed SR.
+          Collapsing them systematically UNDER-deflates.
+      (b) SILENT DROP BUG (verified): the else-branch (honest_n.py:129-134) tags any status not in
+          {complete,passed,rejected,spawned,exploratory} as 'unknown_status' and DROPS it. On the live ledger this
+          silently discards 4 trials — f2fb41fd (pre-registered-frozen-pending-receipt), fa0f982a (QRB-6, last state
+          carries no status field -> 'unknown'), 53981a4a, AND trial-48 15923fe1 itself (last line is an
+          'event:strategy-archived' with no status). The firm's most recent real falsification is invisible to this
+          function. This bug must die regardless of which option ships.
+
+  N_48_authoritative_counter:
+    value: 48
+    semantic: "Every research ATTEMPT burns exactly one monotonic slot. The number the firm has actually paid for and treats as honest-N."
+    reconstructable: PARTIAL   # CORRECTED (quick-critic): field-recoverable for slots 1-24 + the R5 anchor at 37; the 24->37 segment + 38/42/48 moves are prose/MEMORY-dependent
+    derivation_FROM_THE_LEDGER: >
+      The counter is PARTIALLY embedded in the records' own n_trials_at_spawn field (present on 25 of 49 lines, VERIFIED),
+      which WAS ALREADY a monotonic attempt-counter-with-gaps from day one — but coverage is incomplete and the path is
+      NOT fully field-recoverable. Honest segment-by-segment provenance:
+        N=1,3,4,5,7,9,11,13   early vol_target_carry param sweep, 8 distinct ids — FIELD-RECOVERABLE (slot values present)
+        N=15..22              8 'backfill-*' exploratory script runs (Bonferroni-honesty backfill, CONSENSUS 2026-04-26 R3) — FIELD-RECOVERABLE
+        N=24                  87fa1d23 momentum — FIELD-RECOVERABLE anchor
+        N=24 -> 37            the 12-trial falsification batch c530be91..9017fadb (ma/boll/mom/carry/cm/tas rejects) carries
+                              NO n_trials_at_spawn field at all -> THIS SEGMENT IS PROSE/MEMORY-DEPENDENT, not field-recoverable
+        N=37                  576746aa R5 carry-universe 6x6 family @ n_trials_at_spawn=37 (counts as ONE trial per scope consensus) — FIELD-RECOVERABLE anchor
+        N=38                  MEMORY: '576746aa COMPLETE (counter 38)' — PROSE
+        N=42                  MEMORY: kickoff-2 NO-SPEND cycle close (counter 42) — PROSE
+        N=48                  trial-48 15923fe1: 'Trial 48. Counter burned at spawn per honest-N' / archive 'DSR=0.00 at N=48' — PROSE
+      Monotonic path ...24 -> [12-trial batch, prose] -> 37 -> 38 -> 42 -> 48 is consistent. CORRECTION to BOTH my earlier
+      framing AND the CTO's 'purely prose' framing: 48 is NEITHER purely prose (the field anchors slots 1-24 and 37) NOR
+      fully field-recoverable (the 24->37 batch and the 38/42/48 cross-session moves require the prose/MEMORY trail). The
+      offset record below is therefore REQUIRED, not optional — it is the only way to make a prose-dependent segment
+      mechanical going forward.
+    gap_to_physical_records:
+      countable_distinct_today: 33
+      authoritative_counter: 48
+      prose_only_offset: 15        # 48 - 33
+      what_the_15_are: >
+        Attempts the monotonic counter advanced over but that were never written as their own DISTINCT countable
+        trial_id in the current bytes: (i) the early VTC sweep double-counted spawn+complete as 2 slots each — slot
+        values 1,3,4,5,7,9,11,13 over 8 distinct ids leave EXACTLY 5 phantom slots {2,6,8,10,12} (VERIFIED; corrected
+        from an earlier '~6'), (ii) the 12-trial falsification batch (no n_trials_at_spawn) advanced the counter
+        roughly 24->37, recorded compactly rather than one slot per distinct id, (iii) cross-session monotonic counter
+        moves 37->38->42->48 held in CONSENSUS/MEMORY prose rather than as one ledger trial each. These sub-counts are
+        provenance detail; the BINDING arithmetic is 33 countable + 15 offset = 48, and the offset is ratified toward
+        the LARGER/safer direction (SD2) regardless of residual sub-count uncertainty.
+
+# =============================================================================
+# 2. RATIFIED SEMANTIC — what N MUST be in the Bailey-Lopez de Prado Deflated Sharpe
+# =============================================================================
+ratified_semantic:
+  question: "Is the DSR deflation denominator the number of distinct strategy IDEAS (de-dup families), every backtest run, or the cumulative count of independent attempts?"
+
+  answer: >
+    THE MULTIPLE-COMPARISONS FAMILY: the number of INDEPENDENT STRATEGY CONFIGURATIONS TRIED whose best result
+    could have been selected as 'the' finding. = cumulative independent ATTEMPTS, one slot per attempt. NOT de-dup
+    families (11), NOT raw lines (49), NOT raw backtest executions either.
+
+  justification_from_what_DSR_corrects_for: >
+    DSR (Bailey & Lopez de Prado 2014) deflates an observed Sharpe by E[max SR] — the expected MAXIMUM Sharpe under
+    the null across N independent trials. The mechanism (dsr.py::expected_max_sr) is order-statistics of the maximum:
+    the more times you draw a Sharpe and KEEP THE BEST, the higher the bar a genuine SR must clear. N is therefore the
+    SIZE OF THE SELECTION SET — every configuration whose result was eligible to be picked as the winner. Three
+    consequences fix the semantic precisely:
+      1. CONFIGS, NOT IDEAS. carry, carry_2x_costs, carry_GBPUSD are three DRAWS from the search, three chances at a
+         lucky max. De-duplicating them to one 'carry' family (the 11 view) hides 2 of the 3 selection opportunities
+         and under-deflates. The de-dup view answers a research-portfolio question (how broad is our idea coverage),
+         which is useful for prioritization but is the WRONG input to E[max SR].
+      2. ATTEMPTS, NOT RAW RUNS. A single attempt re-executed byte-identically (same config, same data, deterministic)
+         is ONE draw, not many — re-running it cannot produce a new max. Hence we count distinct ATTEMPTS (collapse by
+         trial_id, last-wins), not raw lines (49) and not raw engine invocations. The spawn-line + complete-line of one
+         trial is ONE selection opportunity.
+      3. PROGRAMME-WIDE, NOT PER-SESSION. Selection bias accumulates across the firm's entire history; a Sharpe found
+         on attempt 48 was selected against the backdrop of 47 prior attempts. N is cumulative and monotonic. It never
+         resets and never shrinks (a withdrawn idea that never saw data is the only legitimate non-increment).
+
+  how_IS_param_search_factors_in: >
+    IN-SAMPLE parameter search is the textbook source of selection bias and MUST be inside N. The firm's discipline of
+    pre-registering a SINGLE frozen structure (no in-trial param sweep) means a clean confirmatory trial contributes
+    +1. But where a candidate WAS chosen by searching a grid before freezing (e.g. R5's 6x6 = 36 cells), the family's
+    internal multiplicity is charged: R5 was registered as ONE trial_id but its honest-N absorbed the 36-cell
+    selection via Method-B BLdP deflation with elected N_sel=3 (per the R5 freeze receipt). RULE: a trial's ledger slot
+    is +1 for the org-wide cumulative count; ANY in-sample search used to PICK that candidate is charged SEPARATELY as
+    an effective-N_sel inside the trial's own DSR (the researcher declares it pre-freeze; NHT verifies). The org-wide
+    cumulative N and the within-candidate selection N_sel are BOTH real and compose — neither substitutes for the other.
+
+  how_forward_attempt_budget_factors_in: >
+    Per NHT IC-13, a forward test's pre-declared ATTEMPT BUDGET (how many forward looks the firm reserved the right to
+    take) is part of the multiplicity the moment the budget is declared — you cannot take 5 forward shots and report
+    only the best as if N=1. RULE: the attempt budget is pre-registered as a ledger record BEFORE the first forward
+    open; honest_n worst-cases the full declared budget into the denominator if any look is taken. Each ACTUAL forward
+    open then appends a counts_toward:true record (IC-7) so realized attempts are never under-counted.
+
+  recommended_value_for_CURRENT_ledger:
+    value: 48
+    plus_one_convention: "compute_dsr receives n_trials INCLUDING the trial being scored. So a NEW trial scored today uses n_trials = 48 (prior) + 1 = 49. The standing PRIOR-attempt count is 48."
+    derivation: "33 countable distinct trial_ids physically in the ledger + 15 reconstructed prose-only attempts (counter path ...37->38->42->48) = 48. NHT independently certified 48; trial-48's own archive records 'DSR=0.00 at N=48'."
+
+# =============================================================================
+# 3. MECHANICAL COUNTING RULE — what honest_n() MUST implement (IC-9 / IC-14d)
+# =============================================================================
+# The value is NEVER hand-entered again. It is recomputed from the ledger at score
+# time. A ONE-TIME baseline-offset record makes the 15 prose-only attempts explicit.
+mechanical_rule:
+  function_name: honest_n_deflation_denominator   # distinct from compute_honest_n (the 11-view de-dup) — never confuse 11 with 48 again
+  module: src/forex_system/harness/honest_n.py     # sibling to compute_honest_n; KEEP both, name distinctly
+  signature: "honest_n_deflation_denominator(trials_path: Path) -> int   # returns PRIOR attempt count; callers add +1 for the trial being scored"
+
+  algorithm:
+    step_1_collapse: "Parse JSONL; collapse by trial_id (last-wins), mirroring compute_honest_n:106-113. One slot per DISTINCT trial_id, never per line. (kills the 49 bug.)"
+    step_2_classify_each_distinct_trial_id:
+      counts_TRUE_when:
+        - "collapsed record carries counts_toward_deflation_denominator: true, OR"
+        - "collapsed terminal status is a real attempt that saw data / could be selected: {complete, COMPLETE, rejected, exploratory, pre-registered-frozen, pre-registered-frozen-pending-receipt, VOIDED-contaminated-run, withdrawn? NO}"
+      counts_FALSE_when:
+        - "collapsed record carries counts_toward_deflation_denominator: false, OR"
+        - "terminal status == withdrawn-pre-freeze (never frozen, never tested — NHT-ratified non-counting; e.g. 53981a4a)"
+      DEFAULT_when_ambiguous: "COUNT IT (fail toward over-deflation, never drop). This explicitly REPLACES compute_honest_n's else-branch that silently DROPS unknown-status rows — that bug under-counts and must die (it currently drops trial-48 itself)."
+    step_3_add_baseline_offset: "n = baseline_offset + count(distinct trial_ids classified TRUE after the offset record). baseline_offset is READ from the one-time reconciliation record (below), never typed."
+    step_4_emit_trace: "Emit ONE structured event honest_n.computed{n, baseline_offset, countable_distinct, source, git_sha, ts} so any DSR is reconstructable from logs alone (log-as-decision-trace)."
+
+  one_time_baseline_offset_record:
+    required: true
+    rationale: >
+      The 15 prose-only attempts are real and already paid-for; they cannot be re-derived line-by-line from the
+      current bytes for every future score. Bake them ONCE as an explicit, auditable offset, then compute mechanically
+      forever. This is the IC-14(d) fix: 'honest-N recomputed from the ledger at score time, never typed.'
+    record_to_append (QD, ONLY after NHT co-ratifies this artifact):
+      event: honest-n-reconciliation
+      counts_toward_deflation_denominator: false     # the offset record is metadata, not a trial
+      reconciled_honest_n: 48
+      records_countable_at_reconciliation: 33
+      prose_only_attempts_offset: 15
+      basis: "trial-48 archive 'DSR=0.00 at N=48' + NHT certification + n_trials_at_spawn field trail (1..37) + MEMORY counter path 37->38->42->48"
+      ratified_by: [head-of-quant-research, null-hypothesis-tester]
+      ts: "<date -u +%Y-%m-%dT%H:%M:%SZ at append time>"
+      detail: "One-time baseline offset. After this record honest_n() = 15 + count(distinct countable trial_ids appended AFTER this record). Prose counter RETIRED; ledger is authoritative."
+    post_reconciliation_invariant: >
+      honest_n_deflation_denominator() = 15 (frozen offset) + count(distinct counts_toward==true trial_ids recorded
+      after the reconciliation record). The 33 already-present countable records are SUBSUMED in the 48 via the offset
+      arithmetic (15 + 33 = 48); going forward each NEW attempt appends a real counts_toward:true record and the count
+      ticks up mechanically. No future value is ever typed.
+
+  call_sites_to_fix (per CTO blast-radius — BOTH live + the hand-entered literal):
+    - "src/forex_system/harness/run_trial.py:288  n_prior = _count_prior_trials()  -> honest_n_deflation_denominator(_TRIALS_REGISTRY)  (n_prior + 1 logic preserved)"
+    - "scripts/run_falsification_trial.py:736  n_prior = _count_prior_trials()  -> same  (the SECOND live site)"
+    - "scripts/trial_48_is_eval.py:411  n_trials=48 LITERAL  -> replace with the call (IC-14d: no hand-entered N)"
+  deprecate: "_count_prior_trials() -> delete or raise NotImplementedError pointing to honest_n_deflation_denominator (fix-the-class; no caller reintroduces the line-count)."
+  also_fix_regardless: "compute_honest_n() else-branch silent-DROP (honest_n.py:129-134): unknown/frozen/withdrawn statuses must be EXPLICITLY classified, not discarded. Required even though compute_honest_n stays the 11-view (it must not silently lose trials)."
+
+# =============================================================================
+# 4. DIRECTIONAL SAFETY RULE (SD2 / IC-9) — binding on every ambiguity
+# =============================================================================
+directional_safety:
+  rule: "WHEN UNCERTAIN, DEFLATE MORE (LARGER N), NEVER LESS."
+  rationale: >
+    A too-small denominator shrinks E[max SR] and MANUFACTURES false validations — the single most dangerous failure
+    mode for a research firm (it lets noise graduate to capital). A too-large denominator only costs a real edge an
+    extra confirmatory cycle. The asymmetry is total: under-deflation is unrecoverable (you trade noise), over-deflation
+    is merely conservative. Therefore: 48 over 33 (preserve paid-for attempts); count-on-ambiguity over drop; worst-case
+    the full forward attempt-budget; use the UPPER CI end on any estimated effective-N. Every tie breaks toward MORE
+    deflation.
+  consequence_for_this_ratification: "Even if the 15-offset reconstruction carried residual uncertainty, the SAFE choice is the LARGER value — 48 stands not merely because it is reconstructable but because it is the conservative direction."
+
+# =============================================================================
+# 5. DECISION — concur with CTO Option A
+# =============================================================================
+decision_detail:
+  ratified_denominator_semantic: "Cumulative independent ATTEMPTS (configs tried, one slot per attempt, programme-wide, monotonic) — the multiple-comparisons family E[max SR] corrects for."
+  ratified_current_value: 48        # standing PRIOR-attempt count; a trial scored today passes n_trials=49 to compute_dsr
+  concur_with_cto_option_A: true
+  differ_from_cto: >
+    CONCUR on Option A (48, multiplicity reading) and on the reconciliation-offset mechanism. ONE REFINEMENT, not a
+    disagreement: the CTO framed 48 as living 'ONLY in prose / not derivable from any current parse rule.' That is
+    too pessimistic but the precise correction is PARTIAL, not full — 48 is field-anchored for slots 1-24 (the
+    n_trials_at_spawn field, present on 25 of 49 lines) and at slot 37 (R5), but the 24->37 segment (the 12-trial
+    falsification batch, which carries NO n_trials_at_spawn) and the cross-session moves 38->42->48 ARE prose/MEMORY-
+    dependent. So 48 is RECONSTRUCTABLE (the anchors pin it and the path is monotonic+consistent) but NOT fully
+    field-mechanical — which is exactly WHY the offset record is REQUIRED, not optional: it converts a partially-prose
+    history into a one-time auditable baseline so no future value is ever hand-entered. This satisfies the CTO's binding
+    gate ('HoQR+NHT must independently reconstruct the 15') with an HONEST account of which segments are field-backed vs
+    prose-backed, rather than over-claiming full field-recoverability. I reject Option B (de-dup 11) as the DSR
+    denominator: it is the wrong statistical quantity (erases within-family selection) and carries a silent-drop bug.
+    compute_honest_n stays alive ONLY as the research-portfolio idea-coverage view, never wired to compute_dsr.
+  reject_option_B_reasons:
+    - "11 de-duplicates configurations that were each a separate draw from the search -> systematically under-deflates -> SD2 violation."
+    - "compute_honest_n silently DROPS 4 live trials incl. trial-48 itself (unknown-status else-branch) -> the most recent falsification is invisible to it."
+    - "4x smaller than the multiplicity N -> would flip DSR gate outcomes from FAIL to PASS on noise."
+
+# =============================================================================
+# RATIFICATION STATUS
+# =============================================================================
+ratification:
+  hoqr_signature: approve
+  nht_signature_required: true       # JOINT ratification; this artifact is HoQR's half
+  hard_precondition_released_for: "P0 honest_n() build — UNBLOCKED for Option A only once NHT co-signs this semantic"
+  counter_incremented: false          # methodology ratification — NO trial spawned, honest-N UNCHANGED at 48
+  retirement_criteria_for_this_rule:
+    - "If a future audit shows the 15-offset reconstruction was wrong, the ONLY sanctioned correction is toward a LARGER offset (SD2). A smaller offset requires fresh CEO+NHT+HoQR ratification with evidence."
+    - "compute_honest_n (the 11-view) must NEVER be wired into compute_dsr; a regression test must assert honest_n_deflation_denominator is the only function feeding the two DSR call sites."
+
+ROUTE_TO: null-hypothesis-tester       # co-sign the semantic; then quant-developer builds P0 against this rule
+notify: [ceo, cto, null-hypothesis-tester, quant-developer, principal-reviewer]

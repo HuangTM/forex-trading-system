@@ -1,0 +1,274 @@
+# =============================================================================
+# QD P0 HANDOFF — honest_n_deflation_denominator() implementation
+# =============================================================================
+role: quant-developer
+artifact_type: implementation
+decision: implement
+timestamp_utc: "2026-06-18T02:59:48Z"
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+authored_by: quant-developer
+no-capital-instruction: true
+implements: P0 from cto-build-spec.yaml (KG-CTO-1)
+ratification_preconditions_met:
+  - hoqr-dsr-denominator.yaml (approve)
+  - nht-dsr-denominator.yaml (approve-with-dissent)
+
+claimed_domains:
+  - harness-implementation
+  - ic-9-ic-14d-fix
+
+# =============================================================================
+# 1. MECHANICAL RULE IMPLEMENTED
+# =============================================================================
+mechanical_rule_implemented:
+  function: honest_n_deflation_denominator(trials_path: Path) -> int
+  module: src/forex_system/harness/honest_n.py
+  algorithm:
+    step_1: >
+      Parse JSONL. Skip records where trial_id is absent (e.g. the reconciliation
+      metadata record with event=honest-n-reconciliation).
+    step_2: >
+      Collapse by trial_id (last-wins) — one slot per DISTINCT trial_id, never per line.
+      Kills the 49-raw-line-count bug.
+    step_3: >
+      Classify each distinct trial_id:
+        counts=False: counts_toward_deflation_denominator is explicitly False,
+                      OR status == 'withdrawn-pre-freeze'
+        counts=True:  everything else, INCLUDING unknown/ambiguous status.
+        SD2 rule: when ambiguous, COUNT IT (over-deflate, never under-deflate).
+    step_4: >
+      Read baseline_offset from the 'honest-n-reconciliation' record in the ledger.
+      Raises RuntimeError if absent (fail-closed).
+    step_5: "n = baseline_offset + count(True-classified distinct trial_ids)"
+    step_6: >
+      Emit honest_n.computed structured event with n, baseline_offset,
+      countable_distinct, excluded_distinct, source, git_sha, ts.
+  helper_function: ic9_dsr_denominator(trials_path, is_search_family_size, forward_attempt_budget) -> int
+    description: >
+      Full IC-9 denominator = org_wide_honest_N + is_search_family_size + forward_attempt_budget.
+      Use this for forward evaluations; honest_n_deflation_denominator alone covers org-wide N.
+
+  also_fixed:
+    - >
+      compute_honest_n() else-branch (honest_n.py:179-188): previously silently dropped
+      unknown-status rows. Now explicitly logs them without silently discarding (NHT D5 fix).
+      This does NOT change compute_honest_n's return value for the de-dup 11-view —
+      unknown-status rows were not in RETAIN_STATUSES before and still aren't.
+
+# =============================================================================
+# 2. OFFSET RECORD
+# =============================================================================
+offset_record:
+  file_created: .fintech-org/honest_n_offset.json
+  prose_only_attempts_offset: 15
+  basis: >
+    trial-48 archive 'DSR=0.00 at N=48' + NHT certification (nht-dsr-denominator.yaml)
+    + n_trials_at_spawn field trail (slots 1,3,4,5,7,9,11,13,15-22,24,37)
+    + MEMORY counter path 37->38->42->48
+  arithmetic: "33 countable distinct trial_ids + 15 offset = 48"
+  ledger_append_required:
+    status: BLOCKED-BY-SANDBOX
+    reason: >
+      The execution environment auto-mode classifier blocked all writes to
+      .fintech-org/trials.jsonl (including the flag=false metadata record).
+      The reconciliation record is NOT YET APPENDED. Until it is appended,
+      honest_n_deflation_denominator() raises RuntimeError on the real ledger.
+    record_to_append: |
+      {"event":"honest-n-reconciliation","counts_toward_deflation_denominator":false,"reconciled_honest_n":48,"records_countable":33,"prose_only_attempts":15,"basis":"trial-48 archive 'DSR=0.00 at N=48' + NHT certification + MEMORY counter trail 37->38->42->48","ratified_by":["head-of-quant-research","null-hypothesis-tester"],"ts":"2026-06-18T02:50:01Z","detail":"One-time baseline offset. honest_n_deflation_denominator() = prose_only_attempts(15) + count(distinct trial_ids with counts_toward_deflation_denominator==true anywhere in the ledger, sticky-excluding any ever flagged false or status==withdrawn-pre-freeze). The code counts ALL True-classified distinct trial_ids regardless of position relative to this record, then adds the offset; the 33 already-countable records in the ledger are subsumed in the 48 total. Prose counter RETIRED; ledger is authoritative. Offset file: .fintech-org/honest_n_offset.json"}
+    action_required: >
+      CEO or authorized party must append the above JSON line to
+      .fintech-org/trials.jsonl. After that, honest_n_deflation_denominator()
+      returns 48 on the current ledger, and the sacred test
+      test_returns_48_on_reconciled_ledger will pass.
+
+# =============================================================================
+# 3. CALL SITES FIXED
+# =============================================================================
+call_sites_fixed:
+  - file: src/forex_system/harness/run_trial.py
+    old: "_count_prior_trials() — raw line count (49)"
+    new: "honest_n_deflation_denominator(_TRIALS_REGISTRY) at line ~297"
+    also: "Added import; _count_prior_trials() body replaced with NotImplementedError (regression guard)"
+
+  - file: scripts/run_falsification_trial.py
+    old: "_count_prior_trials() at line ~736"
+    new: "honest_n_deflation_denominator(_DEFAULT_REGISTRY) at line ~736"
+    also: "Added import; removed unused _count_prior_trials import (ruff F401)"
+
+  - file: scripts/trial_48_is_eval.py
+    old: "N_ORG_TRIALS = 48  # hand-entered literal (IC-14d violation)"
+    new: "N_ORG_TRIALS = honest_n_deflation_denominator(_TRIALS_REGISTRY_PATH)"
+    note: >
+      With the reconciliation record appended, this returns 48 (trial-48 is in
+      the ledger as counts_toward=True), matching the original hand-entered value.
+
+# =============================================================================
+# 4. TEST RESULTS (ACTUAL EXECUTION — Rule 13)
+# =============================================================================
+test_results:
+  new_acceptance_tests:
+    file: tests/harness/test_honest_n_deflation.py
+    collected: 21
+    passed: 20
+    skipped: 1
+    skip_reason: >
+      test_returns_48_on_reconciled_ledger skipped because the reconciliation record
+      is not yet appended to trials.jsonl (sandbox write-block). Will pass after
+      the record is manually appended.
+    command: "python3 -m pytest tests/harness/test_honest_n_deflation.py -v -q"
+
+  sacred_test:
+    command: "python3 -m pytest -k test_no_lookahead -q"
+    result: "12 passed, 1610 deselected"
+    status: GREEN
+
+  harness_suite:
+    command: "python3 -m pytest tests/harness/ -q"
+    result: "512 passed, 4 skipped"
+    status: GREEN
+
+  dsr_trial_suite:
+    command: "python3 -m pytest tests/ -k 'honest_n or dsr or trial' -q"
+    result: "196 passed, 1 skipped, 1425 deselected"
+    status: GREEN
+
+ruff:
+  command: "python3 -m ruff check src/forex_system/harness/honest_n.py scripts/run_falsification_trial.py scripts/trial_48_is_eval.py tests/harness/test_honest_n_deflation.py"
+  result: "All checks passed"
+  note: >
+    5 pre-existing ruff errors remain in src/forex_system/harness/run_trial.py
+    (unused imports: time, run_walkforward, DataError, PairInfo; unused variable method).
+    These existed before this PR and are not introduced by this change.
+
+# =============================================================================
+# 5. FILES CHANGED
+# =============================================================================
+files_changed:
+  - src/forex_system/harness/honest_n.py       # new honest_n_deflation_denominator, ic9_dsr_denominator, fixed else-branch
+  - src/forex_system/harness/run_trial.py       # import + call-site swap + _count_prior_trials deprecated
+  - scripts/run_falsification_trial.py           # import + call-site swap
+  - scripts/trial_48_is_eval.py                 # N_ORG_TRIALS replaced with mechanical call
+  - tests/harness/test_honest_n_deflation.py    # NEW — 21 acceptance tests
+  - tests/harness/test_run_trial.py             # fixture + skeleton-check updated
+  - tests/harness/test_sweep.py                 # sweep_setup fixture updated
+  - tests/harness/test_run_trial_timeframe.py   # monkeypatch added
+  - tests/scripts/test_run_falsification_trial.py  # 9 patch targets updated
+
+files_created:
+  - .fintech-org/honest_n_offset.json           # offset record with provenance
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/qd-p0-honest-n.yaml  # this file
+  - tests/harness/test_honest_n_deflation.py
+
+# =============================================================================
+# 6. OPEN ACTION — CEO MUST APPEND RECONCILIATION RECORD
+# =============================================================================
+open_action:
+  id: OA-1
+  owner: ceo
+  priority: P0
+  description: >
+    Append the 'honest-n-reconciliation' record to .fintech-org/trials.jsonl.
+    The exact line is in the ledger_append_required section above and also
+    in .fintech-org/honest_n_offset.json.
+
+    Until this is done:
+      - honest_n_deflation_denominator() raises RuntimeError on the real ledger
+      - The sacred acceptance test test_returns_48_on_reconciled_ledger is SKIPPED
+      - All synthetic tests (20/21) pass
+      - The real call sites (run_trial.py, run_falsification_trial.py) will raise
+        when invoked against the real .fintech-org/trials.jsonl
+
+    Command to append (run from project root):
+      python3 -c "
+      import json
+      record = {
+          'event': 'honest-n-reconciliation',
+          'counts_toward_deflation_denominator': False,
+          'reconciled_honest_n': 48,
+          'records_countable': 33,
+          'prose_only_attempts': 15,
+          'basis': \"trial-48 archive 'DSR=0.00 at N=48' + NHT certification + MEMORY counter trail 37->38->42->48\",
+          'ratified_by': ['head-of-quant-research', 'null-hypothesis-tester'],
+          'ts': '2026-06-18T02:50:01Z',
+          'detail': 'One-time baseline offset. honest_n_deflation_denominator() = prose_only_attempts(15) + count(distinct trial_ids with counts_toward_deflation_denominator==true anywhere in the ledger, sticky-excluding any ever flagged false or status==withdrawn-pre-freeze). The code counts ALL True-classified distinct trial_ids regardless of position relative to this record, then adds the offset; the 33 already-countable records are subsumed in the 48 total. Prose counter RETIRED; ledger is authoritative. Offset file: .fintech-org/honest_n_offset.json'
+      }
+      with open('.fintech-org/trials.jsonl', 'a') as f:
+          f.write(json.dumps(record) + '\n')
+      print('Appended. Now run: python3 -m pytest tests/harness/test_honest_n_deflation.py -q')
+      "
+
+ROUTE_TO: [ceo, principal-reviewer, null-hypothesis-tester]
+notify: [ceo, hoqr, nht, cto, principal-reviewer]
+
+# =============================================================================
+# 7. C2 FIX — Principal Reviewer condition C2 (2026-06-17)
+# =============================================================================
+c2_fix:
+  authored_by: quant-developer
+  timestamp_utc: "2026-06-17T00:00:00Z"
+  condition: C2 from principal-reviewer APPROVED-WITH-CONDITIONS
+
+  field_name_fix:
+    issue: >
+      honest_n_offset.json used field names that do NOT match what honest_n.py
+      actually parses. The file had 'event': 'honest-n-offset-record' and
+      'prose_only_attempts_offset': 15. The code (_RECONCILIATION_EVENT, line 79)
+      checks for event == 'honest-n-reconciliation' and reads record['prose_only_attempts']
+      (line 284). A maintainer who treated honest_n_offset.json as the source of truth
+      would produce a record the code silently ignores (raises RuntimeError instead).
+    before:
+      event_field: "honest-n-offset-record"
+      offset_field: "prose_only_attempts_offset"
+    after:
+      event_field: "honest-n-reconciliation"
+      offset_field: "prose_only_attempts"
+    files_changed:
+      - .fintech-org/honest_n_offset.json  # event + field name corrected
+      - .fintech-org/artifacts/2026-06-17-forward-test-loop/qd-p0-honest-n.yaml  # this file, OA-1 detail
+    no_code_change: >
+      honest_n.py is NOT changed — the counting logic was certified correct by the
+      Principal Reviewer. Only documentation artifacts are fixed.
+
+  prose_fix:
+    issue: >
+      The reconciliation record's 'detail' string (in OA-1 record_to_append and in the
+      python command) said: "count(distinct counts_toward==true trial_ids appended AFTER
+      this record)". This is factually wrong. The code counts ALL True-classified distinct
+      trial_ids in the ledger regardless of position relative to the reconciliation record,
+      then adds the offset. The 33 already-countable records present BEFORE the reconciliation
+      record are included in the 48 total (33 + 15 = 48). Saying "AFTER this record" would
+      imply those 33 are not counted — the opposite of the actual behavior.
+    before: >
+      "...count(distinct counts_toward==true trial_ids appended AFTER this record).
+      Prose counter RETIRED; ledger is authoritative."
+    after: >
+      "honest_n_deflation_denominator() = prose_only_attempts(15) + count(distinct
+      trial_ids with counts_toward_deflation_denominator==true anywhere in the ledger,
+      sticky-excluding any ever flagged false or status==withdrawn-pre-freeze). The code
+      counts ALL True-classified distinct trial_ids regardless of position relative to this
+      record, then adds the offset; the 33 already-countable records are subsumed in the
+      48 total. Prose counter RETIRED; ledger is authoritative."
+    files_changed:
+      - .fintech-org/honest_n_offset.json  # post_reconciliation_invariant rewritten
+      - .fintech-org/artifacts/2026-06-17-forward-test-loop/qd-p0-honest-n.yaml  # OA-1 detail + python command
+
+  final_canonical_record_line: >
+    {"event":"honest-n-reconciliation","counts_toward_deflation_denominator":false,"reconciled_honest_n":48,"records_countable":33,"prose_only_attempts":15,"basis":"trial-48 archive 'DSR=0.00 at N=48' + NHT certification + MEMORY counter trail 37->38->42->48","ratified_by":["head-of-quant-research","null-hypothesis-tester"],"ts":"2026-06-18T02:50:01Z","detail":"One-time baseline offset. honest_n_deflation_denominator() = prose_only_attempts(15) + count(distinct trial_ids with counts_toward_deflation_denominator==true anywhere in the ledger, sticky-excluding any ever flagged false or status==withdrawn-pre-freeze). The code counts ALL True-classified distinct trial_ids regardless of position relative to this record, then adds the offset; the 33 already-countable records are subsumed in the 48 total. Prose counter RETIRED; ledger is authoritative. Offset file: .fintech-org/honest_n_offset.json"}
+
+  verification:
+    temp_ledger_result: >
+      Simulated appending canonical record to temp copy of trials.jsonl.
+      honest_n_deflation_denominator() on temp ledger = 48. PASS (no KeyError).
+    test_suite:
+      command: "python3 -m pytest tests/harness/test_honest_n_deflation.py -q"
+      result: "22 passed, 1 skipped"
+      note: >
+        1 skipped = test_returns_48_on_reconciled_ledger (sacred test; skipped because
+        reconciliation record not yet appended to live trials.jsonl — unchanged from before).
+        23 collected total (2 tests added since original artifact; all synthetic tests pass).
+    ruff:
+      command: "ruff check src/forex_system/harness/honest_n.py"
+      result: "All checks passed"
+    honest_n_py_changes: NONE (counting logic certified; not touched)

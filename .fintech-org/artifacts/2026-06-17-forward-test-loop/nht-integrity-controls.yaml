@@ -1,0 +1,408 @@
+# =============================================================================
+# Forward-Test Loop — Integrity Controls (Null-Hypothesis Tester)
+# Independent specification. Authored BEFORE seeing any ML/QD design, by design.
+# Append-only dissent. These controls are the bar a future "validated" stamp
+# must clear. If the loop does not meet them, a PASS is theater.
+# =============================================================================
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: approve-with-dissent
+timestamp: 2026-06-18T02:25:41Z
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+no_capital_instruction: true
+claimed_domains:
+  - null-hypothesis-construction
+  - replication-protocol-design
+  - p-hacking-and-data-snooping-detection
+  - out-of-sample-integrity
+  - deflated-sharpe-under-org-wide-N
+  - structural-skepticism-on-any-claim
+
+contamination_check: >
+  clean. This prompt described the firm's GAP (never ran a true forward OOS test;
+  "validated" never meant anything across 49 trials) and named a frozen candidate
+  (pooled-8 session-open momentum) but contained NO proposer narrative claiming the
+  candidate WILL work, NO market-mechanism rationale, and NO ML design to anchor on.
+  I deliberately did NOT read any ML-researcher or QD design artifact before
+  authoring. My skepticism is sourced from statistics + the firm's own trial ledger.
+
+org_wide_honest_N_at_authoring:
+  value: 48
+  source: .fintech-org/trials.jsonl
+  note: >
+    Latest archived event (trial 15923fe1, trial-48 A2'-overnight-MR) states
+    "Honest-N now 48". The ledger file has 49 lines but lines are spawn/archive
+    EVENTS, not trials; 34 distinct trial_ids; only 3 recent events carry the
+    counts_toward_deflation_denominator flag. The authoritative honest-N is 48.
+    EVERY forward attempt MUST increment this denominator (see IC-7).
+
+# -----------------------------------------------------------------------------
+# PART A — THE SEVEN QUESTIONS, ANSWERED INDEPENDENTLY
+# -----------------------------------------------------------------------------
+
+Q1_immutability_requirement:
+  problem: >
+    "The strategy was fixed before the forward data" must be PROVABLE, not asserted.
+    A backtest-only firm can trivially re-tune after a peek and claim the new params
+    were "always" the candidate. Without a temporal lock, every forward result is
+    contestable.
+  what_must_be_locked_at_FREEZE:
+    - frozen_preregistration_yaml: >
+        Exact entry/exit rules, pair set, holding period, position sizing, ALL
+        hyperparameters as literal values (no "to be tuned"), the pre-declared
+        PASS/KILL gates with numeric thresholds, and the exact forward window
+        [start_date, end_date] — all as fixed fields.
+    - code_hash: sha256 of the strategy module + cost model + eval harness, recorded.
+    - config_hash: sha256 of the config YAML driving the run.
+    - git_sha: commit SHA containing the frozen code AND prereg, PUSHED to origin
+        (a local-only commit is re-writable; pushed history is the witness).
+    - freeze_timestamp_utc: from `date -u`, recorded in the prereg AND the trials ledger.
+    - data_cutoff_witness: the max timestamp of the IS/dev data the candidate ever saw,
+        which MUST be < forward_window.start. The forward data's earliest bar must
+        post-date the freeze commit's authored date.
+  silent_re_freeze_detection:
+    - The prereg + hashes are written to trials.jsonl as a trial-spawned event AT
+      FREEZE, before any forward bar is scored. The ledger is append-only and pushed.
+    - A re-freeze is detected when: a second trial-spawned event references the "same"
+      strategy name with a DIFFERENT code_hash/config_hash/git_sha after a forward run.
+      That is not a re-freeze — it is a NEW trial and burns a NEW N (IC-7).
+    - Forward results MUST cite the git_sha they were produced from; if that SHA's
+      tree does not hash-match the frozen prereg, the result is VOID.
+    - GUARD: the freeze commit must be timestamped (pushed) BEFORE the forward data
+      file's ingest commit. If freeze-commit-time > forward-data-ingest-time, the
+      "forward" data was available at freeze — treat as IS, not forward.
+
+Q2_one_shot_holdout_rule:
+  problem: >
+    A sequestered holdout opened more than once is burned: each peek leaks information
+    that lets you tune toward it, so the second look is no longer out-of-sample. The
+    firm's own "OOS burned once" discipline must be ENFORCEABLE, not honor-system.
+  controls:
+    - physical_sequestration: >
+        The forward/holdout window is stored as a separate file (or separate parquet
+        partition) whose access is gated. Development, IS evaluation, and param search
+        run on a loader that is HARD-CONFIGURED to refuse rows >= forward_window.start.
+        The no-lookahead invariant (test_no_lookahead, the firm's sacred test) is the
+        intra-trial guard; this is the inter-trial guard.
+    - access_log: >
+        Every read of the holdout file is logged (open event -> trials.jsonl or a
+        dedicated holdout-access.log, append-only, pushed). A holdout with > 1 scoring
+        read for a given candidate is BURNED for that candidate.
+    - one_score_per_candidate: >
+        A candidate gets EXACTLY ONE forward scoring. The PASS/KILL gates are evaluated
+        once, mechanically, from the frozen thresholds. No "let me re-run with the cost
+        model tweaked" — that is a new candidate, new N.
+    - burn_propagation: >
+        Once any candidate is scored on a given forward window, that window is
+        partially burned for the FIRM (selection across candidates leaks). Either (a)
+        each candidate gets its own disjoint forward window, or (b) all candidates that
+        will EVER touch a shared window are frozen and committed BEFORE the window is
+        opened, and the multiple-comparison correction spans all of them (IC-9).
+  reuse_prevention_proof: >
+    The firm proves a holdout was never touched during development by showing the
+    holdout-access.log has ZERO entries with timestamps inside the development window
+    [freeze-1 .. freeze], and the IS loader's data_cutoff config (committed) excludes
+    the forward range. Absence of access is provable only if access is logged; an
+    unlogged loader is presumed to have peeked.
+
+Q3_multiple_attempts_trap:
+  problem: >
+    Every forward attempt is a trial. You cannot forward-test variant after variant
+    until one passes — that is data-snooping with extra steps. The 6th forward attempt
+    that "finally passes" at p<0.05 is expected ~1-in-20 by chance.
+  controls:
+    - every_forward_attempt_burns_N: >
+        Each forward scoring (pass OR fail OR void) appends a trials.jsonl event with
+        counts_toward_deflation_denominator: true. Honest-N (currently 48) increments.
+        VOID runs still count if the candidate saw any forward data.
+    - no_quiet_attempts: >
+        A forward run that is not preceded by a pushed trial-spawned event (with prereg
+        + hashes) is INADMISSIBLE — its result cannot be cited as evidence. Pre-commit
+        the intent; the ledger is the gate. A run with no ledger spawn = a quiet attempt
+        = disqualified AND, if discovered, the candidate is burned.
+    - pre_declared_attempt_budget: >
+        Before opening the forward loop, the firm declares the maximum number of
+        candidates it will forward-test against a given window. The deflation N must
+        include this budget, not just attempts-so-far (you cannot stop-early on success
+        and claim a small N — the denominator is the number you were WILLING to try).
+    - sequential_correction: >
+        If candidates are tested sequentially on a shared window, apply an
+        alpha-spending / sequential correction; do not test each at naive 0.05.
+
+Q4_upstream_selection_bias:
+  problem: >
+    A clean forward test is still contaminated if the candidate was CHERRY-PICKED from
+    many in-sample runs. The pooled-8 session-open momentum candidate did not arrive
+    from nowhere — it was selected. The forward result only means something if the full
+    IS search history is on the books.
+  what_must_be_true_about_provenance:
+    - full_IS_search_history_declared: >
+        The candidate's prereg MUST enumerate how many IS configurations were searched
+        to arrive at it: how many pairs, how many session-open definitions, how many
+        lookbacks/thresholds, how many pooling choices. "Pooled-8" implies a selection
+        over which 8 and over the pool-vs-single decision — that selection burns N.
+    - honest_N_includes_the_search: >
+        The deflation denominator for the forward test is NOT 1. It is org-wide honest-N
+        (48) PLUS the IS configurations searched to find THIS candidate that were not
+        already ledgered. If the search was "informal" / unlogged, assume the worst-case
+        large N — informal search is unbounded snooping.
+    - no_in_sample_relaunch_in_disguise: >
+        If the candidate's IS Sharpe was itself the max over a family, the forward gate
+        must clear DEFLATED-for-that-family, not the raw single-strategy DSR.
+    - provenance_unknown_equals_fail: >
+        If the IS search history cannot be reconstructed, the candidate is treated as
+        max-snooped: forward PASS is non-credible regardless of the forward number.
+
+Q5_paper_forward_realism:
+  problem: >
+    A paper-forward PASS at zero/optimistic cost is a frictionless illusion. Trial-48 is
+    the proof-case: the overnight-MR edge was REAL (reversion hit-rate 0.5517 > 0.50,
+    gross fade capture +3.41 pips/trade POSITIVE) yet KILLED because +3.41 gross < the
+    ~7.5-pip conservative cost — cost-dominated, not tradeable. Net-of-cost is the only
+    economics that matter.
+  required_assumptions:
+    - costs_net_of_everything: per-pair spread + slippage + commission + direction-
+        dependent swap (the RealisticCostModel), applied to EVERY simulated fill.
+    - conservative_not_optimistic: >
+        Use conservative (wide) spread/slippage assumptions, NOT mid-price fills. If the
+        cost model has per-pair spread coverage gaps (the QRB-6 lesson: 3/12 pairs ->
+        ~50% zero-imputed cost made a run UNINTERPRETABLE), EXCLUDE uncovered pairs,
+        do not impute zero cost. Pre-freeze cost-coverage gate.
+    - fills_at_next_bar_open_or_worse: >
+        No mid-bar / hindsight fills. Signal at bar N executes at bar N+1 (entry_delay_
+        bars) — the same no-lookahead invariant the engine enforces. Session-open
+        momentum is especially exposed: the "open" you trade is the one AFTER the signal
+        bar closes, at a realistic (worse) price, not the printed open.
+    - spread_at_event_time_not_average: >
+        Session opens often coincide with WIDER spreads (low liquidity at Tokyo/London
+        handover). Use event-time spread, not the daily-average spread, or the cost is
+        understated exactly where the strategy trades.
+    - no_survivorship_or_restatement: forward data must be the as-it-arrived feed; no
+        later-restated or gap-backfilled bars silently inserted into the forward window.
+    - slippage_scales_with_size: a paper PASS at infinitesimal size that would move the
+        market at real size is not a real PASS (note only; no capital here, but the
+        sizing must be a plausible one, not a microscopic one chosen to dodge slippage).
+
+Q6_credible_PASS_vs_theater:
+  minimum_bar_for_honest_validated:
+    - pre_declared_gates_only: >
+        PASS is evaluated ONLY against thresholds frozen at FREEZE. No gate invented
+        after seeing the forward number. No "well it missed the Sharpe gate but the
+        drawdown was great" rescue.
+    - net_of_all_cost: the reported metric is net of the full RealisticCostModel (Q5).
+    - deflated_under_full_org_wide_N: >
+        DSR computed with the deflation denominator = org-wide honest-N (>=48) + this
+        candidate's IS search family (Q4) + the forward attempt budget (Q3). The frozen
+        DSR PASS threshold is 0.95 (consistent with the firm's prior gates: QRB-6 died
+        at DSR 0.907 < 0.95; R5 was AMBIGUOUS straddling 0.95).
+    - adequate_sample_size: >
+        Forward window must contain enough INDEPENDENT events for the test to have power.
+        Pre-declare the minimum event count from a power calc (QRB-6's lesson: a ~0.47
+        annual-Sharpe low-freq edge needed 12-256yr to confirm — INFEASIBLE; do not
+        freeze a candidate whose confirmable forward window exceeds available data).
+        Confirmability gate: events/yr x per-event-Sharpe must yield 80% power within
+        the available forward window (target <= ~2yr per the firm's confirmability rubric).
+    - beats_matched_random_benchmark: >
+        Forward net Sharpe must beat a matched-random-trade benchmark on the same
+        instruments/holding-periods on the SAME forward window — not just be > 0.
+    - replication_coherence: >
+        The forward decay must be consistent with IS (a forward Sharpe wildly ABOVE IS
+        is as suspicious as one below — it suggests a lookahead leak or regime luck,
+        not generalization).
+  what_is_theater:
+    - PASS at a gate moved after seeing the result.
+    - PASS on gross / optimistic cost.
+    - PASS deflated only for N=1 instead of org-wide N.
+    - PASS on a sample too small to distinguish from noise.
+    - PASS on the Kth quiet attempt with K unlogged.
+
+Q7_self_deception_failure_modes_specific_to_this_firm:
+  context: a firm that WANTS a win after 0/48 is the highest-risk environment for these.
+  modes:
+    - SD1_gate_softening_after_a_near_miss: >
+        After a forward result that just misses (DSR 0.93, like QRB-6's 0.907), the
+        temptation to "it basically passed" or to re-define the gate. The 0/48 record
+        makes ANY near-miss feel like it deserves a pass. It does not.
+    - SD2_N_minimization: >
+        Pressure to deflate at a small N ("this is a fresh forward test, N=1") to make
+        the DSR clear, ignoring the 48 prior trials and the IS search that produced the
+        candidate. Minimizing the denominator is the single easiest cheat.
+    - SD3_quiet_re_attempt: >
+        After a forward FAIL, quietly tweaking the candidate (one threshold, a pair
+        swap) and forward-testing again WITHOUT ledgering the failed attempt — burying
+        the N. The firm's strongest urge after 0/48.
+    - SD4_holdout_creep: >
+        Peeking at the forward window "just to sanity-check the data pipeline" and then
+        using what was seen to tune. Any read of the forward data during dev burns it.
+    - SD5_cost_optimism_to_rescue_a_real_edge: >
+        Trial-48 showed a REAL directional edge that was cost-dominated. The temptation
+        after that is to argue the cost model is "too conservative" and re-run cheaper.
+        That converts a true negative into a false positive. Cost assumptions are frozen
+        at freeze; you do not loosen them to save a candidate.
+    - SD6_provenance_amnesia: >
+        Forgetting / not logging how many IS variants were tried to find pooled-8, then
+        treating the forward test as if the candidate were the firm's first and only idea.
+    - SD7_narrative_PASS: >
+        Declaring "validated" on a directionally-right-but-statistically-insignificant
+        result because the story (session-open momentum) is plausible. Plausibility is
+        not evidence. The firm has never had a win; the hunger to narrate one is the
+        adversary.
+    - SD8_restatement_smuggling: >
+        Letting a data-pipeline fix (e.g., the spread-column recovery on this very
+        branch) silently restate bars inside an already-frozen forward window, changing
+        the result post-hoc. Forward data is frozen at freeze; later pipeline fixes
+        require a NEW trial, NEW N.
+
+# -----------------------------------------------------------------------------
+# PART B — ENUMERATED INTEGRITY CONTROLS (append-only; IC-1 .. IC-14)
+# The ML design and the QD build are CHECKED AGAINST these. Each is a gate.
+# IC-13/IC-14 and the strengthened IC-1/IC-3/IC-5/IC-12 were added after a critic pass
+# closed four enforceability/contradiction gaps; the meta-control is IC-14: an
+# unenforced control is UNMET, not aspirational.
+# -----------------------------------------------------------------------------
+integrity_controls:
+  - id: IC-1
+    name: cryptographic-freeze
+    control: >
+      At FREEZE, a trial-spawned event is appended to trials.jsonl AND pushed to origin,
+      carrying: frozen-prereg path, sha256(code+cost-model+harness), sha256(config),
+      git_sha, freeze_timestamp_utc, forward_window [start,end], data_cutoff_witness,
+      AND sha256 of the EXACT IS-data snapshot the candidate was selected on
+      (is_data_hash) — the content-hash of the bar values, not just a file path. The
+      IS data is hash-locked, not merely the code. No forward bar may be scored before
+      this event exists in pushed history.
+  - id: IC-2
+    name: forward-postdates-freeze
+    control: >
+      The freeze commit's pushed timestamp MUST precede the forward data's ingest commit
+      timestamp, AND forward_window.start MUST exceed the candidate's data_cutoff_witness.
+      If either fails, the "forward" data was available at freeze -> it is IS, not forward.
+  - id: IC-3
+    name: result-cites-frozen-sha
+    control: >
+      Every forward result cites the git_sha it was produced from. The hash-match check
+      is NOT a human assertion: the scoring harness itself recomputes sha256(code+config)
+      and the is_data_hash at run start, compares to the IC-1 frozen values from the
+      pushed ledger, and REFUSES TO EMIT a result on mismatch (hard abort, non-zero exit).
+      A result recorded without the harness's machine-printed "hash-match: OK" line is
+      INADMISSIBLE. This closes the "human asserts SHA matches without verifying" hole.
+      See IC-14 for the mechanized gate.
+  - id: IC-4
+    name: physically-sequestered-holdout
+    control: >
+      Forward/holdout rows live in a separate gated file; the dev/IS loader is hard-
+      configured to refuse rows >= forward_window.start. Inter-trial analogue of the
+      sacred test_no_lookahead.
+  - id: IC-5
+    name: holdout-access-enforced-not-just-logged
+    control: >
+      Logging alone is honor-system: a raw pd.read_parquet() in a notebook or test
+      fixture bypasses an instrumented loader and leaves no entry. Enforcement MUST be
+      at a layer the bypass cannot avoid: the forward file is stored with OS filesystem
+      permissions / ownership that DENY read to the dev environment's user, and is
+      readable ONLY by the gated scoring harness (e.g., a separate user, a 0000-to-dev
+      file unlocked only by the harness, or an out-of-tree path not on the dev machine).
+      The append-only holdout-access.log records the harness's privileged opens. A
+      readable-by-dev forward file FAILS this control regardless of logging. If true OS
+      gating is infeasible in this env, the fallback is a pre-commit/CI hook that greps
+      the codebase + notebooks for any direct read of the forward path and blocks it —
+      and absence of such enforcement means IC-5 is UNMET, not "mostly met."
+  - id: IC-6
+    name: one-score-per-candidate
+    control: >
+      A candidate is scored on its forward window EXACTLY ONCE, gates evaluated
+      mechanically from frozen thresholds. A second scoring (re-run, tweaked cost,
+      tweaked threshold) is a NEW candidate consuming NEW N.
+  - id: IC-7
+    name: every-attempt-burns-N
+    control: >
+      Each forward scoring (PASS, FAIL, or VOID-after-seeing-forward-data) appends a
+      counts_toward_deflation_denominator:true event. Honest-N (>=48) increments. There
+      is no free forward attempt.
+  - id: IC-8
+    name: no-quiet-attempts
+    control: >
+      A forward run not preceded by a pushed IC-1 spawn event is INADMISSIBLE as evidence
+      and, if discovered, burns the candidate. Pre-commit intent or the result does not exist.
+  - id: IC-9
+    name: full-deflation-denominator
+    control: >
+      The DSR denominator = org-wide honest-N + this candidate's IS search family (every
+      variant searched to select it; unlogged search => worst-case large N) + the
+      pre-declared forward attempt budget. Never N=1.
+  - id: IC-10
+    name: net-of-conservative-cost
+    control: >
+      All metrics net of the full RealisticCostModel with conservative event-time
+      spread/slippage, next-bar-or-worse fills, no zero-imputation for uncovered pairs
+      (exclude them; pre-freeze cost-coverage gate). Cost assumptions frozen at freeze;
+      never loosened to rescue a candidate.
+  - id: IC-11
+    name: pre-declared-gates-and-power
+    control: >
+      PASS evaluated ONLY against gates frozen at freeze, including DSR>=0.95, a matched-
+      random-benchmark beat, and a pre-declared minimum independent-event count from an
+      80%-power calc within the available (target <=~2yr) forward window. No post-hoc gate.
+  - id: IC-12
+    name: forward-data-immutable-post-freeze
+    control: >
+      Once frozen, the forward window's bars are immutable. Any later pipeline/data fix
+      touching that window (e.g., spread-column restatement) requires a NEW trial and
+      NEW N; it cannot silently restate an in-flight forward result.
+      CRITICAL COROLLARY (closes the IC-2/IC-12 gap): a NEW trial spawned after a
+      restatement does NOT auto-clear IC-2 just because the new ingest commit postdates
+      the new freeze commit. The candidate was SELECTED on the original IS bars; if the
+      restatement also changed bars inside the candidate's IS window, the is_data_hash
+      (IC-1) no longer matches what the candidate saw, and the IS/OOS split is coherent
+      on paper but the candidate's provenance is now mismatched to the scored data. Rule:
+      a candidate may only be forward-scored on data whose IS portion content-hashes
+      IDENTICAL to its frozen is_data_hash; if a restatement touched the IS window, the
+      candidate must be RE-SELECTED on the restated IS data (a fresh trial, fresh N),
+      not merely re-pointed. Timestamp ordering alone is insufficient — content-hash
+      equality of the IS snapshot is required.
+  - id: IC-13
+    name: attempt-budget-pre-frozen
+    control: >
+      The pre-declared forward attempt budget (IC-9 / Q3) is itself unverifiable unless
+      frozen BEFORE the first candidate spawn. It MUST be written to a pushed
+      trials.jsonl event (or a budget-declaration artifact) with its own timestamp that
+      provably predates the first IC-1 freeze of any candidate against the window. A
+      budget set retroactively to equal attempts-actually-made is the IS-search problem
+      (Q4) one level up. Budget unfrozen-before-first-spawn => treat the denominator as
+      the worst-case (all candidates ever spawned), never the convenient number.
+  - id: IC-14
+    name: mechanized-not-human-enforcement
+    control: >
+      Every control whose violation is invisible to an outside reader MUST be enforced by
+      a machine gate, not a human attestation. Minimum mechanized gates: (a) the scoring
+      harness aborts on hash mismatch (IC-3); (b) a pre-commit/CI hook rejects a forward
+      result whose trial lacks a prior pushed IC-1 spawn (IC-8) or whose DSR denominator
+      is hand-entered rather than derived from trials.jsonl + logged IS provenance
+      (IC-9); (c) the forward file is OS-gated or CI-grep-blocked from dev reads (IC-5);
+      (d) honest-N is recomputed mechanically from the ledger at score time, never typed.
+      Any control marked "presumed" or "must be true" without a machine that fails-closed
+      on violation is, until that machine exists, classified UNMET — not aspirational.
+
+# -----------------------------------------------------------------------------
+dissent_statement: >
+  I approve building the forward-test loop, with structural dissent. The firm's record
+  is 0/48 and it has NEVER run a credible forward out-of-sample test, so "validated" has
+  never meant anything here. The single greatest risk is not that the loop is poorly
+  engineered — it is that a firm hungry for its first win will, under pressure, quietly
+  minimize the deflation denominator (IC-9) and/or run un-ledgered forward attempts
+  (IC-7/IC-8) until one candidate clears. Either move manufactures a false positive that
+  looks exactly like a real validation. A forward PASS is credible ONLY if: (1) the
+  candidate was cryptographically frozen and pushed before any forward bar existed
+  (IC-1/IC-2/IC-3); (2) the holdout was opened exactly once, with logged proof of
+  non-peek (IC-4/IC-5/IC-6); (3) every attempt — including this candidate's IS search
+  provenance — burns org-wide N, never N=1 (IC-7/IC-8/IC-9); (4) the result is net of
+  conservative, frozen costs (IC-10, per the trial-48 cost-domination lesson); and (5)
+  it clears pre-declared, power-adequate, DSR>=0.95 gates (IC-11) on immutable forward
+  data whose IS snapshot content-hash-matches the candidate's provenance (IC-12), with
+  the attempt budget frozen before the first spawn (IC-13). And — the meta-control —
+  every one of these whose violation an outsider cannot see MUST fail-closed in a
+  machine, not a human attestation (IC-14): an unenforced control is UNMET, not
+  aspirational. Absent all fourteen, a "validated" stamp is theater and I will record it
+  as noise-indistinguishable regardless of the headline Sharpe. This dissent is
+  append-only and may not be paraphrased or softened by any other role.

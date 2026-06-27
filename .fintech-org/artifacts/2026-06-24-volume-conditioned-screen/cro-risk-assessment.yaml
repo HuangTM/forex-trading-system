@@ -1,0 +1,97 @@
+role: cro
+artifact_type: risk-assessment
+decision: veto
+timestamp: 2026-06-25T06:34:21Z
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-cro
+size_multiplier: 0.0
+binding_constraints:
+  - "cost-pass-AND-volatility-control-gate: a cell must clear BOTH margin>0 AND relvol-term t>=2.00 to count as an edge; 0 of 8 cells satisfy both"
+  - "honest_N=30 deflation not yet applied; all figures are in-sample pre-deflation gross"
+  - "EXCLUDE-NOT-IMPUTE cost manifold; per-pair RT hurdle = spread_median_pips + 0.80"
+  - "paper_only / no_live_capital"
+  - "NO counted-trial increment this cycle"
+regime_flags:
+  - "volatility-concentration: USDJPY edge lives in high-range cell (+6.03) not high-relvol cell (high-relvol x low-range = -0.45)"
+  - "volume-is-volatility-proxy: raw volume~range corr 0.69-0.74; relvol~range 0.36-0.57 -> volume conditioning largely re-expresses realized volatility"
+  - "selection-surface-8-cells: best-of-8 in-sample, no multiple-testing deflation"
+  - "long-volatility-clustering payoff structure (carry-analog tail loading)"
+evidence:
+  - "V1 margins (gross-cost): EURUSD +0.14, GBPUSD -1.91, USDJPY +1.18, EURJPY -3.19, AUDUSD -1.84 -> 2/5 cost-pass"
+  - "V2 margins: EURUSD -1.65, USDJPY -5.75, EURGBP -3.88 -> 0/3 cost-pass"
+  - "V1 relvol-term volatility-control t-stats: 0.45, -0.16, -0.33, -0.90, +1.15 -> max |t|=1.15, ALL < 2.00"
+  - "both cost-passing cells fail the vol-control gate: EURUSD t=0.45, USDJPY t=-0.33"
+  - "only positive vol-control t (+1.15, AUDUSD) is itself a cost-FAIL cell (margin -1.84)"
+  - "USDJPY stratified: high-relvol x high-range gross +6.03 vs high-relvol x low-range -0.45"
+  - "correlations: raw volume~range 0.69-0.74; relvol~range 0.36-0.57"
+  - "n per cell 503-2926; 8 cells screened total"
+blowup-analog: >
+  Volatility-harvesting masquerading as a volume signal. The payoff concentrates in
+  high-range cells (USDJPY high-range +6.03 vs low-range -0.45) while the volume-term
+  itself carries no statistical weight (max |t|=1.15). A strategy whose in-sample
+  profit is co-located with the volatility-clustering cell is structurally short
+  gamma / long realized-vol: it harvests calm-to-storm transitions in-sample and
+  pays the tail when the storm gaps against the position. This is the carry-trade
+  failure shape (steady small wins, episodic large loss) and the LTCM/short-vol
+  family of analogs -- precisely the pattern the t>=2.00 vol-control gate exists to
+  reject. Advancing it would commit a counted trial to a signal the contract has
+  already disqualified.
+contamination-check: clean
+assumptions:
+  - "margin = gross/tr - RT cost/tr as supplied; positive margin = cost-pass"
+  - "volatility-control gate threshold t>=2.00 applies to the relvol-term coefficient t-stat as supplied"
+  - "t-stats are two-sided; |t|=1.15 corresponds to ~p>0.25, far from any reasonable bar even before 8-cell multiplicity correction"
+  - "honest_N=30 deflation would only lower, never raise, any apparent edge"
+  - "tick-volume is broker-side (not centralized FX volume); adds measurement noise to the conditioning variable"
+confidence: high
+body: |
+  DECISION: VETO. No capital, no counted trial this cycle.
+
+  The risk contract states a cost-pass must ALSO survive a volatility-control test
+  (t>=2.00) to count as an edge. This is a conjunctive gate, and it is dispositive.
+
+  1. COST GATE: 2 of 8 cells clear margin>0 (V1 EURUSD +0.14, V1 USDJPY +1.18).
+     The EURUSD +0.14 margin is a rounding-width result -- inside any realistic
+     cost-estimation error band on a spread+0.80 hurdle; treat as not robustly
+     positive.
+
+  2. VOLATILITY-CONTROL GATE: every V1 relvol-term t-stat is below 2.00
+     (0.45, -0.16, -0.33, -0.90, +1.15). The two cost-passing cells fail hardest
+     where it matters: EURUSD t=0.45 and USDJPY t=-0.33. The single positive
+     vol-control reading (+1.15, AUDUSD) sits in a cost-FAILING cell (-1.84). So
+     the cost survivors lack the statistic, and the cell with the best statistic
+     lacks the economics. INTERSECTION OF (cost-pass AND t>=2.00) = EMPTY.
+
+  3. WHAT THE EDGE ACTUALLY IS: the USDJPY stratification is the tell. Profit is
+     +6.03 in high-relvol x HIGH-RANGE and -0.45 in high-relvol x LOW-RANGE. Holding
+     volume high, the entire payoff swings with RANGE (realized volatility), not with
+     the volume condition. With raw volume~range correlation 0.69-0.74, the volume
+     conditioning is a noisy re-expression of volatility. The "volume signal" is, on
+     this evidence, a volatility-harvesting signal wearing a volume costume -- exactly
+     the structure the vol-control gate was written to catch.
+
+  4. SELECTION + DEFLATION: 8 cells, best-of, in-sample, pre-deflation gross. Under
+     honest_N=30 and 8-cell multiplicity, a max |t| of 1.15 is fully consistent with
+     pure noise. No deflation has been applied and none is needed to reach the
+     verdict -- the data fails the contract before deflation.
+
+  5. POSITION SIZING: size_multiplier = 0.0. There is no edge that survives the
+     firm's own pre-declared gate, so there is no risk budget to allocate. Committing
+     a counted trial would spend selection budget (an honest-N decrement is itself a
+     scarce, irreversible risk resource) on a candidate the contract disqualifies
+     a priori -- a governance blowup-analog, not just a P&L one.
+
+  RECOMMENDATION TO THE FIRM: do NOT advance either family to a pre-registered
+  backtest. If the firm wants to pursue the genuine signal hinted at, it is a
+  VOLATILITY/RANGE conditioning hypothesis, NOT a volume one -- and it must be
+  proposed fresh, pre-registered against the range variable directly, and screened
+  with the same conjunctive gate. That is a new hypothesis, not a rescue of this one.
+  This screen consumes no trial and preserves honest_N=30.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [risk-budget-allocation, correlation-and-concentration-limits, tail-risk-measurement, position-sizing]

@@ -1,0 +1,775 @@
+role: cto
+artifact_type: methodology-design
+decision: approve
+timestamp: "2026-06-17T05:49:06Z"
+subtask_ref: "prep-plan-while-backfill-2026-06-16"
+rubric_applied: "execution-firewall-review + log-as-decision-trace (self-applied) + review-plan (AC-01 through AC-04 cross-check)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EVIDENCE — inspected before forming ANY deliverable
+# (citation discipline: every claim below is backed by a specific read)
+# ─────────────────────────────────────────────────────────────────────────────
+evidence:
+  - path: "src/forex_system/data/validation.py"
+    finding: >
+      Existing validate_ohlcv() covers 6 checks (columns, duplicates, OHLC
+      consistency, negative prices, outliers, day-level gaps >4d). DOES NOT
+      cover: spread columns, 1h-specific gap threshold, session boundary
+      bar-count, stale/cached-fetch detection, or price-spike rate. These
+      are NET-NEW for the 1h harness.
+  - path: "scripts/ingest_dukascopy_1h.py"
+    finding: >
+      validate_1h_schema() already exists (lines 413+) with: UTC-tz check,
+      monotonic check, duplicate check, zero-volume, NaN price, non-positive
+      price, stale-run (≥6 identical OHLC bars), price-spike (>10% 1h move),
+      spread_median_pips > 50 flag, spread <= 0 flag, NaN spread flag,
+      SPREAD_COL_MISSING_WARNING backward-compat path. Spread schema:
+      spread_median_pips / spread_mean_pips / spread_p90_pips.
+      _SPREAD_MEDIAN_MAX_PIPS = 50.0 is the current sanity ceiling.
+  - path: "tests/data/test_dukascopy_ingest.py"
+    finding: >
+      Comprehensive test file already covers: HTTP response classification,
+      bi5 decode (EURUSD + USDJPY divisor), resample OHLCV, schema validation
+      (including spread backward-compat), weekend-gap spot-check, volume-proxy
+      labeling, spread_pips extraction, spread aggregate aggregation. UTC
+      correctness test (spot_check_weekend_gap) exists and is load-bearing.
+      GAPS in existing tests: no per-pair bar-count threshold test, no
+      pair-level quality gate YAML, no session boundary coverage test.
+  - path: "src/forex_system/backtest/session_filter.py"
+    finding: >
+      apply_session_filter() exists and handles UTC-hour windowing. The
+      session UTC boundaries are CALLER-SUPPLIED (no magic constants here).
+      This is the correct design. But no feature module provides session-aware
+      feature computation — only signal filtering.
+  - path: "src/forex_system/features/"
+    finding: >
+      Contains only indicators.py (SMA, EMA, RSI, BB, ATR, momentum) and
+      registry.py. NO session-aware features, NO intraday ATR normalization,
+      NO time-of-day encoding, NO volume-proxy normalization. All three are
+      net-new stubs required by AC-02(c).
+  - path: "data/processed/"
+    finding: >
+      Only daily and 4h parquets present (AUDJPY_daily, EURUSD_4h, etc.).
+      Zero 1h parquets have landed. Backfill is not complete. No 1h data
+      available for any analysis. No peeking risk is currently active.
+  - path: "config/default.yaml"
+    finding: >
+      12 pairs not yet in config (only 3: EURUSD, USDJPY, GBPUSD). The
+      data-quality gate YAML will need to cover all 12 pairs from the backfill
+      manifest, not the current config subset.
+  - path: ".fintech-org/artifacts/2026-06-16-prep-plan/pm-acceptance-criteria.yaml"
+    finding: >
+      PM PM-artifact confirms: AC-02(CTO) requires (a) 1h validation harness,
+      (b) per-pair YAML gate spec, (c) intraday feature scaffold. PM knowledge
+      gaps explicitly flag that CTO should check spread-column test coverage
+      before declaring work net-new. Coverage check done above.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SITUATIONAL ASSESSMENT (pre-deliverable synthesis)
+# ─────────────────────────────────────────────────────────────────────────────
+situation: >
+  The validate_1h_schema() function in scripts/ingest_dukascopy_1h.py is
+  already strong. The existing test file covers most schema checks. However
+  THREE concrete gaps remain and are the CTO's real work:
+
+  GAP-1 (harness): validate_1h_schema() is unit-tested per check, but there
+  is NO integration-level test that asserts a whole pair's parquet will fail
+  the gate and print a specific error. No per-pair bar-count coverage test.
+  No session-boundary completeness test (London bars per week, Tokyo bars per
+  week). These are tests/ deliverables.
+
+  GAP-2 (gate spec): There is NO committed config/ or data/ YAML that encodes
+  per-pair minimum bar counts, max gap fraction, and spread bounds as
+  machine-checkable thresholds. The 50.0 pip ceiling is hardcoded in the
+  script. This creates a risk: if the ceiling needs to be pair-specific (USDJPY
+  at 4-pip typical vs. EURGBP at 2-pip typical) the gate is too loose for
+  tight pairs and could wave through suspect data. A committed YAML is the fix.
+
+  GAP-3 (feature scaffold): features/ has zero intraday-specific modules.
+  When the Quant Researcher pre-registers "London-open breakout" or "time-of-day
+  mean reversion," there is no agreed interface for time-of-day encoding or
+  session-open detection. Stubs with type signatures now prevent interface churn
+  when data lands.
+
+  PRIOR COST-VOID LESSON: the QRB-6 trial was voided because cost data for
+  3/12 pairs was missing and silently imputed. The data-quality gate must follow
+  the same posture: EXCLUDE, never impute. Any pair whose parquet fails the gate
+  must be EXCLUDED from research, not filled.
+
+no-capital-instruction: true
+claimed_domains:
+  - architecture-decisions
+  - logging-and-observability-standards
+  - firewall-enforcement-between-research-and-execution
+  - cross-system-blast-radius
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DELIVERABLES — all three ACs (a, b, c)
+# ─────────────────────────────────────────────────────────────────────────────
+deliverables:
+
+  # ── DELIVERABLE 1: 1h Ingest Validation Harness (AC-02a) ─────────────────
+  - id: CTO-D1
+    label: "1h ingest validation harness — pytest extension"
+    file: "tests/data/test_1h_data_quality_gate.py"
+    priority: 1
+    why_raises_ev: >
+      The QRB-6 void cost one full trial cycle (weeks of work) because corrupt
+      data went undetected until after results were computed. A failing gate
+      that fires BEFORE a backtest slot is granted prevents this class of
+      catastrophic re-run. Every hour of prep invested here multiplies: it
+      protects every future intraday trial.
+    exclude_not_impute_enforced: true
+    author_role: quant-developer
+    cto_reviews: true
+
+    test_classes:
+      - class: TestPerPairBarCountGate
+        description: >
+          For each of 12 pairs, assert that a synthetic parquet with fewer than
+          min_bars_expected bars triggers a gate failure. Assert that one with
+          enough bars passes. Parametrize over all 12 pairs using the per-pair
+          thresholds from CTO-D2 YAML.
+        key_assertions:
+          - "gate fails when bar_count < threshold_for_pair"
+          - "gate passes when bar_count >= threshold_for_pair"
+          - "failure message includes pair name and actual vs expected bar count"
+
+      - class: TestGapFractionGate
+        description: >
+          Synthetic parquet with a controlled number of missing 1h slots (e.g.
+          10 consecutive hours missing = 10/8760 annual gap fraction ≈ 0.11%).
+          Assert gate fails when gap fraction exceeds per-pair max_gap_pct from
+          CTO-D2. Assert gate passes when gap fraction is within threshold.
+        key_assertions:
+          - "gap_pct computed correctly against expected bar count, not actual bar count"
+          - "gate fails loudly: ValueError or returned issues list is non-empty"
+          - "no silent imputation occurs (missing bars must not be filled)"
+
+      - class: TestSessionBoundaryCompleteness
+        description: >
+          Given a synthetic 2-week UTC-indexed 1h parquet, assert that the
+          function counts London-session bars (07:00-16:00 UTC), NY-session bars
+          (13:00-21:00 UTC), and Tokyo-session bars (00:00-08:00 UTC). Assert
+          that a parquet missing all Tokyo bars for 5 days fails if Tokyo coverage
+          is required for the pair. (USDJPY: Tokyo coverage matters;
+          EURUSD: London/NY are primary).
+        key_assertions:
+          - "london_bar_count / expected_london_bars > coverage_min for EURUSD"
+          - "tokyo_bar_count / expected_tokyo_bars > coverage_min for USDJPY"
+          - "no crash on pairs where session is not tracked (returns warning, not error)"
+
+      - class: TestSpreadColumnGate
+        description: >
+          Extend the existing TestValidateSpreadBackwardCompat. Add:
+          (1) per-pair spread_median_pips above pair-specific max triggers fail
+          (USDJPY max is different from EURGBP max — parametrize from CTO-D2);
+          (2) parquet with spread columns present but all-zero spread triggers fail
+          (silent tick decode failure pattern);
+          (3) parquet where spread_p90_pips < spread_median_pips triggers fail
+          (percentile inversion = corruption).
+        key_assertions:
+          - "pair-specific ceiling from CTO-D2 YAML is used, not hardcoded 50.0"
+          - "all-zero spread_median_pips is flagged"
+          - "p90 < median is flagged as corruption"
+
+      - class: TestIntegrationGateDecision
+        description: >
+          Integration test: load a synthetic parquet, run the full gate, assert
+          the return is a typed decision dict {pair, approved, issues, bar_count,
+          gap_pct, spread_ok}. Assert approved=False causes EXCLUDE (not
+          impute). Assert approved=True pairs are admitted to research queue.
+        key_assertions:
+          - "gate returns approved=True only when ALL sub-checks pass"
+          - "approved=False must be accompanied by at least one issue string"
+          - "no parquet modification occurs regardless of outcome (read-only gate)"
+
+    firewall_note: >
+      These tests operate on synthetic fixtures only. NO real 1h parquet is
+      loaded. The harness is safe to run before any data lands. Running it
+      before data lands is, in fact, the whole point.
+
+  # ── DELIVERABLE 2: Per-Pair Data-Quality Gate Spec (AC-02b) ──────────────
+  - id: CTO-D2
+    label: "Per-pair data-quality gate YAML"
+    file: "config/data_quality_gates_1h.yaml"
+    priority: 1
+    why_raises_ev: >
+      Hardcoded thresholds in scripts/ingest_dukascopy_1h.py (_SPREAD_MEDIAN_MAX_PIPS=50.0)
+      are one-size-fits-all and too loose for tight pairs (EURUSD typical spread
+      ~0.8 pip; 50 pip ceiling allows obvious corruption through). A committed
+      YAML provides: per-pair tuning, machine-checkable parametrize fixtures in
+      CTO-D1, and a canonical source-of-truth for CRO's cost model thresholds.
+      The YAML is also the formal record of what "approved for research" means.
+    author_role: cto  # This is structural/config — CTO authors it, QD implements
+    exclude_not_impute_enforced: true
+
+    schema:
+      version: "1.0"
+      generated_by: "cto-infra-prep 2026-06-17"
+      pairs:
+        EURUSD:
+          min_bars_2yr: 17520          # 2yr × 365.25d × 24h × ~67% trading coverage
+          min_bars_5yr: 43800          # 5yr × same
+          max_gap_pct: 0.005           # >0.5% missing bars → EXCLUDE (pair may be thin)
+          spread_median_pips_max: 3.0  # EURUSD typical ~0.8 pip; 3.0 = suspicious
+          spread_median_pips_min: 0.1  # below 0.1 pip = likely all-crossed-tick corruption
+          spread_p90_pips_max: 8.0     # p90 > 8 = structural data problem
+          session_coverage:
+            london_min_pct: 0.90       # 07:00-16:00 UTC; expect 9 bars × ~252 trading days
+            new_york_min_pct: 0.85     # 13:00-21:00 UTC; some overlap with London
+            tokyo_min_pct: null        # EURUSD: Tokyo not primary; no min enforced
+        GBPUSD:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.005
+          spread_median_pips_max: 4.0  # GBP slightly wider than EUR
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 12.0
+          session_coverage:
+            london_min_pct: 0.90
+            new_york_min_pct: 0.85
+            tokyo_min_pct: null
+        USDJPY:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.005
+          spread_median_pips_max: 4.0  # JPY pip is 0.01; 4 pip ≈ 0.04 JPY (acceptable)
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 12.0
+          session_coverage:
+            tokyo_min_pct: 0.90        # JPY: Tokyo primary
+            london_min_pct: 0.85
+            new_york_min_pct: 0.80
+        USDCHF:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.008           # CHF slightly less liquid off-hours
+          spread_median_pips_max: 4.0
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 12.0
+          session_coverage:
+            london_min_pct: 0.90
+            new_york_min_pct: 0.80
+            tokyo_min_pct: null
+        USDCAD:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.008
+          spread_median_pips_max: 4.0
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 12.0
+          session_coverage:
+            london_min_pct: 0.85
+            new_york_min_pct: 0.90     # CAD: NY primary
+            tokyo_min_pct: null
+        AUDUSD:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.008
+          spread_median_pips_max: 4.0
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 12.0
+          session_coverage:
+            sydney_min_pct: 0.85       # AUD: Sydney primary (22:00-06:00 UTC)
+            london_min_pct: 0.80
+            new_york_min_pct: 0.75
+        NZDUSD:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.010           # NZD thinner; allow slightly more gaps
+          spread_median_pips_max: 5.0
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 15.0
+          session_coverage:
+            sydney_min_pct: 0.80
+            london_min_pct: 0.75
+            new_york_min_pct: 0.70
+        EURGBP:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.005
+          spread_median_pips_max: 3.0  # Tight cross; 3 pip ceiling
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 8.0
+          session_coverage:
+            london_min_pct: 0.90
+            new_york_min_pct: 0.80
+            tokyo_min_pct: null
+        EURJPY:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.005
+          spread_median_pips_max: 5.0  # JPY cross; wider
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 15.0
+          session_coverage:
+            tokyo_min_pct: 0.88
+            london_min_pct: 0.85
+            new_york_min_pct: 0.80
+        GBPJPY:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.008
+          spread_median_pips_max: 6.0  # GBP/JPY cross notoriously wider
+          spread_median_pips_min: 0.2
+          spread_p90_pips_max: 20.0
+          session_coverage:
+            london_min_pct: 0.88
+            tokyo_min_pct: 0.85
+            new_york_min_pct: 0.75
+        AUDJPY:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.008
+          spread_median_pips_max: 5.0
+          spread_median_pips_min: 0.2
+          spread_p90_pips_max: 15.0
+          session_coverage:
+            sydney_min_pct: 0.85
+            tokyo_min_pct: 0.85
+            london_min_pct: 0.75
+        EURCHF:
+          min_bars_2yr: 17520
+          min_bars_5yr: 43800
+          max_gap_pct: 0.010
+          spread_median_pips_max: 6.0  # CHF cross; can widen on SNB events
+          spread_median_pips_min: 0.1
+          spread_p90_pips_max: 20.0    # p90 ceiling deliberately wide; SNB spikes
+          session_coverage:
+            london_min_pct: 0.88
+            new_york_min_pct: 0.80
+            tokyo_min_pct: null
+
+    gate_behavior:
+      on_fail: EXCLUDE                  # never impute — lesson from QRB-6 cost void
+      on_warn: LOG_AND_PASS             # spread_missing warning: backward-compat, logs only
+      approved_status_output: "data/processed/{PAIR}_1h_gate_result.json"
+      gate_run_trigger: "after backfill completes, before any pre-registration is finalized"
+      gate_run_owner: "cto (automated via pytest -k TestIntegrationGateDecision)"
+
+    knowledge_gap_flagged: >
+      KNOWLEDGE_GAP: Spread thresholds above are ESTIMATES derived from known
+      Dukascopy historical spread characteristics and the existing
+      _SPREAD_MEDIAN_MAX_PIPS=50.0 ceiling. They have NOT been validated against
+      actual 1h data (which has not landed). When data lands: (1) run the gate,
+      (2) inspect the spread_median_pips distribution per pair, (3) tighten
+      ceilings if pairs cluster well below the threshold. REVISION POLICY: any
+      threshold change requires a PR with CTO sign-off. Looser thresholds are a
+      veto trigger (increase in tech debt / research-quality debt).
+
+      RESEARCH_REQUEST: If CRO has per-pair realistic bid-ask spread estimates
+      (from the 1h cost model spec, CRO-D1), CTO requests those estimates be
+      used to replace/confirm the spread_median_pips_max values above before the
+      gate is run. CRO and CTO thresholds must be consistent.
+
+  # ── DELIVERABLE 3: Intraday Feature Scaffold (AC-02c) ────────────────────
+  - id: CTO-D3
+    label: "Intraday feature scaffold — stub modules in src/forex_system/features/"
+    files:
+      - "src/forex_system/features/session.py"
+      - "src/forex_system/features/intraday_atr.py"
+      - "src/forex_system/features/time_encoding.py"
+    priority: 2
+    why_raises_ev: >
+      When a Quant Researcher pre-registers a hypothesis (e.g. "London-open
+      momentum breakout"), they will reference specific feature functions by
+      name in the pre-registration YAML. If those functions do not exist at
+      pre-registration time, the PR cannot verify the interface is correct. If
+      they are added later, the pre-registration may need revision (which is a
+      no-peeking risk if data has landed by then). Freezing the interfaces now
+      eliminates this category of pre-registration revision.
+    author_role: quant-developer
+    cto_reviews: true
+    implementation_status: STUB_ONLY   # no implementation — data not yet available
+
+    module_specs:
+
+      session_py:
+        path: "src/forex_system/features/session.py"
+        description: >
+          Session-aware feature computation for 1h OHLCV data.
+          Builds on backtest/session_filter.py's UTC-hour window contract.
+          Pure functions only — no I/O, no side effects.
+        required_stubs:
+          - signature: >
+              def session_open_bar(
+                  index: pd.DatetimeIndex,
+                  session: Literal["tokyo", "london", "new_york", "sydney"],
+              ) -> pd.Series:
+            returns: "boolean Series, True at the first bar of each session day"
+            docstring: >
+              Returns a boolean mask that is True only at the first trading bar
+              of the named session on each day. Uses UTC boundaries from
+              SESSION_UTC_HOURS constant. Pure function, no state.
+            constant_required: >
+              SESSION_UTC_HOURS: dict[str, tuple[int, int]] = {
+                  "sydney":   (22, 6),   # wraps midnight; needs careful mod-24 handling
+                  "tokyo":    (0, 8),
+                  "london":   (7, 16),
+                  "new_york": (13, 21),
+              }
+            clock_discipline: >
+              CLOCK-DISCIPLINE NOTE (clock-and-ordering):
+              This function reads bar timestamps. Bar timestamp = bar open time
+              (left-closed). The function MUST NOT use the next bar's timestamp
+              to determine session membership. Output aligns with the input index.
+              NO LOOKAHEAD.
+
+          - signature: >
+              def session_bar_number(
+                  index: pd.DatetimeIndex,
+                  session: Literal["tokyo", "london", "new_york", "sydney"],
+              ) -> pd.Series:
+            returns: "integer Series, bar number within current session (0-indexed), NaN outside session"
+            docstring: >
+              Returns the ordinal position of each bar within its session
+              (0 = first bar, 1 = second bar, etc.). Bars outside the session
+              return NaN. Resets to 0 at each session open.
+            clock_discipline: >
+              CLOCK-DISCIPLINE: count based on bar_open timestamp only.
+              No reference to bar N+1. Consistent with entry_delay_bars contract.
+
+          - signature: >
+              def is_in_session(
+                  index: pd.DatetimeIndex,
+                  session: Literal["tokyo", "london", "new_york", "sydney"],
+              ) -> pd.Series:
+            returns: "boolean Series, True when bar is within session UTC window"
+            docstring: >
+              Simple membership test — equivalent to apply_session_filter but
+              returned as a feature column rather than a signal mask. Avoids
+              duplication with session_filter.py by delegating to the same
+              SESSION_UTC_HOURS constant.
+
+      intraday_atr_py:
+        path: "src/forex_system/features/intraday_atr.py"
+        description: >
+          ATR normalization functions designed for 1h data. The existing
+          indicators.atr() computes raw ATR; this module provides ratio-based
+          and session-normalized variants used in intraday strategy sizing.
+          Pure functions — no I/O.
+        required_stubs:
+          - signature: >
+              def atr_ratio(
+                  high: pd.Series,
+                  low: pd.Series,
+                  close: pd.Series,
+                  atr_period: int = 14,
+                  normalize_period: int = 126,
+              ) -> pd.Series:
+            returns: "pd.Series — daily ATR as fraction of rolling 126-bar median ATR"
+            docstring: >
+              Normalizes ATR by its own rolling median to produce a dimensionless
+              volatility ratio. Ratio > 1 = elevated volatility regime.
+              Delegates raw ATR to features.indicators.atr().
+
+          - signature: >
+              def session_realized_vol(
+                  close: pd.Series,
+                  session: Literal["tokyo", "london", "new_york", "sydney"],
+                  lookback_sessions: int = 20,
+              ) -> pd.Series:
+            returns: "pd.Series — rolling realized vol computed over the named session bars only"
+            docstring: >
+              Computes realized volatility (std of log-returns) restricted to
+              bars within the named session over the trailing lookback_sessions
+              sessions. Useful for session-specific breakout thresholds.
+              Delegates session membership to session.is_in_session().
+            clock_discipline: >
+              CLOCK-DISCIPLINE: uses only past and current bars. Rolling window
+              applied with min_periods=lookback_sessions//2. NO LOOKAHEAD.
+
+      time_encoding_py:
+        path: "src/forex_system/features/time_encoding.py"
+        description: >
+          Cyclical and categorical time-of-day encodings for 1h bars.
+          Required for any ML-based hypothesis that uses time-of-day as a
+          feature. Pure functions — no I/O.
+        required_stubs:
+          - signature: >
+              def hour_of_day_sin_cos(
+                  index: pd.DatetimeIndex,
+              ) -> pd.DataFrame:
+            returns: "DataFrame with columns ['hour_sin', 'hour_cos'] — cyclical encoding of UTC hour"
+            docstring: >
+              Encodes the UTC hour of each bar as sin/cos pair (period=24h).
+              hour_sin = sin(2π × hour / 24), hour_cos = cos(2π × hour / 24).
+              Cyclical encoding avoids the discontinuity at midnight.
+
+          - signature: >
+              def day_of_week_sin_cos(
+                  index: pd.DatetimeIndex,
+              ) -> pd.DataFrame:
+            returns: "DataFrame with columns ['dow_sin', 'dow_cos'] — cyclical encoding of weekday (0=Mon)"
+            docstring: >
+              Encodes the day of the week (0=Monday, 4=Friday) as sin/cos pair
+              (period=5 trading days). Captures intraweek seasonality.
+
+          - signature: >
+              def time_since_session_open(
+                  index: pd.DatetimeIndex,
+                  session: Literal["tokyo", "london", "new_york", "sydney"],
+              ) -> pd.Series:
+            returns: "pd.Series — float hours since session open (NaN outside session)"
+            docstring: >
+              Returns the number of hours elapsed since the most recent open of
+              the named session, for each bar inside the session. Returns NaN
+              for bars outside the session. Useful as a features for strategies
+              that trade at specific intraday offsets.
+            clock_discipline: >
+              CLOCK-DISCIPLINE: uses bar open timestamp only. No forward reference.
+
+    scaffold_policy:
+      implementation: RAISE_NOT_IMPLEMENTED
+      body_template: |
+        raise NotImplementedError(
+            "{function_name} is a pre-registered interface stub. "
+            "Implementation requires clean 1h data to validate. "
+            "Do not implement before data-quality gate passes."
+        )
+      rationale: >
+        Stub bodies that raise NotImplementedError instead of returning None
+        prevent silent failures if a strategy accidentally calls an unimplemented
+        feature. The gate message names the enforcement condition explicitly.
+
+    test_requirement:
+      file: "tests/features/test_intraday_stubs.py"
+      description: >
+        A minimal test file that imports all three stub modules and asserts
+        that calling each stub raises NotImplementedError. This confirms the
+        import path is correct, the function signature is importable, and the
+        "not implemented yet" contract is enforced before data lands.
+      note: >
+        This is the only test file for these stubs. Real implementation tests
+        are BLOCKED until data-quality gate passes (CTO-D1 integration gate
+        returns approved=True for target pairs).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLOCK AND ORDERING DISCIPLINE (applied to all deliverables)
+# ─────────────────────────────────────────────────────────────────────────────
+clock_discipline_review:
+  source: "clock-and-ordering skill disposition (loaded via CTO required_skills)"
+  findings:
+    - "session.py stubs: all three stubs annotated with clock-discipline notes — bar timestamp = bar open time, no forward reference, consistent with entry_delay_bars contract. QD must preserve this in implementation."
+    - "intraday_atr.py stubs: session_realized_vol uses rolling window on past bars only. clock-discipline note included."
+    - "validation harness tests: all use synthetic fixtures with controlled timestamps. No risk of lookahead in test construction."
+    - "data-quality gate: reads parquet, computes statistics, returns decision. No bar ordering issue possible (read-only, no signals)."
+  clock_veto_status: NO_VETO_REQUIRED
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTION-RESEARCHER FIREWALL CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+firewall_review:
+  source: "execution-firewall-review rubric (CTO required_skills)"
+  check:
+    - item: "CTO-D1 (test harness) — research or execution artifact?"
+      verdict: "RESEARCH-INFRA. No order logic, no broker API, no live signal. PASS."
+    - item: "CTO-D2 (gate YAML) — research or execution artifact?"
+      verdict: "RESEARCH-INFRA. Defines what data is approved for research. No execution implications. PASS."
+    - item: "CTO-D3 (feature stubs) — research or execution artifact?"
+      verdict: "RESEARCH. Feature computation only. No sizing, no order, no Saxo import. PASS."
+    - item: "Do any stubs import from src/forex_system/saxo/ or paper/ or execution/?"
+      verdict: "NOT REQUIRED. All three stub modules depend only on pandas and features/indicators.py. PASS."
+  firewall_veto_status: NO_VETO
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAILURE MODES CONSIDERED (CTO role schema requirement)
+# ─────────────────────────────────────────────────────────────────────────────
+failure_modes_considered:
+  - id: FM-1
+    mode: "Gate thresholds are wrong — pass corrupt data or reject good data"
+    mitigation: >
+      CTO-D2 YAML is committed but labeled with explicit KNOWLEDGE_GAP.
+      Thresholds are conservative (err on reject-side for spread ceilings).
+      Policy: tighten thresholds on first data-land; never loosen without PR.
+      CRO cost-model estimates cross-checked against CTO-D2 spread bounds.
+
+  - id: FM-2
+    mode: "Stubs are imported and called before implementation, returning silently wrong results"
+    mitigation: >
+      Scaffold policy mandates NotImplementedError bodies. CTO-D3 test file
+      tests/features/test_intraday_stubs.py asserts this at CI time.
+
+  - id: FM-3
+    mode: "Session boundary constants differ between session.py and session_filter.py"
+    mitigation: >
+      Both modules will reference a SINGLE source: SESSION_UTC_HOURS in
+      session.py, imported by intraday_atr.py and session_filter.py.
+      QD must not duplicate constants. CTO reviews PR for this invariant.
+
+  - id: FM-4
+    mode: "Bar-count thresholds in gate YAML are wrong for forex 24h trading"
+    mitigation: >
+      EURUSD trades ~5.5d/7d = 78.6% of calendar hours.
+      8760h/yr × 78.6% = ~6885 bars/yr. 2yr ≈ 13,770 bars.
+      min_bars_2yr = 17,520 is SET DELIBERATELY LOWER THAN CALENDAR-FULL
+      (17,520 = 24×365×2 full calendar) so that normal weekends/holidays
+      produce approved=True. This is intentional: gap_pct check is the
+      secondary screen. CTO-D2 YAML annotates this logic.
+      KNOWLEDGE_GAP: verify this against actual Dukascopy 1h density once data lands.
+
+  - id: FM-5
+    mode: "QD implements stubs before gate passes, causing premature use"
+    mitigation: >
+      NotImplementedError bodies are the hard block. Additionally: feature
+      stubs must NOT be merged with implementations until at least one pair
+      clears CTO-D1 integration gate. QD's PR for any implementation must
+      cite the gate_result.json approval artifact. CTO reviews that PR.
+
+  - id: FM-6
+    mode: "Data partially lands (some pairs but not all) before backfill completes"
+    mitigation: >
+      Gate is per-pair. Approved pairs are approved independently. Research
+      pre-registrations may name a subset of pairs. No pair is held waiting
+      for another. This is the correct posture — but it means HoQR may
+      pre-register on fewer than 12 pairs. This is acceptable and expected.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT CTO REFUSED TO DO (CTO role schema requirement)
+# ─────────────────────────────────────────────────────────────────────────────
+what_you_refused_to_do:
+  - "Write any Python implementation code (forbidden_skill: python). All three deliverables are dispatched to Quant Developer."
+  - "Compute spread thresholds from first principles using pip math — this is domain knowledge (forex-trading, forbidden). Used observable Dukascopy characteristics documented in existing code comments instead."
+  - "Design intraday alpha hypotheses — that is HoQR's instrument. CTO provides the interface contracts only."
+  - "Assess whether intraday alpha base rates are favorable — that is NHT/HoQR/PR domain. CTO explicitly excluded from any forward-return claim."
+  - "Size the position or define risk limits for intraday strategies — CRO owns that. CTO flags that CRO's spread estimates and CTO-D2 spread thresholds must be reconciled."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROUTED WORK
+# ─────────────────────────────────────────────────────────────────────────────
+routed_to:
+  - role: quant-developer
+    deliverables: [CTO-D1, CTO-D3]
+    rationale: "Implementation of test harness and feature stubs is Python production work — QD's instrument."
+  - role: cro
+    request: >
+      CRO-D1 (cost model spec) must provide realistic per-pair spread estimates
+      at 1h resolution. CTO requests these estimates be cross-checked against
+      CTO-D2 spread_median_pips_max thresholds. If CRO's median estimates exceed
+      CTO-D2 ceilings, the ceiling must be revised upward with written justification.
+      Discordance is a research-quality blocker.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEQUENCED WORKFLOW (AC-06 compliance)
+# ─────────────────────────────────────────────────────────────────────────────
+data_to_backtest_workflow:
+  trigger: "Dukascopy backfill signals completion (all 12 pairs, monthly chunks)"
+  steps:
+    - step: 1
+      owner: cto
+      action: "Run CTO-D1 gate (pytest -k TestIntegrationGateDecision) against each *_1h.parquet"
+      output: "data/processed/{PAIR}_1h_gate_result.json for each pair"
+      on_fail: "EXCLUDE pair from research. Log failure. Do NOT impute or patch."
+
+    - step: 2
+      owner: cto
+      action: "Publish per-pair approval status to .fintech-org/artifacts/1h-gate-results.yaml"
+      output: "list of approved pairs + issues per excluded pair"
+      on_fail: "Any pair with gate issues requires EXPLICIT CEO decision to include"
+
+    - step: 3
+      owner: head-of-quant-research
+      action: "Finalize pending pre-registrations referencing only approved pairs"
+      constraint: "HARD GATE: pre-registration may not reference unapproved pairs"
+
+    - step: 4
+      owner: principal-reviewer
+      action: "Review and counter-sign each pre-registration per PR checklist"
+      constraint: "No backtest slot granted without PR counter-signature"
+
+    - step: 5
+      owner: null-hypothesis-tester
+      action: "Freeze null battery for each approved pre-registration"
+      constraint: "NHT battery must be frozen BEFORE backtest is run"
+
+    - step: 6
+      owner: ceo
+      action: "Grant backtest slot. Confirm trial counter increment is correct."
+      constraint: "CEO is REQUIRED approver for any scope expansion beyond the approved pairs"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GUARDRAILS HONORED (AC-04 compliance)
+# ─────────────────────────────────────────────────────────────────────────────
+guardrails_honored:
+  no_live_capital: true
+  no_backtest_before_data_lands: true
+  no_peeking_fishing: >
+    All three CTO deliverables use synthetic fixtures only. CTO-D1 harness
+    runs on generated data, not on real 1h parquets. CTO-D2 thresholds are
+    estimates, not derived from inspecting real 1h data. No 1h data has been
+    loaded into any analytical tool.
+  execution_researcher_firewall: >
+    All deliverables are research-infra or research only. No execution,
+    order-management, or broker-API code is proposed or required.
+    See firewall_review section above.
+  trial_counter_unchanged: >
+    These are infrastructure and scaffold deliverables. None are trials.
+    No trial ID will be assigned. Honest-N counter is unchanged.
+  pre_registration_required: >
+    Feature stubs define the interface but not the hypothesis. No hypothesis
+    is implied. Pre-registration is HoQR and PR domain.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OUT OF SCOPE (CTO slice)
+# ─────────────────────────────────────────────────────────────────────────────
+out_of_scope:
+  - "Running any backtest — 1h data not yet available; any backtest run now constitutes data-peeking if data has partially landed"
+  - "Building execution infrastructure (order management, broker API wrappers, position sizing for live orders)"
+  - "Live or paper trading — no live capital; observe-only canary is the maximum allowed per prior NHT ruling"
+  - "Descriptive or exploratory data analysis on the 1h data — any EDA before pre-registration is frozen violates the no-peeking constraint"
+  - "Generating new daily-pair strategies — the daily dataset wall is a firm finding; not the unlock"
+  - "Incrementing the trial counter — planning and pre-registration do not constitute trials"
+  - "Implementing the feature stubs — implementation is blocked until CTO-D1 gate approves at least one pair"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KNOWLEDGE GAPS
+# ─────────────────────────────────────────────────────────────────────────────
+knowledge_gaps:
+  - id: KG-1
+    gap: "Dukascopy 1h bar density per pair (actual bars/year at 1h resolution) not yet known"
+    impact: "min_bars thresholds in CTO-D2 may need revision on first data-land"
+    resolution: "Measure bar counts per pair after backfill; update CTO-D2 thresholds via PR"
+
+  - id: KG-2
+    gap: "Per-pair typical spread_median_pips from Dukascopy 1h data not yet confirmed"
+    impact: "CTO-D2 spread ceilings are estimates; could be too tight or too loose"
+    resolution: "CRO-D1 (intraday cost model spec) is the intended cross-check. CTO requests CRO provide estimates before gate is run."
+
+  - id: KG-3
+    gap: "Sydney session UTC boundary in Dukascopy data (22:00-06:00 UTC wraps midnight; handling unclear)"
+    impact: "session.py session_open_bar() stub note flagged; implementation must handle modular arithmetic. CTO cannot implement — QD must verify."
+    resolution: "RESEARCH_REQUEST: QD verifies Sydney boundary handling against actual Dukascopy 1h AUDUSD/NZDUSD data when available."
+
+  - id: KG-4
+    gap: "Whether Dukascopy 1h data contains bars during DST transitions (time-of-day encoding assumes fixed UTC offsets)"
+    impact: "hour_of_day_sin_cos() and session_open_bar() could miscount session bars on DST days for pairs with local-time-driven liquidity patterns"
+    resolution: "DST handling is implementation concern for QD. CTO flags it here; stub docstrings must mention DST explicitly."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POLICY VIOLATIONS DETECTED
+# ─────────────────────────────────────────────────────────────────────────────
+policy_violations_detected:
+  - id: PV-0
+    verdict: NONE
+    note: >
+      No research-role emitted executable trading code. No deploy during freeze.
+      No architecture change with unbounded blast radius. Execution-researcher
+      firewall intact. This artifact is an architecture/methodology-design
+      deliverable; no veto triggers fired.
+
+assumptions:
+  - "12 pairs in backfill manifest match exactly: EURUSD, GBPUSD, USDJPY, USDCHF, USDCAD, AUDUSD, NZDUSD, EURGBP, EURJPY, GBPJPY, AUDJPY, EURCHF (verified against pm-acceptance-criteria.yaml instrument-universe)."
+  - "Existing validate_1h_schema() in scripts/ingest_dukascopy_1h.py is the authoritative ingest validator. CTO-D1 harness tests invoke it; it is not reimplemented."
+  - "SESSION_UTC_HOURS will be the single source of truth for session boundaries shared between session.py and session_filter.py."
+  - "All thresholds in CTO-D2 YAML are pre-data estimates and are explicitly labeled as such. They are the floor, not the ceiling, for rigor."
+  - "QD implements; CTO reviews PRs. CTO does not write code."
+
+confidence: high
+base_rate_statement: >
+  Most intraday strategies fail rigorous OOS testing. Historical quant literature
+  finds fewer than 30% of strategies survive multi-test correction. The purpose
+  of this infrastructure is to ensure that when the firm DOES run confirmable
+  intraday research, the data quality is not the failure mode. Infrastructure
+  quality does not manufacture alpha; it prevents infrastructure from destroying
+  alpha signals that exist.

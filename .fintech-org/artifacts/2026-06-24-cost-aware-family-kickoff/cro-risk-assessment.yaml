@@ -1,0 +1,118 @@
+role: cro
+artifact_type: risk-assessment
+decision: size-reduced
+timestamp: 2026-06-24T22:55:00Z
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-cro
+size_multiplier: 0.20
+binding_constraints:
+  - "paper_only / no_live_capital (contract hard-constraint; non-negotiable this cycle)"
+  - "EXCLUDE-NOT-IMPUTE on any missing-cost bars (contract); ECB/BOE had 0 verified event dates -> those pairs MUST NOT be back-filled with FED proxies in any counted backtest"
+  - "Pre-registration before any committed backtest (contract); the pre-reg MUST freeze: (i) the SINGLE pair+hold tested, (ii) the deflation N, (iii) the regime-split reporting, (iv) the kill threshold — BEFORE the run"
+  - "honest_N=30 deflation floor applies; the counted trial inherits the firm's standing multiple-testing penalty PLUS this screen's own 11-cell selection surface"
+  - "NO counted-trial increment was authorized by THIS screen for the family as proposed; the 0.20 multiplier authorizes exactly ONE pre-registered confirmatory cell (USDJPY-only), not the 3-pair / 2-candidate family"
+  - "Cost-flip accounting (f001) must remain ON in the counted run: a sign-flip charges 2x RT (5.6 vs prior buggy 8.4->11.2 fix); reverting this undercounts cost and is a veto condition"
+regime_flags:
+  - "single-regime dependence: 2022-03..2023-07 FED hiking cycle (24 of 80 USDJPY events = 30%) supplies 53-54% of USDJPY 12h/18h gross; per-event mean in-regime 35.97 vs 13.07 out (2.7x)"
+  - "single-instrument dependence: USDJPY = 97.4% of C1 total net-pip margin; EURUSD net-negative (-0.9% share), GBPUSD +3.6%"
+  - "horizon sign-instability: SAME pair flips margin sign across hold (EURUSD +0.364@6h -> -0.173@12h; GBPUSD +1.045@6h -> -1.485@12h) — signature of noise, not a stable post-event drift"
+  - "proxy-event regime gap: EURUSD/GBPUSD edge is measured on FED events (ECB/BOE had 0 verified dates) — the pair's OWN central bank is absent from its event set"
+  - "JPY rate-vol regime (BOJ YCC/exit era) inside the window is non-stationary; not represented out-of-window"
+evidence:
+  - "C1 USDJPY 18h: net mean 18.714 pips, gross_sd 79.0, n=80 -> raw in-sample net t ~= 2.12 (PRE-deflation)"
+  - "C1 USDJPY 12h: net mean 17.641, n=80 -> raw net t ~= 2.07 (PRE-deflation)"
+  - "C1 USDJPY 6h: margin +3.893 but gross t ~= 1.00 (not significant even raw)"
+  - "C1 EURUSD: gross t ~= 0.07-0.50 across holds; 12h/18h margins NEGATIVE (-0.173, -0.974)"
+  - "C1 GBPUSD: gross t ~= 0.18-0.95; 12h margin NEGATIVE (-1.485)"
+  - "Concentration: USDJPY 97.4% of C1 net margin (3219.8 of 3306.2 net pips); EURUSD -0.9%; GBPUSD 3.6%"
+  - "Regime split USDJPY 12h: hike-window 54.1% of gross from 30% of events; 18h: 53.0%"
+  - "C2 AUDJPY: net mean -12.19 pips/trade (dead); C2 USDJPY: net +1.81, gross_sd 171.5, n=185 -> net t ~= 0.14 (indistinguishable from zero)"
+  - "C2 carry component ~= 0.02 pips/trade (carry thesis collapsed: multi-week hold compressed to ~5 days by the vol-crash filter)"
+  - "Selection surface = 11 cells screened (3 pairs x 3 holds + 2 C2); Bonferroni p=.05/11=.0045 needs |t|~2.84 — best cell (2.12) does NOT clear deflation"
+  - "f001 cost unit-test: sign-flip charges 2x RT (5.6=2x2.8); fixes prior 8.4->11.2 undercount; assertion_passed=true"
+blowup-analog: "Single-regime carry/momentum collapse (the JPY-carry-unwind class): an edge measured almost entirely inside one rate-hiking episode is exactly the profile that pays steadily then gives it all back in the regime turn (the Aug-2024 JPY carry unwind is the recent archetype of this failure shape). C2's AUDJPY leg (net -12.19) is the same family already realized as a loss in-sample."
+contamination-check: "clean"
+assumptions:
+  - "Regime window 2022-03..2023-07 used as the FED hiking-cycle proxy for the split; boundaries are coarse but the 53-54% concentration is robust to +/- one quarter"
+  - "t-stats computed on per-trade gross/net pips with population sd; these are descriptive in-sample and PRE-deflation — they OVERSTATE significance (no autocorrelation, overlap, or selection adjustment applied)"
+  - "Read ONLY the structured numeric file (cost_feasibility_raw.json) and the redacted cost contract; did NOT read quant-researcher-design narrative (proposer rationale) — disjoint-evidence mandate held"
+  - "Treating the screen as descriptive/in-sample only; no risk-adjusted (Sharpe/ES) metric was supplied, so no tail metric could be validated"
+confidence: high
+body: |
+  RISK VERDICT: size-reduced (0.20). The evidence does NOT justify advancing the
+  cost-aware FAMILY as proposed (3 pairs, 2 candidates). It justifies AT MOST one
+  narrowly pre-registered, USDJPY-only confirmatory trial — and only because this is
+  paper-only with no live capital at stake. Here is the risk reasoning, weighing the
+  four factors I was asked to weigh.
+
+  (a) SIGN-FLIP ACROSS HORIZON, SAME PAIR. EURUSD and GBPUSD margins flip sign between
+  6h (+0.364, +1.045) and 12h (-0.173, -1.485). A real post-decision drift does not
+  reverse its own sign one bar later for the same instrument. This is the signature of
+  noise sampled at multiple horizons until one looks positive — i.e., the multiple-
+  testing artifact, visible in the raw data. It is disqualifying for EURUSD/GBPUSD.
+
+  (b) ONE INSTRUMENT, ONE REGIME, MOST OF THE MARGIN. I quantified both, because my
+  mandate is to drill the dominant contributor. USDJPY is 97.4% of C1's net margin
+  (3219.8 of 3306.2 net pips). Within USDJPY, the 2022-03..2023-07 FED hiking window —
+  30% of the events — supplies 53-54% of the 12h/18h gross, at a per-event mean 2.7x
+  the rest-of-sample. So the apparent family edge is a single-instrument x single-macro-
+  regime phenomenon. That is the carry/momentum-collapse blowup profile: it pays through
+  the trend and surrenders it at the regime turn. C2's AUDJPY leg (net -12.19) is that
+  same loss already realized in-sample.
+
+  (c) SMALL EVENT COUNTS. n=40 (FED-only proxy for EURUSD/GBPUSD) and n=80 (USDJPY,
+  FED+BOJ). With gross_sd of 25-79 pips, the best cell (USDJPY 18h) reaches only raw
+  in-sample net t ~= 2.12. That is PRE-deflation. The screen itself tested 11 cells; a
+  Bonferroni floor (p=.05/11) requires |t| ~= 2.84. The best cell does not clear its own
+  selection surface, let alone the firm's standing honest_N=30 deflation. Every other
+  cell is materially weaker (USDJPY 6h t~1.00; EURUSD/GBPUSD t<1).
+
+  (d) IN-SAMPLE, PRE-DEFLATION GROSS. No risk-adjusted metric (Sharpe, Expected
+  Shortfall, drawdown) was supplied. Per quantitative-risk-management, I cannot approve a
+  sizing decision whose tail metric is undefined; ES at 97.5% with a stressed window is
+  the standard, and the most relevant stress (the hiking regime) is the very thing
+  carrying the result. The gross_sd of 56-171 pips against single-digit margins means the
+  per-trade signal-to-noise is far below what a counted, deflated trial would survive.
+
+  WHY NOT VETO. Three reasons keep this at size-reduced rather than veto: (1) it is
+  paper-only, no live capital — the actual risk being committed is research budget, not
+  P&L; (2) USDJPY 12h/18h does show a raw, real, post-event drift (net t ~2.1) that is
+  not yet falsified, only un-deflated; (3) the cost accounting is now honest (f001 fix:
+  sign-flip charges 2x RT, undercount remedied). A single pre-registered USDJPY-only
+  confirmatory cell is a defensible use of a fraction of a trial.
+
+  WHY NOT APPROVE AT FULL SIZE. The family as proposed bundles two dead candidates with
+  one regime-loaded one. C2 is dead (AUDJPY -12.19; USDJPY +1.81 at t=0.14; carry ~0.02
+  pips — the carry thesis collapsed when the vol-crash filter cut the hold to ~5 days).
+  EURUSD and GBPUSD are noise (sign-flips, t<1, and their OWN central banks contributed
+  0 verified events — the edge is measured on FED proxy events). Advancing the bundle
+  would spend a counted trial on 8 cells that the screen already shows are noise or dead,
+  to chase 1 cell that is regime-concentrated.
+
+  CONDITIONS ON THE 0.20 (the only commitment this screen justifies):
+  - Pre-register ONE cell: USDJPY, 12h OR 18h (pick one, not both — picking the max ex
+    post is itself a selection bias). Declare it BEFORE the run.
+  - Pre-declare deflation N that includes this screen's 11-cell surface, not just N=30.
+  - The pre-reg MUST require a regime-split readout (in-hike vs out-of-hike net) as a
+    PASS gate, not a footnote: if out-of-hike net does not independently clear cost+
+    hurdle, KILL — because that is the part that survives the next regime.
+  - EXCLUDE-NOT-IMPUTE on any missing cost bars; no FED-proxy events for EUR/GBP in any
+    counted run.
+  - Keep f001 cost-flip accounting ON; reverting it (undercounting sign-flip cost) is a
+    veto condition.
+  - DROP C2 entirely and DROP EURUSD/GBPUSD from the counted scope.
+
+  If the firm is unwilling to narrow to a single pre-registered USDJPY cell with a
+  regime-split kill gate, this should be NO-SPEND, consistent with the prior cycles.
+knowledge_gaps:
+  - "No risk-adjusted metric (Sharpe / ES / max-drawdown) supplied — tail metric undefined, so FRTB-style ES sizing could not be applied"
+  - "No autocorrelation / overlap adjustment available for the t-stats (overlapping holds inflate apparent significance further)"
+  - "Out-of-sample / forward window not provided; all numbers in-sample 2021-2025"
+  - "BOJ-event subset of USDJPY not separable in the supplied data from FED-event subset for an independent JPY-driver check"
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [risk-budget-allocation, correlation-and-concentration-limits, tail-risk-measurement, position-sizing]

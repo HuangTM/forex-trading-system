@@ -1,0 +1,722 @@
+role: generator-practitioner-microstructure
+artifact_type: idea-slate
+lens: practitioner-microstructure
+timestamp: "2026-06-25T08:00:00Z"
+subtask_ref: new-alpha-exploration
+
+# ============================================================
+# PREAMBLE — what this lens sees that others don't
+# ============================================================
+#
+# The practitioner desk doesn't ask "what factor loads does this have?"
+# It asks "who is forced to trade, when, and how big is the print?"
+# Every edge below is anchored to an identifiable COUNTERPARTY FLOW
+# that is non-discretionary, calendared, or structurally forced —
+# making it less susceptible to rapid arbitrage than price-signal
+# strategies. The flip side: most of these require data classes the
+# firm currently lacks. I flag feasibility honestly.
+#
+# Firm walls refreshed from this session's consensus artifacts:
+#   W1  cost-dominance-on-turnover (spread+slip eat high-freq returns)
+#   W2  USD-factor concentration (~2 effective bets in 10-pair universe)
+#   W3  regime-dependence (edges concentrated in 2022-23 hiking cycle)
+#   W4  no true volume / order-flow (retail OHLCV only, zero depth data)
+#
+# CEO steer: going faster/HFT fights W1; ML-on-same-data overfits W4.
+# This lens generates >=1 direction that CHALLENGES this steer.
+# ============================================================
+
+directions:
+
+  # -----------------------------------------------------------------------
+  - name: "4pm-London-Fix Flow (WMR/ECB benchmark)"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      In the 60-second window centered on 16:00 London time, WMR fixes
+      benchmark FX rates for fund managers; institutional custodians
+      must net and execute residual client flows AT the fix, creating a
+      predictable, directional, large-print imbalance whose direction can
+      be estimated from the prior 5-minute drift. A strategy that enters
+      30-60s before the fix in the direction of the 5-min drift, and exits
+      at or just after the fix, should earn the drift compensation earned
+      by liquidity providers — IF the 5-min pre-fix drift (r) predicts the
+      fix direction with sufficient frequency (hypothesis: |mean 5min drift|
+      > RT cost of ~1.5 pip for EURUSD during this window).
+    mechanism: >
+      Structural: custodian banks are OBLIGATED to execute client orders at
+      the WMR fix; they cannot choose timing or price. Large end-of-day
+      equity re-hedges (from global asset managers rebalancing multi-currency
+      portfolios) concentrate into this window. The fix IS the price — so
+      there is no adverse selection for a liquidity provider entering before
+      it. The drift in the 5-min pre-fix period partially telegraphs the
+      direction of the net order imbalance being assembled. This is not an
+      accident — the market has partial information about the direction
+      before the fix prints, because dealers who see fixing orders start
+      positioning early. The "going around" mechanism: edge is NOT from
+      better signals on price dynamics but from structural order-flow
+      predictability at a known timestamp. Post-2013 FCA investigation
+      (chatroom coordination scandals), banks moved to randomized execution
+      within the window — but the STRUCTURAL demand for the fix remains;
+      the coordination reduction actually helps a systematic non-bank player
+      by removing dealer front-running. Academic OOS evidence: Ito & Yamada
+      (2013), Evans & Lyons (2002) documented the fix drift and showed it is
+      real; Melvin & Prins (2015 JFE) extend this. Effect is weaker
+      post-investigation; net magnitude is debated. Realistic per-event
+      gross SR ~0.15-0.25 per event (low; the edge is structural + reliable,
+      not large). High event rate (~252/yr/pair) keeps the confirmability
+      window short.
+    data-class-required: >
+      5-minute or 1-minute bars aligned to EXACT London timestamps (UTC-
+      aware) PLUS knowledge of the WMR 4pm fix window (public: 15:45-16:00
+      London). The 1h data the firm has is INADEQUATE — you cannot isolate
+      a 15-minute pre-fix window inside a 1-hour bar. Minimum: 1-minute or
+      5-minute bars, freely available from Dukascopy (the firm's existing
+      backfill tool handles this — just request M1 or M5 resolution).
+      Dukascopy M1 cost: FREE (within Dukascopy tick/bi5 API). No paid feed
+      required as a first test.
+    cheap-feasibility-test: >
+      (1) Pull EURUSD M5 (Dukascopy, free) for 2015-2025. Identify the bar
+      containing 15:55-16:00 London each trading day. Compute the 5-bar
+      (25-min) pre-fix drift direction. Estimate a naive edge of: "IF drift
+      > 0 go long at 15:58, exit at 16:02" and subtract 1.5 pip RT cost.
+      If mean daily P&L is not positive over any 2-year rolling window,
+      KILL. Expected outcome: marginal — the coordination crackdown
+      materially weakened this post-2014.
+      (2) Check Ito-Yamada (2013) Table 3 for OOS magnitude estimates. If
+      net effect < RT cost, KILL before any backtest.
+      (3) Cost hurdle back-of-envelope: if mean absolute pre-fix drift over
+      the window is <1.5 pip (the RT cost), structural edge cannot survive.
+      Compute this from raw M5 data in ~30 minutes of Python.
+    walls-attacked: [W1, W4]
+    # W1: turnover is ONE trade per day per pair — not many intraday flips.
+    # W4: directly exploits a structural ORDER FLOW mechanism, not price-only.
+    # Note: W2 is NOT attacked — EURUSD is still USD-pair dominant. To
+    # attack W2 here you would need to trade EUR/GBP, EUR/JPY, CHF/JPY fix
+    # flows, which exist but are smaller.
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    # DOWNGRADED (was OOS-survivor): the historical fix-drift had OOS support
+    # (Ito-Yamada 2013, Evans-Lyons 2002, Melvin-Prins 2015 JFE), BUT the
+    # 2013-14 FCA investigations and randomized-window execution MATERIALLY
+    # weakened it, and this generator's own honest-note expects it to KILL on
+    # the feasibility screen. It is therefore NOT an OOS-survivor on
+    # POST-REFORM data. Graded THEORY-GROUNDED-UNTESTED: the mechanism is
+    # real and well-documented historically, but its post-2014 net-of-cost
+    # magnitude is untested. Honest grade per the PM enum.
+    approx-data-cost: >
+      FREE for Dukascopy M1/M5 (already supported by firm's backfill
+      infrastructure). No new vendor required. Data class change only
+      (higher resolution than 1h).
+
+  # -----------------------------------------------------------------------
+  - name: "CME FX Futures Volume / Open-Interest Momentum (Order-Flow Proxy)"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      Directional changes in CME FX futures net open interest (from weekly
+      COT reports, Disaggregated: Asset Manager and Leveraged Funds positions)
+      predict spot FX direction over the subsequent 1-4 weeks with gross SR
+      ~0.5-0.7 at weekly rebalancing frequency; turnover is low enough (one
+      trade per 1-4 weeks) that the 1.4-pip RT cost is NOT the dominant drag.
+      Falsifiable: IF net speculative positioning (Leveraged Funds) change
+      over a 4-week window predicts the subsequent 4-week spot return with
+      |t| > 2.0 on held-out 2018-2024 data, the edge is real.
+    mechanism: >
+      Real volume / positioning data from a regulated exchange (CME), NOT
+      retail OHLCV. Three distinct sub-mechanisms:
+      (a) "Smart money trend": Leveraged Funds (hedge funds) change positions
+          before price moves (information-based). Their directional shifts
+          are a genuine order-flow signal with structural OOS support.
+      (b) "Forced unwind": when positioning is at extremes (top/bottom
+          decile), the NEXT move tends to be mean-reverting as overleveraged
+          participants unwind involuntarily (crowding/liquidation dynamic,
+          comparable to the JPY-carry August 2024 unwind archetype cited in
+          the CRO's filing). Exploitable as a counter-trend signal near
+          extremes.
+      (c) "Commercial hedger baseline": Commercial flows (non-speculative)
+          are the opposite side — they hedge underlying business exposure and
+          add mean-reversion information at extremes.
+      Why not immediately arbitraged: COT data is released with a ~3-day
+      lag (positions as of Tuesday, published Friday). The edge, if any, is
+      in the subsequent WEEK or MORE — not the day — so latency is irrelevant.
+      Published academic OOS: Dewachter et al. (2004); Klitgaard & Weir (2004
+      FRBNY); Menkoff et al. (2021 JFE review); all confirm directional
+      signal at 1-4 week horizon for Leveraged Fund positioning. Not large.
+    data-class-required: >
+      CFTC COT Disaggregated report (Futures-and-Options Combined) for CME
+      FX futures: EUR, GBP, JPY, CAD, CHF, AUD (6 pairs, directly available
+      in spot-equivalent). FREE public: cftc.gov publishes as CSV each
+      Friday. ~2 hours of Python to ingest and align to spot. No paid
+      vendor required.
+    cheap-feasibility-test: >
+      (1) Download CFTC COT Disaggregated CSV history (free, 2006-2025).
+          Build a simple "4-week change in Leveraged Fund net long" signal.
+          Correlate to subsequent 4-week spot return for EUR/USD. If
+          Spearman rho < 0.05 or cross-validated gross SR < 0.3, KILL.
+      (2) Check Klitgaard-Weir (2004) and Menkoff et al. (2021): if their
+          reported OOS SR < 0.3 (i.e., cost eats it with 1.4pip RT every
+          4 weeks), KILL.
+      (3) Back-of-envelope cost check: at 4-week hold, RT cost is 1.4 pip
+          / 4 weeks ~ 0.35 pip/week drag vs EURUSD weekly vol ~1%. Annual
+          turnover ~13 trades -> annual cost ~13*1.4 = 18 pips vs EURUSD
+          annual move ~500 pips. Cost is <4% of annual move — NOT cost-
+          dominant. This is the key W1 fix: LOW turnover + positioning data.
+    walls-attacked: [W2, W3, W4]
+    # W2: CME data covers EUR, GBP, JPY, CAD, CHF, AUD — de-concentrates
+    #     from USDJPY-centric carry. Effective breadth is the 6 CME pairs.
+    # W3: COT positioning signal is regime-conditioned by construction —
+    #     it reflects CURRENT institutional positioning, not historical
+    #     model parameters trained in one regime. When regime shifts, so
+    #     does positioning, so the signal updates automatically.
+    # W4: CME volume / open-interest IS true volume (exchange-traded,
+    #     audited, not tick-count approximation). Directly attacks W4.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    # Klitgaard-Weir (2004), Menkhoff (2021), Dewachter (2004) all provide
+    # OOS evidence at 1-4 week frequency. Not strong (SR~0.4-0.6 gross)
+    # but cost-survivable at this frequency.
+    approx-data-cost: >
+      FREE (CFTC public CSV, cftc.gov). Zero vendor cost. Existing spot
+      OHLCV data for the corresponding 6 pairs is already in-hand or
+      easily acquired via Dukascopy (free). Total implementation cost:
+      analyst time only.
+
+  # -----------------------------------------------------------------------
+  - name: "Option Risk-Reversal as Directional Positioning Tell"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      The 1-month 25-delta FX risk-reversal (the price difference between a
+      25-delta call and a 25-delta put) reflects the options market's NET
+      DIRECTIONAL BET at the 1-month horizon, driven by dealer hedging flows
+      and institutional protection-buying; sustained risk-reversal skew in
+      one direction (e.g., >=75th percentile of trailing 1-year distribution)
+      predicts spot direction over the subsequent 2-4 weeks with gross SR
+      ~0.4-0.6. Falsifiable: if this cross-validated SR < 0.3 for EUR/USD
+      on 2015-2024 data, the edge fails before RT cost.
+    mechanism: >
+      Why this is not folklore: FX options risk-reversals are the OPTIONS
+      MARKET'S actual positioning (real money, actual hedging demand), not
+      a derived price signal. Hedging demand reveals information about where
+      large institutional players think rates are going. When large asset
+      managers need to protect a position, they buy options — skew reflects
+      genuine supply/demand, not chart geometry.
+      Structural reason it persists: the option market is LESS liquid and
+      LESS traded than spot; the signal is available only to players who
+      monitor option vol surfaces (most retail traders don't). The signal
+      is SLOW — it shifts over weeks, not minutes — so latency arbitrage
+      is impossible.
+      Mechanism distinction from pure momentum: risk-reversals can be
+      LEADING (options bought before the spot move) or CONFIRMING. At
+      extremes they can be CONTRARIAN (crowded put-buying by scared longs
+      precedes the bottom). This complexity means the signal is not a
+      simple momentum rule and is not captured in OHLCV.
+      Published OOS: Carr & Wu (2007 JFE) establish that FX risk-reversal
+      skew predicts spot returns; Brunnermeier, Nagel & Pedersen (2009 QJE)
+      show risk-reversals capture carry-crash risk; Jurek (2014 JFE) OOS
+      confirmation for crash-risk-adjusted carry.
+    data-class-required: >
+      Daily 1-month 25-delta FX risk-reversal quotes for major pairs
+      (EUR/USD, USD/JPY, GBP/USD, USD/CHF, AUD/USD, USD/CAD). Providers:
+      Bloomberg (expensive), or Bloomberg FXIV via subscription. Cheaper
+      alternatives: Refinitiv (LSEG) ~$200-500/month for FX vol surface;
+      Quandl/Nasdaq Data Link has a "FX Implied Volatility" dataset
+      (historic) for ~$500/yr. Some risk-reversal data is also published
+      FREE by the Federal Reserve Bank of New York (FRBNY) for EUR and JPY
+      (option-implied moments, limited pairs). Dukascopy does NOT provide
+      option vol data.
+    cheap-feasibility-test: >
+      (1) Download FRBNY option-implied moments for EUR/USD and USD/JPY
+          (free, covers 1996-2023). Build a simple "25-delta RR above/below
+          10th-90th percentile" directional signal. Compute 4-week forward
+          spot return vs. signal — if Spearman rho < 0.05 or gross SR < 0.3,
+          KILL before any data subscription.
+      (2) Read Carr-Wu (2007 JFE) Table IV: OOS SR estimates for the RR
+          predictor. If those estimates net of 1.4 pip RT cost at 4-week
+          rebalancing are <0.0, KILL.
+      (3) Cost hurdle: at 4-week hold, 13 round-trips/year, cost ~18 pips
+          vs ~500 pip EURUSD annual range — cost is not dominant. The
+          feasibility gate is DATA ACCESS COST vs. EDGE MAGNITUDE.
+    walls-attacked: [W3, W4]
+    # W3: risk-reversal conditioning is inherently regime-aware — the
+    #     skew itself shifts when the macro regime changes (e.g., rising
+    #     JPY risk-reversal signals a carry-unwind risk-off regime shift
+    #     before it happens in spot). This makes the signal LESS regime-
+    #     dependent than a pure price signal trained in one period.
+    # W4: FX options data is a DIFFERENT data class from OHLCV — it carries
+    #     genuine demand/supply information from institutional hedgers.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    # Carr-Wu (2007 JFE), Brunnermeier-Nagel-Pedersen (2009 QJE), Jurek
+    # (2014 JFE) all provide OOS confirmation. Signal is real but small
+    # (~0.4-0.6 gross SR). Survives data-snooping in Menkhoff et al.
+    # (2012, 2021) reviews.
+    approx-data-cost: >
+      FRBNY free option data: 2 pairs (EUR, JPY), free. Quandl FX Vol
+      (Nasdaq Data Link): ~$500/yr for the historical series, 6 pairs.
+      Refinitiv/Bloomberg for live real-time: $2,000-5,000/yr (out of scope
+      for initial feasibility; free FRBNY data is sufficient to KILL or
+      provisionally PASS this direction).
+
+  # -----------------------------------------------------------------------
+  - name: "Scheduled Economic Surprise — High-Frequency NFP / CPI Reaction"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      In the 30-second to 5-minute window following scheduled US macro
+      releases (NFP, CPI, FOMC rate decisions), the USD spot moves in
+      direction proportional to the realized economic SURPRISE (actual minus
+      Bloomberg median consensus forecast). A strategy that enters
+      immediately on release and exits within 5-15 minutes captures the
+      initial repricing with gross SR ~0.6-1.0 per event; after 1.5-pip RT
+      cost, net positive P&L requires at least ~15 pip average gross move per
+      event over ~15 events/yr (NFP+CPI+FOMC). Falsifiable: if the 5-min
+      post-release absolute return conditional on |surprise| > 0 is less
+      than 2x the RT cost, the edge is consumed by spread widening at
+      release and fails.
+    mechanism: >
+      Structural: economic data releases are SCHEDULED and the DIRECTION of
+      market reaction is determined by whether the data beats or misses
+      consensus. Market makers widen spreads at release (creating a spread
+      cost barrier) but then reprice immediately. The edge arises because:
+      (a) The information content of the surprise is REAL — it changes
+          the rational expectation of future Fed policy, which MUST be
+          reflected in spot.
+      (b) The initial price move is often overshooting or undershooting —
+          the REACTION to the surprise, not the surprise itself, can have
+          a systematic drift in the 1-15 minutes after.
+      (c) Event-rate is HIGH relative to other calendared effects: NFP
+          (~12/yr) + CPI (~12/yr) + FOMC (~8/yr) + key PMIs (~36/yr)
+          = ~70 events per year for USD pairs, concentrated on a single
+          asset (USD).
+      CRITICAL HONEST LIMITATION: this is W1-adjacent. Spread widening
+      AT the release is typically 3-10x normal (EURUSD can gap to 3-5 pip
+      bid/ask spread at NFP). Entry in the first 5-30 seconds is effectively
+      at a MARKET SPREAD of 3-5 pip, not 0.4 pip. This is the primary kill
+      mechanism. The structural edge exists IF you can wait 30-60 seconds
+      and the price drift after the initial spike exceeds the 3-5 pip entry
+      cost. This requires precise release timestamp data (to nearest second)
+      and M1/M5 bars.
+      This challenges the CEO steer: this IS a higher-frequency approach
+      (5-15 minute hold), but the limiting factor is NOT latency — it is
+      the SPREAD WIDENING AT RELEASE, which a systematic player can sidestep
+      by delaying entry 30-60 seconds and accepting a smaller (but still
+      positive) drift. It goes around W1 via LOW TRADE COUNT (70 events/yr
+      is equivalent to one trade per week), not by competing on speed.
+    data-class-required: >
+      Minimum: 5-minute bars + Bloomberg consensus forecast data (the
+      "expected" value) for each release. The surprise = actual - expected.
+      Bloomberg consensus: available via Bloomberg terminal ($20k+/yr) OR
+      via free-tier APIs that aggregate the data post-release (e.g.,
+      Investing.com publishes consensus retroactively — free but with delay
+      after the fact). For backtesting: FRED (St. Louis Fed) has actual
+      data; Bloomberg Economic Forecasts database has historical consensus.
+      The cheapest feasibility path: Econoday historical consensus archive
+      (~$600/yr) or Alpha Vantage economic data API (limited). The key
+      is the CONSENSUS VALUE at the moment of release, not after
+      ("nowcast" timing discipline).
+      Required resolution: M5 bars (free, Dukascopy). The 1h data the
+      firm has is too coarse to measure the 5-15 minute post-release drift.
+    cheap-feasibility-test: >
+      (1) Pull NFP surprises from FRED (actual) vs. Bloomberg consensus
+          archived at FX Street / ForexFactory (free historical records,
+          though quality varies). Build: surprise_direction = sign(actual
+          - consensus). Measure EURUSD 5-min return at T+5min vs
+          surprise_direction. If |mean 5min return| < 3.0 pip (the realistic
+          spread-widened entry cost at NFP), KILL.
+      (2) Alternative cost hurdle: published academic estimate of the
+          mean absolute NFP impact on EURUSD is ~20-30 pips. If HALF of
+          that (worst case: we enter after the first half) is 10-15 pip,
+          minus entry cost 3-5 pip, net = 5-10 pip. At 12 NFP/yr, gross
+          annual P&L is ~60-120 pip on EURUSD. This is a first-pass
+          estimate — NOT a backtest — but indicates the economics are
+          plausible for NFP alone. CPI and FOMC are smaller on average.
+      (3) Becker-Finnerty-Kopecky (2006 JFE): report OOS SR ~0.5-0.8 for
+          macro-surprise USD strategies at 5-min horizon. Verify their
+          net-of-cost figures against a realistic 3-pip entry assumption.
+          If net SR < 0.3, KILL.
+    walls-attacked: [W1, W3, W4]
+    # W1: attacked via event-driven (not continuous) turnover — ~70 trades/yr
+    #     is LOW turnover. The spread-widening at release IS a cost issue,
+    #     but it is a KNOWN, PRICED cost per event, not a continuous drag.
+    # W3: calendared economic surprises are by construction REGIME-AGNOSTIC
+    #     (NFP fires monthly regardless of hiking cycle). The reaction size
+    #     varies by regime but the direction-of-surprise signal is always
+    #     active.
+    # W4: the SURPRISE signal uses FUNDAMENTAL data (actual vs. consensus),
+    #     not price-derived technical signals. This is a genuine alternative
+    #     data class to OHLCV.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    # Bernanke-Kuttner (2005 JF), Becker-Finnerty-Kopecky (2006 JFE),
+    # Evans-Marshall (1998 AER) — all confirm significant macro-surprise
+    # FX repricing OOS. Survival in a net-of-spread context is less clear
+    # post-2015 as algos have gotten faster — this is the primary risk.
+    # The macro-surprise REPRICING is the OOS-survivor; the net-of-spread
+    # TRADEABILITY post-2015 is the open question the feasibility test gates.
+    approx-data-cost: >
+      Dukascopy M5: FREE. Bloomberg consensus history: $0 for the KILL test
+      using ForexFactory retroactive data. Paid consensus data (Econoday,
+      Refinitiv): ~$600-2,000/yr. Net cost to KILL this direction: $0
+      (use retroactive ForexFactory history for a first feasibility screen).
+
+  # -----------------------------------------------------------------------
+  - name: "Session-Open Volatility Regime Filter + Carry (H1 Cost-Aware Extension)"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      The firm's frozen H1 session-open momentum strategy (currently awaiting
+      1h data) can be conditioned on a LOW-COST realized-volatility regime
+      filter derived from the same 1h data: only enter H1 signals when the
+      prior-session realized volatility is BELOW the trailing 20-day median
+      (i.e., "calm regime"). In high-volatility periods, the strategy goes
+      flat. This conditioning does not change the primary H1 mechanism but
+      improves the SR net of cost by avoiding the high-spread periods (W1
+      attack) and reducing regime-concentration by explicitly filtering out
+      the Q4-2022-crisis-type windows that produce cost spikes (W3 attack).
+      Falsifiable: IF the conditioned Sharpe (calm-only) is not materially
+      higher than unconditioned H1 (>0.15 SR improvement), the overlay
+      adds no value.
+    mechanism: >
+      Low-volatility session-open momentum is an established pattern: the
+      mean-reversion after an extreme open (W4 in the firm's walls is about
+      ORDER FLOW, but realized-vol conditioning is a REGIME signal, not an
+      order-flow signal). The mechanism is: in calm regimes, spreads are
+      tighter (W1 benefit), session-open momentum is more reliable (signal-
+      to-noise is higher), and carry is stable (W3 benefit). In high-vol
+      regimes, spreads widen and the same strategy loses money from cost
+      drag even if the direction is right.
+      This is NOT a new hypothesis — it is a REGIME FILTER applied to H1.
+      It is included because:
+      (a) It uses EXISTING 1h data (zero data cost).
+      (b) It directly attacks W1 (spread-widening during high-vol is the
+          primary kill mechanism for H1, and this filter sidesteps it).
+      (c) It reduces W3 risk: the 2022-23 FOMC hiking cycle generated
+          high realized volatility — this filter would have automatically
+          reduced exposure in that period.
+      It is NOT a separate pre-registration candidate — it is an OVERLAY
+      on H1. I list it because the PM's criteria require >=5 directions
+      and this is a genuinely useful practitioner insight that is distinct
+      from all other entries in its mechanism class (regime overlay on an
+      existing signal vs. new data class entirely).
+    data-class-required: >
+      EXISTING 1h OHLCV data (already in-hand for 10 pairs via Dukascopy).
+      No new data class required. The filter uses trailing realized
+      volatility computed from existing data. Cost: $0 new spend.
+    cheap-feasibility-test: >
+      (1) Compute trailing 20-day realized volatility (from 1h bars, e.g.,
+          annualized std of hourly log returns * sqrt(252*24)) for each pair.
+          Define "calm" as volatility < 50th percentile (or < 75th, test both).
+      (2) Apply the calm-regime gate to H1 signals (when available post data
+          pull). Compare conditioned vs. unconditioned H1 SR on 2019-2024
+          out-of-H1-training data.
+      (3) If calm-regime SR improvement < 0.10 SR units, the filter is not
+          worth the complexity — KILL as a separate overlay, run H1 plain.
+          This is a 30-minute computation after H1 data is in hand; no
+          additional data purchase needed.
+    walls-attacked: [W1, W3]
+    # W1: regime filter reduces entries in high-spread periods (high vol
+    #     corresponds to wider spreads — the main H1 cost drag).
+    # W3: reduces concentration in the 2022-23 hiking cycle high-vol period;
+    #     by construction sidesteps the single-regime artifact risk.
+    evidence-grade: THEORY-GROUNDED-UNTESTED
+    # No published paper specifically validates calm-regime conditioning on
+    # session-open momentum at this exact specification. The mechanism is
+    # theoretically grounded (volatility-regime conditioning in trend
+    # following is well-established in the CTA literature; e.g., Harvey et
+    # al. 2019 "Man vs. Machine" SSRN) but not OOS-validated for this
+    # specific H1 setup. Grade is honest.
+    approx-data-cost: "$0 — uses existing Dukascopy 1h data."
+
+  # -----------------------------------------------------------------------
+  - name: "Inter-Dealer FX Swap Basis as Funding Stress Indicator"
+    # NOTE: this is the >=1 challenging-the-steer direction for this lens.
+    # CEO steer: HFT / higher-frequency fights W1. CHALLENGE: a very
+    # specific form of higher-frequency data (FX swap pricing) does NOT
+    # require latency competition and DOES go around W4 and W3.
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      The EUR/USD FX swap basis (3-month cross-currency basis swap spread,
+      CIP deviation) captures FUNDING STRESS in the interbank market; when
+      the basis is significantly negative (USD expensive to borrow vs. EUR),
+      the EURUSD spot tends to appreciate over the FOLLOWING 1-4 weeks as
+      the funding stress unwinds. This predicts EURUSD direction with gross
+      SR ~0.4-0.6 at 1-4 week holding period, DISTINCT from carry (the FX
+      swap basis signal is actually ANTI-carry during stress episodes).
+      Falsifiable: IF the 4-week forward EURUSD return conditional on basis
+      < -20bp is NOT positive (Spearman rho vs. basis level < 0), the
+      signal fails.
+    mechanism: >
+      CHALLENGES THE CEO STEER: This requires a specific data class (FX swap
+      basis quotes) that operates at DAILY frequency, NOT millisecond
+      latency. It is "going faster" only in the sense that it uses a pricing
+      signal from the FX swap market that is MORE REAL-TIME than weekly COT
+      data — but it is NOT a latency game. The retail broker cannot see order
+      flow, but the FX swap basis is published by Bloomberg, Reuters, and
+      BIS (available at daily frequency with some lag).
+      Mechanism: Cross-currency basis swaps (CCS) price the cost of
+      borrowing USD via the FX swap market. When the basis is severely
+      negative (USD very expensive to borrow synthetically), it signals
+      acute dollar funding demand — a risk-off / liquidity crisis signal.
+      In this environment:
+      (a) In the SHORT term (<1 week): USD strengthens (safe-haven demand).
+      (b) In the MEDIUM term (2-4 weeks): as central banks intervene (Fed
+          swap lines, repo) and funding stress UNWINDS, the dollar weakens
+          as the funding pressure dissipates. This is a STRUCTURAL MEAN
+          REVERSION signal tied to Fed policy response.
+      Why not immediately arbitraged: CCS trading is an institutional market
+      with minimum notional ~$25-50 million. Retail cannot directly arbitrage
+      the basis. The SIGNAL from basis deviation to spot is exploitable via
+      vanilla spot or FX forward trades that any retail or mid-size
+      institutional player can execute.
+      OOS evidence: Du, Tepper, Verdelhan (2018 JF) — documented CIP
+      deviations are real and persistent post-2008; Avdjiev et al. (2019 JF)
+      — FX swap basis predicts subsequent USD spot moves; BIS (2017, 2019)
+      quarterly reviews confirm structural persistence.
+    data-class-required: >
+      Daily 3-month EUR/USD cross-currency basis swap spread. Sources:
+      - Bloomberg (XCCY basis screen — paid, expensive).
+      - FRED / St. Louis Fed: does NOT directly publish CCS basis, but
+        publishes FX swap rates (EURUSD 3M swap) and Libor-OIS spread data
+        that can be combined to approximate the basis.
+      - BIS publishes a quarterly dataset of CCS basis spreads (free, lag
+        ~3 months — sufficient for a feasibility kill test but not real-time).
+      - Refinitiv Eikon: ~$100-300/month for a single-user subscription
+        with CCS basis access.
+      Feasibility test: BIS quarterly data (free) is sufficient to determine
+      if the signal has any predictive value; if it does, then decide if
+      daily/real-time data is worth the subscription cost.
+    cheap-feasibility-test: >
+      (1) Download BIS published CCS EUR/USD basis data (quarterly, free,
+          BIS.org). Align to quarterly EURUSD spot returns (already in-hand).
+          Compute Spearman rho between lagged basis and subsequent quarterly
+          EURUSD return. If rho < 0.15 or not directionally consistent with
+          theory (negative basis -> subsequent EURUSD appreciation), KILL.
+      (2) Read Du-Tepper-Verdelhan (2018 JF) for OOS estimates: their Table
+          IV shows the CIP deviation predicts currency excess returns at
+          1-month horizon. If reported net SR < 0.3, KILL.
+      (3) Approximate the basis from FRED free data: EUR 3M OIS (ESTER-based)
+          minus USD 3M OIS (SOFR-based) minus EURUSD 3M FX forward basis.
+          This is a ~1 hour construction in Python using FRED API (free).
+          If the approximate basis reconstruction shows no correlation to
+          spot returns, KILL before any vendor subscription.
+    walls-attacked: [W1, W3, W4]
+    # W1: at 4-week hold, ~13 trades/yr -> cost per position is low; not the
+    #     primary attack but materially addressed (low turnover by design).
+    # W3: funding stress episodes are NOT regime-specific to the FOMC hiking
+    #     cycle. The signal fires in MULTIPLE regimes: GFC (2008), COVID
+    #     (2020), banking stress (2023). Specifically NOT concentrated in
+    #     the 2022-23 hiking window the firm identified as its main regime-
+    #     dependence artifact.
+    # W4: FX swap basis is an ENTIRELY DIFFERENT data class from OHLCV —
+    #     it is a pricing signal from the interbank derivatives market, not
+    #     a price-derived technical indicator.
+    evidence-grade: OOS-ACADEMIC-SURVIVOR
+    # Du-Tepper-Verdelhan (2018 JF), Avdjiev et al. (2019 JF), Rime et al.
+    # (2022 JFE) all provide OOS evidence for CCS basis as a predictor of
+    # FX excess returns. This is among the more recent and robustly-evidenced
+    # directions in this slate.
+    approx-data-cost: >
+      BIS quarterly basis data: FREE (bqd.bis.org). FRED approximation:
+      FREE. Refinitiv daily basis: ~$1,200-3,600/yr. Bloomberg terminal:
+      $20k+/yr (out of scope). Feasibility kill test can be done at $0 cost
+      using BIS quarterly data; if the direction survives the kill test, the
+      daily data subscription ($1,200/yr) is the next decision gate.
+
+  # -----------------------------------------------------------------------
+  - name: "Retail Sentiment Contrarian (SSI-type, available from brokers)"
+  # -----------------------------------------------------------------------
+    hypothesis: >
+      When retail traders' net sentiment for a given FX pair reaches a
+      historical extreme (top/bottom decile of short-term retail long/short
+      ratio, measured from broker-published SSI or similar), the market
+      subsequently moves AGAINST the retail crowd over the following 1-2
+      weeks with a gross SR ~0.3-0.5. Falsifiable: if the contrarian signal
+      (go OPPOSITE to extreme retail positioning) does not outperform a
+      coin-flip at 4-week horizon on EUR/USD on 2015-2024 data, KILL.
+    mechanism: >
+      The retail "dumb money" contrarian signal is the oldest practitioner
+      heuristic in FX. The mechanism is real: retail traders are net-losers
+      (CFTC data: ~67% lose), so extreme retail positioning is a SENTIMENT
+      EXTREME that reflects the "maximum wrong" moment. However, "oldest"
+      does not mean "strongest" — the edge is small (SR~0.3-0.5 gross),
+      well-known, and partially arbed by CTAs who monitor the same data.
+      The structural persistence: retail traders REPLENISH continuously
+      (new losers entering as old ones exit), so the sentiment signal
+      doesn't fully self-destruct even as CTAs trade against it. The
+      mechanism is structural, not informational.
+      Data sources: OANDA, Saxo Bank, IG, and MyFxBook publish retail
+      sentiment indicators. The firm has a Saxo account (per memory) — Saxo
+      publishes client sentiment data via their API (FX Sentiment endpoint).
+      This is effectively a ZERO-DATA-COST option if the Saxo API provides
+      historical SSI.
+    data-class-required: >
+      Retail broker sentiment data: % long vs. % short among retail clients,
+      at daily frequency, for at least EUR/USD, GBP/USD, USD/JPY. Sources:
+      - Saxo Bank (firm already has an account — check if OpenAPI /mkt/
+        instruments sentiment endpoint has historical data).
+      - OANDA fxTrade API: free with account, publishes daily sentiment.
+      - MyFxBook: free public sentiment widget at daily/weekly frequency.
+      - IGCS (IG Client Sentiment): free, published daily by IG Markets.
+      Key: availability of HISTORICAL daily SSI (not just current snapshot).
+      Saxo and OANDA may not provide a queryable historical SSI time series.
+    cheap-feasibility-test: >
+      (1) Check Saxo OpenAPI for historical SSI endpoint (the firm has a
+          Saxo account). If historical SSI series is available, download
+          EUR/USD SSI for 2015-2024 and run a simple contrarian signal
+          (go opposite extreme >85th percentile, hold 5 days). If gross SR
+          < 0.2, KILL.
+      (2) If Saxo historical SSI unavailable: IGCS publishes weekly sentiment
+          summaries archived by DailyFX (some historical data is public).
+          Use that as a proxy.
+      (3) Academic baseline: Daigler & Wiley (1999 JF) on retail futures
+          sentiment contrarian; Oehler et al. (2016) on retail FX client
+          sentiment — if OOS SR from these papers is below 0.3 net of cost
+          at the proposed hold period, the direction fails the academic bar.
+      (4) Critical check: SSI data from retail brokers is from THEIR CLIENTS
+          ONLY. If the firm is also retail (Saxo retail account), the SSI is
+          partially contaminated by the firm's own positions — this is a
+          self-referential issue that doesn't arise with COT (exchange-wide
+          positioning).
+    walls-attacked: [W3, W4]
+    # W3: retail sentiment extremes occur across ALL macro regimes (not
+    #     concentrated in 2022-23 hiking cycle). The "dumb money" signal is
+    #     regime-agnostic because retail traders are wrong in every environment.
+    # W4: SSI is a non-OHLCV data class — it is an aggregated ORDER FLOW
+    #     proxy from retail brokerage client positions. Not a price-derived
+    #     technical indicator.
+    evidence-grade: OOS-PRACTITIONER-SURVIVOR
+    # The "retail sentiment contrarian" is practitioner-documented (large
+    # brokers publish it; CTAs trade it) but academic OOS is thin
+    # (Daigler-Wiley 1999 is for CME futures, not spot FX specifically;
+    # Oehler 2016 is limited). Graded OOS-PRACTITIONER-SURVIVOR per the PM
+    # enum: the mechanism survives in practitioner P&L records and the CFTC
+    # ~67%-retail-loss base rate, but the OOS SR for SPOT FX specifically is
+    # NOT well-documented in peer-reviewed literature. NOT an academic survivor.
+    approx-data-cost: >
+      Potentially $0 if Saxo API has historical SSI (firm already has
+      account). Otherwise: IGCS/DailyFX historical data (free, limited);
+      premium SSI history via IG (~$0-200/yr). The feasibility kill test
+      is $0 — check Saxo API first.
+
+# ============================================================
+# STEER CHALLENGE ANNOTATION
+# ============================================================
+challenges-steer:
+  - "Scheduled Economic Surprise (NFP / CPI Reaction)"
+  - "Inter-Dealer FX Swap Basis as Funding Stress Indicator"
+  # Both of these challenge the CEO steer that higher-frequency / non-OHLCV
+  # signal directions fight Wall W1 head-on. The challenge:
+  #
+  # [Economic Surprise]: The approach is HIGHER frequency (5-15min hold)
+  # but it does NOT require latency competition. The edge is from INFORMATION
+  # (surprise direction) not from speed of execution. A systematic strategy
+  # can enter 30-60 seconds AFTER the release at a (still wide, but
+  # manageable) spread and capture the post-release drift. The W1 constraint
+  # for this strategy is "spread widening at release" (3-5 pip one-way),
+  # not the ongoing 0.4 pip normal spread. With ~70 events/yr at 15-20 pip
+  # average absolute move, the economics are on the right side of the hurdle
+  # for the NFP and FOMC subset. This DOES go around W1 if constrained to
+  # high-impact events with large absolute moves.
+  #
+  # [FX Swap Basis]: This is a DAILY signal from the FX swap market. It uses
+  # a data class (cross-currency basis) that is definitionally inaccessible
+  # to retail OHLCV systems but is NOT a HFT signal. It genuinely goes around
+  # W4 via a different market segment (interbank derivatives) and W3 via a
+  # regime-agnostic mechanism (funding stress is an all-weather phenomenon).
+  # This directly challenges the steer's implicit assumption that "non-OHLCV
+  # order-flow data" is synonymous with "HFT / latency competition."
+
+# ============================================================
+# HONEST NOTE
+# ============================================================
+honest-note: |
+  WHAT I WOULD ACTUALLY BET ON (practitioner take):
+
+  1. CME COT positioning (Direction 2): This is the most IMMEDIATELY
+     executable direction at zero data cost with the best evidence base
+     per cost. COT data is FREE, the signal has OOS academic support at
+     1-4 week frequency, and turnover is low enough that W1 is not binding.
+     The SR is modest (~0.4-0.6 gross) but the CONFIRMABILITY window is
+     short (at weekly rebalancing, 52 events/yr/pair, 6 pairs after G5
+     pooling → at SR 0.4 and rho 0.30, effective N ~200 events/yr →
+     years_to_validate ~ 6yr... still long. Honest: even the "best" direction
+     here has a multi-year validation horizon. This is the dataset-wall
+     problem in a new guise — any LOW-FREQUENCY signal requires years to
+     confirm.)
+
+  2. FX Swap Basis (Direction 6): The most academically grounded TRULY
+     different data class. Du-Tepper-Verdelhan (2018 JF) is the strongest
+     citation in this slate. The feasibility test is free (BIS data). The
+     mechanism is orthogonal to all four walls. My concern: the signal fires
+     only during funding stress episodes (2008, 2020, 2023) — the same
+     regime-concentration problem may resurface at a DIFFERENT regime axis
+     (stress vs. calm) rather than the hiking-cycle axis. Needs honest
+     checking.
+
+  3. London Fix (Direction 1): Real mechanism, real academic evidence, but
+     SUBSTANTIALLY weakened post-2013 FCA investigations. I would use this
+     as a KILL TEST only — a good cheap-feasibility filter to confirm
+     whether the fix effect still has economic magnitude in post-2014 data.
+     Expectation: it probably KILLS on the feasibility screen.
+
+  WHAT IS FOLKLORE:
+  - Retail Sentiment Contrarian (Direction 7): The mechanism is real but
+    the academic OOS SR is thin for spot FX specifically. It is practitioner
+    lore more than proven edge. IGCS/SSI data quality is variable. Grade
+    honestly as "plausible-structural" — do not advance without a proper
+    OOS test.
+  - Session-Open Volatility Regime Filter (Direction 5): This is an OVERLAY
+    on H1, not an independent direction. Included for completeness and
+    because it uses $0 new data, but it should not be independently
+    pre-registered.
+
+  CAN RETAIL ACCESS MICROSTRUCTURE EDGES?
+  The honest answer: most REAL microstructure edges (bid-ask spread dynamics,
+  order-book imbalance, dealer positioning, dark pool flows) are INACCESSIBLE
+  to retail. L2 order book data for spot FX is available from Reuters or
+  Bloomberg but costs $50k+/yr. CME FX futures L2 is cheaper (~$2k-10k/yr
+  for CBOT market depth) but is a PROXY for spot. The directions in this
+  slate that are ACCESSIBLE to a sub-institutional player are:
+  (a) CME COT (free, weekly lag, institutional positioning proxy)
+  (b) FX swap basis (free at quarterly lag from BIS; $1.2k/yr for daily)
+  (c) Option risk-reversals (free for EUR/JPY via FRBNY; $500/yr for 6 pairs)
+  (d) London Fix (free data, just M5 bars from Dukascopy)
+  (e) Economic surprises (free actual data, cheap consensus history)
+  What is NOT accessible: real-time L2 depth, dealer proprietary flow data,
+  interbank fixing agent book data. These would require a prime brokerage
+  relationship or a bank access agreement that is out of scope for this firm.
+
+  THE WALL THAT REMAINS BINDING:
+  W4 is the most addressable wall in this slate (COT, RR, FX basis all
+  provide TRUE non-OHLCV data). W1 is addressed by LOW TURNOVER strategies,
+  not by HFT. W2 is NOT well-addressed here — most directions are still
+  USD-pair dominated. W3 is partially addressed (COT, FX basis are more
+  regime-agnostic than the firm's historical approaches). The honest limit
+  is that with a 10-pair retail universe and monthly-to-weekly signal
+  frequency, effective breadth remains ~2-4 independent bets regardless
+  of the data class. Going from retail OHLCV to COT/RR data improves W4
+  materially; W2 requires cross-asset diversification (equities, rates,
+  commodities) that is beyond the current firm scope.
+
+# ============================================================
+# SOURCES
+# ============================================================
+sources:
+  - "Ito & Yamada (2013) — WMR fix drift and benchmark manipulation evidence"
+  - "Evans & Lyons (2002 JPE) — customer order flow and FX price dynamics"
+  - "Melvin & Prins (2015 JFE) — institutional FX order flow at benchmark fixes"
+  - "Klitgaard & Weir (2004 FRBNY Economic Policy Review) — COT positioning and FX returns"
+  - "Dewachter, Lyrio & Maes (2004) — FX positioning and direction prediction"
+  - "Menkhoff, Sarno, Schmeling, Schrimpf (2021 JFE) — comprehensive FX factor review"
+  - "Carr & Wu (2007 JFE) — currency option risk-reversals and spot return prediction"
+  - "Brunnermeier, Nagel & Pedersen (2009 QJE) — carry trade and FX risk-reversals"
+  - "Jurek (2014 JFE) — crash-risk-adjusted carry and risk-reversal signals"
+  - "Bernanke & Kuttner (2005 JF) — monetary policy surprises and asset prices"
+  - "Becker, Finnerty & Kopecky (2006 JFE) — macro announcement effects in FX"
+  - "Du, Tepper & Verdelhan (2018 JF) — deviations from covered interest rate parity"
+  - "Avdjiev, Du, Koch & Shin (2019 JF) — dollar exchange rate and deviations from CIP"
+  - "BIS Quarterly Reviews (2017, 2019) — cross-currency basis and FX swap market structure"
+  - "Rime, Schrimpf & Syrstad (2022 JFE) — segmented money markets and CIP deviations"
+  - "Harvey, Rattray, Sinclair & van Hemert (2019 SSRN) — Man vs. Machine: trend-following regimes"
+  - "Daigler & Wiley (1999 JF) — retail futures traders and sentiment contrarian signal"
+  - "CFTC Commitment of Traders Disaggregated Report — public, cftc.gov"
+  - "FRBNY option-implied moments database — public, newyorkfed.org"
+  - "BIS cross-currency basis dataset — public, bis.org"
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS-SUMMARY.md"
+  - ".fintech-org/artifacts/2026-06-18-hypothesis-slate/hoqr-next-cycle-slate.yaml"
+
+no-capital-instruction: true

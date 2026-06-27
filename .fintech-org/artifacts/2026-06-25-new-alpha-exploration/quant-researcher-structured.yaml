@@ -1,0 +1,521 @@
+role: quant-researcher
+artifact_type: trade-intent
+decision: implement
+timestamp: "2026-06-26T03:34:42Z"
+subtask_ref: new-alpha-exploration
+subtask_id: new-alpha-exploration-2026-06-25-qr
+trial_id: new-alpha-exploration-2026-06-25-qr
+pre-registration-ref: "PENDING — exploration shortlist; no committed pre-registration this cycle"
+
+# ============================================================================
+# SELECTION RATIONALE (which 3 of the slate, and why)
+# ============================================================================
+# Selection criterion: evidence-grade (peer-reviewed OOS preferred) ×
+# cheap-feasibility-test specificity × number-of-walls-genuinely-attacked ×
+# data-acquisition cost (cheaper preferred) — subject to the firm's
+# binding NO-EDGE / cost-dominance / confirmability findings.
+#
+# The forex-trading skill EVIDENCE LAYER is load-bearing: the ONLY
+# peer-reviewed OOS-documented systematic FX edges are CARRY and
+# CROSS-SECTIONAL/TIME-SERIES MOMENTUM, both gross-of-cost with hard
+# caveats (carry = crash-risk-compensation, negatively skewed; momentum
+# materially eaten by transaction costs; cost-adjusted carry profitability
+# did NOT survive verification). Everything else in the slate is either a
+# transplant of those two factors to a cheaper-execution venue, a different
+# DATA CLASS that closes Wall W4, or theory-grounded-untested.
+#
+# I structure the three directions that score highest on that criterion and
+# that are GENUINELY structurable as falsifiable pre-registerable hypotheses
+# with a machine-checkable cheap gate BEFORE any data spend:
+#
+#   C1  CME FX FUTURES TIME-SERIES MOMENTUM  (academic OOS survivor; the
+#       single strongest cell of evidence-grade × cheap-data × walls in the
+#       whole slate; converges across academic-lens + contrarian-lens)
+#   C2  MULTI-ASSET FACTOR BASKET / COMMODITY-TREND TRANSPLANT  (academic
+#       OOS survivor; the only direction that structurally LEAVES the FX
+#       universe and so makes W2 + W3 non-binding by construction)
+#   C3  FX SWAP BASIS / CIP-DEVIATION as a directional predictor  (the most
+#       recent + cleanest peer-reviewed OOS evidence for a TRULY different
+#       data class — Du-Tepper-Verdelhan 2018 JF — orthogonal to all four
+#       walls; free feasibility test on BIS data)
+#
+# Directions NOT carried forward by THIS role (with one-line reason; HoQR
+# owns the final ranking/merge):
+#   - FX-VRP option-selling: OOS survivor BUT infrastructure-blocked (retail
+#     option bid-ask destroys the premium); a RESEARCH, not near-term
+#     pre-registerable, candidate. Defer.
+#   - COT positioning contrarian: free + cost-survivable, but the cleanest
+#     version (Leveraged-Funds smart-money) and the "fade-retail" version
+#     conflate; the "non-reportable = retail" bridge is asserted, not
+#     established (contrarian-lens flagged this honestly). Structurable, but
+#     weaker evidence-grade than C1/C3; HoQR may merge it as the
+#     positioning sleeve of C1's futures universe.
+#   - Carry-timing-via-option-skew / risk-reversal: OOS survivor, but it IS
+#     carry — re-opens the R5/QRB archived near-miss family; structurally a
+#     refinement, not a structurally-new direction. Defer to a carry-
+#     refinement cycle if the Board re-opens carry.
+#   - REER value / dollar-imbalance: theory-grounded-untested, free data,
+#     BUT 3-5yr half-life → recurs the confirmability wall hard. Lower
+#     priority than C1/C3.
+#   - London-fix / NFP-CPI-surprise: W1-adjacent (spread-widening at the
+#     event IS the kill mechanism); both generators expect them to KILL on
+#     the feasibility screen. Keep the cheap kill-test, do not structure as
+#     a committed candidate.
+#   - CB-text LLM classifier: forbidden family for THIS role (no ML); it is
+#     the ML-researcher's to evaluate.
+#   - Sell-the-harness / RaaS: a business-model reframe, not a TradeIntent;
+#     out of QR scope.
+# ============================================================================
+
+structured-candidates:
+
+  # --------------------------------------------------------------------------
+  - name: cme-fx-futures-time-series-momentum
+    hypothesis: >
+      IF 12-month time-series momentum (TSMOM, the sign of the trailing
+      12-month excess return, vol-scaled) is harvested across the liquid
+      CME-listed FX futures universe (EUR, GBP, JPY, AUD, CAD, CHF, NZD, MXN,
+      plus other actively-traded contracts), THEN the net-of-cost Sharpe is
+      positive — because CME futures round-trip cost (~0.2-0.8 pip-equivalent,
+      5-10x below retail spot spread) makes the documented gross FX-TSMOM
+      Sharpe (~0.4 OOS, Moskowitz-Ooi-Pedersen 2012) survivable, where the
+      same factor on retail spot was cost-dominated — testable by the cheap
+      cost-hurdle arithmetic below, with no committed backtest this cycle.
+      Falsifiable: it FAILS if published gross FX-TSMOM Sharpe net of modeled
+      CME round-trip cost at the implied turnover is <= 0, or if the minimum
+      viable position size to keep RT cost <20% of gross edge exceeds the
+      firm's capital base.
+    universe: >
+      CME/Globex-listed FX futures, back-adjusted continuous contracts. Core
+      liquid set: 6E (EUR), 6B (GBP), 6J (JPY), 6A (AUD), 6C (CAD), 6S (CHF),
+      6N (NZD), 6M (MXN); optional breadth: 6L (BRL), SEK/NOK, CNH where
+      liquidity permits. This LEAVES retail-spot FX for the exchange-traded
+      futures venue but stays WITHIN the FX asset class. Excludes GBPJPY
+      (prior HoQR exclusion is a spot-cross ruling; the futures universe does
+      not include a GBPJPY contract, so the exclusion is not triggered).
+    data-class-required: >
+      CME FX futures daily (or intraday) OHLCV + true exchange VOLUME + OPEN
+      INTEREST, back-adjusted continuous series, >=20yr history for multi-
+      regime coverage. This is a DIFFERENT data class from the firm's retail
+      1h/daily OHLCV+spread (it carries genuine exchange volume/OI — the W4-
+      closing property). Source + approx cost: Norgate Data FX-futures
+      historical ~$250-500/yr (PAID, single low-cost vendor); Nasdaq Data
+      Link / Quandl CME continuous ~$420-500/yr (PAID); CME DataMine (FREE for
+      academic/institutional tiers); the G10 majors subset is available at
+      near-zero cost via public continuous series (quality/continuity varies)
+      sufficient for the cheap-feasibility test.
+    evaluation-metric: >
+      Deflated Sharpe Ratio (Bailey-Lopez de Prado) with the firm's ratified
+      N=30 deflation denominator, computed under Combinatorial Purged Cross-
+      Validation (CPCV) with embargo, on NET-of-cost returns using a frozen
+      CME round-trip cost manifest. Regime-stratified report (hiking vs.
+      easing vs. on-hold; risk-on vs. risk-off) is MANDATORY given the firm's
+      W3 finding. Honest-N-aware: a future committed trial increments the
+      counter; this cycle does not. Cross-sectional breadth must be reported
+      as EFFECTIVE independent bets (post-G5 concentration), not raw contract
+      count — the 8-contract universe is highly USD-cross-loaded and the
+      effective N is materially below 8.
+    falsification-criteria: >
+      Machine-checkable kill conditions (ANY true => KILL before/at a future
+      pre-registration): (1) published gross FX-TSMOM Sharpe (MOP 2012 Table,
+      FX-futures sleeve) net of modeled CME RT cost at the implied annual
+      turnover <= 0.0; (2) minimum viable per-contract notional to hold RT
+      cost < 20% of gross per-rebalance edge > the firm's available capital
+      base; (3) at committed-backtest time, net-of-cost DSR < 0.95 under
+      N=30 deflation; (4) regime-stratified check shows > 50% of net gross
+      edge concentrated in a single macro regime (recurs W3) AND the
+      remaining-regime net Sharpe <= 0.
+    cheap-feasibility-test: >
+      PURE ARITHMETIC ON PUBLISHED NUMBERS + PUBLIC FEE SCHEDULES, NO
+      BACKTEST. Step A (gross vs cost): take the MOP (2012) reported gross
+      FX-futures TSMOM Sharpe (~0.4) and the contract's implied annual
+      turnover at the 12-month signal; from the public CME/Globex fee schedule
+      + 1-2 tick bid-ask, compute modeled annual RT cost as a Sharpe drag
+      (annualized_RT_cost / annualized_vol). Step B (capital sizing): compute
+      the minimum viable position size such that RT cost is < 20% of the
+      gross per-rebalance edge, and compare to the firm's paper-trading
+      capital base. Both steps are ~1 hour of desk arithmetic on the free
+      G10-subset series + published Sharpe; a committed CPCV backtest is
+      explicitly DEFERRED.
+    kill-number: >
+      KILL if (gross_FX-TSMOM_Sharpe ~0.4) minus (modeled CME RT-cost Sharpe
+      drag) <= 0.0; OR if min-viable-notional-per-contract > firm capital base
+      (i.e., the strategy is sound but capital-infeasible at current scale).
+      Explicit numeric gate: net-of-cost Sharpe drag must leave >= 0.20
+      residual gross Sharpe for the direction to advance to a future
+      pre-registration.
+    walls-attacked: >
+      W1 (cost-dominance) — DIRECTLY: CME futures RT cost ~5-10x below retail
+      spot spread; this is the precise mechanism by which a cost-dominated FX
+      factor becomes potentially viable. W4 (no-true-volume/order-flow) —
+      DIRECTLY: CME publishes audited exchange volume + OI daily (genuine,
+      not tick-count proxy). W2 (USD-concentration) — PARTIALLY: 8+ contracts
+      vs 10 retail pairs, but the futures set is still USD-cross-dominated;
+      effective independent bets remain low (see evaluation-metric). W3
+      (regime-dependence) — PARTIALLY: 12-month signal is multi-regime by
+      construction, but TSMOM is itself known to underperform in sharp
+      regime-reversals; not neutralized.
+    walls-NOT-solved: >
+      W2 is only partially relieved — the futures universe is USD-cross-loaded
+      and effective breadth stays ~2-4 independent bets, the same structural
+      ceiling the firm hit on retail spot. W3 is NOT neutralized — TSMOM has
+      documented regime-reversal drawdowns. Capital-scale (min viable
+      contract notional) is a NEW constraint introduced by moving to futures
+      and may be the binding killer at the firm's current size.
+    confirmability-horizon: >
+      MIXED, leans favorable vs. the firm's prior. TSMOM is a daily-to-monthly
+      rebalanced signal; at a per-contract Sharpe ~0.4 with rho-adjusted
+      effective breadth ~2-4 contracts, honest years-to-validate at 80% power
+      is on the order of ~5-8yr for the pooled estimate — LONGER than the
+      firm's <=3yr confirmability bar, so it RECURS the confirmability/dataset
+      wall at the effective-breadth level even though the data history is
+      long. Caveat: the >=20yr futures history means OOS is available even if
+      forward-confirmation is slow; this is better-positioned than the daily-
+      pair families but is NOT a clean escape from the wall.
+
+  # --------------------------------------------------------------------------
+  - name: multi-asset-factor-basket-and-commodity-trend-transplant
+    hypothesis: >
+      IF the carry and trend/momentum factors — documented OOS survivors
+      ACROSS asset classes (Asness-Moskowitz-Pedersen 2013 "Value and
+      Momentum Everywhere"; Hurst-Ooi-Pedersen 2017 "A Century of Evidence
+      on Trend-Following") — are harvested as a risk-parity basket spanning
+      FX carry + rates carry (Treasury futures) + commodity trend (energy /
+      metals / ags futures), THEN the combined net-of-cost Sharpe exceeds any
+      single-FX-sleeve strategy AND has materially lower single-regime
+      dependence, because the same factor is empirically low-correlated across
+      asset classes even when correlated within them — testable by reading the
+      published combined-basket OOS Sharpe + a futures cost-hurdle check, with
+      no committed backtest this cycle. Falsifiable: it FAILS if the published
+      combined OOS Sharpe is < 0.4 gross, OR if the commodity/rates futures
+      cost hurdle exceeds the implied per-rebalance gross edge at monthly
+      rebalancing.
+    universe: >
+      EXPLICITLY LEAVES FX as the hero. Three sleeves: (a) FX carry — existing
+      firm capability as ONE sleeve, not the whole strategy; (b) rates carry —
+      Treasury futures (ZN/TY 10y, ZF/FV 5y); (c) commodity trend — CL (WTI),
+      GC (gold), HG (copper), ZC (corn), ZS (soybeans), NG (nat gas) and
+      similar liquid CME/NYMEX/CBOT contracts. This is a CROSS-ASSET universe;
+      the FX sleeve is a minority weight. Genuinely categorically different
+      from F1-F6/R5/QRB-6 (those were single-asset retail-FX OHLCV).
+    data-class-required: >
+      Continuous futures OHLCV + VOLUME + OI for Treasury and commodity
+      contracts (a genuinely new data class — volume-inclusive, exchange-
+      traded, non-FX). Source + approx cost: daily OHLCV+volume FREE via
+      public daily futures series for 3-10 liquid markets (feasibility-test
+      tier); Nasdaq Data Link / Quandl clean continuous futures ~$420/yr
+      (PAID) for backtest-grade rolls; institutional-clean intraday rolls
+      ~$2,000-10,000/yr (PAID, deferred). FX carry sleeve uses existing firm
+      data; rates/commodity sleeves are the new class.
+    evaluation-metric: >
+      Deflated Sharpe Ratio under N=30 deflation, computed via CPCV with
+      embargo on NET-of-cost basket returns with a frozen per-contract cost
+      manifest per asset class. MANDATORY reporting: (i) per-sleeve and
+      combined Sharpe; (ii) the realized cross-sleeve correlation matrix
+      (the load-bearing claim is LOW cross-asset factor correlation — if the
+      sleeves are in fact highly correlated in-sample, the W2/W3 attack
+      collapses); (iii) regime-stratified combined Sharpe; (iv) effective
+      independent bets across the basket (not nominal sleeve count).
+    falsification-criteria: >
+      Machine-checkable (ANY true => KILL): (1) published combined cross-asset
+      carry+momentum OOS Sharpe (AMP 2013 Table 1 / Hurst 2017 post-2000
+      sub-period) < 0.4 gross; (2) modeled rates/commodity futures RT cost >
+      25% of implied per-rebalance gross edge at monthly rebalancing; (3) at
+      committed-backtest time, realized cross-sleeve correlation > 0.6 (the
+      diversification premise fails — basket collapses to ~one bet); (4)
+      net-of-cost combined DSR < 0.95 under N=30; (5) regime-stratified check
+      shows the combined basket still derives > 50% of net edge from one
+      macro regime (the W3 attack failed).
+    cheap-feasibility-test: >
+      TWO ANALYTICAL CHECKS ON PUBLISHED NUMBERS, NO BACKTEST. Check 1
+      (published OOS read): from AMP (2013) Table 1, read the combined
+      equal-weight carry+momentum-across-4-asset-classes OOS Sharpe; from
+      Hurst-Ooi-Pedersen (2017) Exhibit 2 read the commodity-trend sleeve OOS
+      Sharpe for the POST-2000 sub-period specifically (the literature's own
+      verdict on persistence). KILL if post-2000 combined OOS Sharpe < 0.4.
+      Check 2 (cost hurdle): from public exchange fee schedules + 0.5-2 tick
+      bid-ask, compute round-trip cost of ZN / CL / GC / ZC as a fraction of
+      notional (Treasuries ~1bp on ~$130k notional; commodities a few bp) and
+      compare to the implied per-rebalance gross edge at monthly rebalancing.
+      Both are ~1 hour desk computations on free daily series + published
+      numbers. Committed CPCV backtest DEFERRED.
+    kill-number: >
+      KILL if published post-2000 combined cross-asset carry+momentum OOS
+      Sharpe < 0.4 gross; OR if modeled futures RT cost > 25% of implied
+      per-rebalance gross edge at monthly rebalancing; OR (at backtest)
+      realized cross-sleeve correlation > 0.6.
+    walls-attacked: >
+      W2 (USD-concentration) — DIRECTLY and most strongly in the slate: rates
+      and commodity futures are non-USD-factor asset classes; the basket de-
+      loads USD by construction. W3 (regime-dependence) — DIRECTLY: multi-
+      asset factor diversification is the ACADEMICALLY DOCUMENTED remedy for
+      single-asset factor blowup; sectors span uncorrelated macro themes.
+      W1 (cost-dominance) — DIRECTLY: futures costs are 10-20x below FX spot
+      spread per unit notional and the basket rebalances monthly/quarterly.
+      W4 (no-volume) — DIRECTLY: all futures sleeves carry genuine exchange
+      volume + OI.
+    walls-NOT-solved: >
+      The W2/W3 attack is CONDITIONAL on the cross-sleeve correlation actually
+      being low out-of-sample — if carry and trend co-move in the next risk-
+      off (as they sometimes do, e.g. a simultaneous carry-and-trend
+      drawdown), the diversification premise that the whole direction rests on
+      fails, and the basket collapses toward a single regime-dependent bet.
+      This is the central risk and is exactly what kill-criterion (3) and the
+      mandatory correlation report guard. Also: this direction takes the firm
+      OUT of its FX domain expertise into rates/commodity microstructure it
+      has not modeled.
+    confirmability-horizon: >
+      FAVORABLE relative to single-FX directions, and the best escape from the
+      dataset wall in the slate. Cross-asset breadth genuinely raises the
+      effective independent-bet count (the wall's root cause was low effective
+      N from a USD-loaded 10-pair universe); a true multi-asset basket can
+      plausibly reach effective N high enough to bring years-to-validate
+      toward the <=3yr bar at a combined Sharpe >0.5. The honest caveat: this
+      depends on the cross-sleeve correlation being low (same as the kill
+      criterion), and on the firm acquiring competence in two new asset
+      classes. Best-positioned direction on the confirmability axis, NOT
+      guaranteed.
+
+  # --------------------------------------------------------------------------
+  - name: fx-swap-basis-cip-deviation-directional-predictor
+    hypothesis: >
+      IF the 3-month cross-currency basis swap spread (the CIP deviation; e.g.
+      EUR/USD basis) captures interbank USD-funding stress, THEN the basis
+      level predicts the subsequent 1-4 week spot return of the corresponding
+      pair (severely negative basis = acute USD-funding demand => subsequent
+      mean-reverting USD weakness as the stress unwinds), with a gross Sharpe
+      ~0.4-0.6 at 1-4 week holding, DISTINCT from interest-rate carry — because
+      the basis is a pricing signal from a segmented institutional money
+      market (CIP deviations are real and persistent post-2008: Du-Tepper-
+      Verdelhan 2018 JF; Avdjiev et al. 2019 JF) that retail OHLCV cannot see.
+      Testable by a free Spearman rank-correlation check on BIS data, with no
+      committed backtest this cycle. Falsifiable: it FAILS if, on free BIS
+      basis data, the basis-to-subsequent-return rank correlation is not
+      directionally consistent with theory or |rho| < 0.15.
+    universe: >
+      Spot (or FX-forward) on the major pairs for which a published cross-
+      currency basis exists: EUR/USD primary; USD/JPY, GBP/USD, USD/CHF,
+      AUD/USD secondary. STAYS WITHIN FX for execution, but the SIGNAL comes
+      from the interbank cross-currency-swap market — a different market
+      segment than spot OHLCV. Execution is vanilla spot/forward (retail-
+      accessible); the CCS market itself (>=$25-50m notional) is only the
+      signal source, not the traded instrument.
+    data-class-required: >
+      Daily 3-month cross-currency basis swap spread per pair (a genuinely
+      different data class from OHLCV — an interbank derivatives pricing
+      signal carrying funding-stress / order-flow information). Source +
+      approx cost: BIS published CCS basis dataset — FREE, quarterly, ~3-month
+      lag (sufficient to KILL or provisionally pass the feasibility test); a
+      FRED free-data reconstruction (EUR 3M OIS minus USD 3M OIS minus EURUSD
+      3M FX-forward basis) — FREE, ~1hr to build; daily real-time basis via
+      Refinitiv/LSEG ~$1,200-3,600/yr (PAID, only if the free test survives);
+      Bloomberg XCCY screen ~$20k+/yr (PROHIBITIVE, out of scope).
+    evaluation-metric: >
+      Deflated Sharpe Ratio under N=30 deflation via CPCV with embargo on
+      NET-of-cost spot/forward returns (1-4 week hold; ~13-50 round-trips/yr,
+      so RT cost is a small fraction of annual range — W1 light). MANDATORY:
+      regime-stratified by funding-stress episode (GFC 2008 / COVID 2020 /
+      banking-stress 2023 vs. calm) — the central honest risk is that the
+      signal FIRES ONLY during stress episodes, recurring regime-concentration
+      on a DIFFERENT axis (stress-vs-calm) than the firm's hiking-cycle axis.
+      Report the count of independent stress episodes in-sample (likely very
+      few) as the effective-N driver.
+    falsification-criteria: >
+      Machine-checkable (ANY true => KILL): (1) on free BIS quarterly basis
+      data aligned to subsequent quarterly spot returns, Spearman
+      rank-correlation |rho| < 0.15 OR sign opposite to theory (negative basis
+      not followed by subsequent USD weakness); (2) Du-Tepper-Verdelhan (2018)
+      reported net-of-cost predictive Sharpe at 1-month horizon < 0.3; (3) at
+      committed-backtest time, net-of-cost DSR < 0.95 under N=30; (4) the
+      number of independent funding-stress episodes in the usable sample is
+      so small (e.g. < 4) that years-to-validate at power is infeasible
+      (recurs the QRB-6 confirmability failure mode).
+    cheap-feasibility-test: >
+      ANALYTICAL SIGNAL CHECK ON FREE DATA, NO STRATEGY BACKTEST. Download the
+      BIS published EUR/USD 3-month CCS basis (quarterly, free) and align to
+      the firm's existing quarterly EUR/USD spot returns. Compute ONE
+      statistic: the Spearman rank-correlation between the lagged basis level
+      and the subsequent quarterly spot return, and check the SIGN against
+      theory. Optionally cross-check with a FRED free reconstruction of the
+      basis (~1hr). This is a property of two SERIES, not a portfolio return —
+      no Sharpe, no sizing, no committed trial. ~1 hour total. If it survives,
+      the next gate (worth the $1,200/yr daily-data subscription?) is a
+      SEPARATE future Board decision.
+    kill-number: >
+      KILL if Spearman |rho| between lagged BIS basis and subsequent spot
+      return < 0.15, OR if the sign is opposite to the funding-stress-unwind
+      theory, OR if Du-Tepper-Verdelhan (2018) net-of-cost 1-month predictive
+      Sharpe < 0.3.
+    walls-attacked: >
+      W4 (no-true-volume/order-flow) — DIRECTLY: the CCS basis is an entirely
+      different data class from OHLCV, carrying interbank funding-stress /
+      order-flow information unavailable to a retail price feed. W3 (regime-
+      dependence) — PARTIALLY and on a DIFFERENT axis: funding stress is NOT
+      specific to the 2022-23 hiking cycle (it fires in GFC, COVID, 2023
+      banking stress), so it sidesteps the firm's identified hiking-cycle
+      artifact — but see walls-NOT-solved. W1 (cost-dominance) — INDIRECTLY:
+      1-4 week hold => low turnover => cost is not the dominant drag.
+    walls-NOT-solved: >
+      W3 is only re-axised, not neutralized: the signal plausibly fires ONLY
+      during funding-stress episodes, which re-introduces regime-concentration
+      on a stress-vs-calm axis and — critically — means the number of
+      INDEPENDENT events in any usable sample is very small (a handful of
+      stress episodes in 20yr). W2 is NOT attacked (still USD-pair dominated,
+      EUR/USD-centric). The strategy also assumes the basis-to-spot mean-
+      reversion timing (1-4 week unwind) is stable across very different
+      stress episodes — an assumption, not an established constant.
+    confirmability-horizon: >
+      UNFAVORABLE — this is the direction most likely to RECUR THE QRB-6
+      CONFIRMABILITY WALL. Because the edge is concentrated in a handful of
+      independent funding-stress episodes (2008, 2020, 2023), the effective
+      event-count is tiny regardless of the data history's calendar length;
+      years-to-validate at 80% power is plausibly well beyond the firm's
+      <=3yr bar and could approach the QRB-6 "infeasible power" regime. It is
+      carried forward DESPITE this because its DATA CLASS is the cleanest,
+      most-orthogonal-to-all-four-walls signal in the slate and the
+      feasibility test is FREE — but the confirmability caveat is load-bearing
+      and the Board must weigh it. Honest: strong mechanism, weak
+      confirmability.
+
+# ============================================================================
+slippage-distribution: >
+  Declarative cost assumptions per candidate (NO numeric edge claimed; these
+  are the COST side of the feasibility hurdle only):
+  - C1 cme-fx-futures-tsmom: model CME/Globex commission + 1-2 tick bid-ask
+    per round-trip (~0.2-0.8 pip-equivalent on liquid majors); assume slippage
+    ~0.5 tick on liquid contracts in normal conditions, wider on 6M/6L (EM
+    contracts) and around macro events. Cost is a FROZEN manifest per contract
+    at committed-backtest time; the cheap test uses published fee schedules.
+  - C2 multi-asset-basket: per-asset-class round-trip manifest — Treasuries
+    ~0.5 tick (~1bp on notional), liquid commodities a few bp (1-2 tick
+    bid-ask + commission); FX-carry sleeve inherits the firm's existing spot
+    cost model. Slippage assumed modest at monthly rebalancing on liquid
+    contracts; roll cost must be modeled explicitly (continuous-contract roll
+    is a real cost the cheap test must not omit).
+  - C3 fx-swap-basis: execution is vanilla spot/forward at the firm's existing
+    retail spot cost model (~1-2 pip RT on majors); at 1-4 week hold this is a
+    small fraction of annual range. The CCS basis is signal-only (not traded),
+    so it carries NO execution cost. Note the funding-stress regime is exactly
+    when spot spreads WIDEN — the cost manifest must use stress-conditional
+    (not calm) spreads for the episodes that drive the edge.
+  General: all three defer the FROZEN cost manifest to the future committed
+  pre-registration; this cycle uses published fee schedules / existing spot
+  cost model for the cheap arithmetic only. No live capital. No slippage
+  realized this cycle (no trading).
+
+retirement-triggers: >
+  Machine-checkable (per candidate; ANY true retires the candidate):
+  - ANY of the candidate's listed falsification-criteria fires on the cheap
+    free-data feasibility test (no spend incurred).
+  - kill-number breached on the cheap test.
+  - At a FUTURE committed pre-registration: net-of-cost DSR < 0.95 under the
+    ratified N=30 deflation denominator under CPCV.
+  - Regime-stratified check shows > 50% of net edge from a single regime AND
+    remaining-regime net Sharpe <= 0 (recurs W3).
+  - Effective-independent-bet count / independent-event count is so low that
+    years-to-validate at 80% power exceeds the firm's confirmability bar
+    (recurs the dataset/QRB-6 wall) — this is a SOFT retirement flag for C1,
+    HARD for C3.
+  - honest-N changes for any reason other than a Board-authorized committed
+    advance of this exact candidate (NHT sign-off required).
+
+evidence:
+  - "forex-trading SKILL.md §2.5 EVIDENCE LAYER — carry + cross-sectional/time-series FX momentum are the ONLY peer-reviewed OOS-documented systematic FX edges; carry = crash-risk compensation (negatively skewed); momentum gross-of-cost materially eaten by transaction costs; cost-adjusted carry profitability did NOT survive verification; CFTC ~2/3 retail-loss base rate; Park-Irwin 95-study TA survey (39 non-positive, decay post-1990s)."
+  - "Moskowitz, Ooi, Pedersen (2012) 'Time Series Momentum', JFE 104(2):228-250 — OOS 1985-2012 multi-asset incl FX futures; the evidence base for C1."
+  - "Asness, Moskowitz, Pedersen (2013) 'Value and Momentum Everywhere', JF — cross-asset carry+momentum OOS survivors; the evidence base for C2 (Table 1)."
+  - "Hurst, Ooi, Pedersen (2017) 'A Century of Evidence on Trend-Following Investing', JPM — commodity-sector trend OOS incl post-2000 sub-period; C2 commodity sleeve (Exhibit 2)."
+  - "Du, Tepper, Verdelhan (2018) 'Deviations from Covered Interest Rate Parity', JF — CIP deviations real + persistent post-2008; the evidence base for C3 (Table IV predictive)."
+  - "Avdjiev, Du, Koch, Shin (2019) 'The Dollar, Bank Leverage and Deviations from CIP', JF — FX swap basis predicts subsequent USD spot moves; C3 corroboration."
+  - "gen-academic-factor.yaml (academic-lens slate) — TSMOM-diversified-universe, multi-asset honest-notes; convergent source for C1/C2."
+  - "gen-contrarian-outsider.yaml — asset-class-transplant (Direction 2) + multi-asset-factor-basket (Direction 4); convergent source for C1/C2."
+  - "gen-practitioner-microstructure.yaml — FX-swap-basis-as-funding-stress (Direction 6, OOS-academic-survivor); the source for C3."
+  - ".fintech-org/artifacts/2026-06-25-cadjpy-10pairs-readiness/CONSENSUS.md — binding NO-EDGE wall (net SR<0 across 84 pair×family combos); DATA-CAPABILITY conclusion (binding constraint = data CLASS change)."
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/CONSENSUS.md — cost-dominance wall (F1-F6 retired, max net SR -1.56); regime-dependence finding (FOMC hiking = 30% events, 53-54% of USDJPY gross)."
+  - "references/pre-registrations/CONSENSUS_2026-06-07_qrb6_winddown — confirmability wall (events/yr × per-event-Sharpe → validate <=3yr); the load-bearing caveat for C1/C3 horizons."
+  - "references/pre-registrations/ (R5 carry USDJPY near-miss, DSR=0.907, power=9%) — USD-factor-concentration documented wall; reason carry-refinement directions are deferred not re-proposed."
+  - "pm-acceptance-criteria.yaml — four-field completeness gate, edge-per-data-cost ranking, four-walls-stay-closed, no-counted-trial-this-cycle."
+
+assumptions:
+  - "The 4 walls (W1 cost-dominance, W2 USD-concentration, W3 regime-dependence, W4 no-true-volume/order-flow) are an accurate characterization of the firm's falsification corpus; if contested, NHT flags as dissent."
+  - "honest-N=30 is the ratified deflation denominator and MUST NOT increment this cycle; these are STRUCTURED CANDIDATES, not committed pre-registrations."
+  - "'Cheap feasibility test' = an analytical/arithmetic check or free-data signal-property computation executable WITHOUT a committed CPCV backtest — NOT a mini-backtest. All three cheap tests above honor this (cost arithmetic on published Sharpe + fee schedules; a Spearman correlation of two free series)."
+  - "Published academic OOS Sharpes are GROSS-of-the-firm's-cost and carry wide uncertainty bands; they bound plausibility, they do not establish the firm's net edge — which is exactly why no edge number is asserted and the gross-vs-cost hurdle is the gate."
+  - "C1 and C2 introduce a NEW capital-scale constraint (minimum viable futures contract notional) absent from spot FX; this is treated as a first-class kill condition, not an afterthought."
+  - "C2 takes the firm into rates/commodity asset classes outside its current modeling competence; the diversification premise (low cross-sleeve correlation) is an ASSUMPTION to be tested at backtest, guarded by an explicit kill criterion."
+  - "C3's edge is concentrated in a few independent funding-stress episodes; the calendar length of the data history does NOT translate to a large effective event-count — the confirmability caveat is structural, not incidental."
+  - "No code is emitted (firewall); no live or paper capital is deployed; trial counter unchanged."
+
+confidence: medium
+
+body: |
+  WHY THESE THREE ARE THE STRONGEST STRUCTURABLE NON-ML CANDIDATES
+
+  The firm's binding finding is not an idea shortage — it is a DATA-CLASS /
+  EFFECTIVE-BREADTH wall: every cost-dominated, USD-loaded, regime-concentrated
+  retail-OHLCV family has been falsified (net SR < 0 across 84 pair×family
+  combos). The forex-trading EVIDENCE LAYER says the only peer-reviewed OOS
+  FX edges are CARRY and MOMENTUM, both gross-of-cost. The honest implication:
+  a structurally-new direction has to do exactly one of two things — (a) move
+  the SAME documented factor to a venue/data class where cost stops dominating
+  and genuine volume exists, or (b) LEAVE the FX universe so the USD-
+  concentration and single-regime walls become non-binding by construction.
+  My three picks are the cleanest structurable instances of (a) and (b):
+
+  C1 (CME FX-futures TSMOM) is the single strongest cell of evidence-grade ×
+  cheap-data × walls-attacked in the whole slate, and it CONVERGED independently
+  across the academic and contrarian lenses. Moskowitz-Ooi-Pedersen (2012) is
+  the most-replicated systematic trading result in academic finance; the
+  futures venue closes W4 (real exchange volume/OI), cuts cost ~5-10x vs retail
+  spot (W1), and the data costs ~$250-500/yr. Its honest weakness is that the
+  futures universe is STILL USD-cross-loaded — effective breadth stays ~2-4
+  bets — so it only partially relieves W2 and recurs the confirmability wall at
+  the effective-N level; and it introduces a new capital-scale constraint
+  (minimum viable contract notional) that may be the actual killer at the firm's
+  current size. The cheap test is pure arithmetic and will surface that fast.
+
+  C2 (multi-asset factor basket / commodity-trend transplant) is the only
+  direction that structurally LEAVES FX, which is the most decisive way to
+  attack W2 and W3 — multi-asset factor diversification is the academically
+  documented remedy for single-factor regime blowup (AMP 2013; Hurst 2017). It
+  is also the only direction that plausibly raises effective independent-bet
+  count enough to bring years-to-validate toward the firm's <=3yr confirmability
+  bar — i.e., the best escape from the dataset wall. Its load-bearing risk is
+  precisely the diversification premise: if the carry and trend sleeves co-move
+  in the next risk-off, the basket collapses to one regime-dependent bet — which
+  is why the mandatory deliverable is the realized cross-sleeve correlation
+  matrix and the explicit corr>0.6 kill. It also takes the firm into two asset
+  classes it has not modeled; that is a real cost, honestly noted.
+
+  C3 (FX swap basis / CIP deviation) is carried as the THIRD because it is the
+  cleanest, most-orthogonal-to-all-four-walls DATA CLASS in the slate (an
+  interbank funding-stress signal retail OHLCV cannot see), it has the most
+  recent and cleanest peer-reviewed OOS evidence among the W4-closing
+  directions (Du-Tepper-Verdelhan 2018 JF), and its feasibility test is FREE
+  (a Spearman check on BIS data). But I flag its confirmability caveat as
+  LOAD-BEARING and unfavorable: the edge is concentrated in a handful of
+  independent funding-stress episodes (2008, 2020, 2023), so the effective
+  event-count is tiny regardless of calendar history — it is the direction most
+  likely to RECUR THE QRB-6 confirmability failure (power infeasible in <=3yr).
+  Strong mechanism, weak confirmability. The Board must weigh that explicitly.
+
+  HONEST CROSS-CUTTING CAVEAT (the wall that does not fully open): even moving
+  to futures + cross-asset + a new data class, the effective independent-bet
+  ceiling and the events/yr × per-event-Sharpe confirmability constraint do not
+  vanish. C1 recurs it at the effective-N level; C3 recurs it hard at the
+  event-count level; C2 is the only one with a credible path THROUGH it, and
+  only if cross-sleeve correlation is genuinely low OOS. None of the three is a
+  guaranteed escape; all three are structurable, falsifiable, and gated by a
+  FREE-or-cheap kill test that runs BEFORE any data spend — which is exactly
+  what this non-spend exploration cycle was asked to produce. HoQR owns the
+  final edge-per-data-cost ranking and any merge (e.g., folding COT positioning
+  in as a sleeve of C1's futures universe). These remain STRUCTURED CANDIDATES;
+  no pre-registration is authored and honest-N stays 30.
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [hypothesis-formulation-and-pre-registration, TradeIntent-spec-authoring, falsification-criteria-design]

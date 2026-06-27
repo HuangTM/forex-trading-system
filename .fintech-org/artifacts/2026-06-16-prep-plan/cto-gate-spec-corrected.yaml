@@ -1,0 +1,704 @@
+role: cto
+artifact_type: methodology-design
+decision: approve
+timestamp: "2026-06-17T17:10:17Z"
+subtask_ref: "prep-plan-while-backfill-2026-06-16 — corrected gate spec"
+rubric_applied: "execution-firewall-review + log-as-decision-trace (self-applied) + principal-review conditions F-001 F-002 F-003 F-005 (blocking+major)"
+supersedes: "cto-infra-prep.yaml CTO-D2 (the per-pair gate schema and gate_behavior sections only)"
+no-capital-instruction: true
+claimed_domains:
+  - architecture-decisions
+  - logging-and-observability-standards
+  - cross-system-blast-radius
+
+# =============================================================================
+# PURPOSE AND SCOPE
+# =============================================================================
+# This artifact supersedes the CTO-D2 gate schema in cto-infra-prep.yaml.
+# It is the authoritative spec for the QD to implement: the per-pair bar-count
+# threshold, the single canonical completeness metric, the spread sanity band
+# (incorporating CRO floors), the spread-correctness checks, and the gate
+# algorithm. All other sections of cto-infra-prep.yaml (CTO-D1 test classes,
+# CTO-D3 feature stubs) are UNCHANGED and remain authoritative.
+#
+# Findings addressed:
+#   F-001 (BLOCKING):  min_bars_2yr corrected from 17,520 to 10,000 (see derivation below)
+#   F-002 (MAJOR):     single canonical completeness metric defined; CRO and CTO gates unified
+#   F-003 (MAJOR):     spread sanity band defined as [CRO floor, CTO ceiling]; reconciled
+#   F-005 (O1 gap):    spread-column CORRECTNESS checks added as a gate precondition
+
+# =============================================================================
+# SECTION 1 — BAR-COUNT THRESHOLD DERIVATION (F-001 FIX)
+# =============================================================================
+bar_count_derivation:
+  finding: >
+    F-001 (BLOCKING, principal-review.yaml): the original CTO-D2 set min_bars_2yr = 17,520
+    for all pairs. 17,520 = 24h × 365d × 2yr = full-calendar hours. A 24×5 forex market
+    CANNOT have 17,520 hourly bars in 2yr because it is closed on weekends. The prior FM-4
+    prose correctly computed ~13,770 achievable bars but left the wrong constant in the schema.
+    The gate as written would EXCLUDE every clean pair.
+
+  theoretical_maximum_2yr:
+    computation: "5 trading days/week × 24 h/day × 52 weeks/year × 2 years = 12,480 bars"
+    note: "Dukascopy records bars 24h on trading days; Sunday 22:00 UTC open through Friday 21:59 UTC close."
+    precision: >
+      52 weeks × 5 days = 260 trading days/yr. 260 × 24h = 6,240 bars/yr.
+      2yr theoretical max = 12,480 bars. This is an UPPER BOUND — real data also
+      has public holidays, thin-hour gaps, and Dukascopy downtime reducing actual count.
+    no_1h_data_available: >
+      No *_1h.parquet exists in data/processed/ (confirmed by read). Threshold is therefore
+      a first-principles estimate, not an empirical calibration. Revision policy below.
+
+  tolerance_rationale: >
+    A healthy pair will have most of its 12,480 possible bars present; a degraded or partially-
+    failed pull will be visibly below the floor. Setting min_bars at 80% of the 24×5 theoretical
+    maximum provides: (a) a clear signal of a bad pull without (b) rejecting a pull with normal
+    holiday + thin-session gaps. 10% of 12,480 = 1,248 bars = ~52 calendar days of gaps, which
+    is the generous upper bound for genuine holiday + thin-session absence over 2yr.
+
+  min_bars_2yr:
+    value: 10000
+    derivation: "floor(0.80 × 12,480) = floor(9,984) → rounded to 10,000"
+    interpretation: >
+      A clean 2yr pull should have ≥10,000 bars. A pull with fewer than 10,000 bars has lost
+      more than 20% of its expected hourly bars — evidence of a failed or very sparse pull,
+      not a normal gap pattern. Under EXCLUDE-not-impute, this pair is excluded.
+    revision_policy: >
+      When the first *_1h.parquet lands, measure actual bar counts per pair. If the majority
+      of clean pairs cluster ABOVE 11,000, tighten to 11,000. If any clean pair falls below
+      10,000 due to a known thin-period (e.g. NZD/CAD pre-2010 gaps), lower the pair-specific
+      threshold with a written PR justification. Threshold may be TIGHTENED without sign-off;
+      LOOSENING requires CTO PR review.
+
+  min_bars_5yr:
+    value: 25000
+    derivation: "floor(0.80 × 24h × 5day × 52wk × 5yr) = floor(0.80 × 31,200) = 24,960 → 25,000"
+    revision_policy: "Same as min_bars_2yr above."
+
+# =============================================================================
+# SECTION 2 — SINGLE CANONICAL COMPLETENESS METRIC (F-002 FIX)
+# =============================================================================
+canonical_completeness_metric:
+  finding: >
+    F-002 (MAJOR, principal-review.yaml): CTO's max_gap_pct (denominator: expected calendar
+    bars) and CRO's MEASURED-fraction >= 0.90 (denominator: in-session measured-spread bars)
+    are two independent gates with different denominators, thresholds, and no defined precedence.
+    A pair's admit/exclude verdict is ambiguous.
+
+  resolution: UNIFIED_AND_GATE
+  rationale: >
+    Both the completeness dimension (are enough bars present?) and the cost-trust dimension
+    (are enough bars MEASURED, i.e. have non-null spread columns?) must pass for a pair to be
+    admitted. They answer DIFFERENT questions and cannot be collapsed to one number. The correct
+    design is an AND-gate: BOTH must pass. Neither supersedes the other.
+
+  gate_1_completeness:
+    name: "bar_coverage_pct"
+    numerator: "actual bars present in the parquet over the declared backtest window"
+    denominator: "expected_trading_bars: the number of 1h slots in the window spanning Mon 22:00 UTC through Fri 22:00 UTC, excluding confirmed weekend hours"
+    formula: "bar_coverage_pct = actual_bars / expected_trading_bars"
+    threshold: ">= 0.85 (i.e., at most 15% of expected trading-hour slots are absent)"
+    rationale: >
+      15% tolerance is MORE permissive than the original 0.5%–1.0% max_gap_pct but LESS
+      permissive than CRO's 10%. CTO's original 0.5% was computed against CALENDAR hours
+      (17,520 denominator), which made it extremely tight against the correct denominator.
+      Against expected_trading_bars (~6,240/yr), 15% = ~936 missing bars per year — this is
+      a generous floor that accepts pairs with holiday gaps and some thin-session dropout while
+      rejecting pairs with structural pull failures.
+    DEPRECATED: "max_gap_pct in cto-infra-prep.yaml CTO-D2 is SUPERSEDED by this metric."
+
+  gate_2_cost_trust:
+    name: "measured_spread_fraction"
+    numerator: "bars where spread_p90_pips is present, finite, > 0, AND spread_median_pips <= spread_p90_pips (ordering sane)"
+    denominator: "in-session bars over the declared trade window (excludes weekend-closed bars)"
+    formula: "measured_spread_fraction = MEASURED_bars / in_session_bars"
+    threshold: ">= 0.90 (CRO binding constraint — at most 10% of in-session bars may be DERIVED or EXCLUDED)"
+    source: "Directly adopts CRO per_pair_PASS_rules from cro-risk-gates.yaml coverage_gate (MEASURED-bar fraction >= 0.90). CTO endorses this as the canonical cost-trust gate."
+    DEPRECATED: "No separate CTO max_gap_pct applies to cost coverage; gate_2 is CRO's rule, adopted verbatim."
+
+  combined_admit_rule:
+    condition: "ADMIT if gate_1 AND gate_2 both pass"
+    failure_mode: >
+      If gate_1 fails → pair EXCLUDED (insufficient data volume for research).
+      If gate_2 fails → pair EXCLUDED (insufficient cost data for credible TCA).
+      If both fail → pair EXCLUDED (note both failure reasons in the gate result).
+    on_fail: EXCLUDE  # never impute — direct remediation of QRB-6 voided trial
+
+  additional_gap_rule:
+    name: "max_contiguous_gap"
+    rule: "No contiguous run of missing in-session bars exceeding 24 consecutive hours"
+    source: "CRO coverage_gate per_pair_PASS_rules (adopted verbatim)"
+    failure_mode: "EXCLUDE the pair — a multi-day spread blackout means cost is unknown during a real trade window"
+
+# =============================================================================
+# SECTION 3 — SPREAD SANITY BAND (F-003 FIX): [CRO FLOOR, CTO CEILING]
+# =============================================================================
+spread_sanity_band:
+  finding: >
+    F-003 (MAJOR, principal-review.yaml): CTO's spread_median_pips_max ceilings (3.0–6.0 pips)
+    and CRO's per_pair sanity band (0.1–8 pips on median) are independently set, pre-data
+    estimates with no reconciliation. CTO itself flagged this as a blocker. The rule below
+    sets CRO's estimate as the FLOOR (minimum plausible spread per pair type) and CTO's
+    ceiling as an UPPER BOUND derived from pair liquidity tier.
+
+  reconciliation_rule: >
+    The spread sanity band for each pair is the closed interval [cro_floor, cto_ceiling].
+    If cto_ceiling <= cro_floor for any pair, the band is INVALID: that is itself a gate
+    FAILURE flagged for human review (discordance = data likely corrupt or thresholds
+    miscalibrated). Neither a below-floor nor above-ceiling spread is admissible.
+
+  floor_source: "CRO cro-risk-gates.yaml per_pair sanity band lower bound"
+  ceiling_source: "CTO estimates — to be revised on first data-land via PR"
+
+  # ---- Per-pair spread bands -----------------------------------------------
+  # spread_median_pips must be in [floor, ceiling] (inclusive)
+  # spread_p90_pips must be in [0, p90_ceiling] (0 exclusive)
+  # If either is outside band → bar is EXCLUDED (not warned)
+  per_pair_spread_bands:
+    EURUSD:
+      spread_median_pips_floor: 0.1    # CRO lower bound for non-JPY pairs
+      spread_median_pips_ceiling: 3.0  # CTO: EURUSD is tightest major; >3.0 = suspicious
+      spread_p90_pips_ceiling: 8.0
+      pair_type: non-JPY
+      liquidity_tier: 1
+    GBPUSD:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 4.0  # GBP slightly wider than EUR
+      spread_p90_pips_ceiling: 12.0
+      pair_type: non-JPY
+      liquidity_tier: 1
+    USDJPY:
+      spread_median_pips_floor: 0.1    # JPY pip = 0.01; 0.1 pip ~ 0.001 USD equiv
+      spread_median_pips_ceiling: 4.0  # CRO band 0.1–8 pips; CTO ceiling 4.0 (tighter)
+      spread_p90_pips_ceiling: 12.0
+      pair_type: JPY
+      liquidity_tier: 1
+      jpy_scaling_note: >
+        JPY pairs are quoted in pips where 1 pip = 0.01 JPY. A mis-scaling error (e.g.
+        treating 0.01 JPY pip as 1.00 pip) would inflate spread_median_pips by 100×,
+        producing values of 100–400 pips — trivially caught by the ceiling. The dangerous
+        mis-scaling class is the INVERSE (dividing instead of multiplying): values appear
+        in 0.01–0.04 range, below the 3.0 ceiling, looking plausible. The floor (0.1 pip
+        minimum) guards against this specific mis-scaling. See F-005 correctness check below.
+    USDCHF:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 4.0
+      spread_p90_pips_ceiling: 12.0
+      pair_type: non-JPY
+      liquidity_tier: 1
+    USDCAD:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 4.0
+      spread_p90_pips_ceiling: 12.0
+      pair_type: non-JPY
+      liquidity_tier: 1
+    AUDUSD:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 4.0
+      spread_p90_pips_ceiling: 12.0
+      pair_type: non-JPY
+      liquidity_tier: 2
+    NZDUSD:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 5.0  # NZD thinner; allow slightly wider median
+      spread_p90_pips_ceiling: 15.0
+      pair_type: non-JPY
+      liquidity_tier: 2
+    EURGBP:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 3.0  # tight cross; high liquidity
+      spread_p90_pips_ceiling: 8.0
+      pair_type: non-JPY
+      liquidity_tier: 2
+    EURJPY:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 5.0  # JPY cross; wider than USD majors
+      spread_p90_pips_ceiling: 15.0
+      pair_type: JPY
+      liquidity_tier: 2
+      jpy_scaling_note: "Same inverse-mis-scaling risk as USDJPY; floor 0.1 guards it."
+    GBPJPY:
+      spread_median_pips_floor: 0.2    # GBP/JPY cross notoriously wider; 0.2 floor
+      spread_median_pips_ceiling: 6.0
+      spread_p90_pips_ceiling: 20.0
+      pair_type: JPY
+      liquidity_tier: 2
+      jpy_scaling_note: "Same inverse-mis-scaling risk; floor 0.2."
+    AUDJPY:
+      spread_median_pips_floor: 0.2
+      spread_median_pips_ceiling: 5.0
+      spread_p90_pips_ceiling: 15.0
+      pair_type: JPY
+      liquidity_tier: 2
+      jpy_scaling_note: "Same inverse-mis-scaling risk; floor 0.2."
+    EURCHF:
+      spread_median_pips_floor: 0.1
+      spread_median_pips_ceiling: 6.0  # CHF can widen sharply on SNB events
+      spread_p90_pips_ceiling: 20.0    # p90 ceiling wide deliberately for SNB tail
+      pair_type: non-JPY
+      liquidity_tier: 2
+
+  band_validity_check: >
+    Before running any per-pair spread gate, the gate callable MUST assert that
+    spread_median_pips_ceiling > spread_median_pips_floor for every pair in the config.
+    If any pair has ceiling <= floor, the gate must HALT and raise a configuration error —
+    this is a miscalibration, not a data problem, and running a misconfigured gate is
+    worse than not running it.
+
+  revision_policy: >
+    When first *_1h.parquet lands, measure empirical spread_median_pips P50 and P90 per pair.
+    If empirical P50 for a pair lies ABOVE the ceiling: the ceiling must be raised (PR required;
+    CTO co-sign). If empirical P50 lies BELOW the floor: the floor must be lowered (PR required).
+    Tightening ceilings is always encouraged without sign-off. Loosening ceilings is a veto
+    trigger unless justified by measured distribution.
+
+# =============================================================================
+# SECTION 4 — SPREAD-COLUMN CORRECTNESS CHECKS (F-005 FIX)
+# =============================================================================
+spread_correctness_checks:
+  finding: >
+    F-005 (MAJOR/O1-gap, principal-review.yaml): the existing validate_1h_schema() checks
+    spread PRESENCE and a 50-pip ceiling only. A mis-scaled-but-plausible spread (the QRB-6
+    failure class, now in the new spread_*_pips fields) would pass all existing checks.
+    NHT RR-2 demands a spread-column CORRECTNESS check, not just a plausibility gate.
+
+  correctness_checks_required:
+    # These are checks the QD must implement IN the gate callable (not in validate_1h_schema;
+    # the gate callable is the new BUILD ITEM per CRO KG-4).
+
+    - id: SC-1
+      name: "ordering_sanity"
+      rule: "spread_median_pips <= spread_p90_pips, strictly, for every bar"
+      failure_signal: "p90 < median implies a corrupt aggregation — the percentile inversion is impossible on well-formed data"
+      gate_action: "EXCLUDE the bar from cost-trust; if > 5% of bars fail, EXCLUDE the pair"
+      current_code_status: "NOT IMPLEMENTED in validate_1h_schema (CRO KG-4, verified by PR)"
+
+    - id: SC-2
+      name: "zero_volume_spread_exclusion"
+      rule: "If volume == 0 for a bar, exclude that bar from MEASURED (spread is fabricated from zero ticks)"
+      gate_action: "bar marked EXCLUDED, counted in exclusion tally; pair fails if measured_spread_fraction < 0.90"
+      current_code_status: "volume>0 is already a validate_1h_schema check (warning), but bars are NOT excluded from cost trust"
+
+    - id: SC-3
+      name: "all_zero_spread_run"
+      rule: "A run of 6 or more consecutive bars with spread_median_pips == 0.0 signals a silent tick-decode failure"
+      rationale: "spread == 0.0 means all ticks had crossed/equal bid-ask in that bar — plausible once, implausible for 6 consecutive hours"
+      gate_action: "EXCLUDE the run and adjacent bars; if any such run exists in the pair, flag for MANUAL REVIEW in gate result"
+      current_code_status: "NOT IMPLEMENTED"
+
+    - id: SC-4
+      name: "cross_pair_scaling_plausibility"
+      rule: >
+        For pairs of the SAME instrument type (JPY vs non-JPY), the ratio of median spreads
+        must be within a 10× band. Specifically: for any two non-JPY pairs A and B, the ratio
+        median_A / median_B must lie in [0.1, 10]. For JPY pairs vs non-JPY pairs, the ratio
+        must lie in [0.05, 20] (wider band due to pip-scale difference).
+      failure_signal: >
+        If EURUSD shows 0.8 pip median and USDJPY shows 0.008 pip median, the ratio is 100×
+        — this is a JPY-pip mis-scaling (dividing by 100 instead of multiplying). The band
+        check catches this WITHOUT requiring an external reference feed.
+      gate_action: "FLAG for manual review; do NOT auto-exclude — this may be a legitimate thin-data artifact. Manual gate resolution required before the pair is admitted."
+      current_code_status: "NOT IMPLEMENTED"
+      note: >
+        This is the primary defence against the QRB-6 failure class in the new spread field.
+        The QRB-6 void was caused by a unit configuration error (bps vs pips scaling); the
+        analogous error here is a JPY pip-multiplier error. A within-band check across pairs
+        adds an independent second opinion without requiring an external reference.
+
+    - id: SC-5
+      name: "p90_positive_finite"
+      rule: "spread_p90_pips must be > 0 AND finite for every bar; a non-positive or infinite p90 is a corrupt aggregation"
+      gate_action: "EXCLUDE the bar from MEASURED; treated identically to SC-1 failure"
+      current_code_status: "NOT CHECKED in validate_1h_schema (CRO KG-4, verified by PR)"
+
+  correctness_check_precedence: >
+    SC-1 and SC-5 are PER-BAR exclusion rules: failing bars are EXCLUDED from cost-trust.
+    SC-2 is PER-BAR exclusion based on volume.
+    SC-3 is a RUN-LEVEL flag: the full run is excluded and the pair is flagged for manual review.
+    SC-4 is a PAIR-LEVEL flag for manual review only (does not auto-exclude).
+    All per-bar exclusions feed into the measured_spread_fraction denominator (Section 2, gate_2).
+
+  never_lands_branch: >
+    F-005 also requires an explicit "data partially/never lands" terminal branch.
+    This is specified in the gate algorithm below (Section 5, never_lands_terminal).
+
+# =============================================================================
+# SECTION 5 — GATE ALGORITHM (QD IMPLEMENTATION SPEC)
+# =============================================================================
+gate_algorithm:
+
+  callable_name: "coverage_gate(parquet_path, pair, config, trade_window)"
+  return_type:
+    pair: str
+    approved: bool
+    issues: "list[str]  # non-empty when approved=False"
+    bar_count: int
+    expected_trading_bars: int
+    bar_coverage_pct: float
+    measured_spread_bars: int
+    in_session_bars: int
+    measured_spread_fraction: float
+    max_contiguous_gap_hours: int
+    spread_median_pct: float   # pair's median of spread_median_pips across bars
+    spread_flags: "list[str]  # SC-3 / SC-4 manual-review flags"
+    verdict: "Literal['ADMIT', 'EXCLUDE', 'MANUAL_REVIEW']"
+
+  steps:
+    - step: 1
+      name: "load_parquet"
+      action: >
+        Load the parquet at parquet_path. If load fails or is empty, return
+        verdict=EXCLUDE, approved=False, issues=['parquet load failed or empty'].
+
+    - step: 2
+      name: "structural_schema_check"
+      action: >
+        Invoke validate_1h_schema(df, pair). If issues list is non-empty and any issue
+        is NOT SPREAD_COL_MISSING_WARNING, return verdict=EXCLUDE. If the only issue is
+        SPREAD_COL_MISSING_WARNING, return verdict=EXCLUDE with issue
+        'spread columns absent — re-pull required; DERIVED cost not accepted for 1h trials'.
+      rationale: >
+        Per CRO per_period_PASS_rules: parquets without spread columns are EXCLUDED from
+        any trial claiming MEASURED-spread cost realism. This is a hard gate.
+
+    - step: 3
+      name: "bar_coverage_check"  # gate_1
+      action: >
+        Compute expected_trading_bars for the pair's parquet window:
+        count 1h slots Mon 22:00 UTC through Fri 22:00 UTC (exclusive of weekend-closed hours).
+        Compute bar_coverage_pct = len(df) / expected_trading_bars.
+        If bar_coverage_pct < 0.85, append issue and set approved=False.
+        If len(df) < min_bars_2yr (10,000 for 2yr window), append issue and set approved=False.
+      note: "Failure here does NOT stop the algorithm — all checks run to collect the full issues list."
+
+    - step: 4
+      name: "spread_correctness_checks"  # SC-1 through SC-5
+      action: >
+        For each bar: apply SC-1 (ordering), SC-2 (zero volume), SC-5 (p90 positive finite).
+        Mark failing bars as EXCLUDED from cost trust.
+        Apply SC-3 (all-zero-spread run): scan for runs of >=6 consecutive bars with
+        spread_median_pips == 0.0; if any found, add to spread_flags.
+        Defer SC-4 (cross-pair scaling) to the MULTI-PAIR gate pass (see step 7).
+
+    - step: 5
+      name: "measured_spread_fraction_check"  # gate_2
+      action: >
+        Define in_session_bars = bars in the parquet where the UTC hour is NOT in
+        the weekend-closed window (Fri >=21:00 UTC through Sun 22:00 UTC).
+        measured_spread_bars = in_session_bars that passed all SC checks (1, 2, 5).
+        measured_spread_fraction = measured_spread_bars / in_session_bars.
+        If measured_spread_fraction < 0.90, append issue and set approved=False.
+
+    - step: 6
+      name: "max_contiguous_gap_check"
+      action: >
+        Find the longest run of consecutive EXPECTED trading bars that are absent from the
+        parquet. If max_contiguous_gap_hours > 24, append issue and set approved=False.
+
+    - step: 7
+      name: "spread_band_check"
+      action: >
+        Compute pair_spread_median = median(spread_median_pips across all MEASURED bars).
+        If pair_spread_median < floor or pair_spread_median > ceiling (from per_pair_spread_bands),
+        append issue and set approved=False.
+        Check band validity (ceiling > floor); if invalid, raise ConfigurationError (halt gate).
+
+    - step: 8
+      name: "emit_result"
+      action: >
+        If approved=False: verdict = EXCLUDE.
+        If approved=True and spread_flags is non-empty: verdict = MANUAL_REVIEW
+          (approved=True but human eyes required before the pair enters a trial universe).
+        If approved=True and spread_flags is empty: verdict = ADMIT.
+
+    - step: 9  # cross-pair (run after all 12 individual gates)
+      name: "cross_pair_scaling_check_SC4"
+      action: >
+        After individual gates for all available pairs: apply SC-4. Compute ratio of
+        spread_median_pct across non-JPY pairs and JPY pairs respectively.
+        If any ratio is outside [0.1, 10] (non-JPY) or [0.05, 20] (JPY vs non-JPY):
+        ADD to spread_flags for the flagged pair(s); downgrade ADMIT → MANUAL_REVIEW
+        for the flagged pair. SC-4 never auto-excludes; it always produces MANUAL_REVIEW.
+
+  never_lands_terminal:
+    trigger: "All 12 pairs return verdict = EXCLUDE or PARTIAL (bar_coverage_pct > 0 but < 0.85)"
+    action: >
+      Write .fintech-org/artifacts/1h-gate-results.yaml with status: NEVER_LANDS_TERMINAL.
+      This terminal state means: (a) NO 1h trial may be frozen, (b) HoQR pre-registrations
+      remain authored but NOT frozen, (c) CTO escalates to CEO for decision between:
+        OPTION-A: re-run backfill with different pull strategy
+        OPTION-B: redirect research to daily-bar strategies (existing data)
+        OPTION-C: acquire alternate intraday data source
+      This state does not modify any trial counter. It is a PLAN status, not a research result.
+    rationale: "F-005 (principal-review.yaml): the plan had no defined terminal state for the data-never-lands case. This closes that gap."
+
+  partial_land_handling:
+    trigger: "Some pairs ADMIT or MANUAL_REVIEW; others EXCLUDE"
+    action: >
+      Pairs with verdict=ADMIT or MANUAL_REVIEW (after manual resolution) proceed to research.
+      Pairs with verdict=EXCLUDE are NOT held waiting for other pairs.
+      Pre-registrations must declare their pair universe from the ADMIT set only.
+      A pre-registration on fewer than 3 ADMIT pairs requires CTO + CRO co-sign due to
+      reduced cross-pair diversification and higher concentration risk.
+
+# =============================================================================
+# SECTION 6 — PER-PAIR THRESHOLD TABLE (QD REFERENCE)
+# =============================================================================
+# This table is the machine-readable QD implementation reference.
+# QD parameterizes CTO-D1 test classes from this table (via pytest fixtures).
+per_pair_thresholds:
+  # Columns:
+  #   min_bars_2yr: minimum bar count for a 2yr window (REVISED from 17520 to 10000)
+  #   min_bars_5yr: minimum bar count for a 5yr window
+  #   bar_coverage_min: minimum bar_coverage_pct (gate_1)
+  #   measured_spread_min: minimum measured_spread_fraction (gate_2)
+  #   max_contiguous_gap_h: maximum allowed contiguous gap in hours
+  #   spread_median_floor: CRO-derived floor for pair_spread_median (pips)
+  #   spread_median_ceiling: CTO ceiling for pair_spread_median (pips)
+  #   spread_p90_ceiling: CTO ceiling for spread_p90_pips (pips)
+
+  EURUSD:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 3.0
+    spread_p90_ceiling: 8.0
+
+  GBPUSD:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDJPY:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDCHF:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  USDCAD:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  AUDUSD:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 4.0
+    spread_p90_ceiling: 12.0
+
+  NZDUSD:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.80   # NZD thinner; allow slightly lower coverage floor
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  EURGBP:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 3.0
+    spread_p90_ceiling: 8.0
+
+  EURJPY:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  GBPJPY:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.2
+    spread_median_ceiling: 6.0
+    spread_p90_ceiling: 20.0
+
+  AUDJPY:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.2
+    spread_median_ceiling: 5.0
+    spread_p90_ceiling: 15.0
+
+  EURCHF:
+    min_bars_2yr: 10000
+    min_bars_5yr: 25000
+    bar_coverage_min: 0.85
+    measured_spread_min: 0.90
+    max_contiguous_gap_h: 24
+    spread_median_floor: 0.1
+    spread_median_ceiling: 6.0
+    spread_p90_ceiling: 20.0
+
+# =============================================================================
+# SECTION 7 — GATE BEHAVIOR AND SEMANTICS
+# =============================================================================
+gate_behavior:
+  on_fail: EXCLUDE         # NEVER impute — direct remediation of QRB-6 zero-imputation void
+  on_warn: LOG_AND_PASS    # only SPREAD_COL_MISSING_WARNING in structural check is treated as warning-then-EXCLUDE (step 2 overrides this for spread-absent parquets)
+  per_pair_semantics: >
+    The gate is PER-PAIR. An ADMIT verdict on EURUSD is independent of USDJPY's verdict.
+    Approved pairs proceed to research without waiting for excluded/pending pairs.
+    This prevents a single bad pair from blocking the entire intraday research pipeline.
+  approved_status_output: "data/processed/{PAIR}_1h_gate_result.json"
+  aggregate_output: ".fintech-org/artifacts/1h-gate-results.yaml"
+  gate_run_trigger: "after backfill completes for a pair; before any pre-registration references that pair"
+  gate_run_owner: "cto (automated via pytest -k TestIntegrationGateDecision; output reviewed by CTO before publishing)"
+  re_run_policy: >
+    Gate results are versioned by timestamp. If a pair is re-pulled (e.g. after fixing an
+    ingest bug), the gate MUST be re-run and the new result replaces the old one in
+    aggregate_output. Any pre-registration that referenced the prior ADMIT result must be
+    re-validated if the new result is EXCLUDE or MANUAL_REVIEW.
+
+# =============================================================================
+# SECTION 8 — WHAT THIS SPEC DOES NOT COVER (UNCHANGED FROM cto-infra-prep.yaml)
+# =============================================================================
+out_of_scope_of_this_correction:
+  - "CTO-D1 test classes (TestPerPairBarCountGate, TestGapFractionGate, etc.) — unchanged, but QD must update fixture parametrize values to use min_bars_2yr=10,000 from this spec, not 17,520"
+  - "CTO-D3 feature stubs (session.py, intraday_atr.py, time_encoding.py) — unchanged"
+  - "CRO Deliverable A cost model extension spec — unchanged; CTO endorses CRO's EXCLUDE-NOT-IMPUTE binding constraint and measured_spread_fraction >= 0.90 gate verbatim"
+  - "F-004 (NHT-D2 blind-structural-report vs HoQR freeze-now) — owned by HoQR; not a CTO deliverable to fix"
+  - "F-006, F-007 (DSR-N disambiguation; >2yr pre-reg slot blocked) — owned by ML Researcher and HoQR respectively"
+  - "F-008 (PM EV-mechanism line) — owned by PM"
+
+# =============================================================================
+# SECTION 9 — FAILURE MODES CONSIDERED
+# =============================================================================
+failure_modes_considered:
+  - id: FM-1
+    mode: "Gate threshold corrections are themselves wrong (min_bars=10,000 is still too high or too low)"
+    mitigation: >
+      10,000 is derived from first principles (80% of 24×5×52×2=12,480). It is conservative
+      enough that any clean pull exceeds it and any failed pull falls below it. Revision policy
+      mandates measurement against first landed data; threshold can be tightened (no sign-off)
+      or loosened (PR + CTO co-sign). The correction's direction is definitively right: 10,000 < 12,480 < 17,520.
+
+  - id: FM-2
+    mode: "AND-gate (gate_1 AND gate_2) is too strict — a pair with great data coverage but thin spread columns is excluded"
+    mitigation: >
+      Gate_2 (measured_spread_fraction >= 0.90) is CRO's binding constraint for any trial
+      claiming MEASURED-spread cost realism. If a pair has great bar coverage but < 90% measured
+      spread, it is genuinely not admissible for cost-realistic backtesting — this is not over-
+      strictness, it is the design. A pair with DERIVED-spread only may be admitted for a
+      spread-agnostic strategy with an explicit CRO co-sign exception (not this gate's domain).
+
+  - id: FM-3
+    mode: "Spread band floors and ceilings are wrong pre-data; good pairs are excluded on spread alone"
+    mitigation: >
+      Band check is on the PAIR-LEVEL median (not per-bar). For any healthy pair the pair-level
+      median will be well within the bands. The floor (0.1 pip) only rejects pairs with
+      pathologically near-zero spread, which is corrupt data. The ceiling rejects pairs whose
+      median spread is 3–6× the expected tier. Revision policy: tighten on first data-land.
+
+  - id: FM-4
+    mode: "SC-4 (cross-pair scaling) produces false positives for legitimately thin pairs"
+    mitigation: >
+      SC-4 is MANUAL_REVIEW only — it never auto-excludes. A human CTO decision is required
+      to admit or exclude a pair flagged by SC-4. This is the correct posture: the check exists
+      to surface mis-scaling, not to over-veto legitimate thin pairs.
+
+  - id: FM-5
+    mode: "QD reads the wrong threshold column (e.g., uses min_bars_2yr for a 5yr analysis)"
+    mitigation: >
+      The gate callable takes trade_window as a parameter; it selects min_bars_2yr vs
+      min_bars_5yr based on the window length. QD must parameterize this explicitly. CTO-D1
+      test class TestPerPairBarCountGate must test BOTH 2yr and 5yr window cases.
+
+  - id: FM-6
+    mode: "never_lands_terminal state is never declared — pipeline hangs"
+    mitigation: >
+      The gate callable is run after EACH pair's backfill completes. Aggregate gate results
+      are published after all 12 pairs complete OR after a timeout (backfill manifest declares
+      expected completion date; CTO sets a 30-day timeout from that date as the never-lands trigger).
+
+# =============================================================================
+# SECTION 10 — EXECUTION-RESEARCHER FIREWALL CHECK
+# =============================================================================
+firewall_review:
+  source: "execution-firewall-review rubric (CTO required_skills)"
+  check:
+    - item: "This spec: research or execution artifact?"
+      verdict: "RESEARCH-INFRA. This is a pure data-quality gate specification. No order logic, no broker API, no live signal, no position sizing. PASS."
+    - item: "Does any gate check import from execution paths?"
+      verdict: "NOT REQUIRED. Gate callable operates on parquet files only. PASS."
+    - item: "Does EXCLUDE-not-impute create an execution risk?"
+      verdict: "NEGATIVE. EXCLUDE means a pair does not enter the research universe. It does not touch any live path. PASS."
+  firewall_veto_status: NO_VETO
+
+# =============================================================================
+# SECTION 11 — WHAT CTO REFUSED TO DO
+# =============================================================================
+what_you_refused_to_do:
+  - "Write the gate callable implementation in Python (forbidden_skill: python). This spec is the architecture; QD implements."
+  - "Empirically calibrate spread thresholds from real 1h data — no data exists. All band values are first-principles estimates with explicit revision policy."
+  - "Resolve F-004 (HoQR / NHT sequencing conflict) — that is HoQR's domain."
+  - "Co-sign the CRO cost model changes (rollover-aware swap, CM-2) — CRO owns cost model architecture."
+  - "Set SC-4 as an auto-exclusion rule — that would be rejecting a specialist's output (CRO's sanity band) by substituting a mechanical ratio rule. SC-4 is a flag, not a gate."
+
+# =============================================================================
+# SECTION 12 — CONDITIONS RESOLVED vs STILL OPEN
+# =============================================================================
+conditions_resolved:
+  - "F-001 BLOCKING: min_bars_2yr corrected to 10,000 (Section 1). Derivation explicit and revisable."
+  - "F-002 MAJOR: single canonical completeness metric + AND-gate precedence defined (Section 2). CRO gate adopted verbatim as gate_2."
+  - "F-003 MAJOR: spread sanity band reconciled as [CRO floor, CTO ceiling] (Sections 3 + 6). Discordance check added."
+  - "F-005 MAJOR: five spread-correctness checks (SC-1 through SC-5) added (Section 4). Never-lands terminal branch defined (Section 5)."
+
+conditions_still_open_not_cto_domain:
+  - "F-004: HoQR freeze-H1-now vs NHT blind-structural-report — HoQR must resolve"
+  - "F-006: DSR-N vs N_required disambiguation — ML Researcher must resolve"
+  - "F-007: >2yr pre-reg slot blocked until measured data clears G1 — HoQR must make this explicit in the AC-06 step list"
+  - "F-008: PM EV-mechanism line — PM must resolve"
+
+confidence: high
+knowledge_gaps_acknowledged:
+  - "No *_1h.parquet exists; all thresholds are first-principles estimates pending empirical calibration on first data-land."
+  - "Cross-pair scaling ratios in SC-4 are set conservatively; real JPY spread ratios vs non-JPY are unverified pre-data."
+  - "bar_coverage_min of 0.85 (vs CRO's 0.90 cost-trust gate) is intentionally less strict on the data-volume dimension; CRO's gate covers cost-trust independently."

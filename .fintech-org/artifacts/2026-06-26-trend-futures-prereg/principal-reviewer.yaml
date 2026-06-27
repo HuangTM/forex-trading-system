@@ -1,0 +1,326 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-26T18:42:00Z"
+subtask_ref: trend-futures-prereg
+subtask_id: trend-futures-prereg-2026-06-26-pr
+artifact-under-review: quant-researcher-prereg.yaml (FROZEN pre-registration)
+rubrics-applied:
+  - review-plan (design-doc mode; Correctness, Design, Completeness, Risk, Clarity; Inversion + Absent-Evidence + Assumption-Audit hardening)
+  - financial-ml-methodology (rubric 1 CPCV/purge/embargo; rubric 2 multiple-testing/DSR; rubric 4 regime-stratification)
+  - probability-statistics (effective-N, power/years-to-validate arithmetic, deflation alpha)
+  - log-as-decision-trace (machine-checkability of the pre-/post-gates as decision boundaries)
+
+soundness-checks:
+  cpcv-purge-embargo-sized-correctly: >
+    yes — purge = 13mo (12mo lookback + 1mo hold) exceeds the label/holding horizon and
+    is the correct dominant-leakage control for a 12mo-lookback label; +1mo embargo (14mo
+    total band) is defensible. ONE residual leakage surface (F-002 below): the embargo is
+    one-sided in the prose ("after each test fold") while the purge is explicitly two-sided
+    ("each side of every test fold"); the holdout boundary (2021-12-31 / 2022-01-01) is NOT
+    itself purged+embargoed, so a label constructed in late-2021 reads 2022 holdout prices.
+  deflation-f008-adequate: >
+    partially — booking the 21-direction surface as ~7 mechanisms (eff-trials = 30 + 7 = 37)
+    is a defensible, non-naive reading of F-008 and is correctly compounded into the DSR
+    denominator rather than +1. Two gaps (F-003): (a) the 37 omits the within-this-direction
+    selection surface (12mo lookback, 1mo rebalance, 15% vol target, 24-vs-22 universe,
+    risk-parity scheme are all pre-committed single-shot here — good — but the lookback/vol
+    knobs were themselves picked from a published-best, a mild snoop not booked); (b) DSR<0.95
+    is the firm's bar at honest-N but the artifact does not show the DSR computed at T (sample
+    length) under eff-N=37 — the threshold is asserted, not demonstrated (acceptable for a
+    design artifact; becomes blocking at the committed step).
+  regime-crash-machine-checkable: >
+    yes for COVERAGE (F6: ">=20yr AND 2009 episode in-sample" is checkable on the acquired
+    manifest). PARTIAL for the crash-SURVIVAL and no-low-vol-only conditions: F4 uses a frozen
+    number (-0.50 crash-floor Sharpe on the union of 3 episodes) — checkable. But "no recent-
+    low-vol-only window" is enforced only indirectly via F6's 2009-coverage requirement; the
+    2011-15 "long winter" and Mar-2020 episodes are MANDATED in prose but have no independent
+    machine-checkable coverage gate (only 2009 blocks). See F-004.
+  power-precheck-sound: >
+    yes as a GATE, with a material caveat (F-001, the headline finding): the years-to-validate
+    formula is algebraically correct (years ≈ (z_pow+z_alpha)^2 / S_prog^2; the events/yr cancels
+    against the per-event IR — I verified this against the firm's canonical confirmability rubric
+    and retract an initial dimensional-error suspicion). BUT under the firm's OWN canonical
+    numerator (6.18, alpha=0.05 1-sided) an honestly-decayed diversified-trend program
+    (S_prog ≈ 0.4–0.8) yields years-to-validate ≈ 10–40yr; even S_prog=1.2 gives ~4.3yr.
+    To reach ≤3.0yr requires S_prog ≥ 1.44; to reach the rubric's actual ≤2.0yr G1 bar
+    requires S_prog ≥ 1.76. The pre-reg's own breadth estimate is ~6–10 effective bets, which
+    at a 50%-decayed per-bet Sharpe (~0.20) gives S_prog ≈ 0.20·sqrt(8) ≈ 0.57 → ~19yr.
+    The gate is SOUND; the honest expectation is that F7 FIRES (do-not-run) on realistic inputs.
+  falsification-criteria-frozen-numbers: >
+    yes for F1/F2/F4/F5/F6/F7 (all carry frozen numbers). F3 is the one soft criterion:
+    ">50% of net edge concentrated in a single bucket AND net-Sharpe-ex-bucket <= 0" — the
+    "single macro-regime bucket" is not pinned to a frozen bucketing partition, and ">50% of
+    net edge" has no defined attribution method (Sharpe? return? risk-adjusted?). See F-005.
+    Separately (F-001): F3/F4/F5 are raw point-estimate thresholds with NO significance band /
+    CI at honest effective-N — the exact gap the prior F-001 condition named for kill-tests.
+  data-spec-executable-and-bias-aware: >
+    yes — concrete (24 named contracts, daily OHLCV+volume+OI, >=20yr, named paid sources at
+    ~$250-500/yr, free-tier for the coverage check). Roll/back-adjust is NAMED as a frozen-
+    manifest item ("a different roll = a different strategy") — the right instinct. But the
+    roll convention is declared TBD-at-acquisition rather than frozen NOW (Panama/ratio/none,
+    roll trigger = OI-cross vs N-days-before-expiry), which is a survivorship/continuity bias
+    surface left open. See F-006.
+
+findings:
+  - id: F-001
+    severity: major
+    location: "confirmability-precheck (lines 229-246); falsification-criteria F7 (line 161); cross-check vs references/intraday_confirmability_screening_rubric.md lines 19-22, 42, 155"
+    category: power-arithmetic / honest-expectation
+    observation: >
+      The years-to-validate formula is correct, but under honest decayed inputs the program
+      Sharpe needed to clear the ≤3.0yr F7 gate (S_prog ≥ 1.44) is far above any plausible
+      decayed diversified-trend Sharpe (~0.4–0.8; the probe's single-sleeve residual was ~0.40,
+      Hurst diversified gross 0.7–1.0 × 50% McLean-Pontiff = ~0.35–0.50). I computed years-to-
+      validate ≈ 19yr at the pre-reg's own central case (B≈8 effective bets, s≈0.20 decayed).
+      Two sub-issues: (1) the gate is, on its own numbers, a near-certain DO-NOT-RUN; (2) the
+      F7 threshold (>3.0yr) is LOOSER than the firm's canonical G1 confirmability bar (≤2.0yr,
+      with 2–3yr only "STRETCH"), so F7 would admit a STRETCH direction the canonical rubric
+      would deny a backtest slot.
+    inference: >
+      This is not a defect in the DESIGN — it is the design working: the pre-reg explicitly
+      frames F7 as the QRB-6-style do-not-run gate, and the honest arithmetic says it will
+      very likely fire. The risk is narrative, not methodological: if any reader expects this
+      direction to PASS F7, that expectation is unsupported by the firm's own formula. The
+      blocking-for-committed-backtest item is the bar mismatch (3.0yr vs the canonical 2.0yr).
+    evidence: >
+      Independent computation (scipy): with canonical numerator 6.18, S_prog=0.8 → 9.66yr,
+      S_prog=1.2 → 4.29yr, S_prog=1.44 → 2.98yr. Cross-checked against the rubric's own worked
+      anchor (IR 0.10 @ 350 events/yr → 1.77yr). Probe residual ~0.40 single-sleeve; the probe
+      itself states "portfolio-level Sharpe ... not modeled" (knowledge_gaps).
+    recommended-action-class: align-thresholds / state-honest-expectation
+    owning-role: quant-researcher (author) + NHT (owns the eff-N/alpha denominator) + Head of Quant Research (owns the canonical G1 bar; reconcile F7's 3.0yr vs rubric's 2.0yr)
+
+  - id: F-002
+    severity: minor
+    location: "metric — PURGE/EMBARGO (lines 124-131); windows — HOLDOUT boundary (lines 99-103)"
+    category: leakage-surface
+    observation: >
+      Embargo is specified one-sided ("after each test fold"); purge is two-sided. More
+      importantly, the TRAIN+TEST↔HOLDOUT seam at 2021-12-31/2022-01-01 is not stated to carry
+      a 13mo purge — a label whose 12mo lookback window straddles end-2021 can read into the
+      2022 holdout, leaking the locked holdout into in-sample label construction.
+    inference: >
+      For a 12mo-lookback label the train/holdout seam is exactly where the dominant leakage
+      lives; a one-sided embargo and an unpurged holdout boundary are the two places it re-enters.
+    evidence: "financial-ml-methodology rubric 1 (purge must drop train obs whose label window overlaps test); the artifact purges WITHIN the CPCV pool but is silent on the pool↔holdout seam."
+    recommended-action-class: specify-symmetric-purge-embargo-including-holdout-seam
+    owning-role: quant-researcher
+
+  - id: F-003
+    severity: minor
+    location: "metric DEFLATION (lines 132-141); generation-surface-declaration (lines 213-227)"
+    category: multiple-testing-completeness
+    observation: >
+      eff-trials = 37 books the org-wide N (30) and the cross-direction surface (~7) but not the
+      within-direction parameter surface (lookback=12mo, rebalance=1mo, vol-target=15%, risk-parity
+      weighting, 24-vs-22 universe). These are pre-committed single-shot here (good, and the
+      published-OOS basis genuinely mitigates), but lookback/vol were chosen at a published
+      optimum — a mild residual snoop not reflected in the 37.
+    inference: >
+      F-008 is substantively honored (surface booked as mechanisms, compounded, revisable only
+      upward). The residual is second-order and the "revise upward only" lever covers it — note
+      it so NHT does not silently treat 37 as a floor that already includes everything.
+    evidence: "PR F-008 condition (prior review, lines 240-259) requires the selection surface in eff-N; the artifact addresses the cross-direction surface explicitly and the within-direction surface implicitly via single-shot freezing."
+    recommended-action-class: note-residual-surface-for-NHT-ratification
+    owning-role: null-hypothesis-tester
+
+  - id: F-004
+    severity: minor
+    location: "windows REGIME-CRASH INCLUSION (lines 106-114); falsification F4 (line 158), F6 (line 160)"
+    category: machine-checkability
+    observation: >
+      F6 blocks only on the 2009 episode + >=20yr. The 2011-2015 "long winter" and March-2020
+      are MANDATED in prose but have no independent coverage gate; a manifest that covers 2009
+      and >=20yr but (implausibly, yet not blocked) excludes Mar-2020 would pass F6.
+    inference: >
+      The no-low-vol-only intent is mostly enforced (2009 + 20yr brackets the others in practice),
+      but "machine-checkable" should mean each mandated episode has its own date-range coverage
+      assertion, not rely on transitive coverage.
+    evidence: "log-as-decision-trace item 1/2 (outcome + all driving inputs as enumerable checks); F6 names only one of three mandated episodes as a hard block."
+    recommended-action-class: add-per-episode-coverage-assertions-to-F6
+    owning-role: quant-researcher
+
+  - id: F-005
+    severity: minor
+    location: "falsification F3 (line 157)"
+    category: disguised-flexibility
+    observation: >
+      F3 ("> 50% of net edge concentrated in a single macro-regime bucket AND net-Sharpe-ex-bucket
+      <= 0") leaves two things unpinned: the bucket partition (the {hiking,easing,on-hold}×{risk-on,
+      risk-off} grid is named in metric but F3 does not bind to it) and the edge-attribution method
+      (% of Sharpe vs % of return vs % of risk-adjusted PnL).
+    inference: >
+      Post-hoc choice of "which bucketing" or "which attribution" is exactly the data-snooping-in-
+      stratification clothing the methodology rubric warns against. The number (50%) is frozen; the
+      operationalization is not.
+    evidence: "financial-ml-methodology rubric 4 (strata must be pre-declared); metric defines a 6-cell grid but F3 says only 'a single macro-regime bucket'."
+    recommended-action-class: bind-F3-to-the-pre-declared-grid-and-name-the-attribution-metric
+    owning-role: quant-researcher
+
+  - id: F-006
+    severity: minor
+    location: "data-spec (lines 163-195); cost-model ROLL (lines 248-260)"
+    category: futures-continuation-bias
+    observation: >
+      The artifact correctly names roll method as part of the frozen cost manifest and flags
+      "a different roll = a different strategy", but defers the actual roll convention to
+      acquisition time rather than freezing it NOW (back-adjust = Panama/ratio/none; roll trigger
+      = first-of-month vs OI/volume cross vs N-days-pre-expiry). Back-adjustment choice materially
+      biases trend backtests (negative-price artifacts under additive Panama on energies; level
+      distortion on long histories).
+    inference: >
+      For a FROZEN pre-reg whose discipline is "commit every knob now", the roll/back-adjust
+      convention is a knob with first-order impact on a TREND backtest and should be frozen, not
+      TBD. Leaving it open is a (small) post-hoc flexibility surface.
+    evidence: "data-spec records roll 'as part of the FROZEN cost manifest' but does not state the convention; cost-model adds roll cost explicitly (good) yet does not pin the method."
+    recommended-action-class: freeze-back-adjust-method-and-roll-trigger-now
+    owning-role: quant-researcher (with quant-developer at acquisition)
+
+  - id: F-007
+    severity: observation
+    location: "single-program-accounting (lines 197-211); assumptions (line 299)"
+    category: tail-vs-confirmability tension (correctly identified, worth surfacing)
+    observation: >
+      The artifact is internally honest that the SAME cross-asset correlation that delivers the
+      confirmability breadth (low corr in normal regimes) collapses to ~1 in liquidation — i.e.
+      breadth helps the denominator (years-to-validate) precisely in the regimes where it does NOT
+      help the tail. The honest-N=1 single-program accounting is the right response.
+    inference: >
+      No action — this is a STRENGTH (the design refuses to double-count breadth). Flagged so the
+      Board reads F5 (breadth) and F4 (crash) as a coupled pair: passing F5 in normal regimes does
+      not buy tail protection, and F7's breadth-driven confirmability is borrowed from the same
+      correlation structure F4 says will fail in a crash.
+    evidence: "single-program-accounting (c)/(d); CRO blowup-analog (managed-futures long winter = one correlated bet)."
+    recommended-action-class: none (praise / surface-coupling)
+    owning-role: n/a
+
+coverage-statement: >
+  Reviewed all six mandated soundness axes (CPCV purge/embargo, F-008 deflation, regime-crash
+  machine-checkability, power pre-check, falsification frozen-numbers, data-spec bias-awareness)
+  against the artifact, the cited probe (quant-developer-probe.yaml), the prior PR conditions
+  (2026-06-25 principal-reviewer.yaml F-001/F-008), the consensus (CONSENSUS.md F-002/F-005,
+  CRO single-program ruling), and the firm's canonical confirmability formula
+  (references/intraday_confirmability_screening_rubric.md). I independently recomputed the
+  years-to-validate arithmetic (scipy) and reconciled it to the canonical numerator. I did NOT
+  review live deployability (out of scope, research-only) or the alpha hypothesis itself
+  (upstream of methodology). No code exists to review (execution firewall). honest-N stays 30.
+  NONE of the seven findings block a FROZEN DESIGN artifact. Blocking-for-the-committed-backtest:
+  F-001 (reconcile F7's 3.0yr threshold to the canonical 2.0yr G1 bar and state the honest
+  do-not-run expectation), F-002 (purge the pool↔holdout seam), F-006 (freeze the roll/back-adjust
+  convention before acquisition).
+
+contamination-check: "clean — the prompt disclosed no role's approval stance on this pre-registration; it disclosed only that two PRIOR conditions (F-001, F-008) must be honored, which is a requirement, not an approval stance. No contamination."
+time-spent-reasoning: "~38 minutes: 4 skills + artifact + probe + prior PR review + consensus + CRO assessment + canonical confirmability rubric; one independent numerical recomputation (and one self-caught retraction of a false dimensional-error claim)."
+
+evidence:
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-26-trend-futures-prereg/quant-researcher-prereg.yaml — the artifact under review (FROZEN)."
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-26-trend-futures-feasibility-probe/quant-developer-probe.yaml — probe: single-sleeve residual ~0.40 vs 0.20 gate; explicitly states portfolio-Sharpe NOT modeled, confirmability is the open question."
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-25-new-alpha-exploration/principal-reviewer.yaml — prior PR review; F-001 (kill-tests must gate on significance at honest eff-N, not point estimates), F-008 (book the selection surface into eff-N, not +1)."
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-25-new-alpha-exploration/CONSENSUS.md — F-002 (McLean-Pontiff haircut + pin turnover), F-005 (machine-checkable years-to-validate ≤3yr hard gate), CRO single-program / research-only ruling, effective-N governs."
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-25-new-alpha-exploration/cro-risk-assessment.yaml — ONE correlated program, cross-asset trend corr → 1 in liquidation, research-only until min-viable-notional reconciled."
+  - "/Users/huangtm/Projects/forex-trading-system/references/intraday_confirmability_screening_rubric.md lines 19-22, 42, 155 — canonical years_to_validate formula (numerator 6.18, alpha=0.05 1-sided), G1 bar ≤2.0yr, STRETCH 2-3yr."
+  - "Independent scipy recomputation (this session): years_to_validate = (z_0.8 + z_{1-alpha})^2 / S_prog^2; at numerator 6.18, S_prog=0.8→9.66yr, 1.2→4.29yr, 1.44→2.98yr; central honest case (B≈8, s≈0.20)→~19yr."
+
+assumptions:
+  - "The 'two prior conditions' (F-001, F-008) refer to the 2026-06-25 principal-reviewer.yaml findings of those IDs (verified by reading that file), not unrelated F-001/F-008 elsewhere."
+  - "'years-to-validate' in F7 uses the firm's canonical 1-sided alpha=0.05 numerator (6.18) per the FROZEN confirmability rubric; the pre-reg's prose 'honest one-sided alpha set by the compound deflation (eff-trials=37)' would make the gate even harder (numerator ~14.8) — my finding holds a fortiori under the artifact's own stricter reading."
+  - "Decayed per-bet Sharpe ≈ 0.20 (single-FX-sleeve gross 0.40 × 50% McLean-Pontiff) and effective bets B ≈ 6–10 are the artifact's own central estimates; I used them, not optimistic ones."
+  - "A FROZEN design artifact is held to a 'commit every knob, machine-checkable gates' bar; findings are scored against that bar, and none rise to blocking for the design (only for the committed backtest), consistent with the review charter."
+
+confidence: medium
+
+body: |
+  SOUNDNESS REVIEW — multi-pair/cross-asset trend-futures pre-registration (FROZEN).
+
+  VERDICT: approve-with-conditions. As a FROZEN DESIGN artifact this is methodologically
+  strong and unusually honest: it commits every window boundary, universe member, threshold,
+  deflation count, and kill condition single-shot; it honors the two carried conditions
+  (F-008 selection-surface booked as ~7 mechanisms and COMPOUNDED into the DSR denominator,
+  not +1; F-001's spirit met for the PRIMARY gate F1 which is itself a deflation-bearing
+  significance test); and it correctly refuses to double-count cross-asset breadth (one
+  honest-N unit, one risk limit). None of my seven findings block the design. Three are
+  blocking-for-the-committed-backtest and should be closed before an honest-N unit is spent.
+
+  1. CPCV / PURGE / EMBARGO (sound, one seam open). Purge = 13mo (12mo lookback + 1mo hold)
+  correctly EXCEEDS the label/holding horizon — this is the right dominant-leakage control for
+  a 12mo-lookback label, and the artifact correctly identifies label leakage as the dominant
+  risk. C(10,2)=45 paths is adequate (a standard CPCV resolution; the distribution-of-45 +
+  median-path-to-DSR is the right reporting). The one open leakage surface (F-002): the embargo
+  is written one-sided ("after each test fold") while purge is two-sided, and — more important —
+  the TRAIN+TEST↔HOLDOUT seam at 2021-12-31 is not stated to be purged, so a late-2021 label's
+  12mo window can read 2022 holdout prices. Minor, mechanical, fixable.
+
+  2. DEFLATION / F-008 (substantively honored). Booking the 21-direction surface as ~6-7
+  distinct MECHANISMS rather than naive-21 (over-corrects) or +1 (under-corrects, the exact
+  2026-05-31 reset failure) is the correct non-naive reading, and compounding it into the DSR
+  denominator (eff-trials = 30 + 7 = 37, revisable upward only by NHT) is sound. Residual gap
+  (F-003): the within-direction parameter surface (lookback/vol-target/universe) is pre-committed
+  single-shot here — good — but lookback/vol were picked at a published optimum, a mild snoop not
+  in the 37. Second-order; the upward-only lever covers it. The DSR<0.95 threshold is the firm's
+  ratified bar and is the right one at this eff-N; the artifact asserts rather than demonstrates
+  the DSR value (acceptable pre-data; becomes a must-show at the committed step).
+
+  3. REGIME-CRASH INCLUSION (mostly machine-checkable). F6 ('>=20yr AND 2009 in-sample') and F4
+  (crash-floor net Sharpe < -0.50 on the union of 3 episodes) are frozen and checkable. Gap
+  (F-004): only 2009 is an independent hard block; 2011-15 and Mar-2020 are mandated in prose but
+  rely on transitive coverage. Add per-episode date-range coverage assertions so 'no recent-low-
+  vol-only window' is enforced per-episode, not by inference.
+
+  4. POWER PRE-CHECK (the headline finding, F-001). I verified the formula is algebraically
+  correct (I initially suspected a dimensional error — annual Sharpe substituted where a per-event
+  IR belongs — and RETRACTED it: events/yr cancels, years ≈ 6.18/S_prog^2 is the correct reduction
+  of the canonical rubric). The gate is therefore SOUND and machine-checkable. The finding is about
+  the HONEST EXPECTATION: under the firm's own numerator and the artifact's own decayed inputs
+  (B≈6-10 bets, per-bet decayed Sharpe ≈0.20 → S_prog ≈0.5-0.6), years-to-validate ≈ 10-40yr. To
+  clear ≤3.0yr you need S_prog ≥ 1.44; to clear the canonical ≤2.0yr G1 bar you need S_prog ≥ 1.76.
+  No plausible decayed diversified-trend Sharpe reaches that. CONSEQUENCE: F7 is, on its own
+  numbers, a near-certain DO-NOT-RUN — which is exactly the QRB-6 posture the artifact invokes, so
+  this is the gate WORKING, not failing. The blocking-for-backtest sub-issue is the THRESHOLD
+  MISMATCH: F7 fires at >3.0yr, but the firm's canonical confirmability rubric grants a backtest
+  slot only at ≤2.0yr (2-3yr is merely 'STRETCH'). F7 as written would admit a STRETCH direction
+  the canonical gate denies. Reconcile the two before the committed step.
+
+  5. FALSIFICATION CRITERIA (6 of 7 frozen-number; one soft; F-001 residual on F3/F4/F5). F1, F2,
+  F4, F5, F6, F7 all carry frozen numbers. F3 is the soft one (F-005): '>50% of net edge in a
+  single macro-regime bucket' does not bind to the pre-declared 6-cell grid and does not name the
+  edge-attribution metric (Sharpe/return/risk-adjusted) — a post-hoc stratification choice surface.
+  Separately, the prior F-001 condition (kill-tests gate on SIGNIFICANCE at honest eff-N, not point
+  estimates) is met for the PRIMARY gate F1 (DSR is a deflation-bearing significance test) but NOT
+  for F3/F4/F5, which are raw point-estimate thresholds with no CI / significance band at eff-N.
+  For a kill that ends a direction, a point estimate on one CPCV median path is the exact fragility
+  F-001 named; at minimum F4/F5 should report the path-distribution band, not just the point.
+
+  6. DATA-SPEC (executable, bias-aware, one knob left open). Concrete and executable: 24 named
+  contracts, daily OHLCV+volume+OI, >=20yr, named sources at ~$250-500/yr with a free coverage-check
+  tier, reversible Board spend. Bias-awareness is GOOD instinct — roll method is named as a frozen
+  cost-manifest item ('a different roll = a different strategy'), roll cost is added explicitly so
+  the cheap probe's omission cannot silently re-enter, per-contract (not single-average) ticks, EM/thin
+  caveats (6M, NG). The one open knob (F-006): the actual back-adjust method (Panama/ratio/none) and
+  roll trigger (OI-cross vs N-days-pre-expiry) are deferred to acquisition rather than FROZEN now —
+  and for a TREND backtest the back-adjust choice is first-order (additive Panama distorts long
+  energy histories, can produce negative synthetic prices). For an artifact whose whole discipline is
+  'freeze every knob', freeze this one too.
+
+  NET. This is the firm's most credible attempt yet to escape the dataset wall, and it is honest
+  about the one thing that decides its fate — confirmability — being the binding risk, with cost
+  already settled by the probe. The arithmetic I independently ran says the confirmability gate
+  will very likely fire (do-not-run), which is the design behaving correctly, not a flaw. Approve
+  the FROZEN design; carry F-001 (threshold reconciliation + honest do-not-run expectation), F-002
+  (holdout-seam purge), and F-006 (freeze roll/back-adjust) as conditions to close before the
+  Board-gated honest-N spend.
+
+knowledge_gaps:
+  - "The realized effective-bet count B for the 24-contract program — computable $0 from AMP-2013/Hurst-2017 published correlation tables before any spend; it determines whether F7 fires. The artifact routes this to quant-developer; until computed, my ~6-10 figure is the artifact's own estimate, not a verified value."
+  - "Whether the firm intends F7 to use the canonical 1-sided alpha=0.05 numerator (6.18) or the compound-deflation alpha (eff-trials=37, numerator ~14.8). My finding holds under both; the choice changes the magnitude of the do-not-run margin, not its direction."
+  - "The exact T (sample length in the CPCV pool, ~earliest-1990s through 2021) needed to compute the actual DSR at eff-N=37 — not derivable from the design artifact (data not acquired)."
+policy_violations_detected: []
+sources:
+  - "Bailey & Lopez de Prado — Deflated Sharpe Ratio + CPCV with purge/embargo (firm's ratified DSR>=0.95 bar)."
+  - "Moskowitz, Ooi, Pedersen (2012) JFE; Hurst, Ooi, Pedersen (2017) AQR — the published OOS trend evidence the gross-edge basis draws on (cited, not re-verified here)."
+  - "McLean & Pontiff (2016) JF — post-publication decay 35-58% (the 50% midpoint basis for the F2 haircut)."
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, test-coverage-and-test-quality-review, numerical, spec-vs-implementation-drift-detection]

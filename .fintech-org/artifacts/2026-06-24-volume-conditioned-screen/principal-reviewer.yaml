@@ -1,0 +1,237 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: volume-conditioned-screen
+subtask_id: volume-conditioned-2026-06-24-pr
+artifact-under-review: quant-developer-feasibility.yaml (+ cost_feasibility_c1_c2.py, volume_conditioned_screen.py, volume_screen_raw.json)
+rubrics-applied:
+  - review-plan (spec-to-impl trace)
+  - execution-firewall-review (spec drift, silent defaults, EXCLUDE-NOT-IMPUTE)
+  - log-as-decision-trace (verdict reconstructability from raw JSON)
+  - python (numerical correctness, OLS/SE)
+  - probability-statistics (t-stat, multiplicity, lookahead)
+  - "skipped because: forex-trading / technical-analysis / deep-learning / reinforcement-learning are FORBIDDEN by role scope; I did not assess alpha plausibility, only spec-vs-impl and numerical correctness."
+independent-recompute:
+  c2cost_full_rt_charged: >
+    true. I reproduced the fix from scratch on TWO topologies. (1) The QD toy path [0,+1,+1,+1,0]:
+    cost_series=[0,1.1,0,0,1.1]; buggy slice iloc[1:4]=1.10 (entry leg only), fixed slice iloc[1:5]=2.20
+    (entry+exit=full RT). (2) The REAL carry-loop topology (multi-bar hold [0,0,+1,+1,+1,+1,0,0],
+    entry_i=2, exit_i=5, j=6): buggy iloc[2:6]=1.30, fixed iloc[2:7]=2.60. In BOTH cases the fixed
+    slice equals the sum of the ENTIRE cost_series (every change bar), so it is NOT double-charged —
+    it captures exactly the entry change-bar and the exit change-bar and nothing else. My assertion:
+    a single flat→dir→flat trade is now charged 2 legs, the buggy code charged 1, undercount = exactly
+    1 exit leg. CONFIRMED independent of the QD's own assertion code.
+  lookahead_check: >
+    lookahead-found (disclosed, mild) — CANNOT flip any FAIL/DISQUALIFY verdict; can only INFLATE the
+    PASS pairs, so it is conservative w.r.t. the family-close conclusion. The seasonal-volume norm
+    (compute_seasonal_norm, volume_conditioned_screen.py:205-214) uses a FULL-SAMPLE median per
+    (dow×24+hour) bucket — it peeks at future bars to define each bar's relvol. This is the disclosed
+    seasonal-norm lookahead (QR assumption line 252-254, QD assumption line 74). I measured its
+    direction: USDJPY session-open fires under the full-sample norm = 820 vs an expanding/past-only norm
+    = 1181 — the full-sample norm is actually MORE restrictive at the 1.5× threshold (it selects the
+    strongest tail), and any selection-on-future bias would tend to make the conditioned subset look
+    BETTER, not worse. Since the verdict is FAIL/DISQUALIFY for the family, the lookahead is on the
+    conservative side: removing it cannot rescue a killed candidate. Entry timing IS clean no-lookahead:
+    signal on closed bar t (direction=sign(close_t−open_t), known at t-close), entry at open of t+1
+    (volume_conditioned_screen.py:374,388), exit at close of t+2. No off-by-one signal leak.
+  volatility_control_sound: >
+    yes, with one numerical nit. The control regresses per-trade gross on rank(relvol) AND rank(relrng)
+    jointly (OLS via lstsq, line 288-289), reports the relvol coefficient t-stat NET of relrng — this
+    correctly isolates the volume term from range, matching QR design form (a). SE via
+    s²(XᵀX)⁻¹ with dof n−3 (line 297-301) is the textbook OLS SE; I recomputed it and matched.
+    The USDJPY 2×2 (high/low relvol × high/low range) uses median splits on the per-trade relvol/relrng
+    arrays (line 458-472) — computed correctly. NIT: ranks are computed on the SELECTED (post-fire)
+    sample, not the full sample, so the rank regression measures within-fired-set gradient — appropriate
+    for "does relvol add info among fires", and the near-zero R² (0.001-0.006) makes the choice immaterial.
+  headline_number_reproduced: >
+    Reproduced FOUR headline numbers from raw parquet, all EXACT. USDJPY V1: n=819 (rep 819),
+    mean_gross=3.3023 (rep 3.3023), high_rv×high_rr=+6.0342 (rep 6.0342), high_rv×low_rr=−0.4503
+    (rep −0.4503), relvol t=−0.3257 (rep −0.3257), relrng t=1.8347 (rep 1.8347). EURGBP V2: n=969
+    (rep 969), mean_gross=−1.1696 (rep −1.1696), construction ratio=1.5368 (rep 1.5368). Zero
+    discrepancy on every value checked.
+  cells_screened_count: >
+    39 reported descriptive cells = 8 cost-feasibility decision cells (5 V1 pairs + 3 V2 pairs) +
+    8 vol-control regressions + 20 V1 2×2 strat cells + 3 V2 construction checks. The DECISION surface
+    that drives the family-close is 8 cost cells + 8 vol-control + 3 construction = 19. No multiplicity
+    correction is applied, but none is required here: every decision goes AGAINST the candidate (FAIL/
+    DISQUALIFY), so selection-over-cells could only manufacture a false POSITIVE, and none was claimed.
+findings:
+  - id: F-001
+    severity: observation
+    location: quant-developer-feasibility.yaml:11 (files-to-create-or-modify) and body §JOB 1
+    category: spec-drift
+    observation: >
+      The C2COST slice fix (cost_feasibility_c1_c2.py:579) is correct, but the V1/V2 volume screen
+      that actually produces this cycle's numbers (volume_conditioned_screen.py:405,625) does NOT use
+      the trade-loop hold_cost slice at all — it charges cost directly as entry_spread + exit_spread +
+      RT_OVERHEAD on the event-trade. So the C2COST bug NEVER touched the V1/V2 results.
+    inference: >
+      [labeled inference] The C2COST fix is real and necessary for the C2 carry screen, but it is
+      orthogonal to the volume-screen verdict. The deliverable correctly does not claim otherwise
+      (body §JOB1 attributes the impact to prior C2 results, not to V1/V2). No correctness problem —
+      flagging only so the reader does not conflate the two code paths.
+    evidence: "volume_conditioned_screen.py:405 rt_cost=entry_spread+exit_spread+RT_OVERHEAD; :625 same for V2. cost_feasibility_c1_c2.py:579 is the fixed slice, used only by run_c2_pair."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-002
+    severity: minor
+    location: volume_conditioned_screen.py:205-214 (compute_seasonal_norm)
+    category: numerical
+    observation: >
+      Seasonal volume norm uses full-sample median per bucket (look-ahead). Disclosed by both QR and QD
+      as acceptable-for-descriptive-screen.
+    inference: >
+      [labeled inference] I verified the bias direction empirically (full-sample norm fires 820 vs
+      expanding-norm 1181 on USDJPY session opens; full-sample is the more restrictive/strongest-tail
+      selector). Because every verdict is FAIL/DISQUALIFY, the lookahead is conservative and cannot
+      flip the family-close. It WOULD matter for any future committed CPCV backtest, where a
+      rolling/expanding past-only norm is mandatory. The deliverable states this (assumption line 74).
+    evidence: "Independent recompute: USDJPY session-open fires full=820 vs expanding=1181."
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-researcher
+  - id: F-003
+    severity: minor
+    location: quant-developer-feasibility.yaml:189,196 vs raw JSON USDJPY low_relvol×high_relrng
+    category: observability-gap
+    observation: >
+      The deliverable's USDJPY 2×2 narrative ("positive gross lives EXCLUSIVELY in the high-relvol ×
+      high-relrng cell, +6.03") omits that the low_relvol×high_relrng cell is also strongly positive
+      (+2.69) and low_relvol×low_relrng is +3.36 in the raw JSON. The raw data show range (relrng), not
+      relvol, is the dominant axis — which the regression (relvol t=−0.33, relrng t=+1.83) already says.
+    inference: >
+      [labeled inference] The conclusion (volume is a volatility/range shadow → DISQUALIFIED) is CORRECT
+      and if anything UNDERSTATED — the full 2×2 makes the case more strongly than the two-cell summary.
+      Not a correctness error; a completeness gap in the prose. The raw JSON preserves the decision trace,
+      so reconstructability is intact (log-as-decision-trace: PASS).
+    evidence: "raw JSON USDJPY strat: high_rv×high_rr=6.034, low_rv×high_rr=2.689, low_rv×low_rr=3.365, high_rv×low_rr=−0.450."
+    recommended-action-class: add-log
+    owning-role: quant-developer
+  - id: F-004
+    severity: observation
+    location: quant-developer-feasibility.yaml:320 (knowledge_gaps), QR design line 163-168
+    category: edge-case
+    observation: >
+      V2 fired 2926 times on EURUSD (~587/yr) vs QR's pre-spec estimate of 40-80/yr — a ~7-15×
+      miss. QD's stated cause: the 0.75×seasonal-median-range "extension from session open" gate fires
+      on most bars distant from the UTC-midnight session open, because cumulative drift from a fixed
+      anchor grows through the day.
+    inference: >
+      [labeled inference] This does NOT affect the FAIL/DISQUALIFY verdict (more fires + negative gross
+      + construction-void all point the same way). But it reveals the V2 "session open = first bar of
+      UTC calendar date (midnight bar)" anchor (compute_session_open_price:495-512) is a weak proxy for
+      a true trading-session open — by late in the day nearly any bar is "extended" from a midnight
+      anchor, so the extension gate is near-vacuous and the construction is not testing what QR intended.
+      The conclusion still holds (construction ratio 1.25-1.54 >> 1.2 = DISQUALIFIED on its own terms),
+      so this is a design-fidelity note for any future intraday re-attempt, not a verdict risk.
+    evidence: "raw JSON V2 EURUSD n=2926; compute_session_open_price uses UTC calendar-date first bar (00:00) as anchor."
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-005
+    severity: observation
+    location: quant-developer-feasibility.yaml:157-162 (EURUSD/USDJPY V1 cost-PASS)
+    category: correctness
+    observation: >
+      Two V1 pairs are labeled cost-PASS (EURUSD gross 1.6446 > rt 1.5083; USDJPY 3.3023 > 2.1192),
+      which QR's prior probe (1-bar hold, ~0.9 pips) did not predict. QD attributes the lift to the
+      2-bar hold window. I confirmed the gross is computed entry_open(t+1) → exit_close(t+2), a genuine
+      2-bar capture, not a measurement error.
+    inference: >
+      [labeled inference] The cost-PASS labels are arithmetically correct but do NOT advance the
+      candidate: the family-kill fires on (a) ≥3/5 cost-FAIL and (b) vol-control t<2.00 on ALL pairs
+      incl. both PASS pairs (EURUSD relvol t=0.45, USDJPY t=−0.33). The deliverable states this clearly.
+      The PASS labels are a transparency win, not a buried lede.
+    evidence: "Independent recompute USDJPY n=819 gross 3.3023; vol-control relvol t=−0.3257 (<2.00)."
+    recommended-action-class: other
+    owning-role: quant-developer
+coverage-statement: >
+  Reviewed all 4 assigned subtasks of the deliverable. (1) C2COST fix — reproduced independently on two
+  topologies. (2) No-lookahead — traced signal→entry→exit and the seasonal-norm; measured the lookahead's
+  direction. (3) Volatility-control — re-derived the OLS t-stat and SE, reproduced the USDJPY 2×2 and the
+  relvol/relrng t-stats. (4) Cost application + multiplicity — confirmed gross excludes cost, per-bar
+  entry+exit real spreads, pair-native pips, EXCLUDE-NOT-IMPUTE (verified 0 zero/NaN spread bars across
+  all 6 screened pairs, so the exclude path is correct-but-inert on this data), counted 39 cells / 19
+  decision cells. Did NOT assess forex/TA alpha plausibility (FORBIDDEN by role). Did not re-run the full
+  C1 carry screen (out of scope this cycle). Reproduced 4 headline numbers; all EXACT.
+contamination-check: clean
+time-spent-reasoning: ~40 minutes
+evidence:
+  - "Independent python recompute (two C2COST topologies; USDJPY V1 n/gross/2x2/t-stats; EURGBP V2 n/gross/construction): all reproduced EXACT vs reported."
+  - "data/processed/{EURUSD,GBPUSD,USDJPY,EURJPY,AUDUSD,EURGBP}_1h.parquet: 0 zero/NaN spread bars each (EXCLUDE-NOT-IMPUTE inert but correct)."
+  - "volume_conditioned_screen.py:205-214 (full-sample seasonal norm = disclosed lookahead); :374,388 (entry t+1 open, no-lookahead clean); :405,625 (cost = entry+exit spread + 0.80)."
+  - "cost_feasibility_c1_c2.py:579 (C2COST fixed slice [entry_i:exit_i+2])."
+  - "raw JSON volume_screen_raw.json: c2cost_assertion + v1 + v2 + vol_range_correlations."
+assumptions:
+  - "I have NOT been told any other role's (HoQR/NHT/CTO/CRO) decision; my firewall self-check is clean."
+  - "spread_median_pips is the canonical per-bar cost input; the 0.80 overhead = 2×(0.25 slip + 0.15 haircut) is the ratified RT_OVERHEAD."
+  - "honest_N=30 unchanged is correct: this is a descriptive feasibility screen with no trials.jsonl counted entry — I did not find one appended."
+confidence: high
+body: |
+  I reviewed COLD, without sight of any other role's verdict. Bottom line: the deliverable's
+  numbers are reproducible to the digit, the C2COST fix is genuinely correct (and correctly
+  scoped to the C2 carry screen, NOT the volume screen), the no-lookahead entry chain is clean,
+  and the disclosed seasonal-norm lookahead is conservative w.r.t. the family-close. I approve
+  WITH CONDITIONS — the conditions are documentation/fidelity notes, none of which can flip the
+  FAIL/DISQUALIFY verdict.
+
+  ## 1. C2COST fix — verified twice, independently
+  I did not trust the QD's assertion harness; I rebuilt the cost slice from scratch. On the QD's
+  toy path the fixed slice charges 2.20 pips (entry+exit) vs the buggy 1.10 (entry only). Crucially,
+  I also rebuilt the REAL carry-loop topology (a multi-bar hold with entry_i=2, exit_i=5, j=6): the
+  buggy slice iloc[entry_i:exit_i+1] charges 1.30 (one leg), the fixed slice iloc[entry_i:exit_i+2]
+  charges 2.60 (both legs), and the fixed sum equals the sum of the ENTIRE cost series — so it is
+  not double-charging, it is exactly capturing the two change-bars. The fix is correct. The one
+  thing the reader must not conflate (F-001): this bug lived in cost_feasibility_c1_c2.py's carry
+  loop; the V1/V2 volume screen charges cost directly (entry+exit spread), so the volume verdict
+  was never affected by the bug. The deliverable is honest about this.
+
+  ## 2. No-lookahead — clean entry, mild disclosed norm-lookahead, conservative
+  Entry chain: direction = sign(close_t − open_t) is fixed at the CLOSE of signal bar t; the trade
+  enters at the OPEN of bar t+1 and exits at the CLOSE of t+2. No signal value leaks into the entry
+  price. Clean. The seasonal-volume norm is the one lookahead: it is a full-sample per-bucket median,
+  so relvol at bar t "knows" the whole sample's volume. I measured the direction of this bias —
+  full-sample norm fires 820 USDJPY session-open bars vs 1181 under an expanding past-only norm, i.e.
+  the full-sample norm is the MORE restrictive, strongest-tail selector. Any selection-on-future bias
+  would make the conditioned subset look better, not worse — so it cannot rescue a FAILed candidate.
+  The verdict is conservative under the lookahead, exactly as the task anticipated. (It WOULD have to
+  be fixed for a committed CPCV backtest; the deliverable says so.)
+
+  ## 3. Volatility-control — sound, and the verdict is if anything understated
+  The joint rank-OLS of gross on relvol_rank and relrng_rank correctly isolates the volume term from
+  range; I re-derived the SE (s²(XᵀX)⁻¹, dof n−3) and matched the reported t-stats to the digit
+  (USDJPY relvol t=−0.3257, relrng t=+1.8347). The 2×2 reproduces exactly. The narrative emphasizes
+  two cells; the full 2×2 (F-003) actually makes the "range, not volume" case STRONGER, because the
+  positive gross persists across relrng-high cells regardless of relvol. relvol t<2.00 on all 8
+  pair-candidate combinations is a clean, decisive control failure.
+
+  ## 4. Cost + multiplicity — correct, EXCLUDE path inert-but-correct
+  Gross excludes cost (pure price capture, direction-signed, pair-native pips with JPY=0.01 honored).
+  RT cost uses the REAL per-bar entry and exit spread_median_pips on the conditioned bars plus the
+  0.80 overhead — this is the spec hurdle, and computing it on the CONDITIONED bars (not full-sample)
+  is the stricter, correct choice QR demanded. EXCLUDE-NOT-IMPUTE is implemented (skip trade on
+  zero/NaN spread at entry or exit); I verified there are 0 such bars across all 6 pairs, so the path
+  is correct but never exercised on this data — worth knowing, not a defect. The selection surface is
+  39 descriptive cells / 19 decision cells with no multiplicity correction, which is acceptable because
+  every decision runs AGAINST the candidate; selection could only fabricate a false PASS, and none was
+  claimed. honest_N=30 unchanged, no counted trial — correct for a descriptive screen.
+
+  ## Verdict
+  approve-with-conditions. Conditions (all documentation/fidelity, none verdict-altering):
+  (a) F-001: keep the C2COST-fix scope explicit so the reader does not attribute it to V1/V2.
+  (b) F-002: any future committed backtest MUST replace the full-sample seasonal norm with a
+      past-only (rolling/expanding) norm — owned by QR.
+  (c) F-004: the V2 "session open = UTC-midnight bar" anchor makes the extension gate near-vacuous
+      (587 fires/yr vs 40-80 expected); if the volume lever is ever revisited on intraday data, fix
+      the anchor — owned by QR. The current verdict stands regardless (construction ratio 1.25-1.54
+      >> 1.2 = DISQUALIFIED).
+  I did NOT assess whether the volume lever SHOULD close as a research call — that is HoQR/NHT's
+  judgment, and I have not seen it. On implementation correctness and numerical fidelity, the
+  deliverable is sound and the family-close is well-supported by the measured numbers.
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, spec-vs-implementation-drift-detection, hidden-bug-and-edge-case-surfacing, numerical]

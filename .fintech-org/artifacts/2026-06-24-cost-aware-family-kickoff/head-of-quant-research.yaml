@@ -1,0 +1,169 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: approve-with-capacity-limit   # C1 ADVANCES to pre-reg under STRICT regime/source controls; C2 KILLED as-run (re-spec shelved). Net: one narrow candidate graduates, not the family.
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-hoqr
+trial_id: cost-aware-family-2026-06-24-hoqr
+
+ranked-alternatives:
+  - "C1 USDJPY-only (FED+BOJ, n=80) pre-registered CPCV at a PRE-COMMITTED single hold horizon, with regime-stratified eval as a HARD gate — the only cell with both the event count (n=80) and the per-trade margin to justify a counted trial. RANK 1."
+  - "Acquire verified-official ECB + BOE decision dates (currently 0 in cb_decision_dates.parquet) BEFORE pre-registering EURUSD/GBPUSD C1 — these pairs are FED-only proxies today and their 'PASS' rests on ~40 FED events with negative non-hiking-year means. Data acquisition is the ceiling unlock, mirroring the standing DATASET-WALL finding. RANK 2."
+  - "C2 carry RE-SPEC (long-hold, NO aggressive crash filter, or a slow vol-scaled crash overlay that does not collapse holds to ~5 days) screened as a fresh cheap feasibility test in a future cycle — NOT this cycle. The carry mechanism was never exercised. RANK 3 (conditional, low priority — carry's cost-adjusted edge 'did not survive verification' per the evidence layer)."
+  - "If C1 USDJPY fails the regime-stratified gate (drop-2022-23 margin <= 0), retire the cost-aware event-drift family and return the R2 lever (higher per-trade edge / lower turnover) to the generation queue. RANK 4 (the kill branch)."
+
+retirement-criteria:
+  - "C1-REGIME-KILL (HARD, pre-committed): re-estimate mean gross-pips/trade on the sub-sample EXCLUDING 2022-01-01..2023-12-31. If post-cost mean net-pips/trade <= 0 on the drop-2022-23 sub-sample for the pre-committed pair+horizon, C1 is RETIRED regardless of full-sample DSR. Rationale: 80-82% of USDJPY gross and >100% of EURUSD/GBPUSD gross is concentrated in the FOMC hiking cycle; a result that is a single-regime bet is not a repeatable edge."
+  - "C1-HORIZON-LOCK: the hold horizon MUST be pre-committed in the pre-registration BEFORE the CPCV run (USDJPY default = 12h, the feasibility-best). Reporting any other horizon's result post-hoc is a horizon-selection violation and voids the trial. The 3-18h sweep is FORBIDDEN inside the counted trial; if a sweep is run it is charged as N_sel>1 in DSR deflation."
+  - "C1-SOURCE-HONESTY: EURUSD/GBPUSD are labeled FED-ONLY (n=40) in every output; they may NOT be pre-registered as 'FED+ECB' / 'FED+BOE' until verified-official ECB/BOE dates exist. A pre-reg that implies dual-bank coverage on FED-only data is a labeling violation → void."
+  - "C1-DSR-DEFLATION: net Sharpe must clear the Deflated-Sharpe bar under the org-wide honest-N (currently 30, +1 for this counted trial = 31 in the denominator) AND under the internal selection count (pairs screened x horizons considered). If the trial pre-registers USDJPY-only at one horizon, N_sel for THIS trial = 1; the org-wide N=31 still applies."
+  - "C1-OOS-EMBARGO: CPCV with a purge+embargo of at least one full hold-horizon around each fold boundary (event windows must not straddle train/test). Minimum 15 qualifying events per test fold or the fold is non-evaluable."
+  - "C1-SURPRISE-FILTER-BINDING-CHECK: the surprise filter passed 100% of events in the screen (non-binding under the max-TR bar-attribution rule). The pre-reg MUST either (a) obtain exact release timestamps so the filter discriminates, or (b) drop the filter claim and label C1 as an UNCONDITIONAL post-decision-drift bet (honest framing). A filter that never excludes anything may not be claimed as a selectivity mechanism."
+  - "C2-AS-RUN: RETIRED. AUDJPY gross -8.14 (hard FAIL, kill 1.28); USDJPY 'PASS' (4.81) is price drift (carry accrual 0.021 pips at ~5-day holds), the SAME 2022-23 FOMC drift as C1 USDJPY, double-counted. The carry hypothesis was not tested → as-run design retired."
+  - "C2-RESPEC (if ever revived): mean realised hold MUST exceed 20 trading days AND carry accrual component MUST exceed 50% of gross, else the screen has again not tested carry → auto-FAIL."
+
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/quant-developer-feasibility.yaml — C1/C2 feasibility tables, F-001 fix + assertion (flip charges 2 RT, PASSED), ECB/BOE 0 verified-official dates, C2 crash-filter collapses holds to ~5 days."
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json — per-trade records. HoQR direct read this session: per-YEAR gross decomposition computed from trades[]."
+  - "REGIME DECOMPOSITION (HoQR, this session, from raw JSON): USDJPY 12h: 2022+2023 = 82.3% of total gross (2021 mean 0.20, 2024 mean 0.68 pips — edge vanishes outside hiking cycle). USDJPY 18h: 2022+23 = 80.1%. GBPUSD 18h: 2024 mean = -24.69 pips, 2025 negative; 2022 alone is 131% of total. EURUSD 6h: 2022 mean -4.84, 2024 mean -5.21 (both NEGATIVE); full-sample mean 1.92 with std 24.6 -> per-trade t ~ 0.49 (NOT nominally significant)."
+  - "DISPERSION: USDJPY 12h mean 19.94 / std 76.5 over n=80 -> gross per-trade t ~ 2.33 FULL-sample, but this is entirely a 2022-23 artifact; the non-hiking years are ~zero. EURUSD/GBPUSD full-sample means are within noise of zero."
+  - "forex-trading SKILL evidence layer: post-announcement DRIFT is weaker/noisier than carry or cross-sectional momentum (the only OOS-surviving FX factors); FX TA 'mixed, not settled', decays post-1990s. A drift edge concentrated in one hiking cycle is a REGIME BET, consistent with this prior."
+  - ".fintech-org/trials.jsonl — honest-N = 30 confirmed (last honest-n-classification 2026-06-18; three descriptive-screen entries since, all counts_toward_deflation_denominator:false). This cycle's qr design entry is also false. No increment occurred."
+  - "Standing DATASET-WALL finding (MEMORY): 12 daily pairs / limited intraday / zero CB-expectations data caps events/yr x per-event-Sharpe; consistent with EURUSD/GBPUSD being FED-only and the edge being thin outside one regime."
+
+assumptions:
+  - "The per-year decomposition I computed from trades[] in cost_feasibility_raw.json is faithful (I summed gross_pips by cb_date year directly; 16 USDJPY events/yr x 5yr = 80 matches n_fires)."
+  - "The max-TR bar-attribution rule (QD assumption) may occasionally mis-identify the announcement bar; this adds noise but the regime concentration is far too large to be an attribution artifact."
+  - "honest-N stays 30 THIS cycle; a counted trial (N->31 in the org-wide deflation denominator) occurs only if the Board authorizes the C1 USDJPY CPCV cycle."
+  - "C2's USDJPY 'carry' PASS and C1's USDJPY drift PASS are the SAME 2022-23 FOMC USD-appreciation signal observed two ways — they are NOT independent evidence."
+  - "No live capital; declarative direction only; I do not implement."
+
+confidence: medium
+
+body: |
+  ## C1 advance-or-kill (with required pre-registration controls if advancing)
+
+  VERDICT: ADVANCE — but ONLY the USDJPY (FED+BOJ, n=80) cell, to a counted CPCV cycle
+  gated by a HARD regime-stratified test. NOT the family; NOT EURUSD/GBPUSD as currently
+  screened. This is an "approve-with-capacity-limit," not a clean approve.
+
+  Why advance at all. C1 is the FIRST construct in this firm's history to clear the cheap
+  cost hurdle with real per-trade margin on a low-turnover, structurally-motivated catalyst —
+  USDJPY 12h gross 19.9 vs RT cost 2.30 (margin +17.6). That is genuinely different from the
+  cost-dominated F1-F6 space (max net SR -1.56). The R2 lever worked on one cell: per-trade
+  edge scales with event volatility, turnover is ~80 fires over 5yr. It earns ONE counted look.
+
+  Why capacity-limited, not a family approve. I read the raw per-trade records and decomposed
+  gross by year. The result is unambiguous and it is the dominant fact of this screen:
+
+    - USDJPY 12h: 82.3% of total gross is 2022+2023. 2021 mean = 0.20 pips, 2024 mean = 0.68
+      pips. Outside the FOMC hiking cycle the edge is ~zero. The +17.6 margin is a hiking-cycle
+      margin, not a stationary one.
+    - GBPUSD 18h ("PASS", gross 5.97): 2024 mean = -24.69 pips, 2025 negative; 2022 alone is
+      131% of total gross. This is a one-year artifact with negative recent years. Not advanceable.
+    - EURUSD 6h ("PASS", gross 1.92): 2022 mean -4.84 and 2024 mean -5.21 are BOTH negative;
+      the full-sample mean rests on 2023 alone. With std 24.6 over n=40 the per-trade t ~ 0.49 —
+      indistinguishable from zero. Not advanceable. (And EURUSD/GBPUSD are FED-ONLY proxies:
+      ECB/BOE have 0 verified-official dates, so half the intended catalyst is missing.)
+
+  Per my forex evidence layer, this is exactly what theory predicts: post-announcement drift is
+  the weaker, noisier sibling of carry and cross-sectional momentum; a drift result concentrated
+  in a single hiking regime is a REGIME BET, not a factor. I will not let three "PASS" labels
+  (two of which are within noise of zero and negative in recent years) graduate the family.
+
+  REQUIRED pre-registration controls (all HARD, machine-checkable; see retirement-criteria):
+    1. SCOPE LOCKED to USDJPY only (FED+BOJ, n=80). EURUSD/GBPUSD do not advance until verified
+       ECB/BOE dates exist AND their drop-2022-23 means clear.
+    2. HORIZON PRE-COMMITTED to 12h before the run. No 3-18h sweep inside the counted trial
+       (a sweep is charged as N_sel>1 in DSR). Reporting an alternate horizon post-hoc voids it.
+    3. REGIME-STRATIFIED HARD GATE: the edge must survive DROPPING 2022-2023. If post-cost net
+       pips/trade <= 0 on the drop-hiking-cycle sub-sample, RETIRE — full-sample DSR cannot rescue
+       a single-regime artifact. This is the load-bearing control.
+    4. HONEST SOURCE LABELING: FED+BOJ for USDJPY; never imply ECB/BOE coverage on absent data.
+    5. SURPRISE-FILTER HONESTY: the filter passed 100% of events (non-binding). Either obtain exact
+       release timestamps so it discriminates, or drop the selectivity claim and label C1 an
+       UNCONDITIONAL post-decision drift bet.
+    6. OOS/EMBARGO: CPCV with purge+embargo >= one hold-horizon at fold boundaries; >=15 events/fold.
+    7. DEFLATED-SHARPE under org-wide N (30 -> 31 with this trial) AND internal N_sel (=1 if locked).
+
+  ## C2 advance-or-kill
+
+  VERDICT: KILL as-run. The carry hypothesis was NOT exercised, so the screen cannot pass or fail
+  carry — it tested something else and the something-else is a duplicate of C1.
+
+    - AUDJPY: gross -8.14 pips, hard FAIL (kill 1.28). Crash filter did not protect the 2022 AUDJPY
+      depreciation; price drift dominated and was strongly negative.
+    - USDJPY "PASS" (4.81): carry accrual = 0.021 pips. The crash filter (rv > 2x 60-day median)
+      collapsed holds to ~5 days, so essentially ZERO nights of carry accrued. The 4.81 is price
+      drift — and it is the SAME 2022-23 USD-appreciation signal as C1 USDJPY, observed a second
+      way. Counting it as an independent "carry pass" would be double-counting one regime.
+
+  The design's own structural prior was "tens of pips of carry per multi-week hold." The screen
+  produced ~0.02 pips of carry because the aggressive crash filter churned the position. So the
+  feasibility test answered a question nobody asked. I retire the as-run C2 design.
+
+  I do NOT authorize a C2 re-spec this cycle. Per the forex evidence layer, cost-adjusted carry
+  profitability "did not survive verification" and carry is compensation for crash risk (negative
+  skew) — it is not a free lunch even when properly held. A re-spec (hold > 20 days, no aggressive
+  crash filter, carry component > 50% of gross) is shelved as RANK-3, behind C1 USDJPY and behind
+  ECB/BOE data acquisition. If revived, it must clear the C2-RESPEC retirement criteria or auto-FAIL.
+
+  ## Did the R1 cost-feasibility gate succeed as a process?
+
+  YES — emphatically, and this is the most important finding of the cycle. The gate did exactly
+  its job: it cheaply separated a worth-testing candidate from the cost-dominated F1-F6 space
+  WITHOUT burning the trial counter. Specifically it:
+
+    - Confirmed the F1-F6 lesson (high-turnover price-only = cost-dominated) and validated that the
+      R2 lever (higher per-trade edge / lower turnover) is the right axis — C1 USDJPY cleared cost
+      with a +17.6 pip margin where every F1-F6 cell failed by 3+ SR units.
+    - Caught, for FREE (no counted trial), three things a naive CPCV run would have spent honest-N
+      to learn: (a) the EURUSD/GBPUSD "passes" are within noise of zero and negative in recent
+      years; (b) the USDJPY edge is 82% a hiking-cycle artifact; (c) C2's carry was never actually
+      held. A pre-registered backtest on the "cost-aware family" would have inflated the DSR
+      denominator and likely produced an ambiguous full-sample result that hid the regime concentration.
+    - Also hardened the cost engine: F-001 (reversal under-count) is fixed and assertion-verified
+      (flip now charges 2 RT; +2.80 pips recovered on the synthetic path).
+
+  The one process gap: the surprise filter was non-binding (100% pass) and the bar-attribution used
+  max-TR rather than true release times. Cheap-screen-acceptable, but the pre-reg must fix it.
+
+  Net: the gate is LOAD-BEARING. It turned a "design a cost-aware family" mandate into a precise,
+  evidence-backed disposition — advance one narrow cell under hard controls, kill the rest — at
+  zero honest-N cost. This is the cheap-decisive-test discipline working as intended.
+
+  ## Net recommendation to the Board + trial-counter
+
+  RECOMMENDATION: APPROVE-WITH-CAPACITY-LIMIT.
+    1. ADVANCE C1 USDJPY-ONLY (FED+BOJ, n=80, 12h horizon PRE-COMMITTED) to a counted,
+       pre-registered CPCV cycle, gated by the HARD drop-2022-23 regime-stratified test. If it
+       does not survive dropping the hiking cycle, it retires — we are not buying a regime bet.
+    2. Do NOT advance EURUSD/GBPUSD C1: within-noise-of-zero, negative recent years, FED-only.
+       Queue ECB/BOE verified-date acquisition as the gate to revisiting them (RANK-2).
+    3. KILL C2 as-run (carry untested; USDJPY "pass" is duplicated C1 drift). C2 re-spec shelved RANK-3.
+    4. Frame the counted trial HONESTLY to the Board: this is a single-pair, single-regime-suspect
+       post-decision drift bet on USDJPY, weaker-evidenced than carry/momentum. Expected value of
+       the trial is primarily to FALSIFY (does any drift survive outside 2022-23?), not to validate.
+
+  TRIAL-COUNTER: honest-N stays 30 THIS cycle (verified: trials.jsonl last honest-n-classification
+  = 30 on 2026-06-18; all entries since carry counts_toward_deflation_denominator:false, including
+  this cycle's qr design entry). A counted trial (N -> 31 in the org-wide deflation denominator)
+  occurs ONLY if the Board authorizes the C1 USDJPY CPCV cycle. No increment without that authorization.
+
+knowledge_gaps:
+  - "No tick-level / consensus CB-expectations data: C1 'surprise' is a price proxy that proved non-binding (100% pass). Without exact release timestamps the surprise-conditioning claim is unsupported; pre-reg must obtain timestamps or drop the claim."
+  - "ECB and BOE have 0 verified-official decision dates in cb_decision_dates.parquet. EURUSD/GBPUSD C1 are FED-only proxies; the genuine EUR/GBP catalyst is unmeasured. Acquiring these dates is the gate to advancing those pairs."
+  - "No realised broker-swap ledger for C2: carry accrual is a headline-differential proxy. Moot as-run (holds too short to accrue), but a re-spec would still need a faithful overnight-swap series."
+  - "The USDJPY C1 edge outside 2022-2023 is ~zero in this sample; whether ANY stationary post-decision drift exists is the open question the CPCV regime gate is designed to answer."
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/quant-researcher-design.yaml"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/quant-developer-feasibility.yaml"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-06-24-cost-aware-family-kickoff/cost_feasibility_raw.json"
+  - ".fintech-org/trials.jsonl"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [alpha-direction-and-research-prioritization, strategy-kill-decisions, research-capacity-allocation]

@@ -1,0 +1,154 @@
+role: head-of-quant-research
+artifact_type: prioritization
+decision: reject   # NO-SPEND continuation; H1 REMAIN-FROZEN. See body — 'reject' = no spend, not retirement of the line.
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: 9pairs-landed-readiness
+subtask_id: 9pairs-landed-2026-06-24-hoqr
+trial_id: 9pairs-readiness-2026-06-24-hoqr
+
+ranked-alternatives:
+  - "R1 (recommended) — STOP feeding the intraday-family pipeline; the binding wall is NO-EDGE (CD0), not concentration. Across 2 cycles and now 54 pair x family combos, every single canonical F1-F6 net SR is NEGATIVE on 1h data. This is a saturated, falsified search space at the current data resolution. Recommend a STRUCTURAL PIVOT: stop adding pairs and re-running F1-F6, and require any next hypothesis to clear a CD0-feasibility pre-screen (gross SR must exceed the per-bar cost hurdle, not just be positive) BEFORE any pair acquisition or rho_bar work. The concentration gate is moot until an edge exists to concentrate."
+  - "R2 — If intraday is pursued at all, change the EDGE INPUT, not the universe. Every F1-F6 family is a price-only, fixed-spec, high-turnover construct whose gross signal is fully consumed by spread+slip (e.g. EURGBP F1 gross +2.29 -> net -8.21). The lever that could move CD0 is LOWER TURNOVER / HIGHER PER-TRADE EDGE (event-conditioned entries, longer holds, or a cost-aware family that only fires when gross-edge estimate > round-trip cost), NOT a 10th pair. This is a research-design change, not a data-acquisition change."
+  - "R3 — De-prioritize GBPJPY acquisition (the 3rd recommended cross). The acquisition thesis was 'break the USD concentration wall.' That wall is now (marginally) broken at ALL-9 = 0.4090. AUDJPY already showed crosses can RE-concentrate (EURJPY +0.712, AUDUSD +0.617), and GBPJPY shares GBP and JPY legs already present — it adds little orthogonal diversification and zero evidence of edge. Acquiring it spends ingest effort to improve a gate that is no longer binding. HOLD unless R2's redesign produces a candidate whose feasibility specifically needs more cross-sectional breadth."
+
+retirement-criteria:
+  - "Canonical F1-F6 intraday-family space on 1h data is RETIRED-AS-SATURATED for net-of-cost edge: machine-checkable condition met = max over all pairs x {F1..F6} of net_SR < STRETCH(1.44) across two independent cycles (cycle-2 24 combos + this cycle 54 combos), with the best result (-1.56) being 3.00 SR units below STRETCH and 3.32 below PASS. Re-open only if (a) a NEW family spec outside F1-F6 is proposed, OR (b) a materially lower-cost execution assumption is ratified by CRO, OR (c) sub-1h / volume-bearing data changes the gross-edge-per-trade arithmetic."
+  - "rho_bar_eff confirmability gate is DE-RATED from binding to non-binding for H1 at the current universe: it clears (0.4090) but on a thin 0.0010 raw-return-proxy margin; it does not gate anything while CD0 has no positive family to confirm. Re-elevate to binding only if/when a candidate family produces net_SR >= STRETCH on >=1 pair (i.e., an edge exists whose cross-pair PnL-contribution correlation must then be measured properly, not via the raw proxy)."
+
+evidence:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml (C1 DQ ADMIT/ADMIT; C2 rho_bar table; C3 all-54 net-SR FAIL)"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/pm-acceptance-criteria.yaml (binding: un-freeze requires BOTH rho_bar<=0.41 AND CD0 net SR>=1.76)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/CONSENSUS.md (prior NO-SPEND; ALL-7 rho_bar=0.502; 24 combos all FAIL)"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml (G5 eigenvalue/sign-blind def; 0.41 frozen)"
+  - "data/processed/EURGBP_1h.parquet, data/processed/AUDJPY_1h.parquet (the two newly landed crosses)"
+
+assumptions:
+  - "QD's compute artifact is numerically correct pending PR's independent recompute of ALL-9 rho_bar_eff and the two DQ calls (C7). My verdict is robust to PR cycles: even if rho_bar moves above 0.41, the decision is unchanged because CD0 fails categorically; and even if a single CD0 number shifted by a full SR unit, -1.56 -> -0.56 is still FAIL."
+  - "The F1-F6 specs QD reconstructed from prior CONSENSUS prose (not a frozen code artifact) are representative of the family space; the FAIL verdict has a 3+ SR-unit margin, far larger than any plausible spec-reconstruction error."
+  - "Pip=0.0001 uniform (incl. JPY pairs) is a disclosed convention, not physics; it does not flip any verdict given the margins."
+  - "No GBPJPY 1h parquet exists on disk this wave (out of scope per PM); the acquisition question is forward-looking only."
+  - "raw-return rho_bar proxy over-states concentration (conservative direction per 2026-06-19 ruling); the 0.4090 pass is therefore directionally safe but margin-thin and immaterial to this decision."
+
+confidence: high
+
+body: |
+  ## H1 freeze/unfreeze verdict (C5) — both gates, numeric
+
+  **VERDICT: H1 REMAIN-FROZEN.**
+
+  The acceptance criteria (pm-acceptance-criteria.yaml hard-constraints) make un-freeze
+  conditional on BOTH gates clearing on the H1-candidate universe:
+    Gate A (confirmability):  rho_bar_eff <= 0.41
+    Gate B (edge):            CD0 net SR  >= 1.76 on >=1 family for >=1 pair
+
+  Gate A — rho_bar_eff (ALL-9):  0.4090 vs 0.41  ->  CLEARS by 0.0010.
+    Caveats that matter: (i) margin is 0.23% of the gate value; (ii) it is a raw-return
+    PROXY (no signal series exists pre-pre-reg), conservative in direction but too thin to
+    assert with confidence; (iii) USD-majors-7 (0.5023) and USD-majors-6 (0.5971) still FAIL.
+    Only the full-9 and crosses-only (0.3563) subsets pass. So Gate A passes for ALL-9 ONLY,
+    marginally, on a proxy. Honest read: directionally encouraging, not decisive.
+
+  Gate B — CD0 net SR:  best over ALL 54 pair x family combos = AUDJPY F5 = -1.56.
+    Threshold = 1.76 (PASS) / 1.44 (STRETCH).
+    Shortfall to PASS  = 1.76 - (-1.56) = **3.32 SR units.**
+    Shortfall to STRETCH = 1.44 - (-1.56) = 3.00 SR units.
+    Every one of the 54 combos is NEGATIVE net of cost. Zero reach even STRETCH.
+
+  Decision logic: un-freeze requires A AND B. B fails categorically and by a wide margin.
+  Therefore H1 REMAIN-FROZEN. **The binding gate is Gate B (edge); numeric shortfall = 3.32
+  SR units to PASS.** Gate A's marginal pass does not enter the decision — you cannot un-freeze
+  a hypothesis whose only purpose is to confirm an edge that the data shows does not exist.
+
+  ## SPEND/NO-SPEND call (C4) — deciding number
+
+  **NO-SPEND.**
+
+  Deciding number: **best net SR = -1.56 (AUDJPY F5), 3.32 SR units below the PASS bar of 1.76.**
+  No STRETCH candidate exists either (3.00 below 1.44). There is nothing to pre-register: a
+  pre-registration commits us to confirm a real-looking edge, and there is no positive net-of-cost
+  edge anywhere in the screen to confirm. Spending a trial here would burn the deflation denominator
+  on a known-negative. CRO concurrence expected on the no-spend (no live capital, no trial).
+
+  ## Binding constraint analysis: concentration-wall vs no-edge-wall
+
+  This is the substantive finding of the wave. **The binding constraint has MOVED from the
+  concentration wall to the no-edge wall.**
+
+  - Concentration wall (rho_bar): ADDRESSED, at least marginally. EURGBP is a genuine diversifier
+    (USDJPY corr +0.004, GBPUSD -0.489), pulling ALL-9 from 0.502 -> 0.409. The cross-acquisition
+    thesis from 2026-06-22 was correct in direction. AUDJPY partially RE-concentrated (EURJPY +0.712,
+    AUDUSD +0.617), so the win came mostly from EURGBP. Net: the wall the firm spent two cycles
+    worrying about is essentially down.
+
+  - No-edge wall (CD0): NOW FULLY EXPOSED and is the dominant blocker. With concentration removed
+    as the excuse, the screen shows the real problem in stark relief: there is NO net-of-cost edge
+    in any canonical intraday family on any of 9 pairs. Gross signals exist (EURGBP F1 gross +2.29,
+    F6 +1.69; AUDJPY F2 +0.81) but are entirely consumed by spread + slippage. This is the price-only
+    high-turnover trap: real micro-structure signal, zero survivable edge after the round-trip cost.
+
+  **Does a marginal rho_bar pass matter when there is no edge?** No. rho_bar measures whether an edge,
+  if it existed, could be CONFIRMED across enough effective-independent bets. It is a property of the
+  universe's covariance, not of any alpha. With CD0 uniformly negative, there is no alpha whose
+  confirmability the gate could certify. A confirmability gate over an empty edge set is vacuous.
+  The right mental model: we spent two cycles optimizing the denominator of a fraction whose
+  numerator is zero.
+
+  **Is the canonical F1-F6 intraday-family space exhausted (at 1h)?** Yes, for net-of-cost edge.
+  Two independent cycles, 78 total pair x family evaluations (24 + 54), zero positive net SR, best
+  result 3 SR units under STRETCH. This is not a near-miss being ground down; it is a flat, falsified
+  result with a large margin. I am declaring F1-F6 on 1h data RETIRED-AS-SATURATED (see
+  retirement-criteria). This is a search-space conclusion, not a data-quality complaint — DQ ADMITs
+  both new pairs cleanly.
+
+  ## Research direction + GBPJPY question
+
+  Ranked directions in ranked-alternatives. Summary:
+
+  R1 (recommended): pivot the GATING ORDER. Stop running 'acquire a pair -> recompute rho_bar ->
+  re-run F1-F6.' Make CD0-feasibility the FIRST gate: any future hypothesis must show a gross edge
+  that plausibly exceeds the round-trip cost hurdle before we spend on data or concentration work.
+  We have been gating on confirmability (rho_bar) while the actual binding constraint was feasibility
+  (cost). Re-order so the cheap, decisive test runs first.
+
+  R2: change the EDGE INPUT, not the universe. The only lever on CD0 is per-trade-edge / turnover.
+  F1-F6 are all price-only, fixed-spec, high-frequency. A cost-aware or event-conditioned family
+  (fewer, higher-conviction fires; longer holds; gating on a gross-edge estimate exceeding cost) is
+  the design change that could matter. A 10th pair cannot.
+
+  R3 / GBPJPY: **DO NOT acquire GBPJPY this cycle.** Its sole justification was breaking the USD
+  concentration wall, which is now broken (ALL-9 = 0.409). AUDJPY already demonstrated that crosses
+  can re-concentrate; GBPJPY reuses the GBP leg (already via GBPUSD/EURGBP) and the JPY leg (already
+  via USDJPY/EURJPY/AUDJPY), so its orthogonal diversification is small. With no edge to confirm,
+  improving the confirmability gate further is wasted motion. HOLD GBPJPY unless R2's redesign yields
+  a candidate that specifically needs more cross-sectional breadth to power a confirmatory test.
+
+  ## Trial-counter decision
+
+  **NO honest-N increment. Honest-N stays at 30.** This is a descriptive structural screen: no
+  param search, no OOS, no frozen pre-registered spec. No candidate clears even STRETCH (best -1.56
+  vs 1.44), so by the no_trial_increment_without_pre_registration rule there is nothing to count.
+  QD already logged the trials.jsonl entry with counts_toward_deflation_denominator: false and
+  event: descriptive-screen. Confirmed correct. trial_id 9pairs-readiness-2026-06-24-hoqr is
+  descriptive and non-counting.
+
+  ## Kill-criterion-trap check (2026-05-31)
+  I explicitly did NOT frame 'two recommended crosses landed' or 'rho_bar finally cleared 0.41' as
+  progress toward H1. Both are true and both are reported, but the governing math (CD0 = uniformly
+  negative) means the firm correctly SPENDS NOTHING. The data drop improved a non-binding gate and
+  exposed the binding one. That is a finding, not progress. NHT to confirm this framing holds.
+
+knowledge_gaps:
+  - "True PnL-contribution rho_bar_eff for ALL-9 is unmeasured (no signal series); the 0.4090 pass rides on a thin proxy margin. Immaterial to this decision (CD0 fails), but it would become load-bearing the moment any family produced a positive net SR."
+  - "Whether a non-F1-F6 / cost-aware / event-conditioned family can clear the CD0 cost hurdle on this data is untested — that is the R2 open question and the only path I see to a positive net SR at 1h."
+
+policy_violations_detected: []
+sources:
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/quant-developer-compute.yaml"
+  - ".fintech-org/artifacts/2026-06-24-9pairs-landed/pm-acceptance-criteria.yaml"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/CONSENSUS.md"
+  - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [alpha-direction-and-research-prioritization, strategy-kill-decisions, research-capacity-allocation]

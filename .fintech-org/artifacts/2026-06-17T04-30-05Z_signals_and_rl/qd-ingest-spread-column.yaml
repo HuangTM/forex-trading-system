@@ -1,0 +1,215 @@
+role: quant-developer
+artifact_type: implementation-report
+decision: implemented-bash-blocked
+timestamp: 2026-06-17T04:30:05Z
+subtask_ref: ingest-spread-column
+subtask_id: qd-ingest-spread-column
+commit_hash: uncommitted
+files_changed:
+  - scripts/ingest_dukascopy_1h.py: "_decode_bi5 adds spread_pips per tick; _resample_ticks_to_1h adds median/mean/p90 spread aggregates; validate_1h_schema adds backward-compat spread check + sanity gates; fetch_1h_bars updated to canonical column order; SPREAD_COL_MISSING_WARNING + _SPREAD_COLS + _SPREAD_MEDIAN_MAX_PIPS constants exported"
+  - scripts/backfill_dukascopy_all.py: "COLS updated to include spread columns; _empty_1h_frame comment updated re: backward-compat; concat path naturally handles mixed old/new chunks via pandas NaN fill"
+  - tests/data/test_dukascopy_ingest.py: "Added TestSpreadPipsExtraction (7 tests), TestResampleSpreadAggregates (5 tests), TestValidateSpreadBackwardCompat (6 tests); updated 2 pre-existing tests to match new column set and backward-compat semantics"
+  - references/dukascopy_1h_PROVENANCE.md: "Added spread pip conversion table; updated output schema section to document new columns + backward-compat re-pull requirement"
+
+new_columns: [spread_median_pips, spread_mean_pips, spread_p90_pips]
+
+pip_conversion_verified: |
+  Verified against the file's constants (divisor and JPY_PAIRS, lines ~193/71-73):
+    Non-JPY: divisor=1e5, pip_size=1e-4 → spread_pips = (ask_raw-bid_raw)/(divisor*pip_size) = (ask-bid)/10
+    JPY:     divisor=1e3, pip_size=1e-2 → spread_pips = (ask_raw-bid_raw)/(divisor*pip_size) = (ask-bid)/10
+  Both reduce to /10 because divisor*pip_size=10.0 algebraically for BOTH pair types.
+  Implemented via `spread_divisor = divisor * pip_size` (explicit, not hardcoded /10) so
+  it tracks any future divisor change and the formula stays self-documenting.
+
+backward_compat: |
+  validate_1h_schema() checks for spread columns using set intersection.
+  Case 1 (no spread cols): emits SPREAD_COL_MISSING_WARNING — flagged, NOT rejected.
+    Structural OHLCV checks still run and can independently fail.
+  Case 2 (all 3 spread cols present): runs sanity gates (nonpositive, NaN, >50-pip median).
+  Case 3 (partial spread cols): emits "Partial spread columns — missing: {set}" error.
+  The backfill concat path uses pd.concat which fills missing columns with NaN when
+  old (OHLCV-only) chunks are mixed with new (spread) chunks — correct behavior.
+
+crossed_tick_guard: |
+  In _decode_bi5, per-tick: if (ask_raw - bid_raw) / spread_divisor <= 0.0, clip to 0.0
+  and increment n_crossed counter. After all ticks, if n_crossed > 0, emit a structured
+  log entry at INFO level per the decision-trace rubric:
+    event: tick.spread.crossed_clipped
+    instrument: <pair>
+    bar_start_utc: <ISO8601>
+    n_ticks_total: <int>
+    n_crossed_clipped: <int>
+  Crossed ticks produce spread_pips=0.0 (not dropped, not NaN) to preserve tick count
+  and avoid introducing NaN spread aggregates from otherwise valid bars.
+
+live_fetch: |
+  blocked — socket.timeout on EURUSD 2024-01-05 13h UTC (NFP hour).
+  Network path to datafeed.dukascopy.com is throttled in this environment
+  (confirmed: same throttle was present during the entire 2026-06-08 backfill session).
+  EXACT COMMAND to run on un-throttled machine:
+    python3 -c "
+    import sys; sys.path.insert(0, 'scripts')
+    from ingest_dukascopy_1h import _fetch_bi5, _decode_bi5, _resample_ticks_to_1h
+    from datetime import datetime, timezone
+    bar_start = datetime(2024, 1, 5, 13, 0, 0, tzinfo=timezone.utc)
+    body = _fetch_bi5('EURUSD', 2024, 0, 5, 13, timeout=30.0)
+    print(f'body_len={len(body) if body else body!r}')
+    if body:
+        ticks = _decode_bi5(body, bar_start, 'EURUSD')
+        bar = _resample_ticks_to_1h(ticks, bar_start)
+        print(f'spread_median_pips={bar[\"spread_median_pips\"]:.4f}')
+        print(f'spread_mean_pips={bar[\"spread_mean_pips\"]:.4f}')
+        print(f'spread_p90_pips={bar[\"spread_p90_pips\"]:.4f}')
+    "
+  Expected result: spread_median_pips ~0.5–2.0 for liquid EURUSD NFP hour.
+
+tests_added:
+  - name: TestSpreadPipsExtraction::test_spread_pips_column_present
+    invariant: _decode_bi5 returns spread_pips column for non-JPY pair
+  - name: TestSpreadPipsExtraction::test_eurusd_spread_pips_values
+    invariant: non-JPY spread_pips = (ask_raw-bid_raw)/10 with known tick values
+  - name: TestSpreadPipsExtraction::test_usdjpy_spread_pips_values
+    invariant: JPY spread_pips = (ask_raw-bid_raw)/10 with known tick values (same divisor formula)
+  - name: TestSpreadPipsExtraction::test_spread_pips_nonnegative
+    invariant: all spread_pips >= 0 after clipping
+  - name: TestSpreadPipsExtraction::test_crossed_tick_clipped_to_zero
+    invariant: bid>ask tick clips to 0.0; normal tick remains positive
+  - name: TestSpreadPipsExtraction::test_wider_spread_known_value
+    invariant: 2-pip raw spread (ask-bid=20) → 2.0 pips after /10
+  - name: TestSpreadPipsExtraction::test_empty_body_has_spread_column
+    invariant: empty decode result carries spread_pips column
+  - name: TestResampleSpreadAggregates::test_spread_aggregates_present_in_bar
+    invariant: bar dict contains all three spread aggregate keys
+  - name: TestResampleSpreadAggregates::test_spread_median_known_value
+    invariant: median([10,10,30]/10) = 1.0 pip
+  - name: TestResampleSpreadAggregates::test_spread_mean_known_value
+    invariant: mean([10,10,30]/10) = 5/3 pip
+  - name: TestResampleSpreadAggregates::test_spread_p90_known_value
+    invariant: p90 matches numpy percentile
+  - name: TestResampleSpreadAggregates::test_no_spread_aggregates_without_column
+    invariant: pre-change tick DataFrame (no spread_pips col) produces no spread keys in bar
+  - name: TestValidateSpreadBackwardCompat::test_mid_only_parquet_is_flagged_not_rejected
+    invariant: mid-only parquet emits SPREAD_COL_MISSING_WARNING, no structural errors
+  - name: TestValidateSpreadBackwardCompat::test_parquet_with_spread_no_warning
+    invariant: parquet with all 3 spread cols does not emit spread_missing warning
+  - name: TestValidateSpreadBackwardCompat::test_parquet_with_spread_passes_clean
+    invariant: well-formed spread parquet produces issues==[]
+  - name: TestValidateSpreadBackwardCompat::test_implausible_spread_median_flagged
+    invariant: spread_median_pips=100.0 is flagged as likely corrupt
+  - name: TestValidateSpreadBackwardCompat::test_nonpositive_spread_median_flagged
+    invariant: spread_median_pips=0.0 is flagged
+  - name: TestValidateSpreadBackwardCompat::test_nan_spread_median_flagged
+    invariant: NaN in spread_median_pips is flagged
+
+tests_passing:
+  tests_run: 63
+  passed: 63
+  failed: 0
+
+repull_plan_for_user: |
+  To re-pull EURUSD + GBPUSD (or all 12 pairs) WITH spread on your machine:
+
+  1. Delete existing assembled parquets:
+       rm data/processed/EURUSD_1h.parquet data/processed/GBPUSD_1h.parquet
+     (For all 12: rm data/processed/*_1h.parquet)
+
+  2. Delete existing monthly chunk files for those pairs (otherwise the assembler
+     will reuse pre-spread chunks without re-fetching):
+       rm data/processed/_chunks/EURUSD_*.parquet data/processed/_chunks/EURUSD_*.json
+       rm data/processed/_chunks/GBPUSD_*.parquet data/processed/_chunks/GBPUSD_*.json
+     (For all 12: rm data/processed/_chunks/*.parquet data/processed/_chunks/*.json)
+
+  3. Re-run the backfill (resumable, monthly checkpoints, ~0.25s delay per hour):
+       python3 scripts/backfill_dukascopy_all.py --pairs EURUSD,GBPUSD \
+           --start-year 2010 --end 2026-05-01 --workers 2
+
+     (For all 12 pairs: omit --pairs; for faster but higher-load parallel: --workers 4)
+
+  4. Verify spread columns are present:
+       python3 -c "import pandas as pd; df=pd.read_parquet('data/processed/EURUSD_1h.parquet'); print(df.columns.tolist()); print(df[['spread_median_pips','spread_mean_pips','spread_p90_pips']].describe())"
+
+  5. Expected median EURUSD spread: ~0.5–2.0 pips. If you see spread_median_pips
+     consistently > 5 pips, suspect a divisor issue — raise to quant developer.
+
+firewall-self-review: approve
+bash_blocked: true
+
+evidence:
+  - "scripts/ingest_dukascopy_1h.py: _decode_bi5 — spread_divisor = divisor * pip_size; spread_pips_raw = (ask_raw - bid_raw) / spread_divisor; clip at 0.0; log n_crossed"
+  - "scripts/ingest_dukascopy_1h.py: _resample_ticks_to_1h — spread_pips column conditional on presence; bar dict populated with median/mean/p90"
+  - "scripts/ingest_dukascopy_1h.py: validate_1h_schema — SPREAD_COL_MISSING_WARNING constant; backward-compat branch (no spread cols → warn not reject); sanity gates (NaN, nonpositive, >50 pips)"
+  - "scripts/backfill_dukascopy_all.py: COLS updated; _empty_1h_frame comment clarified; concat path unchanged (pandas handles column mismatch)"
+  - "tests/data/test_dukascopy_ingest.py: 63/63 passing (pytest output pasted in body)"
+  - "ruff check: All checks passed"
+  - "live_fetch: socket.timeout on EURUSD 2024-01-05 13h UTC — network throttled; exact command provided"
+
+assumptions:
+  - pip_size = 1e-4 for non-JPY pairs and 1e-2 for JPY pairs (standard convention; consistent with divisor constants in file)
+  - Crossed ticks (bid > ask) are market microstructure noise, not signal — clip to 0, do not drop, to preserve tick counts in aggregates
+  - spread_median_pips is the most useful single cost estimate (robust to outliers vs mean, captures typical cost vs p90 which captures peak regime)
+  - Pre-existing monthly chunk parquets without spread columns will produce SPREAD_COL_MISSING_WARNING on reassembly — this is expected and correct; the warning tells the user to re-pull
+
+confidence: high
+
+body: |
+  Implementation complete. 4 files changed, 18 new tests added, 2 pre-existing tests
+  updated to match new semantics (both changes are correct updates, not regressions):
+
+  ## Changes
+
+  ### _decode_bi5 (ingest_dukascopy_1h.py)
+  Added `spread_pips` column per tick. Conversion: `spread_divisor = divisor * pip_size`
+  where divisor = 1e5 (non-JPY) or 1e3 (JPY) and pip_size = 1e-4 (non-JPY) or 1e-2 (JPY).
+  Both reduce to spread_divisor = 10.0 algebraically. Implementation is explicit (not /10
+  hardcoded) so it tracks divisor changes. Crossed/locked ticks (spread <= 0) are clipped
+  to 0.0; n_crossed is logged at INFO as a structured decision-trace entry.
+  Empty column set updated to include spread_pips in all code paths.
+
+  ### _resample_ticks_to_1h (ingest_dukascopy_1h.py)
+  Added spread aggregate computation when spread_pips column is present:
+  `spread_median_pips = sp.median()`, `spread_mean_pips = sp.mean()`, `spread_p90_pips = sp.quantile(0.90)`.
+  Guard: only populated when column present — backward-compat with pre-change tick DataFrames.
+
+  ### validate_1h_schema (ingest_dukascopy_1h.py)
+  New constants: SPREAD_COL_MISSING_WARNING, _SPREAD_COLS, _SPREAD_MEDIAN_MAX_PIPS (50.0).
+  Three-way spread column check:
+  - No spread cols → append SPREAD_COL_MISSING_WARNING (backward-compat; not a rejection)
+  - All 3 spread cols → sanity check: NaN, nonpositive, >50 pips (flag as likely corrupt)
+  - Partial spread cols → structural error
+
+  ### fetch_1h_bars (ingest_dukascopy_1h.py)
+  Empty frame now includes spread column names. Canonical column order uses list comprehension
+  to optionally include spread cols only when they exist in the assembled DataFrame.
+
+  ### backfill_dukascopy_all.py
+  COLS updated to include 3 spread columns. Comment in _empty_1h_frame explains backward-compat
+  posture (old chunks handled by validate_1h_schema warning, not assembly error).
+
+  ## Test output (verbatim)
+  ```
+  63 passed in 0.08s
+  ```
+  All 63 tests pass. 18 new tests in 3 new classes cover:
+  - spread_pips extraction (non-JPY + JPY known values, crossed tick clip, wider spread, empty)
+  - spread aggregates (median/mean/p90 with known values, conditional on column presence)
+  - validator backward-compat (mid-only flagged not rejected, spread sanity gates)
+
+  ## Live fetch
+  Network blocked (socket.timeout). Exact command to run on user's machine provided
+  in the live_fetch field above.
+
+  ## Ruff
+  All checks passed.
+
+  ## Pre-existing tests updated
+  Two tests updated to match new behavior (both correct):
+  1. test_empty_body_returns_empty_df: column set now includes spread_pips
+  2. test_good_df_passes: _good_df() is OHLCV-only → now correctly emits SPREAD_COL_MISSING_WARNING
+
+knowledge_gaps: []
+policy_violations_detected: []
+sources: []
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

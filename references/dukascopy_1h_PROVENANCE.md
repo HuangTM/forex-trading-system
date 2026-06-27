@@ -67,6 +67,17 @@ This caveat is consistent with the CTO red-team document:
 
 The output OHLCV uses mid-price: `mid = (ask + bid) / 2 / divisor`.
 
+### Spread Pip Conversion (added 2026-06-17)
+
+Per-tick spread: `spread_pips = (ask_raw - bid_raw) / (divisor * pip_size)`
+
+| Pair type | divisor | pip_size | divisor × pip_size | spread formula |
+|-----------|---------|----------|--------------------|----------------|
+| Non-JPY   | 1e5     | 1e-4     | 10.0               | (ask-bid)/10   |
+| JPY       | 1e3     | 1e-2     | 10.0               | (ask-bid)/10   |
+
+Both pair types reduce to `/10` — not because of a hardcoded constant, but because `divisor × pip_size = 10.0` holds algebraically for both. Crossed/locked ticks (ask ≤ bid) are clipped to 0.0 and the count is logged per the decision-trace discipline.
+
 ---
 
 ## Ingest Script
@@ -85,10 +96,15 @@ python scripts/ingest_dukascopy_1h.py \
 - `--end`: End date UTC, exclusive, ISO format YYYY-MM-DD
 - `--out`: Output parquet path
 
-**Output schema:** matches existing firm convention:
+**Output schema** (as of 2026-06-17 spread-column change):
 - Index: `datetime` — tz-aware UTC `DatetimeIndex`
 - Columns: `open`, `high`, `low`, `close`, `volume` — all `float64`
+- Columns (new): `spread_median_pips`, `spread_mean_pips`, `spread_p90_pips` — all `float64`
 - Sorted, no duplicates, monotonic
+
+**Backward compatibility:** Parquets written BEFORE 2026-06-17 contain only the 5 core OHLCV columns
+(no spread columns). `validate_1h_schema()` will flag these with `SPREAD_COL_MISSING_WARNING` but
+will NOT reject them. To obtain spread columns, delete the existing parquet/chunks and re-pull.
 
 ---
 

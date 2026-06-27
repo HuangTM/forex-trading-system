@@ -1,0 +1,338 @@
+# =============================================================================
+# NHT REVIEW — Forward-Test Harness P1 (freeze.py + forward_eval.py)
+# Adversarial verification that IC-1..IC-14 are MECHANIZED, not honor-system.
+# This is a REVIEW. Trial counter NOT incremented. No backtest run.
+# =============================================================================
+role: null-hypothesis-tester
+artifact_type: review
+decision: approve-with-dissent
+timestamp: 2026-06-18T05:01:13Z
+git_sha_at_review: 44851289205dc666baab41cbb726a88615a7f84a
+branch: ingest-spread-column
+no_capital_instruction: true
+claimed_domains:
+  - out-of-sample-integrity
+  - p-hacking-and-data-snooping-detection
+  - deflated-sharpe-under-org-wide-N
+  - replication-protocol-design
+  - structural-skepticism-on-any-claim
+  - mechanized-enforcement-verification
+
+review_method: >
+  Read the actual code (freeze.py, forward_eval.py, honest_n.py, preregistration.py),
+  the frozen H1 .triggers.yaml, and the live trials.jsonl — NOT the QD handoff's claims.
+  Ran tests/harness/test_forward_harness.py (11 passed) and executed
+  honest_n_deflation_denominator + ic9_dsr_denominator against the live ledger.
+  Verified each "code-fail-closed" claim by tracing the code path to an abort/refuse/VOID.
+
+contamination_check: >
+  clean. The review prompt described the harness build and the firm's GAP-1, but
+  contained no proposer narrative asserting the H1 candidate WILL work and no market
+  mechanism. Skepticism sourced from the code + the ledger.
+
+# -----------------------------------------------------------------------------
+# PER-IC ENFORCED-OR-NOT VERDICT (verified against code, not handoff)
+# -----------------------------------------------------------------------------
+ic_verdicts:
+  IC-1_cryptographic-freeze:
+    claim: code-fail-closed
+    verified: ENFORCED (with bounded residual)
+    evidence: >
+      freeze.py::freeze_structure() writes the full anchor tuple (full-width sha256
+      prereg_content_hash, code_config_hash, full git_sha, freeze_utc) to
+      forward_registry.jsonl with open_count=0/burned=false BEFORE any forward bar.
+      forward_eval refuses without it (IC-8). PUSHED-ness is an admitted procedural
+      residual (Python cannot read origin) — GAP-3, correctly flagged.
+    nht_note: >
+      The IS-data-byte hash (is_data_hash) named in the IC-1 control text is NOT
+      computed. See GAP-1 finding below — this is a real, bounded deviation from
+      the IC-1 spec-as-written, not merely an IC-12 detail.
+
+  IC-2_forward-postdates-freeze:
+    claim: code-fail-closed
+    verified: ENFORCED
+    evidence: >
+      _assert_all_bars_post_freeze() builds a UTC-normalized index, masks index <= freeze_ts,
+      and a single pre-freeze bar -> VOID (void_after_data=True). test_m2_pre_freeze_bar_voids
+      passes. Strict (<=) boundary is correct.
+
+  IC-3_result-cites-frozen-sha:
+    claim: code-fail-closed (IC-14a)
+    verified: ENFORCED (content-hash binding; git_sha intentionally informational)
+    evidence: >
+      _verify_integrity() recomputes prereg_content_hash + code_config_hash, and on
+      mismatch forward_eval prints to stderr, records a VOID trial, burns the window,
+      and sys.exit(1). test_hash_mismatch_voids asserts exit code == 1 and a VOID record.
+      git_sha is deliberately NOT a VOID trigger (M2 expects later commits) — defensible:
+      the config+prereg CONTENT is the binding lock. This is genuinely fail-closed.
+
+  IC-4_physically-sequestered-holdout:
+    claim: code-fail-closed (reuse)
+    verified: PARTIAL — reuses entry_delay no-lookahead (intra-trial); inter-trial OS
+      sequestration is IC-5 (UNMET). The "reuse" wording overstates: the engine shift is
+      the intra-trial guard, not the inter-trial holdout gate IC-4/IC-5 actually demand.
+
+  IC-5_holdout-access-enforced-not-just-logged:
+    claim: procedural-with-CI-hook (UNMET until hook ships)
+    verified: HONESTLY UNMET — and the harness does NOT fail-closed in its absence.
+    evidence: >
+      No OS gating, no CI grep hook in-repo. The forward file is readable by any dev
+      process. Per IC-14 this is UNMET, which the QD states. CORRECT classification.
+      BUT: nothing aborts if the hook is missing — the harness will happily score with
+      IC-5 unmet. That is acceptable ONLY because M2 (paper-forward, post-freeze bars
+      that do not yet exist) is the primary path, where holdout-peek is physically
+      impossible. For any M1 run, IC-5-unmet is a live hole. See dissent D-2.
+
+  IC-6_one-score-per-candidate:
+    claim: code-fail-closed
+    verified: ENFORCED
+    evidence: >
+      load_freeze_record_with_state() reconstructs open_count/burned from freeze +
+      freeze-update records; burned or open_count>0 -> RuntimeError before any scoring.
+      Burn is written atomically (append-only update record) after scoring.
+      test_one_shot_burned_refuses passes.
+
+  IC-7_every-attempt-burns-N:
+    claim: code-fail-closed
+    verified: ENFORCED
+    evidence: >
+      _record_trial_and_result() appends counts_toward_deflation_denominator on PASS,
+      FAIL, and VOID-after-data. counts = verdict != "VOID" or void_after_data — so a
+      data-loaded VOID still counts. The data_was_loaded flag is set AFTER cost-model +
+      strategy build, so a cost-coverage ConfigError (pre-data setup) does NOT burn N,
+      while the M2 timestamp VOID explicitly sets void_after_data=True (it inspected the
+      bars). test_void_after_data_burns_n + test_forward_attempt_counts_n pass.
+    nht_note: This is the single most important control against SD3 (quiet re-attempt). Solid.
+
+  IC-8_no-quiet-attempts:
+    claim: code-fail-closed (local existence) + procedural pushed-before
+    verified: ENFORCED locally; pushed-before is procedural (GAP-3, honestly flagged)
+    evidence: >
+      forward_eval step 1 raises FileNotFoundError/KeyError with no prior freeze record.
+      "Pushed BEFORE the eval" needs CI — correctly out-of-Python.
+
+  IC-9_full-deflation-denominator:
+    claim: code-fail-closed
+    verified: ENFORCED — denominator is the ratified 30, mechanically derived, NEVER typed
+    evidence: >
+      I executed honest_n_deflation_denominator(.fintech-org/trials.jsonl) -> 30 (NOT 48,
+      NOT 49 raw lines, NOT 11 de-dup families). ic9_dsr_denominator(fam=0,budget=1) -> 31;
+      (fam=10,budget=3) -> 43 = org_n + IS-family + budget, exactly the IC-9 formula.
+      Fail-closed: RuntimeError if the single honest-n-classification record is absent;
+      guard-(a) rejects >1 classification record; guard-(b) asserts ratified_n ==
+      len(counted_trial_ids). I verified the live ledger: 1 classification record,
+      ratified_n=30, len(counted)=30 — census matches. Ambiguity defaults to COUNT
+      (over-deflate, SD2). This is the strongest control in the build.
+
+  IC-10_net-of-conservative-cost:
+    claim: code-fail-closed
+    verified: ENFORCED (EXCLUDE-not-impute) — with one residual
+    evidence: >
+      _build_forward_cost_model() raises ConfigError if the pair is absent from cost
+      config — uncovered pairs are EXCLUDED, never zero-imputed. Cost config is inside
+      code_config_hash, so loosening it post-freeze changes the hash -> VOID (IC-3).
+      This blocks SD5 (cost-optimism rescue) mechanically.
+    nht_note: >
+      RESIDUAL: "conservative event-time spread (wider at session opens), p90 not average"
+      is a DATA/CONFIG property, not enforced by the harness. The harness charges whatever
+      the frozen config says. If the frozen config carries average (not event-time/p90)
+      spread, IC-10's "conservative event-time" clause is met only by the config author's
+      discipline, not by code. The H1 prereg data_preconditions DO require spread_p90 +
+      session-aware cost, so the discipline is pre-registered — but the harness does not
+      verify it. Bounded, acceptable for P1; note for P1.1.
+
+  IC-11_pre-declared-gates-and-power:
+    claim: code-fail-closed (gates); procedural (power-calc origin)
+    verified: ENFORCED in the FAIL-CLOSED (false-negative) direction ONLY.
+    evidence: >
+      _evaluate_triggers() reads ONLY the frozen .triggers.yaml; absent metric -> treat
+      as FIRED (fail-closed). No hardcoded gate THRESHOLDS for the frozen triggers.
+    nht_FINDING_F1_metric_map_mismatch: >
+      CRITICAL WIRING GAP (fail-safe, but blocks real use). The harness metrics_map
+      supplies: net_sharpe, oos_sharpe, dsr, n_realized, avg_net_pips,
+      per_pair_max_fraction, per_quarter_max_fraction. The ACTUAL frozen H1 triggers
+      reference: n_oos_expected, avg_net_pips_per_trade, directional_hit_rate,
+      years_to_validate_post_haircut, oos_sharpe, oos_sign_concordant,
+      max_single_pair_pnl_frac, max_single_quarter_pnl_frac. Only oos_sharpe overlaps.
+      Every other H1 gate metric is ABSENT from the map -> _evaluate_triggers treats it
+      as FIRED -> the harness FALSIFIES H1 unconditionally. This is fail-SAFE (no false
+      VALIDATED is possible), which is why I do not veto. But it means the harness AS
+      BUILT cannot score the real frozen candidate to a VALIDATED verdict — it would kill
+      H1 on metric-name mismatch, not on economics. The QD handoff did NOT flag this.
+    nht_FINDING_F2_power_floor_extractor_mismatch: >
+      _extract_power_floor() searches for metric=='n_realized' with operator '<'. The
+      frozen H1 power gate is metric=='n_oos_expected' (threshold 48). The extractor
+      returns (None, None) for H1 -> NO power-floor gate is recognized -> the INCONCLUSIVE_
+      UNDERPOWERED path is UNREACHABLE for H1, and (worse, but moot under F1) the
+      n_oos_expected gate would route through the hard-kill loop as a FALSIFIED rather
+      than the intended INCONCLUSIVE. Generic-harness test fixtures use n_realized and
+      pass; the real candidate does not. Wiring debt, not a soundness hole.
+    nht_FINDING_F3_unsupported_operator_and_bool_threshold: >
+      _evaluate_triggers handles only <,>,<=,>=. The frozen h1-KILL-6 uses operator '=='
+      with threshold:false; threshold is float()-cast so False->0.0, and '==' falls to
+      the belt-and-suspenders fired=True. So h1-KILL-6 ALWAYS fires (fail-closed-safe but
+      semantically dead). Again fail-safe, again real wiring debt.
+
+  IC-12_forward-data-immutable-post-freeze:
+    claim: code-fail-closed
+    verified: PARTIAL — config+prereg restatement caught; IS-bar restatement NOT caught.
+    evidence: >
+      A restatement that changes the config or prereg bytes changes the hash -> VOID
+      (IC-3). But a config-identical restatement of IS BAR VALUES is invisible: no
+      is_data_hash is computed at freeze. This is GAP-1. M1 records a holdout_content_hash,
+      but the IS-window content hash that IC-1/IC-12 demand is absent. See GAP-1 call below.
+
+  IC-13_attempt-budget-pre-frozen:
+    claim: partial-procedural
+    verified: PARTIAL (honestly stated). ic9_dsr_denominator() INCLUDES the budget in the
+      denominator, but the harness does NOT assert a budget-declaration record exists with
+      ts < earliest freeze (that comparison needs CI). Default budget=1; if a caller passes
+      a self-serving small budget with no pre-frozen record, nothing stops it. GAP-3.
+      This is the IS-search problem one level up (Q4/IC-13) and remains procedurally open.
+
+  IC-14_mechanized-not-human-enforcement:
+    claim: satisfied piecewise
+    verified: PARTIALLY SATISFIED — (a) and (d) are real code; (b-pushed) and (c) are CI.
+    evidence: >
+      (a) hash-mismatch sys.exit(1): real. (d) honest-N from ledger, never typed: real
+      (executed, returns 30). (b) reject hand-entered denominator: real (ic9 mechanical);
+      pushed-freeze check: CI residual. (c) OS/CI grep block for IC-5: UNMET (GAP-2).
+      Per IC-14's own rule, IC-5 and the pushed-before/budget-before checks are UNMET
+      until CI ships — the QD classifies them exactly so. Honest.
+
+# -----------------------------------------------------------------------------
+# SD1 / VERDICT-PRIORITY CONFIRMATION (my specific concern)
+# -----------------------------------------------------------------------------
+sd1_verdict_priority:
+  concern: >
+    A genuine kill on a short window must FALSIFY, not be laundered into
+    "INCONCLUSIVE_UNDERPOWERED" (gate-softening after the 0/N hunger).
+  verified: FIXED — traced in _determine_verdict().
+  trace: >
+    Order is: (1) loop over frozen KILL gates, EXCLUDING the power_floor_label, any fired
+    -> FALSIFIED; (2) dsr < 0.95 -> FALSIFIED; (3) ONLY THEN, M2 + n_realized < power_floor
+    -> INCONCLUSIVE_UNDERPOWERED; (4) else VALIDATED. So a real KILL gate or a DSR failure
+    on a short window returns FALSIFIED before the power floor can soften it. INCONCLUSIVE
+    is reachable only when NO hard gate fired AND DSR cleared — the narrow "would have
+    validated but for events" case. Locked by 3 unit tests:
+    test_verdict_dsr_fail_and_underpowered_is_falsified (DSR 0.50 + N<floor -> FALSIFIED),
+    test_verdict_real_kill_gate_beats_underpowered (KILL-SHARPE + short -> FALSIFIED),
+    test_verdict_underpowered_only_is_inconclusive (DSR 0.99, only power floor -> INCONCLUSIVE).
+    All pass. SD1 concern is RESOLVED. I accept this fix.
+  caveat: >
+    The fix is only as good as the power_floor_label identification — and per FINDING F2
+    that identification MISSES the real H1 power gate (n_oos_expected). For H1 specifically,
+    the n_oos_expected gate would be treated as a HARD kill (FALSIFIED), not INCONCLUSIVE.
+    That errs toward FALSIFIED (the safe direction for SD1) but is not the spec's intent.
+
+# -----------------------------------------------------------------------------
+# GAP-1 SHIP / NO-SHIP CALL (the IS-data-byte hash)
+# -----------------------------------------------------------------------------
+gap1_assessment:
+  what: >
+    Only config-bytes (code_config_hash) and prereg+triggers-bytes (prereg_content_hash)
+    are hash-locked. The IS BAR VALUES the candidate was selected on are NOT content-hashed.
+    A config-identical restatement of the IS bars (SD8 restatement-smuggling, e.g. the
+    spread-column recovery on THIS branch silently changing IS bars) would slip IC-3.
+  ship_call: SAFE TO SHIP P1 with GAP-1 deferred to P1.1 — CONDITIONAL.
+  reasoning: >
+    1. M2 (paper-forward) is the primary and only currently-available path: forward bars
+       POST-DATE the freeze and do not exist at freeze time, so there is no IS/forward
+       overlap to restate within an in-flight M2 run. The IC-2 timestamp guard already
+       VOIDs any pre-freeze bar. For M2, GAP-1's attack surface is the IS-selection
+       provenance, not the scored forward window.
+    2. M1 (sequestered holdout) is attestation-GATED and currently UNAVAILABLE for every
+       existing family (freeze.py hard-REFUSES M1 without a dev-start attestation predating
+       development; H1 and all prior work have none). So the path where an unhashed IS/holdout
+       restatement could flip a result is closed by construction today.
+    3. The bounded residual: GAP-1 means a forward PASS does NOT yet carry cryptographic
+       proof that the IS data the candidate saw is the same IS data on the books. That is a
+       PROVENANCE-integrity gap, not a forward-scoring soundness gap. It does not let a NOISE
+       result score as VALIDATED; it lets a restated-IS candidate be scored without detection.
+  ship_conditions (BLOCKING for any "validated" stamp, NON-blocking for merging P1 code):
+    - C1: GAP-1 (is_data_hash at freeze + equality assert at eval) MUST land in P1.1 BEFORE
+          any candidate's forward result is cited as "validated". IC-12's content-hash
+          corollary is explicit that timestamp ordering alone is insufficient.
+    - C2: The branch ingest-spread-column is ACTIVELY restating bar values (spread column).
+          Per SD8, no candidate may be frozen on, or forward-scored against, data from a
+          window this branch touched until the restatement is settled and the (future)
+          is_data_hash is computed on the SETTLED bars. Freezing H1 now, on this branch,
+          before is_data_hash exists, would bake the exact SD8 hole GAP-1 leaves open.
+  verdict: >
+    P1 harness CODE is safe to merge with GAP-1 open. A "VALIDATED" verdict from this
+    harness is NOT yet credible until is_data_hash (P1.1) closes GAP-1 AND the branch
+    restatement is settled (C2). I record this as a structural precondition, append-only.
+
+# -----------------------------------------------------------------------------
+# IS ANY CONTROL SILENTLY SKIPPED?
+# -----------------------------------------------------------------------------
+silently_skipped_controls:
+  finding: >
+    NO control is silently skipped in the SOUNDNESS-CRITICAL direction. Every UNMET control
+    (IC-5, IC-13 pushed-before, IC-1 pushed-before, GAP-1 is_data_hash) is EXPLICITLY flagged
+    by the QD as procedural/UNMET, matching IC-14's "unenforced == UNMET" rule. The harness
+    does not pretend an UNMET control is met.
+  BUT two NON-silent-but-under-flagged items:
+    - The IC-11 metric-map mismatch (F1/F2/F3) is a control that is "enforced" only in the
+      fail-CLOSED direction: it cannot produce a false VALIDATED, but it ALSO cannot produce
+      a true VALIDATED for the real H1 triggers — it FALSIFIES on metric-name mismatch. The
+      QD handoff claims IC-11 "code-fail-closed" without disclosing that the harness's
+      metrics_map does not cover the frozen candidate's metric vocabulary. That is an
+      under-disclosure, not a soundness hole. It must be closed before H1 is run, else the
+      first forward verdict will be a spurious FALSIFIED (a wrong KILL, which is a
+      mis-classification I am graded on — over-rejection).
+    - IC-4 is described as "reuse" of the no-lookahead engine; that conflates the intra-trial
+      shift with the inter-trial holdout gate. Not skipped, but mis-labeled.
+
+# -----------------------------------------------------------------------------
+# APPEND-ONLY DISSENT (may not be paraphrased or softened)
+# -----------------------------------------------------------------------------
+dissent_statement: >
+  I approve the P1 forward-harness CODE with structural dissent. The mechanized core is
+  real and fail-closed in the only direction that matters for a firm hungry after 0/N: it
+  CANNOT manufacture a false VALIDATED. IC-3 aborts on hash mismatch (sys.exit 1), IC-6
+  refuses a re-score, IC-7 burns N on every attempt including data-loaded VOIDs, IC-9
+  derives the deflation denominator mechanically from the ledger (I executed it: 30, not
+  48/49/11) and over-deflates on ambiguity, and the SD1 verdict-priority fix is correct and
+  unit-locked — a real kill or a DSR<0.95 on a short window FALSIFIES and cannot be laundered
+  into "underpowered". These are the controls that block the two cheats I most feared
+  (N-minimization, quiet re-attempts), and they hold.
+  .
+  My dissent is on FOUR boundaries that must not be papered over:
+  (D-1) The harness as built CANNOT score the actual frozen H1 candidate to a VALIDATED
+  verdict: its metrics_map covers net_sharpe/dsr/n_realized but NONE of H1's real gate
+  metrics (n_oos_expected, directional_hit_rate, years_to_validate_post_haircut,
+  oos_sign_concordant, max_single_pair/quarter_pnl_frac). Absent metrics fail-closed to
+  FIRED, so H1 would be FALSIFIED on a metric-name mismatch, not on economics. This is
+  fail-SAFE (why I do not veto) but it is a WRONG KILL waiting to happen, and the QD handoff
+  did not disclose it. The metrics_map MUST be extended to the frozen candidate's vocabulary,
+  and the power-floor extractor MUST recognize n_oos_expected, BEFORE H1 is run — else the
+  firm's first forward verdict is a spurious FALSIFIED that an outside reader would mistake
+  for a clean negative.
+  (D-2) IC-5 is honestly UNMET and the harness does NOT abort in its absence. For M2 this is
+  tolerable (post-freeze bars cannot be peeked). For ANY M1 run it is a live hole; M1 must
+  stay hard-blocked (it currently is) until OS/CI gating ships.
+  (D-3) GAP-1 (no IS-data-byte hash) means a forward PASS does not yet prove the IS data the
+  candidate saw matches the IS data on the books. P1 code may merge; a "validated" stamp may
+  NOT be claimed until is_data_hash lands (P1.1) AND the active spread-column restatement on
+  THIS branch is settled. Freezing a candidate on this restating branch before is_data_hash
+  exists would bake the exact SD8 smuggling hole open.
+  (D-4) IC-13 budget-pre-frozen and IC-1/IC-8 pushed-before are procedural; the denominator
+  arithmetic includes the budget but nothing asserts the budget (or the freeze) was committed
+  BEFORE the first spawn. Until that CI check exists, a self-serving small budget is not
+  mechanically blocked — treat the denominator as worst-case per IC-13.
+  .
+  Absent D-1 (metrics vocabulary) and D-3 (is_data_hash + settled branch), any "VALIDATED"
+  this harness emits on H1 is not yet credible — D-1 would more likely produce a spurious
+  FALSIFIED, which is its own calibration error against me. I will record any forward verdict
+  produced before D-1/D-3 are closed as non-credible regardless of the headline. This dissent
+  is append-only and may not be paraphrased or softened by any other role.
+
+routing:
+  notify: [ceo, cto, head-of-quant-research, quant-developer, ml-researcher, principal-reviewer]
+  decision_rationale: >
+    approve-with-dissent (NOT veto): the build is sound in the no-false-positive direction,
+    every UNMET control is honestly flagged, and the SD1/IC-9/IC-3/IC-6/IC-7 core holds under
+    test. The dissent items are completion debt (metrics vocabulary, is_data_hash, CI hooks),
+    not soundness failures — none of them can produce a false VALIDATED. They CAN produce a
+    spurious FALSIFIED (D-1) and they DO mean no "validated" stamp is creditable yet (D-3).

@@ -1,0 +1,500 @@
+role: cto
+artifact_type: review
+decision: approve
+timestamp: "2026-06-18T01:49:45Z"
+subtask_ref: strategic-exploration-data-feasibility
+session_ref: "2026-06-17-exploration"
+rubric_applied: review-plan
+claimed_domains:
+  - architecture-decisions
+  - vendor-and-datastore-selection
+  - cross-system-blast-radius
+no_capital_instruction: true
+web_research_conducted: false
+web_research_note: >
+  No web tools invoked. All data-source facts drawn from the prior CTO artifact
+  at .fintech-org/artifacts/2026-06-07T-data-capability/cto-source-redteam.yaml
+  (web-verified 2026-06-07) and from code inspection of the current pipeline.
+  RESEARCH_REQUESTs are flagged below where post-2026-06-07 facts would be needed.
+evidence:
+  - file: src/forex_system/core/interfaces.py
+    note: DataSource, Strategy, CostModel, PositionSizer, ExecutionBackend ABCs; all pipeline-agnostic to instrument class
+  - file: src/forex_system/data/validation.py
+    note: 6 OHLCV quality checks; gap logic hard-coded to 4-day daily calendar; needs override for intraday/24-7 instruments
+  - file: src/forex_system/costs/model.py
+    note: >
+      RealisticCostModel (FX pip-based, direction-aware swap, 22:00 UTC rollover logic).
+      This model is FX-spot-specific: pip_value, spread_pips, swap_long/short_pips_per_day.
+      Crypto/futures require a new CostModel concrete class; the ABC reuses cleanly.
+  - file: src/forex_system/core/types.py
+    note: Trade, Position, BacktestResult — FX-pair-string-keyed; instrument-agnostic if pair string is consistent
+  - file: src/forex_system/backtest/engine.py
+    note: >
+      run_backtest() is instrument-agnostic (takes DataFrame + signals + CostModel).
+      No FX-specific logic in the engine except via CostModel delegation.
+      entry_delay_bars, allow_shorts, continuous rebalance all present.
+  - file: src/forex_system/data/quality_gate_1h.py
+    note: >
+      1h FX gate: knows FX weekend closure, 22:00 UTC rollover, FX session windows.
+      Crypto = 24/7 no weekends; gate needs a new config mode, not a rewrite.
+  - file: src/forex_system/core/constants.py
+    note: >
+      DEFAULT_PAIRS is FX-specific (3 pairs, pips, swaps).
+      PERIODS_PER_YEAR_BY_TIMEFRAME shows the annualisation scaffold is already frequency-aware.
+  - file: scripts/ingest_dukascopy_1h.py
+    note: >
+      640 LOC; full bi5 TLS fetch, OHLCV resample, parquet write.
+      Dukascopy ingest is already built — 1h data acquisition for FX is engineered work, not future work.
+  - file: .fintech-org/artifacts/2026-06-07T-data-capability/cto-source-redteam.yaml
+    note: >
+      Prior web-verified assessment of FX data sources (Dukascopy, Saxo, HistData, TrueFX, Polygon, Databento).
+      That artifact drives the data-source realism section for FX directions below.
+
+# ============================================================
+# FEASIBILITY TABLE
+# ============================================================
+# Columns:
+#   direction          : escape direction label
+#   data_source        : best available source + history depth + cost
+#   pipeline_reuse_pct : % of existing pipeline usable without code changes
+#   new_build_needed   : minimum new components for a runnable backtest
+#   eng_effort         : rough estimate (engineering days to first runnable trial)
+#   top_tech_risk      : the single biggest technical risk
+# ============================================================
+
+feasibility_table:
+
+  - direction: "FX 5m / 1m (finer frequency, same pairs)"
+    data_source: >
+      Dukascopy free HTTP endpoint — 1m bars native (~2003-2007 start most pairs);
+      5m via resample from 1m. No registration. ~15yr of data. Zero marginal cost.
+    pipeline_reuse_pct: 75
+    new_build_needed:
+      - >
+        1m ingest extension to ingest_dukascopy_1h.py — small delta on existing 640-LOC
+        script (already bi5-capable; change bar resolution parameter)
+      - >
+        Resample utility: 1m -> 5m OHLCV (open=first, high=max, low=min, close=last,
+        volume=sum). ~50 LOC. Must re-verify no-lookahead invariant across bar boundary.
+      - >
+        quality_gate extension: gap threshold for 1m (expect ~1-min gaps during illiquid
+        hours vs 4-day threshold in current validator). Session-aware gap tolerances needed.
+      - >
+        Annualisation constant: PERIODS_PER_YEAR_BY_TIMEFRAME needs "1m" and "5m" entries.
+        Currently has daily/4h/1h. Trivial add.
+      - >
+        test_intraday_no_lookahead at 1m and 5m resolutions (equivalent of sacred test).
+    eng_effort: "4–7 days"
+    top_tech_risk: >
+      Bar-count explosion. At 1m frequency, 15 years × 12 pairs × ~260k bars/pair/year
+      = ~47M bars total. Vectorised pandas backtest may hit memory limits; parquet file
+      sizes ~2–5 GB per pair. Profile before committing to a 1m strategy design.
+      RESEARCH_REQUEST: confirm Dukascopy 1m rate limits and per-month download size
+      (bi5 tick files are already the compression-efficient format — may be fine).
+
+  - direction: "FX tick (full microstructure, same pairs)"
+    data_source: >
+      Dukascopy tick bi5 files — same HTTP endpoint, already used in ingest_dukascopy_1h.py
+      (the 1h script fetches bi5 ticks internally then aggregates). TrueFX tick data free
+      since 2009 (registration required) for cross-validation. Both give bid+ask.
+    pipeline_reuse_pct: 40
+    new_build_needed:
+      - >
+        Tick-level OHLCV aggregator: ingest_dukascopy_1h.py already fetches bi5 ticks.
+        The aggregation step is the only new component — choose bar size at ingest time.
+        However the backtest engine runs on bars not ticks; a tick-by-tick execution
+        simulation would be a new engine mode (~300–500 LOC).
+      - >
+        Spread data pipeline: if using tick bid/ask for cost modeling, need a spread
+        time-series parquet per pair. costs/hourly_spread.py already exists — extend to
+        tick-level. Moderate new work.
+      - >
+        Memory / chunked processing: ~1 trillion ticks for 12 pairs × 15yr. Cannot hold
+        in RAM. Need chunked aggregation pipeline or streaming approach. New architecture.
+      - >
+        Quality gate rewrite: tick-level gap detection, bid-ask spread validation,
+        stale-quote detection — 200–400 LOC new.
+    eng_effort: "4–8 weeks (if full tick simulation engine); 1–2 weeks (if tick data used only for spread calibration, bars still used for strategy)"
+    top_tech_risk: >
+      Scope creep / architecture divergence. A real tick-simulation engine is a 4–8 week
+      rebuild that produces a fundamentally different backtest environment. The firm's
+      validated no-lookahead machinery and rollover model do not transfer cleanly. If the
+      goal is only cost-model calibration (real spreads from ticks), the cheaper path is
+      tick-to-spread extraction only, keeping the bar-level backtest engine unchanged.
+
+  - direction: "Wider FX universe (EM / exotic pairs)"
+    data_source: >
+      EM FX pairs (USDTRY, USDZAR, USDBRL, USDMXN, etc.): Dukascopy covers some EM pairs
+      (TRY, ZAR confirmed in 1600+ instruments); coverage and history depth for BRICS
+      currencies is uncertain (~2010+ likely). Saxo API covers EM pairs traded on Saxo.
+      HistData.com: 66 pairs, EM coverage partial. No free source with deep EM coverage
+      comparable to majors. RESEARCH_REQUEST: enumerate Dukascopy EM pair availability
+      and start dates via their tool before committing.
+    pipeline_reuse_pct: 80  # REVISED DOWN from 90 — see validation.py gap-check item below
+    new_build_needed:
+      - >
+        PairInfo entries in core/constants.py for each new pair: spread, slippage, swap
+        rates. EM pairs have materially wider spreads (USDTRY ~15-50 pips vs EURUSD ~0.5
+        pips) — cost configs must be sourced from Saxo's live spread data, not assumed.
+        Without accurate cost configs the backtest is misleading.
+      - >
+        Pip value calibration: EM pairs may have non-standard lot sizes, settlement quirks,
+        or restricted trading hours. Research input needed per pair before adding to config.
+      - >
+        Data availability verification per pair (Day-1 enumerate task, same pattern as
+        Dukascopy JPY cross caveat in prior CTO artifact).
+      - >
+        SESSION-CALENDAR gap-check extension (critic finding, verified). data/validation.py
+        line 70 hard-codes the timestamp-gap check to pd.Timedelta(days=4) with the comment
+        "for daily data, expect ~5 trading days per week". This assumes the standard FX
+        weekend calendar. EM pairs traded on Saxo can follow LOCAL market calendars (e.g.
+        USDBRL = Brazilian holidays/hours; USDTRY = Turkish session). The validator will
+        either FALSE-FLAG legitimate local-holiday gaps or SILENTLY MISS real data holes.
+        A per-pair calendar/gap-tolerance config is required — this is the build item that
+        drops reuse below 90%. ~50–100 LOC + per-pair calendar data.
+    eng_effort: "5–8 days (per pair cluster, after data source confirmed) — revised up for session-calendar work"
+    top_tech_risk: >
+      Cost model validity AND signal-correlation N-inflation (two coupled risks).
+      (1) EM pairs have wide, illiquid spreads with high variance; a fixed-spread model
+      dramatically underestimates true cost in stress periods. CRO must sign off on EM
+      cost model before any EM trial enters NHT.
+      (2) STRUCTURAL CORRELATION (critic finding, accepted): EM pairs are substantially
+      driven by USD strength and global risk-on/off — USDTRY, USDZAR, USDMXN are NOT
+      independent samples of the same signal. "More pairs = more events/year = shorter
+      validation" holds ONLY to the extent the pairs are independent. Highly correlated EM
+      pairs inflate apparent N WITHOUT proportionately raising honest effective-N under the
+      firm's DSR machinery. The leverage claim must be discounted by the cross-pair
+      correlation structure. This is a research-validity risk co-equal with cost model
+      validity, not a footnote — NHT must compute effective-N from the realised EM
+      correlation matrix, not from raw pair count.
+
+  - direction: "Asset-class pivot: Crypto (BTC, ETH, altcoins)"
+    data_source: >
+      Binance REST API: free OHLCV klines (1m, 5m, 15m, 1h, 4h, 1d) back to 2017 for
+      BTC/USDT, ETH/USDT, and 100s of pairs. No registration for public endpoints.
+      Coinbase Retail API: similar klines, free, back to 2015 for BTC-USD.
+      True exchange volume: crypto has a central exchange — volume is real (not a tick
+      proxy). L2 order book data available (Binance depth snapshots, free).
+      History: BTC 2013+, ETH 2015+, altcoins 2017+. Full 24/7 data, no FX weekend gaps.
+      RESEARCH_REQUEST: confirm Binance klines rate limits and terms of service for
+      backtest use (likely fine but should be formally checked).
+    pipeline_reuse_pct: 50  # REVISED DOWN from 60 — engine pip-coupling (verified) is deeper than a clean CostModel swap
+    new_build_needed:
+      - >
+        ENGINE PIP-VALUE DECOUPLING (critic finding, VERIFIED against engine.py). The
+        CostModel ABC returns costs in PIPS (interfaces.py:94,104), but the backtest
+        engine does NOT delegate P&L fully through the cost model — it has hard-coded
+        pip conversion throughout: `pip_value = _get_pip_value(pair)` (engine.py:155,314)
+        and `cost_pips * pip_value * size`, `(price - entry_price) / pip_value` at many
+        sites (engine.py:182,217-227,491,529,564-661). Crypto has NO pip convention
+        (price moves are percentage/absolute, not pips). So a clean CostModel swap is
+        NOT sufficient — the engine's pip-based P&L accounting must be generalised to a
+        price-unit-agnostic representation, OR a pip_value=1.0 + absolute-price convention
+        must be adopted and validated. This is the item that lowers true crypto reuse from
+        the optimistic 60% to ~50%. INVESTIGATION ITEM before committing: audit whether
+        pip_value=1.0 yields correct crypto P&L, or whether the engine needs refactor.
+      - >
+        New DataSource implementation: CryptoSource (Binance/Coinbase klines). The
+        DataSource ABC is already the right contract. ~200–300 LOC including pagination,
+        rate limiting, parquet write. CSVSource is the precedent.
+      - >
+        Cost model: CryptoCostModel implementing CostModel ABC. No pip convention —
+        need percentage-based spread + maker/taker fees + funding rate (perp futures).
+        Funding rate is 8h accrual cycle on perpetuals. If spot-only, simpler: just
+        taker fee (~0.04% Binance, lower with BNB). The existing holding_cost(pair,
+        direction, days) signature fits but the body is different. ~100–150 LOC.
+        Key: rollover logic (count_rollover_crossings, 22:00 UTC) does NOT apply —
+        crypto spot has no FX swap. Perpetual futures have funding (different model).
+      - >
+        Quality gate: quality_gate_1h.py encodes FX weekend closure as a hard assumption
+        (_WEEKEND_CLOSED_DAY_HOUR). Crypto is 24/7 — this gate must not be applied
+        unmodified. Either parameterize it (market_hours=24x7) or write a separate
+        quality_gate_crypto.py. The FX gap-size thresholds (4-day max) also don't apply.
+      - >
+        Annualisation: PERIODS_PER_YEAR_BY_TIMEFRAME needs crypto entry: 365.25 days × 24h
+        = 8766 hours/year for 1h crypto (vs 6240 for FX). Already has the scaffold.
+      - >
+        Pair naming convention: BTC/USDT vs BTCUSDT — internal normalisation needed.
+        Types.py PairInfo works; just extend DEFAULT_PAIRS with crypto cost configs.
+      - >
+        No weekend gap in data validation: existing validation.py checks for gaps > 4
+        calendar days (designed for FX/daily). Crypto has no such gaps; that check becomes
+        noise. Parameterise min_gap_threshold by market type.
+    eng_effort: "2–3 weeks (for a clean crypto backtest runnable on BTC/ETH)"
+    top_tech_risk: >
+      Regime non-stationarity and survivorship bias in altcoin universe.
+      Crypto markets 2017-2025 are dominated by structural bull/bear cycles with
+      max drawdowns of 70-90%. Sharpe ratios computed over the BTC history will
+      not generalise. The firm's DSR/SPA machinery will need honest N calibration
+      for crypto's short history and high autocorrelation. This is a research-
+      discipline risk, not an engineering risk — but the CTO flags it because it
+      directly affects whether the backtest infrastructure produces trustworthy
+      inputs to the NHT harness.
+
+  - direction: "Asset-class pivot: Rates / equity-index futures"
+    data_source: >
+      Databento: exchange-traded futures (CME, ICE), 16 petabytes tick history,
+      paid (~$199+/month, $125 free credits). Deep history for major contracts.
+      Quandl/NASDAQ Data Link: continuous-adjusted futures for major equity
+      indices and rates, paid (~$29–$249/month depending on tier).
+      Barchart OnDemand: paid, institutional.
+      Free options: Yahoo Finance (ES, NQ, ZN futures via yfinance) — data quality
+      is poor for serious research; gaps, adjusted-price errors, missing volume.
+      RESEARCH_REQUEST: verify current Databento pricing, free-credit availability,
+      and specifically whether CME FX futures (6E, 6B, 6J) and equity-index futures
+      (ES, NQ, RTY) are in their catalog at 1h resolution.
+    pipeline_reuse_pct: 50
+    new_build_needed:
+      - >
+        Continuous contract adjustment: the hardest new component. Futures expire and roll.
+        Naive backtests on unadjusted futures produce large price discontinuities at roll.
+        Correct approach: Panama Canal / backwards-ratio-adjusted continuous contracts.
+        This requires a roll-calendar per instrument, a roll-adjustment algorithm, and
+        a data pipeline that produces the adjusted parquet. ~400–700 LOC of new infra.
+        No precedent in the current codebase — this is the largest single engineering item.
+      - >
+        CostModel for futures: tick size, margin-adjusted sizing, exchange fees. Not
+        pip-based. Holding cost is margin interest (not FX swap). ~100–150 LOC.
+      - >
+        Instrument metadata: contracts have multipliers (ES = $50/point), tick sizes,
+        margin requirements. PairInfo.pip_value maps to this but needs generalisation.
+        The existing frozen dataclass can be extended; the backtest engine uses it only
+        through CostModel, so no engine change needed.
+      - >
+        Position sizer revision: for futures, size is in contracts (integer), not units.
+        The PositionSizer ABC is correct; a new concrete class needed. ~100 LOC.
+      - >
+        Quality gate: futures have daily settlement gaps (overnight sessions), exchange
+        holidays, and pre/post-market data that is not present in FX. Gap thresholds
+        need recalibration.
+      - >
+        Vendor onboarding: Databento is a new paid vendor. Per CTO charter veto
+        `new-vendor-without-red-team` — requires CEO approval before any spend.
+        This is a forbidden-interim item under current firm posture.
+    eng_effort: "4–8 weeks (continuous-contract pipeline alone is a multi-week sprint)"
+    top_tech_risk: >
+      Continuous contract roll adjustment correctness. A wrong roll-adjustment method
+      produces artificial P&L from price gaps at contract expiry. This is a known source
+      of spurious backtest alpha — strategies that appear to profit from momentum are
+      actually capturing the roll price discontinuity. The firm's no-lookahead discipline
+      and cost model rigour do not protect against this; it is a data-layer problem that
+      must be solved before any futures trial enters the NHT pipeline. No existing
+      precedent in the codebase.
+
+  - direction: "New modality: True volume / order-flow"
+    data_source: >
+      Crypto: real exchange volume free from Binance/Coinbase. This is the only
+      asset class with true centralised exchange volume for a retail firm.
+      FX: no central exchange. All FX "volume" is tick-count or notional at one
+      venue (confirmed in prior CTO artifact and Dukascopy ingest provenance note).
+      COT positioning: CFTC Commitments of Traders, free weekly release
+      (https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm).
+      Covers CME FX futures (6E, 6B, 6J etc.) — weekly positions by trader category
+      (commercial, non-commercial, spec). History from 1986.
+      Options-implied vol surface: FX options vol surfaces are from broker desks /
+      Bloomberg / Refinitiv — no free source with full 12-pair coverage.
+      RESEARCH_REQUEST: confirm whether any free/low-cost FX options vol surface exists
+      (e.g., CBOE FX options, broker API vol surface endpoints).
+    pipeline_reuse_pct: 30  # modality-specific; signal computation is new
+    new_build_needed:
+      - >
+        COT signal pipeline: CFTC releases weekly CSV. A new DataSource or feature
+        adapter is needed to: download, parse, align to FX weekly bar (non-trivial —
+        COT is released Tuesday for prior Tuesday snapshot; signal must be lagged
+        correctly to avoid lookahead). ~200–300 LOC including alignment logic.
+      - >
+        Weekly signal at daily bar resolution: current engine is daily/1h bar-level.
+        A weekly signal needs to be forward-filled at daily resolution until next
+        release. Features/registry.py does not have a resampling-up utility — new work.
+      - >
+        Volume signals (crypto): if pivoting to crypto, real volume is available.
+        Volume indicators (VWAP, volume profile, OBV) would be new features/indicators.py
+        entries. ~150–200 LOC. Clean architecture: indicators are pure functions, easy to add.
+      - >
+        Options-implied vol: if a source can be found, the vol surface is a new DataSource
+        type producing a feature matrix (delta-tenor grid) per pair per day. Significant
+        new data typing required. This is the largest modality-add in engineering terms.
+    eng_effort: "1–2 weeks (COT only, FX futures); 3–5 weeks (crypto volume integration); 6–12 weeks (FX options vol surface if data sourced)"
+    top_tech_risk: >
+      COT lookahead risk. The COT report covers the week ending Tuesday, released
+      the following Friday. A 3-day publication lag must be modelled correctly or
+      the signal contains lookahead. The firm's entry_delay_bars=1 mechanism does
+      not automatically handle a calendar-lagged signal — this requires explicit
+      signal timestamping and a dedicated test. Given the firm's QRB-6 tz-void
+      history, alignment bugs on event-dated signals are a credible failure mode.
+
+  - direction: "Portfolio / ensemble (existing strategies)"
+    data_source: >
+      No new data acquisition needed. Uses existing 12-pair daily Parquet + the
+      Dukascopy 1h data currently being acquired. portfolio.py already exists in
+      the codebase (src/forex_system/backtest/portfolio.py).
+    pipeline_reuse_pct: 90
+    new_build_needed:
+      - >
+        Correlation-aware portfolio construction: if strategies are combined, need
+        a covariance estimator and a portfolio weight optimizer. features/indicators.py
+        has pure-function indicators; a new portfolio_features.py for rolling covariance
+        matrices is the natural extension.
+      - >
+        Walk-forward portfolio evaluation: walkforward.py exists but runs single-strategy.
+        A multi-strategy walk-forward that re-optimises weights at each window boundary
+        is new work. Medium complexity (~300–400 LOC).
+      - >
+        Ensemble signal aggregation: if combining signals at bar level, need a signal
+        combiner layer between strategy.generate_signals() and engine. Small (~100 LOC).
+      - >
+        DSR multi-strategy adjustment: N_trials increases with each strategy added to
+        an ensemble. The firm's deflated-Sharpe machinery already handles N_sel correction
+        via harness/deflated_sharpe.py; the honest-N tracking in harness/honest_n.py
+        must be used correctly. This is a research-methodology item, not new engineering.
+    eng_effort: "1–2 weeks (for correlation-aware ensemble of existing strategies)"
+    top_tech_risk: >
+      DSR/honest-N inflation. Adding an ensemble layer without correctly incrementing
+      N_trials and applying the full deflation penalty is the classic multiple-comparison
+      trap. The firm has sophisticated honest-N infrastructure; the risk is architectural
+      — if the ensemble weight-search is treated as a single trial rather than K trials
+      (one per weight vector explored), the DSR gate is silently defeated. CRO/NHT must
+      co-sign any ensemble trial design.
+
+# ============================================================
+# ASSESSMENT SUMMARY
+# ============================================================
+
+highest_research_leverage_per_effort_pick:
+  direction: "Wider FX universe (EM / exotic pairs) — LOW EFFORT, HIGHEST LEVERAGE"
+  rationale: >
+    80% pipeline reuse. Most of the DataSource / cost / engine stack transfers; the new
+    work is: (a) verify EM pair data availability on Dukascopy, (b) source accurate
+    spread/swap rates from Saxo per pair, (c) add PairInfo entries to constants.py,
+    (d) a session-calendar gap-check extension to validation.py (the FX-weekend-hardcoded
+    gap check at validation.py:70 does not cover EM local calendars). This is ~5–8 days
+    of engineering for potentially 4–6x more pairs in the research universe.
+    LEVERAGE IS CORRELATION-DISCOUNTED (critic finding, accepted): "more pairs = more
+    events/year = shorter validation" holds ONLY to the degree EM pairs are independent.
+    EM FX is heavily USD- and risk-sentiment-driven, so USDTRY/USDZAR/USDMXN are highly
+    correlated — they do NOT add honest effective-N proportional to pair count. The true
+    leverage is real but smaller than the raw pair count suggests; it must be measured
+    from the realised correlation matrix, not assumed. This remains the lowest-effort
+    direction and likely still the best leverage-per-day, but the leverage figure is
+    bounded by cross-pair correlation, not linear in pairs added.
+    CRITICAL CAVEATS (both hard CRO/NHT gates): (1) CRO must validate EM cost configs
+    before any EM trial — wide-spread EM pairs can look like alpha under undercosted
+    spreads. (2) NHT must compute effective-N from the EM correlation matrix, not from
+    raw pair count, or the DSR gate is silently inflated.
+  second_pick:
+    direction: "Crypto (BTC/ETH OHLCV, Binance free klines)"
+    rationale: >
+      2–3 week engineering cost for a new asset class with real volume data, free deep
+      history, and 24/7 trading. The DataSource ABC and engine reuse cleanly; the main
+      new work is CryptoCostModel and quality_gate parameterisation. Real volume is the
+      only place where volume-based signals (VWAP, volume profile) become research-valid
+      rather than proxy-dependent. Research leverage: a new asset class with a different
+      microstructure can confirm or deny whether the firm's signal ideas generalise,
+      providing independent evidence rather than just more FX pairs.
+    caveat: >
+      New vendor onboarding (Binance API) requires CEO approval under current firm
+      posture (forbidden-interim: new-vendor-without-red-team). This cannot proceed
+      under --no-ceo. Crypto also requires honest NHT treatment for short history
+      and structural regime non-stationarity.
+
+# ============================================================
+# KNOWLEDGE GAPS (RESEARCH_REQUESTS)
+# ============================================================
+
+knowledge_gaps:
+  - id: KG-1
+    direction: "FX 5m / 1m"
+    gap: >
+      Dukascopy 1m per-pair download volume and rate limits. The bi5 tick files
+      are compressed per-hour; 15yr × 12 pairs × ~8760 files = ~1.6M requests.
+      At what rate does the Dukascopy endpoint throttle? The 1h backfill was
+      already IP-throttled (confirmed in firm memory: ~1.6% completion in the
+      cloud environment). 1m would require 24x more requests. Needs empirical
+      testing before committing to a 1m strategy track.
+    resolution: "Run a 1-month 1m test pull for EURUSD and measure elapsed time + throttle behaviour."
+
+  - id: KG-2
+    direction: "Wider FX universe (EM pairs)"
+    gap: >
+      Dukascopy EM pair availability and start dates. Which of USDTRY, USDZAR,
+      USDMXN, USDBRL, USDRUB, USDSGD, USDPLN are available, and from what year?
+      Without this, the EM-universe expansion is speculative.
+    resolution: "Enumerate Dukascopy instrument list programmatically on Day 1 of any EM sprint."
+
+  - id: KG-3
+    direction: "Crypto"
+    gap: >
+      Binance API terms of service for backtest/research use of historical klines.
+      Functionally almost certainly permissible (Binance explicitly offers a public
+      REST API for this purpose) but the firm's compliance posture requires formal ToS
+      review before onboarding any new data vendor.
+    resolution: "CEO/CTO review Binance ToS at https://www.binance.com/en/terms before any crypto sprint."
+
+  - id: KG-4
+    direction: "Rates/equity-index futures"
+    gap: >
+      Current Databento pricing and free-credit availability. The $125 free-credit
+      figure is from the 2026-06-07 artifact and may be outdated. Also unclear
+      whether CME equity-index futures (ES, NQ) are at 1h resolution with history
+      back to at least 2010.
+    resolution: "Check databento.com/pricing before budgeting. New vendor — requires CEO approval regardless."
+
+  - id: KG-5
+    direction: "New modality: FX options vol surface"
+    gap: >
+      No free source for FX implied vol surfaces has been identified. Bloomberg/Refinitiv
+      are institutional-cost. Whether any broker API (Saxo, OANDA, Interactive Brokers)
+      exposes historical FX options vol for research use is unknown.
+    resolution: "RESEARCH_REQUEST: HoQR or CTO to investigate Saxo OpenAPI options vol surface endpoints and IB historical options data."
+
+  - id: KG-6
+    direction: "FX 1h / 5m / 1m (all intraday) — HIGHER STAKES than KG-4 per critic"
+    gap: >
+      Whether RolloverAwareRealisticCostModel is correctly invoked on EVERY intraday
+      backtest path. The 1h ingest is engineered (not future work), so intraday strategy
+      research is imminent. Code inspection confirms the engine DOES dispatch via
+      `use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)`
+      (engine.py:325) — but this gate is on the CONTINUOUS rebalance path. The discrete
+      path's swap handling and the per-bar rollover accrual must be verified end-to-end
+      against a known multi-day intraday hold before any intraday trial enters NHT. Given
+      the firm's QRB-6 cost-config void (a trial was VOIDED by a cost-model error), an
+      un-verified cost-model invocation is a HIGHER-stakes unknown than a vendor pricing
+      figure. This is a VERIFY-MEANS-EXECUTE item: run an intraday backtest with a known
+      Wednesday-crossing hold and assert the 3x triple swap charge appears in the ledger.
+    resolution: >
+      Quant Developer to run an intraday backtest fixture with a known rollover-crossing
+      hold and assert the realised swap matches the expected n_single + 3*n_triple charge,
+      on BOTH discrete and continuous paths, before any 1h/5m/1m trial is pre-registered.
+
+# ============================================================
+# WHAT THE CTO REFUSED TO DO
+# ============================================================
+
+what_you_refused_to_do:
+  - Did NOT write any code, ingest scripts, cost model, or data pipeline changes
+  - Did NOT recommend any specific strategy design, signal hypothesis, or parameter choice
+  - Did NOT onboard any new vendor (Binance, Databento, Polygon) — all require CEO approval per new-vendor-without-red-team veto
+  - Did NOT assert that a direction is research-valid without a CRO co-sign on cost model and NHT co-sign on honest-N treatment
+  - Did NOT fetch any live data or access any external API
+  - Did NOT compute any Sharpe estimates, expected edge, or strategy performance claims
+  - Did NOT declare any direction "approved for trial" — this artifact scopes feasibility only
+
+# ============================================================
+# FAILURE MODES CONSIDERED
+# ============================================================
+
+failure_modes_considered:
+  - "Pipeline reuse estimate is overconfident: pipeline tests are FX-specific; a 'clean' ABC swap for crypto may hide assumptions baked into calling code (e.g., pip_value in sizer, gap checks in validator). Engineering discovery during sprint will surface hidden FX assumptions."
+  - "EM cost model undercosting: static spread_pips for USDTRY at 20 pips vs EURUSD at 0.5 pips; error of even 5 pips turns a marginal edge into a loss. CRO gate must be hard."
+  - "Crypto DSR deflation neglect: short history (BTC 2013+, ETH 2015+) means effective N bars is much lower than a 10-year FX backtest. A strategy that looks like SR 1.0 on 8 years of crypto data has far lower honest DSR than the same SR on 15 years of FX data. NHT must not apply FX honest-N constants to crypto."
+  - "Futures roll-adjustment spurious alpha: the most common source of false backtest alpha in futures research. No existing safeguard in the codebase. Must be built before any futures trial enters NHT."
+  - "COT lookahead: 3-day publication lag not modelled correctly → signal contaminates backtest. The firm's entry_delay_bars=1 mechanism does not automatically handle calendar-lagged data sources."
+  - "Resource diversion: adding 3+ new instrument classes in parallel dilutes the firm's engineering capacity and risks the QRB-6 confirmatory track becoming stale. CEO must explicitly capacity-allocate."
+
+conditions:
+  - "Any new vendor (Binance, Databento, Polygon) requires CEO approval before onboarding — forbidden-interim under current firm posture."
+  - "EM pair cost configs must receive CRO co-sign before any EM trial enters NHT. Static spread model for EM is a research-validity risk."
+  - "Crypto work requires honest-N recalibration for short history — NHT must not import FX honest-N constants unchanged."
+  - "Futures work requires a continuous-contract roll-adjustment pipeline before any strategy can be backtested — no shortcut."
+  - "All new instrument classes require the no-lookahead sacred test extended to the new frequency and instrument type before NHT pre-registration."
+  - "KG-1 (Dukascopy 1m throttle) must be empirically resolved before committing to a 1m strategy design track."

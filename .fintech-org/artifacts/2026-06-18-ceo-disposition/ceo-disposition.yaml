@@ -1,0 +1,410 @@
+# =============================================================================
+# CEO STRATEGIC DISPOSITION — 1h backfill landing / forward-test loop / cost-reality
+# =============================================================================
+# The seat that holds the north-star: earn money (O2) WITHOUT relaxing rigor (O1).
+# O1 lexicographically dominates O2. A unit of safety is never traded for profit.
+# This artifact takes the prioritized strategic posture while 11/12 majors backfill.
+# =============================================================================
+role: ceo
+artifact_type: ceo-goal-proposal
+decision: propose-goals
+# decision=propose-goals (NOT approve): per ceo.md the CEO `decision` enum is
+# {proceed | propose-goals | veto | escalate-to-board}; the OODA "Align" step emits
+# goals as `propose-goals`. `approve` is not a valid CEO decision value, and proposing
+# goals carries a reject_when on NHT-unsigned completeness — so the goals are PROPOSED
+# here and become ACTIONABLE only after NHT signs the observation complete (see
+# nht_completeness_signoff below; PM gates dispatch on it).
+timestamp: "2026-06-18T04:35:12Z"
+git_sha_at_authoring: 44851289205dc666baab41cbb726a88615a7f84a
+branch: ingest-spread-column
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+no-capital-instruction: true
+no_capital_instruction: true
+
+claimed_domains:
+  - north-star-objective-alignment
+  - cross-functional-goal-prioritization
+  - org-and-app-health-assessment
+
+# -----------------------------------------------------------------------------
+# CONTEXT — the four CEO questions, decided
+# -----------------------------------------------------------------------------
+disposition_summary: >
+  The firm is at the single most consequential juncture since the 2026-05-31 reset:
+  EURUSD 1h landed and was ADMITTED by the data-quality gate with TRUE spread (~0.4
+  pip median, 99.2% bar coverage, 100% measured-spread fraction); the DSR deflation
+  denominator was reconciled to a principled, auditable N=48 (one semantic, draw-level
+  classified); the engine is short-capable + rollover-aware; and H1 (pooled-8 session-
+  open momentum) is FROZEN-AWAITING-DATA. For the FIRST TIME the firm has (a) a correct
+  validation bar and (b) a frozen, pre-registered, un-peeked hypothesis whose forward
+  evaluation could actually mean something. The binding risk is NOT that we lack ideas
+  or domain knowledge (NHT-D1/premise category-error) — it is that a firm at 0/49
+  validated, hungry for its first win, will minimize the deflation denominator or run
+  un-ledgered attempts (NHT IC-7/IC-9, SD2/SD3). My disposition holds O1 as the gate on
+  every step toward H1 and refuses to let one admitted pair pre-judge "is 1h useful?"
+  in either direction.
+
+# -----------------------------------------------------------------------------
+# PRIORITIZED GOALS — each with a north_star_trace to a real objective id
+# Ordered by O1-first, then expected-value-per-cost on O2.
+# -----------------------------------------------------------------------------
+goals:
+
+  - id: G1
+    title: "Land the honest-N reconciliation record — un-break the validation bar (fail-closed today)."
+    north_star_trace: [O1]
+    priority: 1
+    rationale: >
+      KG-1 (HoQR reconciliation, severity HIGH; VERIFIED by me: grep 'honest-n-
+      reconciliation' .fintech-org/trials.jsonl returns 0). honest_n.py reads the
+      offset record from the LEDGER and RAISES RuntimeError when absent (fail-closed),
+      so honest_n_deflation_denominator() CANNOT RETURN — every live DSR call site
+      crashes today. The ratified N=48 semantic exists on paper but is NOT yet
+      mechanically computable. A reproducible, auditable validation bar is the O1 floor;
+      until the canonical record (event='honest-n-reconciliation', prose_only_attempts=15)
+      is appended and pushed, NO 1h trial can be honestly DSR-scored. This is the gating
+      O1 item — it must land BEFORE H1 (G5) can be evaluated. Fail-closed is the SAFE
+      failure mode (it crashes rather than mis-scores), which is exactly why it is
+      urgent-but-not-an-emergency: do it now, correctly, not under win-pressure later.
+    decision_gate: "QD appends + pushes the record; a regression test asserts the function returns 48 and that compute_honest_n (11, portfolio view) is NEVER wired into compute_dsr (HoQR binding_output)."
+    does_block: true
+    owner_role: quant-developer
+    verified_by: [null-hypothesis-tester, principal-reviewer]
+
+  - id: G2
+    title: "Run the cost-reality calibration as a FORWARD-LOOKING cost-model update only — hard firewall against re-grading any falsified strategy."
+    north_star_trace: [O1, O2]
+    priority: 2
+    rationale: >
+      The arrival of true ~0.4-pip spread vs the old conservative ~7.5-pip assumption
+      is genuine new information and updating the cost model forward is correct O2 work:
+      a more accurate cost model raises the expected value of every FUTURE evaluation.
+      But it sits one inch from the firm's most dangerous self-deception (NHT SD5: "the
+      cost model was too conservative, re-run cheaper" converts a true negative into a
+      false positive). My disposition: the calibration is APPROVED as a forward-looking
+      input to the IntradaySpreadCostModel (CRO Deliverable A, default charge =
+      spread_p90_pips, EXCLUDE-not-impute) and NOTHING else. It is O1-bounded by IC-10
+      (cost assumptions frozen at freeze, never loosened to rescue a candidate). The
+      O1 component of this trace is the boundary itself, not the calibration.
+    hard_boundary: >
+      The cost-reality calibration MUST NOT touch, re-open, re-score, or re-grade ANY
+      falsified strategy — trial-48 (A2' overnight-MR, cost-dominated) above all. That
+      would be the cost-optimism trap (IC-10 / SD5). Trial-48 is DEAD and stays dead.
+      The only sanctioned output is a forward cost model the NEXT pre-registered trial
+      inherits. CRO's size_multiplier=0.0 posture and the cold-start <=0.25 ladder are
+      UNCONDITIONAL and survive the cheaper spread (a lower spread does NOT buy a higher
+      opening size). NHT IC-10 holds the line; this CEO goal STACKS a gate, it does not
+      remove one.
+    does_block: false
+    owner_role: cro
+    verified_by: [null-hypothesis-tester]
+
+  - id: G3
+    title: "Build the 1h cost/coverage BUILD-PRECONDITIONS the CRO spec mandates (coverage_gate callable + rollover-aware swap)."
+    north_star_trace: [O1, O2]
+    priority: 3
+    rationale: >
+      CRO KG-4 (verified against code by CRO): the cost-coverage gate and the rollover-
+      aware swap that the risk pre-spec REQUIRES do not exist in code yet —
+      validate_1h_schema only WARNS on spread_median and never checks spread_p90>0 or
+      median<=p90; holding_cost pro-rates daily swap by hours (the banned anti-pattern,
+      the exact class of the dd9c235 overcharge bug). Until (1) coverage_gate(parquet,
+      window)->{ADMIT|EXCLUDE} and (2) rollover-aware holding_cost ship, "1h cost
+      realism" is SPECIFIED but NOT ENFORCED — and the VOIDED-trial (zero-imputation)
+      failure class is NOT closed in code. CRO states NO 1h trial may freeze until these
+      land. This is O1 (the gate that prevents an uninterpretable run) and O2 (it is the
+      mechanism by which any 1h profit claim is trustworthy). Sequence: build now, while
+      data backfills — it gates H1's eval, not just files paper.
+    decision_gate: "coverage_gate EXCLUDES (not warns) per the per-bar/per-pair PASS rules incl. spread_p90>0 and median<=p90; rollover-aware holding_cost charges daily swap only across 22:00 UTC (3x Wed), zero intra-session; both pushed and PR-reviewed."
+    does_block: true
+    owner_role: quant-developer
+    verified_by: [cro, principal-reviewer]
+
+  - id: G4
+    title: "Build the forward-test harness (P1) to satisfy NHT's 14 integrity controls — the mechanism that makes 'validated' mean something."
+    north_star_trace: [O1, O2]
+    priority: 4
+    rationale: >
+      The forward-test loop is DESIGNED (M1 sequestered holdout + M2 paper-forward, NHT
+      IC-1..IC-14) but the harness is NOT built. Across 49 trials the firm has NEVER run
+      a credible forward OOS test, so "validated" has never meant anything here (NHT
+      dissent_statement). This is the highest-leverage O1 build available: it converts a
+      future PASS from theater into evidence. It is ALSO the critical-path enabler for O2
+      — without it, even a real H1 edge cannot be honestly validated. NHT IC-14 is
+      binding: any control whose violation an outsider cannot see MUST fail-closed in a
+      machine (hash-abort on mismatch, OS-gated/CI-grep-blocked holdout, ledger-derived
+      DSR-N never hand-typed). An unenforced control is UNMET, not aspirational. Build
+      this DURING the backfill wait — it is exactly the "convert a future scramble into
+      cold-start-ready posture" use of the wait NHT approved (steelman-of-the-prep-plan).
+    decision_gate: "IC-1/IC-2/IC-3 (cryptographic freeze + forward-postdates-freeze + harness aborts on hash mismatch), IC-4/IC-5 (OS-gated or CI-grep-blocked holdout, not honor-system), IC-7/IC-8/IC-9 (every attempt burns N, no quiet attempts, full deflation denominator from the ledger), IC-13 (attempt budget frozen before first spawn), IC-14 mechanized — all gated by NHT + PR."
+    does_block: false
+    owner_role: quant-developer
+    verified_by: [null-hypothesis-tester, principal-reviewer]
+
+  - id: G5
+    title: "Hold the 'is 1h useful?' verdict to the POOLED-H1 decision gate — EURUSD-admitted is NECESSARY-NOT-SUFFICIENT; one pair pre-judges nothing."
+    north_star_trace: [O2]
+    priority: 5
+    rationale: >
+      EURUSD admitted by the data-quality gate proves the PIPELINE and the spread
+      recovery work for one pair — it does NOT prove (nor disprove) that 1h granularity
+      yields validated, net-of-TCA, confirmable-in-<=2yr alpha. NHT-D3 is explicit and I
+      adopt it: intraday likely MOVES the confirmability wall (~3-5yr -> ~1.5-3yr for a
+      few hypotheses), it does not necessarily BREAK it — events/yr UP but per-event-
+      Sharpe DOWN, effective-N-per-nominal DOWN, deflation penalty UP, partially
+      cancelling. The VALID test of "is 1h useful?" is the POOLED H1 (8 majors, frozen
+      prereg 5fff4c63, counter NOT burned) run with allow_shorts=True against N=48/49 on
+      the autocorrelation-corrected EFFECTIVE-N (NHT D6) — NOT a single-pair result. A
+      single pair is forbidden from pre-judging the question in EITHER direction: a good
+      EURUSD number is not a green light, a bad one is not a kill. NHT's honest base
+      rate stands on the record: ~15% (10-20%) chance THIS cycle yields one validated
+      strategy — a coin-flip's fraction, NOT a promise. I will not round it up and no
+      goal here implies a higher number.
+    decision_gate: >
+      H1 spawns (burning the counter to 49) ONLY when: (a) a usable MAJORITY of the 8
+      H1-universe majors have landed AND passed the coverage gate (G3) per-pair; (b) the
+      honest-N record is live (G1); (c) the forward harness enforces IC-1..IC-14 (G4);
+      (d) effective-N is autocorrelation/session/overlap-corrected (D6), never nominal.
+      The verdict on "is 1h useful?" is the DSR>=0.95 pooled result deflated at full
+      org-wide N, beating the matched-random + session-time-only + daily-momentum-
+      carryover null battery (NHT) on net-of-conservative-cost Sharpe. Pre-registration
+      may EXPAND only via a BLIND structural data-quality report (bar counts/gaps/spread
+      sanity, NO return/signal statistics) — fishing remains the worse, forbidden error
+      (NHT-D2).
+    does_block: false
+    owner_role: head-of-quant-research
+    verified_by: [null-hypothesis-tester]
+
+  - id: G6
+    title: "Pipeline smoke-test + small follow-ons (effective_n.py rho-bar haircut) — sequenced AFTER the gating O1 items, NOT before."
+    north_star_trace: [O1, O2]
+    priority: 6
+    rationale: >
+      Two small follow-ons are real but lower-priority. (i) effective_n.py (the MEASURED
+      N_eff = N_raw/(1+(k-1)*rho_bar) correlation haircut, KG-2): VERIFIED not built
+      (find returns no module). It is NON-BLOCKING and must NEVER be a name-regex collapse
+      nor re-introduce de-dup into compute_dsr (HoQR retirement of the 11-view). Until it
+      exists the firm relies on the raw N=48, which is CONSERVATIVE (over-deflates
+      correlated draws) and therefore SAFE per SD2 — so this is an O2 refinement (tighter,
+      fairer deflation for correlated variant families), not an O1 gap. (ii) a pipeline
+      smoke-test on EURUSD (load -> coverage gate -> cost model -> engine, NO H1 signal
+      eval, NO peeking at returns) de-risks the cold-start when majors land. Both are
+      worth doing in the wait but rank BELOW G1/G3/G4 because they do not gate the
+      validity of the H1 verdict. The trial-48 N=48 recompute is explicitly NOT a goal
+      here — trial-48 is falsified and re-touching it for any reason is the SD5 trap.
+    does_block: false
+    owner_role: quant-developer
+    verified_by: [head-of-quant-research]
+
+# -----------------------------------------------------------------------------
+# THE FOUR CEO QUESTIONS — answered explicitly
+# -----------------------------------------------------------------------------
+ceo_questions_decided:
+
+  Q1_cost_reality_calibration:
+    is_it_the_right_move: "YES — forward-looking cost-model update is correct O2 work; true ~0.4-pip spread is genuine new information that raises the EV of every future evaluation."
+    what_to_DO_with_the_result: >
+      Feed it ONLY into the IntradaySpreadCostModel (CRO Deliverable A; default charge =
+      spread_p90_pips, EXCLUDE-not-impute) as the cost the NEXT pre-registered trial
+      inherits. See goal G2.
+    hard_boundary: >
+      It MUST NOT touch any dead/falsified strategy. NO re-grade of trial-48 or any
+      falsified hypothesis — that is the IC-10 / SD5 cost-optimism trap (true negative ->
+      false positive). Cost assumptions are frozen at a candidate's freeze and never
+      loosened to rescue it. CRO's unconditional size_multiplier=0.0 and cold-start
+      <=0.25 ladder survive the cheaper spread unchanged.
+
+  Q2_is_1h_useful:
+    how_to_read_EURUSD_admitted: >
+      NECESSARY, NOT SUFFICIENT. EURUSD-admitted proves the pipeline + spread recovery
+      for one pair. It is forbidden from pre-judging "is 1h useful?" in EITHER direction.
+    the_actual_decision_gate: >
+      POOLED H1 (8 majors, frozen prereg 5fff4c63) run with allow_shorts=True against the
+      full org-wide deflation denominator (N=48/49) on autocorrelation-corrected
+      EFFECTIVE-N, net of conservative frozen cost, clearing DSR>=0.95 AND beating the
+      NHT null battery. See goal G5. NHT base rate ~15% (10-20%); 1h likely MOVES the
+      wall to ~1.5-3yr, may not break it (NHT-D3).
+
+  Q3_sequencing_while_11_majors_backfill:
+    do_now_O1_gating: >
+      G1 (honest-N record append — un-break the fail-closed DSR bar) and G3 (1h coverage-
+      gate callable + rollover-aware swap — the CRO BUILD-PRECONDITIONS that gate any 1h
+      freeze). These are the items WITHOUT which an H1 run would be uninterpretable or
+      un-scoreable.
+    do_now_high_leverage: >
+      G4 (forward-test harness P1, IC-1..IC-14 mechanized) — the highest-leverage build,
+      the mechanism that makes 'validated' mean something; exactly the right use of the
+      wait.
+    do_now_low_priority: >
+      G6 (pipeline smoke-test on EURUSD with NO return-peeking; effective_n.py rho-bar
+      haircut as a NON-BLOCKING O2 refinement that must never re-enter compute_dsr).
+    waits_for_data: >
+      H1 spawn (G5) waits for a usable MAJORITY of the 8 H1 majors to land + pass the
+      coverage gate. The trial-48 N=48 recompute is NOT scheduled — re-touching a
+      falsified strategy is the SD5 trap and is refused.
+
+  Q4_safety_rigor_item_that_must_be_protected:
+    primary: >
+      G1 — the validation bar itself is fail-closed-broken RIGHT NOW (honest_n_
+      deflation_denominator raises RuntimeError; reconciliation record not in the
+      ledger). The firm cannot honestly DSR-score anything until this lands. This is the
+      O1 item that must be protected before the firm moves toward evaluating H1.
+    standing: >
+      The full NHT IC-1..IC-14 integrity-control set (G4) and the EXCLUDE-not-impute
+      coverage gate (G3) are the standing O1 protections against the firm's documented
+      self-deception modes (SD1 gate-softening, SD2 N-minimization, SD3 quiet re-attempt,
+      SD5 cost-optimism). IC-14 is binding: an unenforced control is UNMET.
+
+# -----------------------------------------------------------------------------
+# NORTH-STAR TRACE (objective ids each goal serves)
+# -----------------------------------------------------------------------------
+north_star_trace:
+  G1: [O1]              # reproducible/auditable validation bar — rigor floor
+  G2: [O1, O2]          # forward cost model (O2) bounded by the no-re-grade firewall (O1)
+  G3: [O1, O2]          # coverage gate prevents uninterpretable runs (O1) + trustworthy cost (O2)
+  G4: [O1, O2]          # forward harness makes 'validated' real (O1) + enables any O2 claim
+  G5: [O2]              # the H1 profit-test gate (subject to O1 via G1/G3/G4 preconditions)
+  G6: [O1, O2]          # effective-N refinement + smoke-test (lower-leverage)
+  objective_ids_referenced: [O1, O2]
+  all_ids_exist_in_charter: true   # O1, O2 both defined in protocols/charter-objectives.md
+
+# -----------------------------------------------------------------------------
+# ARTIFACTS REVIEWED (this loop)
+# -----------------------------------------------------------------------------
+artifacts_reviewed:
+  - /Users/huangtm/.claude/skills/fintech-org/roles/ceo.md
+  - /Users/huangtm/.claude/skills/fintech-org/protocols/charter-objectives.md
+  - /Users/huangtm/.claude/skills/fintech-org/journal/gaps.md   # safety-item index (open set: 7,8,80,81,82)
+  - .fintech-org/artifacts/2026-06-16-prep-plan/nht-dissent.yaml            # NHT D1-D6 (prep plan)
+  - .fintech-org/artifacts/2026-06-16-prep-plan/cro-risk-gates.yaml         # CRO cost-model + risk pre-spec, KG-4 build precondition
+  - .fintech-org/artifacts/2026-06-16-prep-plan/qr-h1-prereg.yaml           # H1 frozen-awaiting-data, counter not burned
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-integrity-controls.yaml   # IC-1..IC-14
+  - .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-reconciliation.yaml  # N=48 one-semantic ratification, KG-1 fail-closed
+  - .fintech-org/trials.jsonl                                               # honest-N source; reconciliation record VERIFIED ABSENT (grep=0)
+  - data/processed/EURUSD_1h.parquet                                        # admitted 1h pair (existence verified)
+
+# -----------------------------------------------------------------------------
+# DISSENTS ACKNOWLEDGED (verbatim references to open NHT/CRO dissent items)
+# -----------------------------------------------------------------------------
+dissents_acknowledged:
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D1
+    verbatim_ref: "Infrastructure-theater risk is the firm's own kill-criterion, re-armed. Every artifact must carry an expected-value mechanism naming the decision it gates; an artifact that cannot is theater and must be cut."
+    ceo_disposition: "ADOPTED as a gate on G1/G3/G4/G6 — each goal here carries a decision_gate naming what it gates. G6 is explicitly ranked low because it does not gate the H1 verdict's validity."
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D2
+    verbatim_ref: "Fishing (seeing-data-first) is the WORSE error and must remain forbidden; pre-registration-now stands, with only a BLIND structural data-quality report permitted before freeze."
+    ceo_disposition: "ADOPTED — G5 gate permits prereg expansion only via a blind structural report; no return/signal statistics before freeze."
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D3
+    verbatim_ref: "Intraday data likely MOVES the wall (~3-5yr -> ~1.5-3yr for a few hypotheses), not break it; the plan must not be sold internally as 'the ceiling is removed.'"
+    ceo_disposition: "ADOPTED — G5 explicitly forbids treating EURUSD-admitted or any single pair as proof the wall is broken; verdict is the pooled-H1 effective-N result."
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D4
+    verbatim_ref: "Honest base rate of finding at least one VALIDATED net-of-TCA intraday strategy this cycle is 10-20%, point estimate ~15% — a coin-flip's fraction, not a promise. I will NOT round this up."
+    ceo_disposition: "ADOPTED verbatim into G5 — no goal implies a higher number; success is NOT promised."
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D5
+    verbatim_ref: "The 1h data may be DOA (throttling, zero volume, unverified spread); the workflow must carry an explicit per-pair LAND/PARTIAL/MISSING branch and a spread-column CORRECTNESS check, not proceed to backtest on incomplete pairs."
+    ceo_disposition: "ADOPTED — G3 coverage gate is per-pair ADMIT|EXCLUDE; G5 requires a usable MAJORITY of H1 majors to PASS the coverage gate before spawn. NHT RR-1 (spread-correctness end-to-end check vs an independent reference) is a live precondition routed to quant-developer."
+  - source: nht-dissent.yaml (prep plan)
+    item: NHT-D6
+    verbatim_ref: "Honest-N at 1h is make-or-break and easy to inflate; effective_n must be autocorrelation-corrected, non-overlapping, session-clustering-aware — never nominal."
+    ceo_disposition: "ADOPTED — G5 gate and the H1 prereg both bind events_per_year to the EFFECTIVE count; G6 commissions the measured rho-bar haircut (never as a name-regex)."
+  - source: nht-integrity-controls.yaml (forward-test loop)
+    item: IC-1..IC-14 (esp. IC-7/IC-9/IC-10/IC-14)
+    verbatim_ref: "A forward PASS is credible ONLY if frozen+pushed before any forward bar, holdout opened exactly once with logged non-peek proof, every attempt burns org-wide N (never N=1), net of conservative frozen cost, clearing pre-declared DSR>=0.95 — and every control an outsider cannot see MUST fail-closed in a machine (IC-14), not a human attestation. Absent all 14, 'validated' is theater."
+    ceo_disposition: "ADOPTED as the binding spec for G4; IC-10 is the load-bearing boundary on G2 (no cost-loosening to rescue a candidate). This CEO disposition STACKS gates; it removes none."
+  - source: cro-risk-gates.yaml (prep plan), KG-4
+    item: CRO-KG-4 build precondition
+    verbatim_ref: "The cost-coverage gate and rollover-aware swap DO NOT EXIST in code; until coverage_gate(...) and a rollover-aware holding_cost ship, NO 1h trial may freeze — 1h cost realism is specified, NOT enforced, and the VOIDED-trial failure class is NOT closed in code."
+    ceo_disposition: "ADOPTED as goal G3 with does_block:true — no 1h freeze until these land."
+
+# -----------------------------------------------------------------------------
+# OPEN SAFETY ITEMS ACKNOWLEDGED
+# id set MUST equal the OPEN tags:[safety] set in gaps.md: {7, 8, 80, 81, 82}
+# each entry carries addressed_by_goal:<O1-tracing goal> OR deferred_because:<reason>
+# -----------------------------------------------------------------------------
+open_safety_items_acknowledged:
+  - id: 7
+    note: "forbidden_skills is a soft wall (no post-gen output filter)"
+    deferred_because: >
+      Harness-meta safety property of the fintech-org skill itself, not of this
+      forex-project disposition. It is an org-infrastructure enforcement gap (a role could
+      load a forbidden skill without a post-gen filter catching it) untouched by any goal
+      in this proposal; no goal here changes role skill-loading. Deferred to the v0.8
+      harness-hardening track. Not traded against any O2 goal — none of G1-G6 relaxes it.
+  - id: 8
+    note: "schema validation is pattern-based, not a type system"
+    deferred_because: >
+      Harness-meta safety property: artifact schema validation is regex/pattern-based, so
+      a malformed-but-pattern-matching field can slip a typed detector. This is an
+      org-infrastructure item; no goal in this proposal depends on relaxing schema
+      validation. NOTE the partial intersection with G4: NHT IC-14 (mechanized, fail-closed
+      enforcement of the forward-test controls) is the project-level instance of the same
+      principle and HARDENS it locally. Full harness-wide fix deferred to v0.8.
+  - id: 80
+    note: "no external process-level watchdog / dead-man timer; a hung agent never hits a kill-switch check point (OS Ctrl-C is the only true backstop)"
+    deferred_because: >
+      Harness-runtime safety item bounded today by max_iterations:3 + manual OS kill;
+      v0.8 candidate. No goal in this proposal increases hung-agent exposure (the build
+      goals G1/G3/G4 are bounded code tasks). Phase-0 is backtest-only with no live
+      capital, so the blast radius of a hung run is wasted compute, not financial loss.
+      Deferred; not traded against profit.
+  - id: 81
+    note: "charter/north-star amendments not diffed against the ORIGINAL baseline; drift-through-ratified-amendments undefended"
+    deferred_because: >
+      Charter-governance item; v0.8 candidate. This proposal authors ZERO charter
+      amendments (it reads and enforces O1/O2 unchanged), so it introduces no amendment-
+      drift. Acknowledged; the cumulative-baseline-diff defense is a Board/harness track,
+      not a project goal. Deferred.
+  - id: 82
+    note: "all structural skeptics (NHT/CRO/PR) are same model family (opus); zero cross-vendor blind-spot diversity"
+    deferred_because: >
+      Open tradeoff, possibly infeasible in a Claude-only harness (gaps.md: document as
+      accepted-risk if so). I ACKNOWLEDGE this as a standing residual on the independence
+      of the very skeptics (NHT/CRO/PR) whose vetoes gate G1-G5 — a shared Claude-opus
+      blind spot would be invisible across all three. It is NOT closable by any goal in
+      this proposal. Disposition: accepted-risk for this cycle, mitigated (not removed) by
+      the STRONG independence mechanisms already in force — disjoint evidence (CRO rule 2,
+      visible in cro-risk-gates contamination_check:clean), stance-blinding, and the NHT
+      completeness gate. Flagged to the Board as the one open safety item I cannot
+      address from this seat. Deferred to a Board decision on cross-vendor skeptic seating.
+
+# -----------------------------------------------------------------------------
+# NHT COMPLETENESS SIGN-OFF
+# -----------------------------------------------------------------------------
+nht_completeness_signoff:
+  status: PENDING
+  required_before: "PM may dispatch G1-G6; per ceo-loop.md the Observe step's completeness must be NHT-signed (completeness: confirmed) before goals are acted on."
+  note: >
+    This proposal is authored against the firm's current artifacts, but the formal
+    ceo-health-observation completeness signature from NHT is NOT yet on file for THIS
+    loop. I am surfacing this honestly: the artifacts_reviewed and dissents_acknowledged
+    enumerations above are my best-effort complete set, but NHT has the final word on
+    whether the observation is complete (whether I curated evidence). Two specific places
+    sign-off is still pending: (a) NHT/HoQR co-signature on the N=48 reconciliation is
+    routed (hoqr-dsr-reconciliation.yaml ROUTE_TO: null-hypothesis-tester) but I have not
+    confirmed it landed; (b) the forward-test harness (G4) is DESIGNED but its IC-1..IC-14
+    enforcement has no built-and-PR-verified artifact yet. PM: gate dispatch on NHT
+    completeness confirmation; do not treat my enumeration as self-certified complete.
+  pending_signature_path: ".fintech-org/artifacts/2026-06-18-ceo-disposition/  (NHT completeness signature to be filed here)"
+
+# -----------------------------------------------------------------------------
+# EVIDENCE
+# -----------------------------------------------------------------------------
+evidence:
+  - "charter-objectives.md: O1 (priority 1, lexicographically dominant), O2 (priority 2, subject to O1) — both ids exist."
+  - "gaps.md safety_item_index: OPEN tags:[safety] set = {7, 8, 80, 81, 82}; {45,56,79,85} RESOLVED."
+  - "trials.jsonl: grep 'honest-n-reconciliation' returns 0 -> KG-1 fail-closed, honest_n_deflation_denominator() raises RuntimeError (G1 rationale)."
+  - "effective_n.py: find returns no module -> NOT built (G6 / KG-2)."
+  - "data/processed/EURUSD_1h.parquet: present (admitted 1h pair)."
+  - "qr-h1-prereg.yaml: status FROZEN-AWAITING-DATA, counter_burned:false, universe=8 majors pooled (G5)."
+  - "cro-risk-gates.yaml KG-4: coverage_gate + rollover-aware swap NOT in code; no 1h freeze until built (G3)."
+  - "nht-integrity-controls.yaml: IC-1..IC-14, IC-14 mechanized-not-human-enforcement binding (G4)."
+
+# -----------------------------------------------------------------------------
+no_capital_attestation: "This artifact authorizes ZERO capital. Phase-0 backtest-only. No order routing, no live trading. size_multiplier remains 0.0 until a strategy clears the full forward-test gate (G4) on landed majors (G5)."
+ROUTE_TO: pm
+notify: [pm, null-hypothesis-tester, cro, head-of-quant-research, quant-developer, principal-reviewer]

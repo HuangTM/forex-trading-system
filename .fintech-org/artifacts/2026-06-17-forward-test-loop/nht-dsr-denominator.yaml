@@ -1,0 +1,290 @@
+# =============================================================================
+# NHT RATIFICATION — DSR Deflation-Denominator Semantic (co-owned with HoQR)
+# Resolves KG-CTO-1: which N (49 / 48 / 34 / 33 / 11) is the DSR multiplicity
+# denominator. This makes integrity-control IC-9 concrete. Blocks honest_n() (P0).
+# Append-only dissent. May not be paraphrased or softened by any other role.
+# =============================================================================
+role: null-hypothesis-tester
+artifact_type: dissent
+decision: approve-with-dissent
+timestamp: 2026-06-18T02:43:08Z
+git_sha_at_authoring: 679e8c7bb117838546a0a782f78485d884b6e8b4
+branch: ingest-spread-column
+no-capital-instruction: true
+project: /Users/huangtm/Projects/forex-trading-system
+firm: fintech-org (Phase-0 backtest-only forex)
+ratifies: KG-CTO-1 (DSR deflation-denominator semantic) — co-owned with head-of-quant-research
+claimed_domains:
+  - deflated-sharpe-under-org-wide-N
+  - p-hacking-and-data-snooping-detection
+  - null-hypothesis-construction
+  - structural-skepticism-on-any-claim
+  - replication-protocol-design
+
+contamination_check: >
+  clean. The dispatch contained VERIFIED LEDGER FACTS (counts) and named four candidate
+  values (49/48/34/11) plus a CTO build spec — but NO proposer narrative arguing a
+  strategy WILL work, NO market-mechanism rationale, and the dispatch explicitly framed
+  the small value (11) as the thing to interrogate adversarially, which is my mandate,
+  not contamination. I sourced every number from my own parse of .fintech-org/trials.jsonl
+  and the dsr.py / honest_n.py source, not from any role's assertion.
+
+# -----------------------------------------------------------------------------
+# 0. WHAT I INDEPENDENTLY PARSED (ground truth — my own count, not asserted)
+# -----------------------------------------------------------------------------
+independently_verified:
+  raw_line_count: 49                  # what _count_prior_trials() returns and feeds to DSR today — WRONG
+  lines_with_trial_id: 49
+  distinct_trial_ids_collapsed: 34
+  lines_with_event_field: 7
+  lines_with_counts_toward_flag: 3    # 2 true (trial-48 15923fe1, twice), 1 false (53981a4a)
+  withdrawn_pre_freeze_distinct: 1    # 53981a4a — NHT-ratified non-counting (never frozen, never tested)
+  countable_distinct_trial_ids: 33    # 34 minus 53981a4a
+  compute_honest_n_returns: 11        # de-dup FAMILIES
+  compute_honest_n_silent_drop_BUG: >
+    compute_honest_n() drops FOUR collapsed trials into the else-branch 'unknown_status'
+    and NEVER counts them: f2fb41fd (pre-registered-frozen-pending-receipt),
+    fa0f982a (status collapsed to 'unknown' on the archive line — QRB-6, a RULE_4 result
+    that consumed real selection), 53981a4a (withdrawn — correctly excluded), and
+    15923fe1 (trial-48 itself, status 'unknown' on archive line). So 11 is not even an
+    honest de-dup count: it silently omits trial-48 and QRB-6, the two most recent real
+    tests. The 11 UNDERSTATES even its own intended quantity.
+  dsr_math_direction_VERIFIED: >
+    In dsr.py::expected_max_sr, sr_star is MONOTONICALLY INCREASING in n_trials
+    (z_inv(1 - 1/k) grows with k). compute_dsr then sets DSR = Phi((SR_pp - sr_star)*...).
+    A LARGER N raises sr_star, lowers the z-score, LOWERS DSR -> harder to pass.
+    A SMALLER N lowers sr_star, RAISES DSR -> easier to pass. Therefore minimizing the
+    denominator is mechanically a pass-manufacturing cheat (SD2). This is the load-bearing
+    fact behind every directional ruling below.
+
+# -----------------------------------------------------------------------------
+# 1. WHICH VALUE IS DEFENSIBLE — AND WHICH IS A P-HACK-BY-DENOMINATOR
+# -----------------------------------------------------------------------------
+candidate_assessment:
+  N_49_raw_line_count:
+    defensible: NO
+    why: >
+      Counts spawn + complete + status-update + archive EVENT lines for the same trial_id
+      as separate trials. It double-counts (e.g. a spawn line and a complete line for one
+      trial_id = 2) AND counts pure event lines that define no new hypothesis. It happens
+      to OVER-count today, but it is not principled — it is an artifact of file format, and
+      on a differently-formatted ledger it could under-count. It is wrong in mechanism, not
+      just value. Must be retired (IC-14d: never typed, computed mechanically).
+  N_34_distinct_ids:
+    defensible: NO (too high by one)
+    why: includes 53981a4a (withdrawn-pre-freeze, never frozen / never tested) — already
+         NHT-ratified as non-counting. Use 33, not 34.
+  N_33_countable_distinct_records:
+    defensible: PARTIAL — the floor, not the answer
+    why: >
+      Correct mechanical count of distinct countable trial_ids PHYSICALLY in the ledger.
+      But it DROPS the ~15 attempts attested only in the prose/counter trail (early
+      script runs before the registry hookup, cross-session counter increments visible in
+      MEMORY.md at 38 -> 42 -> 48). Counting 33 silently forgets 15 real prior attempts ->
+      UNDER-deflates -> SD2/IC-9 cheat. 33 is the lower bound of the honest answer.
+  N_48_authoritative_counter:
+    defensible: YES — this is the org-wide honest-N component
+    why: >
+      33 countable records + 15 prose-only attempts the firm has already paid for. It is
+      the monotonic "every attempt burns a slot" multiplicity count my own IC-9 names. The
+      15 is NOT a free addend: per the CTO ratification gate it must be INDEPENDENTLY
+      RECONSTRUCTED from the counter trail (38 -> 42 -> 48) before being baked in, and if
+      it cannot be reconstructed to a stated tolerance the SAFE direction is the LARGER
+      offset (over-deflate). I accept 48 as the org-wide-N component CONDITIONAL on that
+      reconstruction; see ratification_conditions.
+  N_11_dedup_families:
+    defensible: NO — for the DSR denominator this is a p-hack-by-denominator-choice
+    verdict: P-HACK (when used as the DSR multiplicity denominator)
+    steelman_first: >
+      The strongest case FOR 11: the DSR multiplicity penalty is meant to correct for the
+      number of INDEPENDENT bets the firm took; 22 vol_target_carry variants that are near-
+      duplicates of one idea are not 22 independent draws, so charging 22 over-deflates a
+      single idea tested many ways. De Prado's "effective number of trials" under correlated
+      strategies is a real concept, and naive multiplicity over-counts correlated variants.
+    why_it_still_fails:
+      - >
+        WRONG TOOL FOR THE WRONG PROBLEM. The de-dup-to-families argument is the
+        CORRELATION-among-trials correction. That is real, but its honest implementation is
+        the EFFECTIVE-N HAIRCUT (P2 effective_n.py: N_eff = N_raw/(1+(k-1)*rho_bar) with
+        rho_bar MEASURED), NOT a hand-keyed family collapse. compute_honest_n collapses by a
+        REGEX ON STRATEGY NAMES (_normalize_strategy strips _2x_costs, _USDJPY, _v\d+ ...).
+        That is collapse-by-spelling, not collapse-by-measured-correlation. Two genuinely
+        different hypotheses that happen to share a name prefix collapse to one; one
+        hypothesis spelled two ways also collapses. The correction is unprincipled because
+        the equivalence relation is lexical, not statistical.
+      - >
+        IT DOUBLE-DISCOUNTS. If the firm applies BOTH a family de-dup (33 -> 11) AND the
+        measured rho_bar effective-N haircut (P2), it corrects for trial-correlation twice.
+        The multiplicity denominator must be the RAW attempt count; correlation is removed
+        once, downstream, by the measured haircut. Using 11 as the DSR N pre-bakes a
+        correlation discount that is then applied again.
+      - >
+        IT IS 4.4x SMALLER THAN 48 AND THE SMALL VALUE IS EXACTLY WHAT THE PASS-HUNGRY
+        FIRM WANTS. Per the verified dsr.py monotonicity, swapping 48 -> 11 mechanically
+        RAISES every DSR. A firm at 0/48 reaching for its first win has the strongest
+        possible motive to prefer the value that makes DSR clear. SD2 (N-minimization) names
+        this as "the single easiest cheat." That the convenient value also has a
+        sophisticated-sounding justification is precisely how a denominator p-hack looks.
+      - >
+        IT IS BUGGY TODAY (omits trial-48 and QRB-6, see independently_verified). Even on
+        its own terms it under-counts. We would be ratifying a number no one has audited.
+    ruling: >
+      11 is NOT the DSR deflation denominator. The de-dup view has ONE legitimate consumer
+      (HoQR's survivorship-bias programme-overview count) and may keep existing under a
+      clearly distinct name — but it MUST NOT feed compute_dsr at any call site, and its
+      silent-drop else-branch bug must be fixed regardless (it currently omits real tests).
+
+defensible_denominator_value:
+  org_wide_N_component: 48
+  floor_if_offset_unreconstructable: 33   # but then over-deflate toward >=48, never under
+  rejected_for_DSR: [49, 34, 11]
+  full_IC9_denominator_formula: "N_DSR = org_wide_honest_N (>=48) + this_candidate_IS_search_family + pre_declared_forward_attempt_budget"
+
+# -----------------------------------------------------------------------------
+# 2. DOES IC-9 PUSH N ABOVE 48? — YES. The honest answer is >= 48, not <= 48.
+# -----------------------------------------------------------------------------
+is_search_family_and_attempt_budget:
+  answer: ABOVE 48, not below. 48 is the FLOOR of the honest denominator, not the value.
+  org_wide_ledger_count: 48
+  PLUS_IS_search_family: >
+    My IC-9 (and Q4 upstream-selection-bias) require the denominator to ALSO include the
+    in-sample search family that PRODUCED the forward candidate, to the extent those
+    variants are not already ledgered. "Pooled-8 session-open momentum" implies a selection
+    over WHICH pairs, WHICH session-open definition, WHICH lookbacks/thresholds, and the
+    pool-vs-single decision. Each searched configuration is a look. If that search was
+    logged as trials, it is already in the 48; if it was INFORMAL / unlogged, IC-9 mandates
+    the WORST-CASE large N — informal search is unbounded snooping (provenance_unknown_equals_fail).
+  PLUS_forward_attempt_budget: >
+    Per Q3 / IC-13, the denominator must include the PRE-DECLARED number of candidates the
+    firm is WILLING to forward-test against the window, not just attempts-made-so-far. You
+    cannot stop-early on the first success and claim a small N. The budget must be frozen
+    BEFORE the first candidate spawn (IC-13); if it is not, worst-case it (all candidates
+    ever spawned).
+  net_effect: >
+    The honest IC-9 denominator for the FIRST forward candidate is 48 + (its IS-search
+    family beyond what is ledgered) + (the forward attempt budget). It is STRICTLY >= 48.
+    Every force in the honest accounting pushes N UP. The only forces pushing N DOWN
+    (de-dup to 11, "fresh test N=1", count only 33) are the cheats. That asymmetry is the
+    tell: when in doubt, the correct denominator is the larger one.
+
+# -----------------------------------------------------------------------------
+# 3. THE BINDING DIRECTIONAL RULE (when the ledger cannot cleanly reconstruct N)
+# -----------------------------------------------------------------------------
+binding_directional_rule:
+  rule: >
+    OVER-DEFLATE, NEVER UNDER-DEFLATE. When the honest-N cannot be reconstructed exactly,
+    the DSR denominator MUST round toward the LARGER value. A denominator that is too large
+    costs at most a missed real edge (false negative — the firm's stated, acceptable error:
+    "losing money is worse than missing opportunity"). A denominator that is too small
+    manufactures a false validation (false positive — the unacceptable error that puts
+    capital behind noise). Because dsr.py::expected_max_sr is monotone increasing in N
+    (verified), larger N is the strictly conservative direction.
+  corollaries:
+    - "Offset (the 48-vs-33 reconciliation) unreconstructable to tolerance -> use the LARGER offset."
+    - "IS search family unknown / unlogged -> worst-case large N (provenance_unknown == max-snooped)."
+    - "Forward attempt budget not frozen before first spawn -> worst-case all candidates ever spawned."
+    - "Any tie between two defensible Ns -> pick the larger. There is no symmetric rounding here."
+  status: BINDING. This is the operational form of IC-9 + SD2. It governs every future DSR.
+
+# -----------------------------------------------------------------------------
+# 4. MINIMUM I WILL ACCEPT FOR A FUTURE 'VALIDATED' STAMP (re: N)
+# -----------------------------------------------------------------------------
+minimum_for_validated_re_N:
+  - "N >= 48 (the org-wide honest-N component), recomputed MECHANICALLY from the ledger at score time, NEVER hand-typed (IC-14d). The trial_48_is_eval.py N_ORG_TRIALS=48 literal (defined :72, used :416) must become the function call."
+  - "PLUS the candidate's IS-search family added as counts_toward records BEFORE the forward open (else worst-cased)."
+  - "PLUS the pre-declared forward attempt budget, frozen before the first spawn (IC-13)."
+  - "The 15-attempt reconciliation offset INDEPENDENTLY RECONSTRUCTED (counter trail 38->42->48) and written as a flag=false baseline record — not asserted. I co-own this reconstruction with HoQR and will not sign a number I have not traced."
+  - "compute_honest_n (11) MUST NOT appear at any compute_dsr call site. A grep/AST regression test asserting the de-dup function does not feed DSR is a precondition."
+  - "DSR PASS threshold stays 0.95 (QRB-6 died at 0.907; R5 straddled 0.95). Not relaxed."
+  - "Acceptance test pins honest_n_deflation_denominator(ledger) == 48 on the reconciled ledger AND a synthetic-ledger test proving a withdrawn-pre-freeze / flag=false trial does NOT increment."
+
+# -----------------------------------------------------------------------------
+# 5. RETROACTIVE QUESTION — DID PAST DSR USE THE WRONG N? DIRECTION OF ERROR.
+# -----------------------------------------------------------------------------
+retroactive_finding:
+  what_was_used: >
+    Live trials used _count_prior_trials() = raw line count, fed as n_trials to compute_dsr
+    at run time. At the time each historical trial RAN, the ledger had FEWER lines than today
+    (49 is the current cumulative count; n_trials_at_spawn fields show 1,3,5,...,24,37 at the
+    respective spawn times). So most historical DSRs were computed against a SMALL contemporaneous
+    n_trials_at_spawn, NOT against today's 48/49.
+  direction_precise:
+    primary_direction: TOO LENIENT (under-deflated) for the EARLY trials.
+    reasoning: >
+      Early trials were scored at n_trials_at_spawn of 1, 3, 5, 7, 9, 11, 13 (lines 1-14) and
+      24 (momentum). Every one of those is BELOW the honest org-wide N of 48 that should apply
+      once you account for all prior attempts and the IS search. Because DSR is monotone-
+      decreasing in N, scoring at n=5 instead of n=48 produced a DSR that is TOO HIGH ->
+      too lenient -> elevated false-validation risk. Example: trial 43c9b481 recorded
+      dsr=0.9999867 at n_trials_at_spawn=1 (no deflation at all). That is the maximally lenient
+      error.
+    counter_direction_NOT_present_in_a_way_that_helps: >
+      The raw-line-count bug (49) over-counts EVENTS relative to distinct trials, which by
+      itself would push N slightly UP (stricter). But that effect (a) only applies to recent
+      trials scored after many lines accumulated, and (b) is dwarfed by the early-trial use of
+      tiny n_trials_at_spawn. Net across the programme the dominant error is UNDER-deflation
+      (too lenient), concentrated in the early trials.
+  did_any_VERDICT_flip:
+    assessment: >
+      I do NOT claim any specific past PASS verdict was actually a false validation — and the
+      record largely protects itself: the one early apparent PASS (momentum 87fa1d23, dsr=0.99999
+      at n=1) was ALREADY RETIRED on 2026-06-02 (line 36) when the F-001 degenerate-DSR units bug
+      was fixed and DSR recomputed to 0.12963 << 0.50 -> rejected. The firm's CURRENT posture is
+      0/48 with NO live PASS. So while the early N was too lenient, no surviving VALIDATED stamp
+      rests on it today.
+    precise_claim: >
+      The DIRECTION of the historical N error was predominantly TOO LENIENT (under-deflation via
+      small n_trials_at_spawn), which is the false-validation-risk direction. But the only PASS it
+      could have manufactured (momentum) was independently caught by the units-bug fix and retired.
+      I assert the direction with evidence; I do NOT assert a surviving false validation exists.
+  what_this_implies_going_forward: >
+    The retroactive lesson reinforces the binding rule: the system's historical failure mode was
+    under-deflation, exactly the cheat IC-9/SD2 guard against. The fix (mechanical N>=48) closes it
+    PROSPECTIVELY. No re-scoring of retired trials is needed (they are retired/rejected); but any
+    FUTURE re-use of a historical strategy as a forward candidate must be deflated at the full
+    org-wide N, not the tiny n_trials_at_spawn it originally carried.
+
+# -----------------------------------------------------------------------------
+# APPEND-ONLY DISSENT (may not be paraphrased or softened by any role)
+# -----------------------------------------------------------------------------
+dissent_items:
+  - id: D1
+    statement: >
+      I ratify 48 as the org-wide-N COMPONENT and REJECT 11 as the DSR denominator. If HoQR
+      or CTO or QD lean toward 11 (the de-dup families) for the DSR multiplicity penalty, I
+      dissent: 11 is a p-hack-by-denominator-choice. It is 4.4x smaller than the honest count,
+      mechanically raises every DSR (verified from dsr.py monotonicity), is buggy today
+      (omits trial-48 and QRB-6), and corrects for trial-correlation by lexical name-collapse
+      where the only honest correction is the MEASURED rho_bar effective-N haircut (P2). Using
+      11 as the DSR N double-discounts correlation and manufactures false passes.
+  - id: D2
+    statement: >
+      The honest IC-9 denominator is >= 48, NOT <= 48. It is 48 PLUS the candidate's IS-search
+      family PLUS the pre-declared forward attempt budget. Any proposal that treats a forward
+      test as "fresh, N=1" or that counts only the 33 physical records (dropping the 15 prose-
+      only attempts the firm has paid for) is under-deflation and I record it as noise-
+      indistinguishable regardless of the headline Sharpe.
+  - id: D3
+    statement: >
+      The 15-attempt reconciliation offset is a PERMANENT, undisprovable addend in every future
+      DSR. I will not ratify it as an asserted number. It must be independently reconstructed
+      from the counter trail (38 -> 42 -> 48) and, if unreconstructable to a stated tolerance,
+      the SAFE direction is the LARGER offset. Over-deflate, never under-deflate — this is binding.
+  - id: D4
+    statement: >
+      honest-N must be recomputed mechanically from the ledger at score time and NEVER typed
+      (IC-14d). The existing hand-entered n_trials=48 literal (trial_48_is_eval.py N_ORG_TRIALS, defined :72 / used :416) is the
+      exact pattern IC-14d forbids and is evidence the firm has been hand-entering N because no
+      function returns it. The fix must replace it with the function call AND retire
+      _count_prior_trials() at both live call sites (run_trial.py:288, run_falsification_trial.py:736)
+      so the raw-line-count bug cannot be reintroduced.
+  - id: D5
+    statement: >
+      compute_honest_n's silent else-branch drop (tagging pre-registered-frozen / frozen-pending-
+      receipt / archive-line 'unknown' statuses as unknown_status and NEVER counting them) is an
+      under-count bug that must die regardless of which option ships. It currently omits trial-48
+      itself and QRB-6 — two real tests — from the de-dup view. A denominator function that
+      silently forgets real attempts is the SD2 cheat embedded in code.
+
+verdict: approve-with-dissent
+summary_one_line: "DSR denominator = org-wide honest-N (>=48, mechanical) + IS-search-family + attempt-budget; 11 is a denominator p-hack and is rejected; when ambiguous, over-deflate."

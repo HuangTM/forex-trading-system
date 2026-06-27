@@ -44,7 +44,8 @@ PAIRS = [
     "AUDJPY", "AUDUSD", "CADJPY", "EURGBP", "EURJPY", "EURUSD",
     "GBPJPY", "GBPUSD", "NZDJPY", "NZDUSD", "USDCAD", "USDJPY",
 ]
-COLS = ["open", "high", "low", "close", "volume"]
+COLS = ["open", "high", "low", "close", "volume",
+        "spread_median_pips", "spread_mean_pips", "spread_p90_pips"]
 
 # A FULL (non-partial) calendar month of active FX 1h bars is ~300-500. A
 # non-partial month with 0 < bars < this floor is almost certainly a partial
@@ -56,6 +57,9 @@ SUSPECT_FLOOR = 100
 
 
 def _empty_1h_frame() -> pd.DataFrame:
+    # COLS includes the spread columns — present in all new-style frames.
+    # Pre-existing chunks without spread columns will be handled by backward-compat
+    # logic in validate_1h_schema (SPREAD_COL_MISSING_WARNING, not an error).
     df = pd.DataFrame(columns=COLS)
     df.index = pd.DatetimeIndex([], tz="UTC", name="datetime")
     return df

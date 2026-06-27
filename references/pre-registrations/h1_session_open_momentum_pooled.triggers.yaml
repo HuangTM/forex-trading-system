@@ -1,0 +1,143 @@
+# Sidecar triggers for the H1 pre-registration.
+# Paired with: references/pre-registrations/h1_session_open_momentum_pooled.md
+# Strategy: h1_session_open_momentum_pooled | Universe: 8 majors POOLED
+# Created: 2026-06-17 (Quant Researcher; data-independent, FROZEN-AWAITING-DATA)
+# Source: HoQR rank-1 shortlist + FROZEN confirmability rubric (G1-G7) + CRO/CTO/NHT prep gates
+# Trial: 5fff4c63-cc2e-4939-8f63-6859a711fa53  (counter_burned: false; NOT yet spawned)
+
+strategy: h1_session_open_momentum_pooled
+universe: [EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, EURGBP]
+pooled: true
+hypothesis_summary: >
+  Pooled multi-pair session-open (London 07:00 / NY 13:00 UTC) momentum continuation has
+  positive net-of-TCA expectancy and is confirmable in <=2yr; H0 = cost-dominated / not tradeable.
+status: FROZEN-AWAITING-DATA
+counter_burned: false
+kill_switch_threshold: 0.30
+oos_overlap: false
+is_window_start: "2021-01-01"
+is_window_end: "2024-05-31"
+seam_embargo_trading_days: 20
+oos_window_start: "2024-07-01"
+oos_window_end: "2025-12-31"
+oos_one_shot: true
+cpcv: "6 groups, k=2, purge=embargo=~480 bars (full same-open-hour-class feature window)"
+
+# --- Machine-readable aggregation logic (the AND-of-all-gates contract) ---
+# The harness MUST apply these WITHOUT relying on prose in the .md.
+decision_rule:
+  kill_semantics: "ANY single trigger firing -> the WHOLE trial is FALSIFIED (status: rejected). KILL-7a/7b are TRIAL-level kills, NOT per-pair drops: if pooled net PnL is >50% one pair or >40% one quarter the entire pooled structure is killed (it was not a breadth edge)."
+  pass_semantics: "PASS requires ALL triggers below to be NOT-fired (logical AND over every h1-KILL-* gate)."
+  ordering: "Pre-OOS gates (h1-KILL-0,1,2,3,4) are evaluated FIRST. The one-shot OOS holdout is read, and h1-KILL-5,6,7a,7b evaluated, ONLY if every pre-OOS gate passes. If any pre-OOS gate fires, OOS is NEVER burned."
+  slot_gate: "Independently and FIRST: ALL THREE pass_conditions_measured_pre_slot must clear on landed data BEFORE the backtest slot is granted. Failure of any -> H1 is STRETCH, slot NOT granted, no KILL gate is evaluated, counter not burned."
+
+# --- Pre-OOS KILL gates (IS only; OOS burned only if all pass) ---
+triggers:
+  - label: "h1-KILL-0-power"
+    metric: "n_oos_expected"
+    operator: "<"
+    threshold: 48
+    raw_text: "IS-extrapolated N_oos_expected < 48 -> INSUFFICIENT-POWER, OOS never burned"
+  - label: "h1-KILL-1-dsr"
+    metric: "dsr"
+    operator: "<="
+    threshold: 0.95
+    raw_text: "IS pooled net-of-cost DSR <= 0.95 at org-wide N -> KILL (primary gate)"
+  - label: "h1-KILL-2-cost-domination"
+    metric: "avg_net_pips_per_trade"
+    operator: "<="
+    threshold: 0.0
+    raw_text: "avg net pips/trade <= 0 after session-aware p90 round-trip cost -> KILL"
+  - label: "h1-KILL-3-directional-edge"
+    metric: "directional_hit_rate"
+    operator: "<="
+    threshold: 0.50
+    raw_text: "pooled directional hit-rate <= 0.50 (impulse did not continue) -> KILL"
+  - label: "h1-KILL-4-pooling-effective-N"
+    metric: "years_to_validate_post_haircut"
+    operator: ">"
+    threshold: 2.0
+    raw_text: "after measured rho_bar haircut N_eff=N_raw/(1+(k-1)*rho_bar), years_to_validate > 2.0yr -> KILL"
+    # DISCLOSURE 2026-06-19 (frozen raw_text UNCHANGED; 'rho_bar' INHERITS amended rubric G5; see rho_bar_amendment_disclosure below; metric/operator/threshold UNCHANGED):
+    # rho_bar -> rho_bar_eff = (lambda_max(C)-1)/(k-1), eigenvalue-based + SIGN-BLIND, measured on
+    # the per-pair PnL-CONTRIBUTION (signal*return) correlation matrix C (demeaned, event-aligned;
+    # NOT raw returns, NOT quote-signed signal). The haircut gates on
+    # N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda_i^2) [PR], N_raw*k/ENB);
+    # N_eff = N_raw/(1+(k-1)*rho_bar_eff) = N_raw/lambda_max is the lambda_max/Kish reporting form.
+    # SIGNED simple mean FORBIDDEN. Magnitude mean = no-eigendecomp fallback only.
+  - label: "h1-KILL-5-forward-decay"
+    metric: "oos_sharpe"
+    operator: "<"
+    threshold: 0.30
+    raw_text: "OOS pooled net annualized Sharpe < 0.30 -> KILL (one-shot)"
+  - label: "h1-KILL-6-sign-inversion"
+    metric: "oos_sign_concordant"
+    operator: "=="
+    threshold: false
+    raw_text: "OOS pooled net Sharpe sign != IS sign -> KILL"
+  - label: "h1-KILL-7a-pair-concentration"
+    metric: "max_single_pair_pnl_frac"
+    operator: ">"
+    threshold: 0.50
+    raw_text: "any single pair > 50% of pooled net PnL -> KILL"
+  - label: "h1-KILL-7b-quarter-concentration"
+    metric: "max_single_quarter_pnl_frac"
+    operator: ">"
+    threshold: 0.40
+    raw_text: "any single calendar quarter > 40% of pooled net PnL -> KILL"
+
+# --- Confirmability PASS-CONDITIONS measured on landed data BEFORE granting the slot ---
+# ALL three must clear or H1 is STRETCH and the backtest slot is NOT granted.
+pass_conditions_measured_pre_slot:
+  - label: "h1-PASS-IR"
+    metric: "ir_per_event_post_cost"
+    operator: ">="
+    threshold: 0.10
+    raw_text: "per-event IR (post p90 cost) >= 0.10 (low-end 0.08 -> ~3.2yr STRETCH)"
+  - label: "h1-PASS-events"
+    metric: "effective_events_per_year"
+    operator: ">="
+    threshold: 350
+    raw_text: "honest autocorrelation-corrected non-overlapping pooled events/yr >= 350"
+  - label: "h1-PASS-rho"
+    metric: "rho_bar_cross_pair"
+    operator: "<="
+    threshold: 0.41
+    raw_text: "measured mean cross-pair signal correlation rho_bar <= 0.41 (k=8 break-even)"
+    # DISCLOSURE (2026-06-19, NOT a re-freeze; threshold UNCHANGED at 0.41):
+    # 'rho_bar' inherits amended rubric G5 -> rho_bar_eff = (lambda_max(C)-1)/(k-1), gated as
+    # N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda_i^2) [PR], N_raw*k/ENB), eigenvalue-based
+    # and SIGN-BLIND. C = Pearson corr of per-pair PnL-CONTRIBUTION (signal*return) series,
+    # demeaned + event-aligned (NOT raw returns, NOT the quote-signed signal). SIGNED mean
+    # FORBIDDEN; magnitude mean = no-eigendecomp fallback only. Gate input = full-8 landed data;
+    # the 3-pair peek (signed -0.04 / magnitude 0.54, raw-return) is NOT the gate input.
+    # Provenance: .fintech-org/artifacts/2026-06-19-rho-bar/ (math + nht + hoqr amendment).
+
+# --- 2026-06-19 rho_bar amendment disclosure (thin pointer; H1 NOT re-frozen, counter NOT burned) ---
+rho_bar_amendment_disclosure:
+  date: "2026-06-19"
+  re_frozen: false
+  counter_burned: false
+  honest_N_unchanged: 48
+  threshold_0p41_unchanged: true
+  statistic: "eigenvalue-based sign-blind rho_bar_eff = (lambda_max(C)-1)/(k-1); gate N_eff* = MIN(N_raw/lambda_max, N_raw*k/sum(lambda^2) [PR], N_raw*k/ENB)"
+  signed_mean: "FORBIDDEN (SD2-class under-deflation; fails redundant-pair monotonicity)"
+  series: "PnL-CONTRIBUTION (signal x return), demeaned + event-aligned; NOT raw returns, NOT quote-signed signal"
+  fallback: "magnitude mean mean|C_pq| only when no eigendecomposition available"
+  three_pair_peek: "raw-return corr on 3 of 8 majors: signed -0.04 / magnitude 0.54; STRUCTURAL look, NOT a PnL/verdict look; NOT the gate input"
+  gate_input: "rho_bar_eff measured on FULL-8 landed gate-cleared data with the PnL-contribution statistic"
+  rederive_0p41: "would be a SEPARATE pre-result freeze, NOT this amendment"
+  implementation_follow_on: "quant-developer computes C spectrum + N_eff* on landed full-8 data (Mathematician routed)"
+  provenance:
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/mathematician-rho-bar-analysis.yaml"
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/nht-rho-bar-ruling.yaml"
+    - ".fintech-org/artifacts/2026-06-19-rho-bar/hoqr-rho-bar-amendment.yaml"
+
+# --- Hard data preconditions (must hold before spawn) ---
+data_preconditions:
+  - "CTO per-pair data-quality gate ADMIT for every pooled pair (EXCLUDE-not-impute)"
+  - "CRO cost-coverage EXCLUDE gate PASS; default charge = spread_p90_pips"
+  - "Rollover-aware swap implemented (22:00 UTC, 3x Wed; never pro-rated) -- KG-4 build precondition"
+  - "Spread-column correctness verified end-to-end vs independent reconstruction (NHT D5/RR-1)"
+  - "NHT null battery frozen: beat random-entry, session-time-only, daily-momentum-carryover; DSR>=0.95"
+  - "Principal-Reviewer counter-signature + CEO backtest-slot grant (AC-06 workflow)"

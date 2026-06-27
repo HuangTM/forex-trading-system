@@ -1,0 +1,192 @@
+---
+# QD Engine-Wiring Implementation — KG-QD-3
+# RolloverAwareRealisticCostModel per-bar accrual wired into _run_continuous
+# =========================================================================
+role: quant-developer
+artifact_type: implementation
+decision: implement
+no_capital_instruction: true
+timestamp: "2026-06-17T20:29:28Z"
+authored_by: QD (KG-QD-3 engine-wiring spec)
+claimed_domains:
+  - backtest-engine-implementation
+  - test-suite-authorship
+  - sign-convention-verification
+
+spec_implemented: cto-engine-wiring-spec.yaml
+base_ref: KG-QD-3
+
+# =========================================================================
+# IMPLEMENTATION SUMMARY
+# =========================================================================
+files_modified:
+  - path: src/forex_system/backtest/engine.py
+    changes:
+      - section: import block
+        description: >
+          Added `from forex_system.costs.model import RolloverAwareRealisticCostModel`
+          as a runtime import (required for isinstance to function; not TYPE_CHECKING-guarded).
+      - section: _run_continuous, pre-loop (after bar_duration_days)
+        description: >
+          Added `use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)`
+          computed ONCE before the per-bar loop. O(1). Added comment annotating that
+          bar_duration_days is used only in the pro-rata (non-rollover-aware) path.
+      - section: _run_continuous, per-bar accrual (original lines 366-370)
+        description: >
+          Replaced the existing `if cur_units > 0:` LONG-only block with a gated structure:
+          (a) LONG path: if use_rollover_accrual → calls -rollover_cost_for_bar(pair, LONG, ts);
+              else (daily/pro-rata path, UNCHANGED) → calls -holding_cost(pair, LONG, bar_duration_days).
+          (b) NEW `elif cur_units < 0:` SHORT path (rollover-aware only): calls
+              -rollover_cost_for_bar(pair, SHORT, ts); equity += pips * pip_value * abs(cur_units).
+              No else branch on short side (daily pro-rata never accrued shorts; separate arch decision).
+
+  - path: tests/backtest/test_rollover_engine_accrual.py
+    changes:
+      - description: New file — 7 tests per spec Section 6 test obligations.
+
+# =========================================================================
+# ENGINE DIFF: ACCRUAL BLOCK (before/after)
+# =========================================================================
+engine_diff:
+  before: |
+    if cur_units > 0:
+        # holding_cost returns -swap_long_pips * days (negative = credit).
+        # Negate to get credit: positive value added to equity.
+        per_bar_swap_pips = -cost_model.holding_cost(pair, Direction.LONG, bar_duration_days)
+        equity += per_bar_swap_pips * pip_value * cur_units
+
+  after: |
+    # KG-QD-3: Two paths gated by use_rollover_accrual (set once before loop).
+    if cur_units > 0:
+        if use_rollover_accrual:
+            per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
+                pair, Direction.LONG, ts
+            )
+        else:
+            # Daily/pro-rata path (unchanged — preserves validated daily results).
+            per_bar_swap_pips = -cost_model.holding_cost(
+                pair, Direction.LONG, bar_duration_days
+            )
+        equity += per_bar_swap_pips * pip_value * cur_units
+    elif cur_units < 0:
+        if use_rollover_accrual:
+            per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
+                pair, Direction.SHORT, ts
+            )
+            equity += per_bar_swap_pips * pip_value * abs(cur_units)
+
+# =========================================================================
+# SIGN CONVENTION VERIFICATION
+# =========================================================================
+sign_convention:
+  chain: >
+    EURUSD swap_long_pips_per_day = -1.2 (negative carry).
+    rollover_cost_for_bar returns -daily_swap * mult = -(-1.2)*1 = +1.2 (cost to trader).
+    Engine: per_bar_swap_pips = -rollover_cost_for_bar(...) = -1.2.
+    equity += -1.2 * pip_value * cur_units → equity DECREASES. CORRECT.
+  negation_applied: true
+  mirrors_daily_path: true
+  verified_by: test_sign_convention_long_negative_carry (passes)
+
+# =========================================================================
+# INSTANCEOF GATE — DAILY EQUIVALENCE
+# =========================================================================
+instanceof_gate:
+  expression: "use_rollover_accrual = isinstance(cost_model, RolloverAwareRealisticCostModel)"
+  plain_model_path: >
+    isinstance(RealisticCostModel(...), RolloverAwareRealisticCostModel) = False.
+    use_rollover_accrual = False. Engine executes IDENTICAL code as before (else branch).
+    All validated daily-bar trials are bit-identical.
+  rollover_model_daily_bars: >
+    RolloverAwareRealisticCostModel on daily bars at 00:00 UTC: rollover_cost_for_bar
+    returns 0.0 for hour != 21. Zero swap accrual. NOT equivalent to plain model.
+    This is correct behavior: daily-bar callers MUST use plain RealisticCostModel
+    (as all validated trials do). The isinstance gate enforces the contract structurally.
+  verified_by: test_daily_equivalence_under_rollover_model (passes; tests isinstance gate,
+    regression anchor for plain model, and confirms rollover model zero-accrual on daily bars)
+
+# =========================================================================
+# OUT-OF-SCOPE (per spec)
+# =========================================================================
+not_implemented:
+  - _run_discrete: untouched — no per-bar rollover accrual (swap is lump-sum at close there)
+  - _close_position: untouched — continuous mode already uses include_swap=False universally
+  - daily_pro_rata_short_accrual: not added (separate arch decision; not in KG-QD-3 scope)
+  - discrete_rollover_mode: not implemented (out of scope for KG-QD-3)
+
+# =========================================================================
+# TEST RESULTS (ACTUAL EXECUTION)
+# =========================================================================
+test_results:
+  new_7_tests:
+    command: "python3 -m pytest tests/backtest/test_rollover_engine_accrual.py -v"
+    result: "7 passed, 0 failed"
+    individual:
+      - test_daily_equivalence_under_rollover_model: PASSED
+      - test_intraday_single_rollover_crossing: PASSED
+      - test_intraday_wednesday_triple_charge: PASSED
+      - test_intraday_intra_session_no_charge: PASSED
+      - test_intraday_weekend_boundary_no_charge: PASSED
+      - test_sign_convention_long_negative_carry: PASSED
+      - test_no_double_count_at_close: PASSED
+
+  sacred_test:
+    command: "python3 -m pytest -k 'test_no_lookahead' -q"
+    result: "12 passed, 0 failed"
+
+  full_backtest_suite:
+    command: "python3 -m pytest tests/backtest/ -q"
+    result: "61 passed, 0 failed"
+
+  full_suite:
+    command: "python3 -m pytest -q"
+    result: "1576 passed, 3 skipped, 0 failed"
+
+  ruff:
+    command: "ruff check src/forex_system/backtest/engine.py"
+    result: "All checks passed!"
+
+# =========================================================================
+# REMAINING CONCERNS
+# =========================================================================
+remaining_concerns:
+  - concern: test_daily_equivalence_under_rollover_model was reinterpreted
+    detail: >
+      The spec says "bit-identical" between plain and rollover models on daily data.
+      This is mathematically impossible because: (a) plain RealisticCostModel pro-rates
+      swap every bar; (b) RolloverAwareRealisticCostModel on daily 00:00 UTC bars has
+      zero accrual (hour != 21). The test was rewritten to verify the correct intent:
+      isinstance gate correctness (a,b), regression anchor for plain model (c), and
+      explicit documentation that rollover model accrues zero on 00:00 UTC daily bars (d).
+      The actual equivalence guarantee — "existing daily trials are bit-identical" — holds
+      because ALL existing daily-bar callers use plain RealisticCostModel (isinstance=False).
+    severity: documentation-only; no functional issue
+    resolution: implemented test validates the correct invariant
+
+  - concern: short-side per-bar accrual is new code without a companion failing test
+    detail: >
+      The elif cur_units < 0 block (SHORT rollover accrual) is new code. The engine is
+      currently long-only (clamped_signal = max(raw_signal, 0.0)), so no existing test
+      exercises this path. The spec explicitly notes this and approves the implementation
+      with the caveat that a short-strategy test should be added when short strategies
+      are introduced.
+    severity: low — dormant code path, consistent with spec approval
+    resolution: noted in spec, acceptable for KG-QD-3 scope
+
+  - concern: end-of-run cleanup is long-only; inconsistent with the short accrual branch
+    detail: >
+      quick-critic surfaced this (CONFIRMED). The per-bar accrual now has an
+      `elif cur_units < 0` branch (spec-mandated), treating shorts as a supported state.
+      But the end-of-loop position-close block (engine.py ~line 540) reads `if cur_units > 0`
+      and only closes longs. IF a short were ever held (impossible today due to the long-only
+      clamp), it would be silently abandoned at run end — no Trade emitted, no realized P&L
+      booked. The two branches are structurally inconsistent.
+    severity: low-while-long-only / HIGH if shorts are ever enabled
+    resolution: >
+      NOT fixed in KG-QD-3 — adding a short-close block is outside the frozen spec
+      (CTO mandated the short ACCRUAL branch but did not authorize touching close logic;
+      doing so unprompted would be scope creep and could alter close semantics). Instead,
+      a KNOWN GAP comment was added at the accrual branch flagging that the cleanup block
+      MUST gain a matching `elif cur_units < 0` close before any short intraday strategy is
+      enabled. Surfaced here per engineer-mindset rule 4 (face problems early). Recommend
+      CTO/orchestrator track this as a precondition for short-side intraday work.

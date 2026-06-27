@@ -1,0 +1,294 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: approve-with-conditions
+timestamp: "2026-06-24T00:00:00Z"
+subtask_ref: cost-aware-family-kickoff
+subtask_id: cost-aware-family-2026-06-24-pr
+artifact-under-review: quant-developer-feasibility.yaml (+ cost_feasibility_c1_c2.py, compute_9pairs_readiness.py F-001, cost_feasibility_raw.json)
+rubrics-applied:
+  - execution-firewall-review (Sections A-E; ML annex skipped because no ML model artifact is loaded)
+  - log-as-decision-trace (applied to the screen's decision boundaries: surprise-filter, crash-filter, exclude-mask, sign-flip)
+  - "review-plan: applied lightly (spec-to-impl trace) — primary lens was firewall + numerical"
+  - "probability-statistics: applied to multiple-comparison surface + regime-robustness"
+  - "python: applied to the cost-slice indexing bug and pandas semantics"
+  - "clock-and-ordering: applied to shift(1)/no-lookahead trace (not in required list but load-bearing here)"
+
+independent-recompute:
+  f001_flip_charges_2rt: >
+    true. I imported the PRODUCTION _position_changes() from compute_9pairs_readiness.py (not the
+    QD's mirror) and ran it on three synthetic paths. flat->+1 = diff 1 (1 RT); +1->-1 = diff 2
+    (2 RT); -1->+1 = diff 2 (2 RT); +1->flat = diff 1. Assertion reproduced independently:
+    [0,1,1,-1,0] -> changes [0,1,0,2,1], flip-bar cost = 5.60 = 2x single (2.80), total 11.20 vs
+    old-bug 8.40. The F-001 fix is CORRECT and verified on the real production function.
+  c1_lookahead_check: >
+    clean. Entry bar = announcement-bar-position + 1 (verified against raw trades: ann 13:00 ->
+    entry 14:00, ann 18:00 -> entry 19:00, etc.). Direction = sign of announcement bar's own
+    (close-open), but the captured gross is direction*(exit_close - entry_OPEN)/pip, i.e. it starts
+    accruing from the OPEN of the bar AFTER the announcement bar — the announcement bar's own move
+    is NOT in gross. The surprise-filter trailing-median TR uses tr.rolling(250).median().shift(1)
+    (shift removes the current bar from its own median) and the comparison bar is the announcement
+    bar, which is strictly <= entry-1; no future bar enters any gate. NO LOOKAHEAD found. (Caveat:
+    not a lookahead, but the ann-bar direction sign is the SIGNAL and is known only at ann-bar
+    close; entry at next-bar open is correct.)
+  usdjpy_12h_gross_mine: >
+    19.9369 pips (mean gross over n=80). Reproduced from raw parquet + cb_decision_dates.parquet
+    with my own independent re-implementation. EXACT MATCH to QD's reported 19.937.
+  usdjpy_12h_gross_drop_2022_2023: >
+    5.8729 pips (n=48). Dropping 2022 and 2023 collapses the load-bearing cell by ~70.5%. Per-year
+    means: 2021=0.20, 2022=28.08, 2023=53.99, 2024=0.68, 2025=16.73. The entire 12h "edge" is
+    carried by 2022-2023 (the FOMC hiking cycle); 2021 and 2024 are economically zero. The cell is
+    NOT robust to regime — it is a 2-of-5-year artifact. The QD disclosed this directionally
+    ("exceptional sample period") but did not quantify the collapse; it is severe.
+  cost_application_correct: >
+    PARTIAL. C1: CORRECT — rt_cost = entry_spread + exit_spread + 0.80 on the ACTUAL entry/exit
+    bars (verified 80/80 trades), pair-native pips (USDJPY 0.01 confirmed: gross 19.94 only makes
+    sense at 0.01 pip), EXCLUDE-NOT-IMPUTE on zero/missing spread enforced. C2: INCORRECT — the RT
+    cost charges ONLY the entry leg; the exit/flatten leg is never charged (see F-002 below). All
+    181 AUDJPY + 185 USDJPY C2 trades have rt_cost == entry_spread + 0.80 exactly.
+  cells_screened_count: >
+    11 cells (C1: 3 pairs x 3 holds = 9; C2: 2 pairs x 1 hold = 2). Post-hoc per-pair "best hold
+    horizon" was selected (EURUSD->6h, USDJPY->12h, GBPUSD->18h) AFTER seeing results — an
+    uncontrolled multiple-comparison/horizon-selection surface (see F-004).
+
+findings:
+  - id: F-001
+    severity: major
+    location: scripts/cost_feasibility_c1_c2.py:573-575 (run_c2_pair, hold_cost = cost_series.iloc[entry_i:exit_i+1].sum())
+    category: correctness
+    observation: >
+      C2 RT cost charges only the ENTRY transition, not the exit/flatten leg. The position series
+      is constant across a hold, so within the slice [entry_i, exit_i] the only non-zero change
+      magnitude is at entry_i (the transition INTO the position). The flatten transition occurs at
+      exit_i+1 (when pos returns to 0), which is OUTSIDE the summed slice. I verified synthetically
+      (pos [0,0,1,1,1,0], spread 0.5: cost vector [0,0,1.3,0,0,1.3]; slice [2:5] sums to 1.3 = entry
+      leg only; the 1.3 flatten cost at i=5 is dropped). I verified empirically: all 366 C2 trades
+      have rt_cost == entry_spread + 0.80 exactly (0 trades carry the exit leg).
+    inference: >
+      [HIGH-CONFIDENCE INFERENCE] C2 systematically under-charges cost by ~one full RT leg per
+      trade. This is the SAME class of bug F-001 (the bug this very artifact fixes) — an
+      under-counted round-trip leg — reintroduced in the C2 path. Material impact on the
+      load-bearing cell: USDJPY C2 reported margin +1.807 (gross 4.811 - rt 3.004). Charging the
+      exit leg (full RT mean 5.554) gives margin -0.743 — NET NEGATIVE. The QD body's claim that
+      USDJPY C2 is "margin +1.807 ... net positive" is therefore WRONG. NOTE: the machine-checkable
+      VERDICT keys off gross vs kill-threshold (4.811 > 1.12 = PASS), so the PASS label survives;
+      but the "net positive" narrative does not. AUDJPY C2 is unaffected (gross already -8.14).
+    evidence: >
+      cost_feasibility_c1_c2.py:521,575 + raw JSON trade-level rt_cost == entry_spread+0.80 for
+      366/366 C2 trades; synthetic trace reproduced.
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-developer
+  - id: F-002
+    severity: major
+    location: scripts/cost_feasibility_c1_c2.py:258-279 (run_c1_pair surprise filter) and quant-developer-feasibility.yaml:162-170 (disclosed)
+    category: spec-drift
+    observation: >
+      The surprise filter (announcement_bar_range > 1.5x trailing-250-median TR) passes 100% of
+      events: USDJPY n_fires=80 == all 80 verified-official FED+BOJ dates; EURUSD/GBPUSD n_fires=40
+      == all 40 FED dates. Reproduced by direct count. The QD itself disclosed this (knowledge_gaps).
+    inference: >
+      [INFERENCE] The filter is non-binding because the "announcement bar" is DEFINED as the MAX-TR
+      bar on the CB date — selecting the highest-volatility bar of the day all but guarantees it
+      exceeds 1.5x the trailing median. The spec (quant-researcher-design.yaml:52-54) specified the
+      surprise filter as "the cost-aware gate that restricts trading to genuine-surprise events and
+      suppresses no-surprise no-edge days." As implemented it suppresses NOTHING: C1 is effectively
+      "trade EVERY scheduled CB date in the sign of that date's max-TR-bar move," not a
+      surprise-conditioned strategy. The spec's declared signal-logic is not faithfully realized —
+      this is implementation drift from a research-class gate (firewall Section A4/A5). The
+      max-TR-bar selection is itself a research-class choice (which bar is the "announcement") made
+      in implementation, absent exact release times. Disclosed by QD, but it MATERIALLY changes what
+      C1 is.
+    evidence: >
+      n_fires == verified-date-count for all 3 pairs (reproduced); design spec lines 52-54, 62.
+    recommended-action-class: clarify-spec
+    owning-role: quant-researcher
+  - id: F-003
+    severity: major
+    location: cost_feasibility_raw.json (USDJPY C1 12h/18h) + quant-developer-feasibility.yaml:179-193
+    category: numerical
+    observation: >
+      USDJPY-12h mean gross = 19.94 collapses to 5.87 when 2022+2023 are dropped (n 80->48). Per
+      year: 2021=0.20, 2022=28.08, 2023=53.99, 2024=0.68, 2025=16.73. The headline result is
+      carried entirely by the 2022-2023 FOMC hiking cycle.
+    inference: >
+      [INFERENCE] The strongest cell in the entire screen (USDJPY 12h, "margin +17.6", called "the
+      strongest result") is a 2-of-5-year regime artifact, not a stable post-announcement-drift edge.
+      This does not invalidate the feasibility screen's stated purpose (it is necessary-not-
+      sufficient, gross-vs-cost only), but any downstream reader treating USDJPY-12h as a robust
+      edge would be misled. The QD disclosed the direction ("exceptional sample") but did not
+      quantify; the magnitude (~70% collapse) belongs in the artifact.
+    evidence: >
+      Independent per-year recompute from raw parquet + rates (reproduced exactly: full=19.9369).
+    recommended-action-class: add-log
+    owning-role: head-of-quant-research
+  - id: F-004
+    severity: minor
+    location: scripts/cost_feasibility_c1_c2.py:230-236, 397-425 + quant-developer-feasibility.yaml:231-236
+    category: numerical
+    observation: >
+      11 (pair x hold x candidate) cells screened. C1 swept 3 hold horizons per pair; the YAML then
+      selects a per-pair "best hold horizon" (EURUSD 6h, USDJPY 12h, GBPUSD 18h) post-hoc as the
+      PRIMARY VERDICT.
+    inference: >
+      [INFERENCE] Post-hoc horizon selection inflates the effective look count and the chance a cell
+      clears the hurdle by selection. The kill thresholds are pre-registered per pair but NOT per
+      (pair x horizon); selecting the best of 3 horizons is an uncontrolled mini multiple-comparison.
+      For a NECESSARY-NOT-SUFFICIENT feasibility screen with no counted trial this is tolerable, but
+      it must be flagged so a downstream CPCV pre-registration fixes the horizon BEFORE measuring,
+      not after.
+    evidence: cost_feasibility_raw.json (9 C1 cells), YAML body lines 231-236.
+    recommended-action-class: clarify-spec
+    owning-role: head-of-quant-research
+  - id: F-005
+    severity: minor
+    location: scripts/cost_feasibility_c1_c2.py:315-338 (C1 stop fill) and 553 (C2 exit price)
+    category: edge-case
+    observation: >
+      C1 stop-out exits use the stop bar's CLOSE as exit price (line 338), not the stop level; 32/80
+      USDJPY-12h and 38/80 18h trades are stop exits. Gross is computed at close, which can be more
+      adverse than the stop level (gap-through) or less adverse (intrabar recovery).
+    inference: >
+      [INFERENCE] This is a fill-realism approximation, not a lookahead and not a cost bug. It can
+      bias gross either way; on a stop-out it tends to OVERSTATE the loss capture vs a fill-at-stop
+      assumption (slightly conservative for losers). Acceptable for a cheap screen but should be
+      named as a modeling choice. No action beyond disclosure.
+    evidence: "exit_reason counts reproduced (USDJPY 12h: 48 hold / 32 stop)."
+    recommended-action-class: add-log
+    owning-role: quant-developer
+  - id: F-006
+    severity: observation
+    location: scripts/cost_feasibility_c1_c2.py (whole screen) + log-as-decision-trace rubric
+    category: observability-gap
+    observation: >
+      The screen emits aggregate prints + a per-trade list in JSON, but the per-event decision
+      boundaries (surprise-filter pass/skip with inputs, direction==0 skip, exclude-mask skip,
+      C2 crash-filter flatten, sub-threshold-diff skip) are NOT logged as structured skip-records.
+      Skipped events leave no trace; one cannot reconstruct from output WHY a given CB date did not
+      fire.
+    inference: >
+      [INFERENCE] Per log-as-decision-trace item 6 (skipped path logged), the screen under-logs
+      skips. For a throwaway feasibility screen this is acceptable, but if any of these designs is
+      promoted to a counted CPCV harness, the skip-path instrumentation must be added. Surfacing
+      now so it is not a surprise later. The 100% surprise-filter-pass (F-002) was only discoverable
+      because n_fires happened to equal the date count — a structured skip log would have made it
+      obvious in the artifact itself.
+    evidence: cost_feasibility_c1_c2.py has no logger; only print() of aggregates.
+    recommended-action-class: add-log
+    owning-role: quant-developer
+
+coverage-statement: >
+  Reviewed: F-001 fix (production + mirror function, independently re-asserted); C1 no-lookahead
+  trace (entry index, gross start point, median-TR shift, surprise-filter inputs); C1 cost
+  application (entry+exit, pair-native pips, EXCLUDE-NOT-IMPUTE) — verified correct; C2 cost
+  application — found the entry-leg-only bug; independent reproduction of USDJPY-12h gross (exact
+  match) and the 2022+2023-drop regime test; cell count + post-hoc horizon selection; stop-fill
+  realism; observability of skip paths. Skipped: full re-derivation of EURUSD/GBPUSD cells (spot-
+  checked via the same code path that reproduced USDJPY exactly); the ML annex (no model artifact);
+  the DSR/N_eff* harness referenced in F-002-label (out of scope — separate harness, not in this PR);
+  the C2 carry-accrual proxy economics (QD disclosed as proxy; I confirmed carry is ~0.02 pips and
+  immaterial, so the C2 result is pure price drift as disclosed).
+
+contamination-check: >
+  clean. The QR design carries decision:"implement" (the researcher's own routing of their own spec)
+  and the QD carries firewall-self-review (explicitly to be disregarded). NO other role's verdict on
+  the QD's screen (approve/reject/conclude) was revealed to me. No CTO/CRO/NHT/HoQR disposition of
+  this feasibility work appears in my prompt. No contamination.
+
+time-spent-reasoning: ~38 minutes (5 independent python reproductions + 5 skill rubrics)
+
+evidence:
+  - "scripts/compute_9pairs_readiness.py:232-248 (production _position_changes, F-001 fix) — re-asserted independently"
+  - "scripts/cost_feasibility_c1_c2.py:521,573-575 (C2 entry-leg-only cost slice) — bug confirmed synthetically + on all 366 C2 trades"
+  - "scripts/cost_feasibility_c1_c2.py:258-299 (C1 entry = ann_bar+1, gross from entry OPEN, median_tr.shift(1)) — no-lookahead confirmed"
+  - "cost_feasibility_raw.json — USDJPY-12h gross 19.9369 reproduced EXACTLY; per-year decomposition; n_fires==date-count for surprise filter"
+  - "data/processed/USDJPY_1h.parquet (tz-aware UTC, 31031 bars, 0 zero/NA spread); data/rates/cb_decision_dates.parquet (80 verified-official FED+BOJ 2021-2025)"
+
+assumptions:
+  - "The kill VERDICT is gross-vs-kill-threshold only (per spec falsification numbers); net-margin is reported as color, not a gate. Under that reading the C2 cost bug (F-001 here) does NOT flip any VERDICT, but it does falsify the QD body's 'net positive' claim for USDJPY C2."
+  - "USDJPY pip = 0.01 (pair-native) is correct; I confirmed gross magnitudes are only coherent at 0.01."
+  - "The DSR amendment-scaled N_eff* (QD's F-002-label reconciliation) lives in a separate harness not in this PR; I take the label-only-change claim at face value and did not audit the DSR harness."
+  - "This is a throwaway feasibility screen with no counted trial; observability findings (F-006) are graded against promotion, not against this cycle."
+
+confidence: high
+
+body: |
+  ## Verdict rationale: approve-with-conditions
+
+  The deliverable does the two hard things it had to do correctly: the F-001 fix is RIGHT (verified
+  on the production function, not just the QD's copy — flip charges 2 RT, open/close charges 1), and
+  C1 has NO lookahead (the sacred invariant holds: entry is the bar AFTER the announcement bar, gross
+  accrues from that bar's OPEN, the announcement bar's own move is excluded, and every gate uses
+  shifted/past data). I reproduced the load-bearing USDJPY-12h cell (19.9369) to the digit from raw
+  parquet with my own independent implementation. C1 cost is applied correctly (entry+exit real
+  per-bar spread, pair-native pips, EXCLUDE-NOT-IMPUTE). On the criteria that would be BLOCKING —
+  F-001 correctness and the no-lookahead invariant — the screen passes cleanly.
+
+  But three things keep this from a clean approve, and one of them is darkly ironic.
+
+  ## The C2 cost bug (F-001 in this report) — the same class of bug the PR exists to fix
+
+  This artifact's entire reason for being is fixing F-001: a flip that was charged 1 RT instead of 2,
+  i.e. an UNDER-CHARGED round-trip leg. In the C2 screen the QD reintroduced exactly that class of
+  error from a different direction: the C2 RT cost charges only the ENTRY leg. Because the position
+  is constant through a hold, the cost slice cost_series[entry_i:exit_i+1] captures only the
+  transition INTO the position; the flatten transition lands at exit_i+1, one index past the slice,
+  and is silently dropped. I verified this synthetically and then empirically — all 366 C2 trades
+  have rt_cost == entry_spread + 0.80 to the digit, never the exit leg. The effect on the only C2
+  cell that PASSES (USDJPY): reported margin +1.807 becomes -0.743 once the exit leg is charged. The
+  VERDICT label is gross-keyed so PASS survives mechanically, but the QD's prose "margin +1.807 ...
+  net positive" is false. This is a major finding because the firewall's whole job is catching the
+  cost-undercount class, and it slipped through in the sibling code path of the very fix.
+
+  ## The surprise filter is non-binding — C1 is not the strategy the spec declared
+
+  The spec sells C1 as surprise-CONDITIONED: "fire only when surprise_magnitude exceeds a hard
+  threshold ... suppresses no-surprise no-edge days." As built, the filter passes 100% of events
+  (n_fires == every verified CB date, all three pairs). The mechanism is circular: the
+  "announcement bar" is DEFINED as the max-TR bar of the day, then tested against 1.5x the trailing
+  median TR — the most volatile bar of the day nearly always clears that bar. So C1 is operationally
+  "trade every scheduled CB date in the sign of its biggest bar," not a surprise filter. That is
+  research-class drift (firewall A4/A5): an implementation choice (which bar is the announcement,
+  absent release times) silently dissolved a declared gate. The QD disclosed it; I am routing it to
+  the researcher because the FIX is a spec decision (supply release times, or redefine the gate), not
+  a QD patch.
+
+  ## The headline cell is a 2-of-5-year regime artifact
+
+  USDJPY-12h, called "the strongest result," drops from 19.94 to 5.87 gross when 2022-2023 are
+  removed; 2021 and 2024 are economically zero (0.20, 0.68). The edge IS the FOMC hiking cycle. For a
+  necessary-not-sufficient cost screen this does not change the gross-vs-cost arithmetic, but the
+  magnitude of the collapse (~70%) is material context that belongs in the artifact and must shape
+  any CPCV pre-registration (purged-CV across regimes, not a pooled mean).
+
+  ## Conditions to clear before this screen informs a counted pre-registration
+
+  1. (F-001 here / major, QD) Fix the C2 exit-leg cost: charge entry AND exit RT legs. Re-run; the
+     USDJPY C2 "net positive" claim must be restated (true net is ~-0.74). AUDJPY unaffected.
+  2. (F-002 / major, QR) Resolve the non-binding surprise filter: either acquire exact release
+     times so the filter can bind, or redefine C1 as an unconditional CB-date strategy and re-state
+     the spec. Do not let "surprise-conditioned" stand when nothing is conditioned.
+  3. (F-003 / major, HoQR) Record the USDJPY-12h regime decomposition in the artifact; treat the
+     pooled mean as regime-contaminated for any downstream design.
+  4. (F-004 / minor, HoQR) Fix the hold horizon BEFORE measuring in any counted cycle; the per-pair
+     "best horizon" pick is post-hoc.
+  5. (F-005, F-006 / minor-observation, QD) Disclose the stop-at-close fill convention; add
+     structured skip-path logging before any promotion to a counted harness.
+
+  None of these is a no-lookahead or F-001-correctness BLOCKER, so this is approve-with-conditions
+  rather than reject. But conditions 1 and 2 are not cosmetic — condition 1 falsifies a stated
+  result and condition 2 means C1 is not the strategy on the label.
+
+knowledge_gaps:
+  - "Exact CB release times are absent; the max-TR-bar proxy is the QD's substitute and is what makes the surprise filter non-binding (F-002). Without release times the gate cannot be made to bind faithfully."
+  - "I did not audit the separate DSR/N_eff* harness referenced in the F-002-label reconciliation; the QD's 'label-only, no computation change' claim is taken at face value for compute_9pairs_readiness.py and not independently re-derived against the DSR harness."
+policy_violations_detected: []
+sources:
+  - "scripts/compute_9pairs_readiness.py:232-248"
+  - "scripts/cost_feasibility_c1_c2.py:258-299,521,573-575"
+  - "cost_feasibility_raw.json"
+  - "data/processed/USDJPY_1h.parquet; data/rates/cb_decision_dates.parquet; data/rates/rate_differentials.parquet"
+  - "quant-researcher-design.yaml; quant-developer-feasibility.yaml"
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+claimed_domains: [independent-algorithm-review, spec-vs-implementation-drift-detection, hidden-bug-and-edge-case-surfacing, numerical]

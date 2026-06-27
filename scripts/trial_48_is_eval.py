@@ -9,7 +9,7 @@ OOS (2024-07-01..2025-12-31) is NEVER read, sliced, or referenced.
 Gates evaluated (in order):
     KILL-4: IS-extrapolated power gate. f_IS = qualifying trades / IS trading days.
             N_oos_expected = f_IS * OOS_trading_days. Fires if N_oos_expected < 48.
-    KILL-1: Deflated Sharpe (DSR) at N=48 <= 0.95 on IS net-of-cost returns.
+    KILL-1: Deflated Sharpe (DSR) at N=30 (ratified 2026-06-18) <= 0.95 on IS net-of-cost returns.
     KILL-2: Avg net trade <= 0 pips after 7.5-pip static cost on 2σ subset.
     KILL-3: 2σ single-bar reversion hit-rate <= 0.50.
 
@@ -43,6 +43,7 @@ from forex_system.backtest.engine import run_backtest  # noqa: E402
 from forex_system.backtest.metrics import calculate_metrics, infer_periods_per_year  # noqa: E402
 from forex_system.costs.static_roundtrip import StaticRoundTripCostModel  # noqa: E402
 from forex_system.harness.dsr import compute_dsr  # noqa: E402
+from forex_system.harness.honest_n import honest_n_deflation_denominator  # noqa: E402
 from forex_system.strategies.overnight_mr import OvernightMRStrategy  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -69,8 +70,24 @@ SIGMA_LOOKBACK = 20
 ENTRY_THRESHOLD = 2.0
 ROUND_TRIP_PIPS = 7.5
 STATIC_COST_PIPS = ROUND_TRIP_PIPS  # per trade round-trip
-N_ORG_TRIALS = 48  # org-wide trial count at execution (47 prior + this)
-POWER_FLOOR = 48  # min expected OOS qualifying trades
+_TRIALS_REGISTRY_PATH = PROJECT_ROOT / ".fintech-org" / "trials.jsonl"
+# IC-14d fix: N_ORG_TRIALS computed mechanically, never hand-entered.
+# NOTE on the absent +1: this is a RE-EVALUATION of an ALREADY-LEDGERED trial.
+# Trial-48 (15923fe1) is already recorded in trials.jsonl with counts_toward=True,
+# so honest_n_deflation_denominator already COUNTS it -> returns 30 (the ratified
+# post-2026-06-18 denominator; retired value was 48).
+# Passing n_trials=N_ORG_TRIALS=30 is correct for a re-evaluation.
+# Do NOT add +1 here — that is for run_trial.py / run_falsification_trial.py which
+# score a NEW trial BEFORE it is appended to the ledger.
+#
+# HISTORICAL NOTE: Trial-48's original verdict was "DSR=0.00 at N=48". N=48 is the
+# RETIRED denominator (over-deflated relative to the ratified N=30). DSR is monotone
+# DECREASING in N, so N=48 was too strict — the historical verdict may change at N=30.
+# Recompute at N=30 is a tracked follow-on for HoQR/NHT (CTO spec 2026-06-18,
+# decision 5 historical_result_flag). Do NOT assume the kill stands; do NOT silently
+# re-grade without HoQR/NHT ratification.
+N_ORG_TRIALS = honest_n_deflation_denominator(_TRIALS_REGISTRY_PATH)
+POWER_FLOOR = 48  # min expected OOS qualifying trades (DIFFERENT constant from DSR denominator)
 
 # CPCV parameters (from spec: N_groups=6, k=2, purge/embargo=480 bars)
 CPCV_N_GROUPS = 6
@@ -382,13 +399,17 @@ def compute_kill1_dsr(
     is_backtest: dict,
     cpcv_result: dict,
 ) -> dict:
-    """KILL-1: Deflated Sharpe at N=48.
+    """KILL-1: Deflated Sharpe at N=30 (ratified denominator, post-2026-06-18).
 
     Uses the CPCV net Sharpe as the input to DSR. The n_observations is
     derived from the IS equity curve (bar count). Skew/kurtosis from per-bar
     equity returns.
 
     Fires if DSR <= 0.95.
+
+    Historical note: originally evaluated at N=48 (retired denominator).
+    N=48 over-deflated; N=30 is the correct ratified value. Recompute tracked
+    as follow-on for HoQR/NHT (see HISTORICAL NOTE near N_ORG_TRIALS definition).
     """
     ec = is_backtest["equity_curve"].dropna()
     ppy = is_backtest["ppy"]
@@ -438,7 +459,7 @@ def compute_kill1_dsr(
     return {
         "is_net_sharpe": round(net_sharpe, 4),
         "cpcv_sharpe": round(cpcv_sharpe, 4),
-        "DSR_at_N48": round(dsr, 4),
+        "DSR_at_N30": round(dsr, 4),
         "n_observations": n_obs,
         "skewness": round(skew, 4),
         "excess_kurtosis": round(ek, 4),
@@ -595,7 +616,7 @@ def _print_final_result(forced_result: str, kill4, kill1, kill2, kill3, signals,
         print("KILL-1 DSR:")
         print(f"  IS net Sharpe:     {kill1['is_net_sharpe']}")
         print(f"  CPCV Sharpe:       {kill1['cpcv_sharpe']}")
-        print(f"  DSR at N=48:       {kill1['DSR_at_N48']}")
+        print(f"  DSR at N=30:       {kill1['DSR_at_N30']}")
         print(f"  Threshold:         {kill1['threshold']}")
         print(f"  FIRES:             {kill1['fires']}")
 

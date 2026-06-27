@@ -1,0 +1,99 @@
+# =============================================================================
+# Head of Quant Research — ρ̄ pooling-haircut amendment to rubric G5 + H1 disclosure
+# Encodes the Mathematician + NHT rulings into the living confirmability rubric and
+# H1's frozen prereg. Implements EXACTLY per the two rulings; does NOT re-derive.
+# =============================================================================
+role: head-of-quant-research
+artifact_type: methodology-design
+decision: approve
+trial_id: METHODOLOGY-DESIGN
+pre-registration-ref: "references/pre-registrations/h1_session_open_momentum_pooled.md"
+timestamp_utc: "2026-06-19T21:10:09Z"
+trial_counter_incremented: false
+no_capital_instruction: true
+web_tools_used: false
+
+claimed_domains:
+  - confirmability-rubric-ownership-and-amendment
+  - effective-N-and-pooling-haircut-specification
+  - pre-registration-freeze-governance-and-disclosure
+  - cross-functional-ruling-encoding
+
+inputs_grounding:
+  mathematician_ruling: ".fintech-org/artifacts/2026-06-19-rho-bar/mathematician-rho-bar-analysis.yaml (approve; eigenvalue-based sign-blind statistic; PnL-contribution series; MIN-over-routes; magnitude fallback)"
+  nht_ruling: ".fintech-org/artifacts/2026-06-19-rho-bar/nht-rho-bar-ruling.yaml (approve-with-dissent; signed-mean = SD2 fraud; rubric-first then inherit; H1 not re-frozen, counter not burned; disclose 3-pair peek; 0.41 unchanged; re-derive = separate freeze)"
+  rubric_G5: "references/intraday_confirmability_screening_rubric.md (FROZEN 2026-06-17; owner HoQR)"
+  h1_prereg: "references/pre-registrations/h1_session_open_momentum_pooled.md (FROZEN-AWAITING-DATA; counter NOT burned; honest-N=48)"
+  h1_triggers: "references/pre-registrations/h1_session_open_momentum_pooled.triggers.yaml"
+
+# -----------------------------------------------------------------------------
+# WHAT WAS ENCODED (implemented exactly per the two rulings — no re-derivation)
+# -----------------------------------------------------------------------------
+amendment:
+  primary_home: "rubric G5 — the firm-wide control surface where the under-specification lives; durable for ALL future pooled hypotheses"
+
+  ratified_content_encoded:
+    1_statistic:
+      verdict: "eigenvalue-based and SIGN-BLIND (Mathematician Q1)"
+      rho_bar_eff: "ρ̄_eff = (λ_max(C) − 1) / (k − 1)  from eigenvalues of the Pearson correlation matrix C"
+      n_eff_gate: "N_eff* = MIN( N_raw/λ_max , N_raw·k/Σλ_i² [participation ratio] , N_raw·k/ENB )"
+      floor_ceiling: "N_raw/k ≤ N_eff ≤ N_raw"
+      fallback: "MAGNITUDE mean mean|C_pq| is the no-eigendecomposition fallback (dominates signed mean by triangle inequality)"
+      forbidden: "naive SIGNED mean — SD2-class under-deflation fraud; fails Redundant-Pair Monotonicity (sign-flipped redundant pair drives signed-N_eff → ∞)"
+    2_series:
+      fix: "correlation matrix computed on per-pair PnL-CONTRIBUTION (signal×return) series x_{p,t}=signal_{p,t}·ret_{p,t}, demeaned + event-aligned; NOT raw price returns and NOT the quote-signed 'signal' series"
+      wording_change: "'mean cross-pair signal correlation' → 'PnL-contribution (signal×return) correlation'"
+    3_threshold:
+      kept: "ρ̄_eff ≤ 0.41 break-even does NOT move; N_eff = N_raw/(1+(k−1)·ρ̄_eff) gate kept (ρ̄_eff is the sign-blind equicorrelation-equivalent on the same Kish scale)"
+      explicit: "re-deriving 0.41 under the new statistic is a SEPARATE pre-result freeze, NOT part of this amendment (NHT guardrail #3)"
+    4_conservative_rule: "when in doubt, take the MIN N_eff route (lower N_eff / larger deflation)"
+
+  h1_governance:
+    home: "H1 inherits the amended G5 by reference (it already binds the rubric)"
+    disclosure_added:
+      - "(a) discloses the 2026-06-19 3-pair structural peek (signed −0.04 / magnitude 0.54, raw-return — partial 3-of-8 STRUCTURAL look, NOT a PnL/verdict look)"
+      - "(b) H1 inherits the amended G5 ρ̄_eff definition"
+      - "(c) gate input = ρ̄_eff measured on the FULL-8 landed data with the PnL-contribution statistic; the 3-pair number is NOT the gate input"
+      - "(d) 0.41 unchanged"
+      - "(e) H1 is NOT re-frozen; trial counter NOT burned"
+    untouched:
+      h1_frozen_structure: "UNCHANGED (entry/exit/universe/window/freq-caps/DoF)"
+      h1_threshold_0p41: "UNCHANGED"
+      all_kill_gate_values: "UNCHANGED (KILL-0..7)"
+      trial_counter: "NOT incremented (honest-N stays 48)"
+      h1_re_frozen: false
+
+# -----------------------------------------------------------------------------
+# FILES EDITED
+# -----------------------------------------------------------------------------
+files_edited:
+  - path: "references/intraday_confirmability_screening_rubric.md"
+    change: "G5 row points to new §G5 ρ̄_eff section; added full §G5 ρ̄_eff amendment (series fix, eigenvalue sign-blind statistic, MIN-over-routes gate, forbid signed mean, magnitude fallback, conservative rule, 0.41 kept + separate-freeze note, QD follow-on)"
+  - path: "references/pre-registrations/h1_session_open_momentum_pooled.md"
+    change: "added thin dated DISCLOSURE NOTE (5 points: peek / inherit-G5 / 3-pair-not-gate-input / 0.41-unchanged / QD follow-on). ALSO disambiguated the 4 Mathematician-flagged 'signal correlation'/'ρ̄' body occurrences (KILL-4, PASS-cond-3, blind-structural-pass line, FAIL-reason-4) to 'PnL-contribution (signal×return) correlation' / 'ρ̄_eff' as VISIBLE, dated, disclosure-TAGGED inline annotations — honors Math rubric_text_fix without an NHT-forbidden silent symbol rewrite. No structure/threshold/KILL value altered."
+  - path: "references/pre-registrations/h1_session_open_momentum_pooled.triggers.yaml"
+    change: "added disclosure comment on h1-PASS-rho + machine-readable rho_bar_amendment_disclosure block; ALSO updated h1-KILL-4 raw_text from the stale single-formula 'N_eff=N_raw/(1+(k-1)*rho_bar)' to the rho_bar_eff form with a dated AMENDED comment. metric/operator/threshold of EVERY trigger (incl. 0.41) UNCHANGED."
+  - reconciliation_note: "Math wanted the words changed at L176/L200/L208/L246; NHT wanted inherit-by-reference + a thin disclosure NOTE, 'NOT a silent edit of the symbol's meaning'. Resolved by doing BOTH non-conflictingly: the body words are disambiguated AND each disambiguation is a visible dated disclosure tag — not silent, not a threshold/structure change. (quick-critic 2026-06-19 flagged the pre-reconciliation state where only the NOTE had the new wording.)"
+
+implementation_follow_on:
+  owner: quant-developer
+  routed_by: mathematician
+  task: "when the full-8 majors land: build C = corr(PnL-contribution series) over session-open events (demeaned, event-aligned, non-fires=0); report full spectrum, λ_max, PR, ENB, ρ̄_eff, cond(C), Ledoit–Wolf-shrunk variants; compute N_eff* = MIN(N_raw/λ_max, N_raw·k/Σλ², N_raw·k/ENB) and resulting years_to_validate for the G5/KILL-4 gate"
+  not_done_now: "no eigen-computation performed at amendment time (no landed full-8 data)"
+
+knowledge_gaps:
+  - "Full-8 ρ̄_eff (PnL-contribution) is UNMEASURED — the actual gate input. 3-pair raw-return read (magnitude 0.54 > 0.41) is indicative-only and structurally suggests H1 trends STRETCH/FAIL on G5, but is NOT a decision."
+  - "Whether the full-8 spectrum is one-factor (single ρ̄_eff faithful) or multi-factor (must use PR/ENB N_dim_eff) is unknown until QD measures C — the MIN-over-routes rule covers both."
+  - "ENB route is permissible-but-not-required; PR is the recommended dimension-count default. QD reports all so the MIN is computed over whatever is actually produced."
+
+dissent_carried_forward:
+  - "NHT append-only dissent (4 guardrails) governs: (1) NOT a license to edit frozen preregs — only result-free, no-new-DoF, stricter edits; (2) the peek is a disclosed stain, exonerated only by direction-of-harm; (3) 0.41 does not move, re-derivation = separate freeze; (4) signed mean is named fraud, rejected on sight firm-wide. All encoded."
+
+decision_rationale: |
+  Encoded both rulings verbatim into their ratified homes. Primary durable fix is in rubric
+  G5 (firm-wide, all future pooled hypotheses inherit). H1 receives only a thin dated
+  disclosure note — inherit-by-reference + peek disclosure — with zero change to its frozen
+  structure, the 0.41 threshold, or any KILL value, and the trial counter untouched. The
+  amendment is purely additive and STRICTER (moves H1 toward FAIL on the very data peeked),
+  which is the direction-of-harm firewall that makes the pre-result clarification legitimate
+  rather than a p-hack. The eigen-measurement itself is QD's follow-on when full-8 data lands.

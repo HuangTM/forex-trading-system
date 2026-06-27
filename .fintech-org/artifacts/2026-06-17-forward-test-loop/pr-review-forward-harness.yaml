@@ -1,0 +1,278 @@
+# =============================================================================
+# PRINCIPAL REVIEWER — Independent PR review: Forward-Test Harness P1
+# freeze.py + forward_eval.py + test_forward_harness.py
+# =============================================================================
+role: principal-reviewer
+artifact_type: review
+decision: approve-with-conditions
+timestamp_utc: "2026-06-18T05:02:06Z"
+authored_by: principal-reviewer
+firm: fintech-org (Phase-0 backtest-only forex)
+project: /Users/huangtm/Projects/forex-trading-system
+git_sha_at_review: "44851289205dc666baab41cbb726a88615a7f84a"
+branch: ingest-spread-column
+no-capital-instruction: true
+claimed_domains:
+  - independent-code-review
+  - independent-algorithm-review
+  - hidden-bug-and-edge-case-surfacing
+  - spec-vs-implementation-drift-detection
+  - test-coverage-and-test-quality-review
+  - clock-and-ordering-review
+
+artifact-under-review:
+  - src/forex_system/harness/freeze.py
+  - src/forex_system/harness/forward_eval.py
+  - tests/harness/test_forward_harness.py
+  specs-traced-against:
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/cto-build-spec.yaml (P1)
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/ml-forward-test-and-pooling.yaml (A.1-A.5)
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/nht-integrity-controls.yaml (IC-1..IC-14)
+    - .fintech-org/artifacts/2026-06-17-forward-test-loop/qd-forward-harness-p1.yaml
+
+contamination-check: "clean"
+contamination-detail: >
+  The prompt supplied orchestrator-verified TEST COUNTS (548 pass, 11 forward, 12 no-lookahead,
+  ruff clean, IC-9==30) but contained NO other role's approve/reject decision or self-review on
+  the harness code itself. No prior approval stance to anchor on. Independence intact.
+
+rubrics-applied:
+  - spec-to-implementation-trace: applied
+  - execution-firewall-review: applied
+  - clock-and-ordering: applied (this is timestamp-comparison + no-lookahead code)
+  - log-as-decision-trace: applied
+  - edge-case-enumeration: applied
+  - invariant-search: applied
+  - test-inversion: applied
+  - failure-mode-reasoning: applied
+  - numerical-statistical: applied (DSR denominator, concentration arithmetic)
+
+time-spent-reasoning: "~35 min; read all source + 3 specs + honest_n + preregistration; executed targeted tests + boundary traces"
+
+# =============================================================================
+# EXECUTED VERIFICATION (verify means execute)
+# =============================================================================
+executed:
+  - cmd: "pytest tests/harness/test_forward_harness.py -v"
+    result: "11 passed in 0.14s — all green, confirmed by me (not relayed)"
+  - cmd: "pytest -k test_no_lookahead -q"
+    result: "12 passed, 1645 deselected — sacred test green"
+  - trace: "_assert_all_bars_post_freeze boundary (M2)"
+    result: >
+      bar AT freeze_utc -> VOID (strict <= rejects equality); bar +1s -> OK; naive index
+      localized to UTC then compared (not silently passed); US/Eastern index tz_converted
+      correctly. Boundary is STRICT and timezone-safe.
+  - trace: "ic9_dsr_denominator defaults"
+    result: "30 + 0 + 1 = 31; sources honest_n_deflation_denominator()==30 (ratified), not a literal/de-dup 11."
+  - trace: "_compute_avg_net_pips / _compute_concentration 'or'-chain"
+    result: >
+      getattr(trade,'pnl_pips',None) or getattr(trade,'pnl',None) or 0.0 — a trade with
+      pnl_pips==0.0 falls through the truthiness 'or' to the (absent) 'pnl' attr -> 0.0.
+      Latent: harmless TODAY (Trade has no .pnl) but wrong-by-construction (F-002).
+
+# =============================================================================
+# FINDINGS
+# =============================================================================
+findings:
+
+  - id: F-001
+    severity: major
+    category: spec-drift
+    location: src/forex_system/harness/forward_eval.py:540-569 (mechanism gate) + _verify_integrity:147-191
+    observation: >
+      forward_evaluate has NO M1 code path. The post-freeze timestamp guard is gated on
+      `if freeze_record.mechanism == "M2"`, and _verify_integrity recomputes ONLY
+      prereg_content_hash and code_config_hash — it never recomputes or compares
+      freeze_record.holdout.content_hash. grep confirms zero 'holdout' references in the
+      scoring path.
+    inference: >
+      If an M1 freeze record were ever passed to forward_evaluate, the harness would SKIP the
+      M2 timestamp guard (mechanism!=M2) AND never verify the sealed-holdout bytes are unaltered,
+      then score directly. ML spec A.2 (immutability_check_at_open) and IC-3/IC-12 explicitly
+      require recompute-and-assert of holdout_content_hash at open for M1 -> VOID on mismatch.
+      This control is absent. The mitigating fact: freeze.py HARD-BLOCKS M1 for every existing
+      family (no dev_start_attestation), so no M1 record can currently be produced; P1 is
+      M2-primary by design. But the harness does not itself refuse an M1 freeze_id — it silently
+      scores it under M2-absent rules. This is fail-OPEN for M1, not fail-closed.
+    evidence: "forward_eval.py has no `if mechanism == 'M1'` branch; _verify_integrity ignores freeze_record.holdout; nht-integrity-controls.yaml IC-3/IC-12; ml-...-pooling.yaml A.2 immutability_check_at_open."
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+    condition: >
+      Before any M1 freeze can exist (P1.1 / when dev_start_attestation flow ships),
+      forward_evaluate MUST either (a) recompute+assert holdout_content_hash for M1 -> VOID on
+      mismatch, or (b) explicitly REFUSE mechanism=='M1' with a NotImplementedError naming M1 as
+      out-of-scope-for-P1. Until then the silent-M2-rules-on-an-M1-record path must be closed.
+
+  - id: F-002
+    severity: minor
+    category: correctness
+    location: forward_eval.py:358 (_compute_concentration), 383 (_compute_avg_net_pips)
+    observation: >
+      `pnl = getattr(trade,"pnl_pips",None) or getattr(trade,"pnl",None) or 0.0`. Trade.pnl_pips
+      is a required, always-present float (core/types.py:45; engine.py:746). The `or` chain treats
+      a legitimate pnl_pips==0.0 (a scratch trade, or costs exactly cancelling gross) as falsy and
+      falls through to the next term.
+    inference: >
+      Today this resolves back to 0.0 because Trade has no `.pnl` attribute, so no live corruption.
+      But it is the execution-firewall Section-A2 'silent default' anti-pattern: a None-coalescing
+      `or` on numeric data that eats genuine zeros. If a `pnl` field is ever added to Trade, a
+      0.0-pip trade would silently adopt a DIFFERENT field's value, perturbing the KILL-7a/7b
+      concentration gates and the IC-10 avg_net_pips cost-domination metric. Also a Reuse-Before-
+      Create gap: metrics.calculate_metrics already computes avg_trade_pnl_pips via the correct
+      `sum(t.pnl_pips for t in trade_log)/n` (metrics.py:137) with no truthiness trap.
+    evidence: "Executed: T(pnl_pips=0.0, pnl=5.0) -> chain resolves to 5.0; core/types.py:45 pnl_pips required; metrics.py:137 correct pattern exists."
+    recommended-action-class: add-edge-case-handling
+    owning-role: quant-developer
+    condition: >
+      Replace the `or`-chain coalescing with explicit `float(trade.pnl_pips)` (the field is always
+      present), or delegate avg-pips to the existing metrics.avg_trade_pnl_pips. Non-blocking but
+      should be fixed before any real concentration verdict is trusted.
+
+  - id: F-003
+    severity: minor
+    category: spec-drift
+    location: forward_eval.py:398-399 (defaults is_search_family_size=0, forward_attempt_budget=1)
+    observation: >
+      Both IC-9/IC-13 inputs default to permissive values (0 IS-search, 1 budget) and are accepted
+      from the caller with no assertion that a budget-declaration record predates the first freeze.
+    inference: >
+      NHT Q4/IC-9 require an UNLOGGED IS search to be worst-cased (large N), and IC-13 requires the
+      budget frozen-before-first-spawn. The harness trusts the caller to pass honest values; a caller
+      that passes the defaults silently under-deflates relative to the worst-case NHT mandates. The
+      QD artifact and code docstrings disclose this as procedural residual (IC-13 partial-procedural),
+      so it is bounded and honestly flagged, not hidden — but the DEFAULT is the convenient number,
+      not the conservative one. This is the SD2 N-minimization failure mode the harness exists to resist,
+      left to caller discipline.
+    evidence: "forward_eval.py:398-399; nht-integrity-controls.yaml IC-9/IC-13/Q4; qd-forward-harness-p1.yaml ic_enforcement IC-13 'partial-procedural'."
+    recommended-action-class: clarify-spec
+    owning-role: cto
+    condition: >
+      Acceptable to ship deferred IF the CI hook (IC-13 budget-pre-frozen check) is tracked as an
+      explicit open item AND callers are required to pass is_search_family_size explicitly (no reliance
+      on the 0 default) for any real candidate. Recommend the default for is_search_family_size be
+      documented as 'only valid for a single pre-registered structure with ZERO IS search'.
+
+  - id: F-004
+    severity: observation
+    category: correctness
+    location: forward_eval.py:482-516 (hash-mismatch VOID path)
+    observation: >
+      On integrity failure the code records a VOID trial with void_after_data=False, burns the window,
+      then sys.exit(1). counts = (verdict != "VOID") or void_after_data -> False, so the hash-mismatch
+      VOID does NOT increment honest-N.
+    inference: >
+      This is CORRECT and spec-faithful: IC-7 burns N only for VOID-AFTER-data; a hash mismatch is
+      detected at step 2 BEFORE forward bars are inspected, so no forward data was seen -> no N burned.
+      The window is still burned (open_count->1) so the freeze cannot be silently re-scored after a
+      tamper. Noted as an observation to confirm the asymmetry is intentional, not a leak: a tamper
+      consumes the freeze (good) without consuming an honest-N slot (correct — no data was seen).
+    evidence: "forward_eval.py:826 counts logic; step-2 ordering precedes step-3 data inspection; IC-7 text 'VOID-after-seeing-forward-data'."
+    recommended-action-class: other
+    owning-role: null
+
+  - id: F-005
+    severity: observation
+    category: test-coverage-gap
+    location: tests/harness/test_forward_harness.py
+    observation: >
+      The 11 tests genuinely exercise VOID (hash + pre-freeze-bar), BLOCK (burned refuse, M1 refuse),
+      IC-7 burn, IC-9==30, and all three verdict-priority branches (DSR+underpowered->FALSIFIED;
+      underpowered-only->INCONCLUSIVE; real-kill->FALSIFIED). None are tautological. GAPS WITH NO
+      COVERAGE: (1) no test that a non-power-floor gate's metric ABSENT from metrics_map -> fail-closed
+      FALSIFIED (the _evaluate_triggers metric_absent branch, line 247); (2) no VALIDATED happy-path
+      test (every clean test asserts membership in {VALIDATED,FALSIFIED,INCONCLUSIVE} — none constructs
+      data that actually PASSES all gates, so the VALIDATED return at _determine_verdict:806 is never
+      executed by a test); (3) no M1 path test beyond the freeze-time refuse (consistent with F-001 —
+      the path doesn't exist).
+    inference: >
+      The verdict-priority fix (the critic's SD1) is well-covered by direct _determine_verdict unit
+      tests — that high-risk path is solid. But the metric_absent fail-closed (an IC-14 fail-closed
+      claim) and the VALIDATED terminal state are asserted only by code reading, not by a test. For a
+      harness whose entire purpose is to one day emit the firm's FIRST VALIDATED verdict, having zero
+      test that the VALIDATED branch is reachable is a notable gap.
+    evidence: "test file lines 354,398 assert `in (...)`; no test forces dsr>=0.95 AND no gate fired AND n>=floor; no test hits _evaluate_triggers:247 for a non-power-floor gate."
+    recommended-action-class: add-test
+    owning-role: quant-developer
+    condition: >
+      Add (a) a metric-absent fail-closed test (a frozen non-power-floor trigger whose metric key is
+      not in _build_metrics_map -> FALSIFIED), and (b) a constructed-to-PASS VALIDATED test. Non-blocking
+      for P1 ship but should land in P1.1.
+
+# =============================================================================
+# DIRECT ANSWERS TO THE 8 REVIEW QUESTIONS
+# =============================================================================
+answers:
+  1_integrity_or_void: >
+    CONFIRMED for M2. _verify_integrity recomputes prereg_content_hash + code_config_hash at step 2,
+    BEFORE any scoring; mismatch -> VOID record + sys.exit(1), no scoring path proceeds. There is NO
+    path that scores without integrity passing for M2. CAVEAT (F-001): for M1 the holdout_content_hash
+    is never recomputed — but freeze.py hard-blocks M1 today so no M1 record exists. git_sha is
+    deliberately NOT a VOID trigger (documented: M2 expects a later commit); content hashes are the
+    binding lock — this is spec-faithful (IC-3 names code+config as the lock).
+  2_m2_post_freeze_guard: >
+    CONFIRMED and traced by execution. Every M2 bar asserted STRICTLY > freeze_utc; a bar exactly AT
+    freeze_utc VOIDs (<= mask). Naive index localized to UTC (not silently passed); non-UTC tz
+    converted. Boundary is correct and timezone-safe (clock-and-ordering items 2,3,5 pass).
+  3_no_lookahead: >
+    CONFIRMED. forward_eval reuses run_backtest with entry_delay_bars=config.backtest.entry_delay_bars
+    (line 597) — it does not reimplement or bypass the shift. Sacred test executed: 12 passed.
+  4_verdict_logic: >
+    CONFIRMED correct, including the critic's SD1 priority fix. Gates come ONLY from the frozen
+    .triggers.yaml via _evaluate_triggers (no hardcoded thresholds; the only literal is _DSR_PASS_THRESHOLD
+    0.95, which is the org-wide frozen DSR bar, not a per-candidate gate). Priority: (1) any non-power-floor
+    KILL gate fired -> FALSIFIED; (2) DSR<0.95 -> FALSIFIED; (3) M2 power-floor -> INCONCLUSIVE; (4) VALIDATED.
+    A FALSIFIED can NOT be reported as INCONCLUSIVE/VALIDATED: hard kills are checked first and the
+    power-floor gate is excluded from the hard-kill loop ONLY for its own label. Verified by the 3
+    _determine_verdict unit tests, all green.
+  5_ic9_denominator: >
+    CONFIRMED ==30 path. ic9_dsr_denominator() calls honest_n_deflation_denominator() (ratified 30),
+    NOT a literal and NOT compute_honest_n's ~11 de-dup view (which is explicitly forbidden at DSR sites).
+    n_dsr = 30 + is_search_family_size + forward_attempt_budget. Executed: defaults give 31. The DSR
+    gate deflates at the ratified N. (See F-003 on the permissive caller defaults.)
+  6_n_burn_correctness: >
+    CONFIRMED. data_was_loaded is set True ONLY after cost-model + strategy build succeed (line 584) —
+    so a cost-coverage ConfigError (pre-data setup failure) raises as a NON-burning refuse, exactly the
+    critic's fix. The M2 timestamp-guard VOID sets void_after_data=True explicitly (it inspected the bar
+    timestamps = saw the data) -> burns N. A hash-mismatch VOID burns the window but NOT N (no data seen;
+    F-004 confirms this asymmetry is intentional and correct). One-score-per-candidate enforced (IC-6:
+    burned/open_count check at step 1 -> RuntimeError on re-open).
+  7_honest_gaps_ship_call: >
+    SHIP with conditions. GAP-1 (IS-data bytes not hash-locked / is_data_hash) and GAP-2/3 (IC-5 OS-gating,
+    pushed-before CI) are clearly bounded, honestly disclosed in both the QD artifact and the module
+    docstrings, and do NOT open a silent unsafe SCORING path — they are detection-coverage gaps, not
+    fail-open scoring holes. P1's binding M2 controls (post-freeze causality + config/prereg hash lock +
+    one-shot burn + N-burn) ARE fail-closed in code. The one gap that IS a latent fail-OPEN is F-001
+    (M1 path), which is masked only by freeze.py's M1 hard-block — that mask must be made explicit (the
+    condition on F-001). Net: P1 is safe to ship for M2 paper-forward with the F-001 condition tracked.
+  8_test_quality: >
+    Tests are genuine, not tautological (F-005). Strong coverage on VOID/BLOCK/verdict-priority/IC-7/IC-9.
+    Two reachability gaps: the VALIDATED terminal state and the metric-absent fail-closed branch are
+    asserted by code-reading only, never executed by a test. Recommend both added in P1.1.
+
+# =============================================================================
+# MUST-FIX CONDITIONS (for approve-with-conditions)
+# =============================================================================
+conditions:
+  - ref: F-001
+    blocking_for: "any future M1 use"
+    requirement: >
+      Close the M1 fail-open before a dev_start_attestation flow makes M1 records possible:
+      forward_evaluate must either recompute+assert holdout_content_hash (VOID on mismatch) or
+      explicitly REFUSE mechanism=='M1'. NOT blocking for M2-only P1 ship, but must be tracked, not lost.
+  - ref: F-002
+    blocking_for: "trusting a concentration (KILL-7a/7b) or avg_net_pips verdict"
+    requirement: "Remove the truthiness `or`-chain; use float(trade.pnl_pips) or delegate to metrics.avg_trade_pnl_pips."
+  - ref: F-005
+    blocking_for: "P1.1"
+    requirement: "Add a VALIDATED happy-path test and a metric-absent fail-closed test."
+
+summary_decision: >
+  approve-with-conditions. The harness correctly implements the M2 forward loop's binding integrity
+  controls (integrity-or-VOID, strict post-freeze guard, no-lookahead reuse, frozen-gate-only verdict
+  with the SD1 priority fix, honest-N==30 deflation, one-shot + correct N-burn asymmetry). No BLOCKING
+  finding for M2 ship. Three conditions: F-001 (M1 fail-open, must close before M1 is reachable),
+  F-002 (zero-pnl truthiness footgun in the concentration/cost metrics), F-005 (VALIDATED + metric-absent
+  test coverage). The disclosed honest gaps (GAP-1/2/3) are bounded, fail-closed where it matters, and
+  do not hide an unsafe scoring path.
+
+notify: [cto, cro, nht, head-of-quant-research, quant-developer, ml-researcher]

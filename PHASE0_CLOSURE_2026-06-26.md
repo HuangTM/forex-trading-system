@@ -149,12 +149,14 @@ It was never blocked on process, code, or discipline. The governance machinery (
 
 Phase 0 falsified the *retail-archetype* hypothesis class on *price-only daily/1h data in a USD-correlated pair universe*. A Phase 1 should not reopen that class. The evidence points at three hard requirements; a Phase 1 charter is only worth writing if it can satisfy at least the first plus one of the others.
 
-1. **A genuinely different EDGE CLASS** (price-only technical/carry archetypes are exhausted here):
+> **UPDATE 2026-06-27 (post-backfill reassessment).** The 1h backfill completed the 12-pair universe (crosses incl.). Two findings (see `.fintech-org/artifacts/2026-06-27-post-backfill-reassessment/REASSESSMENT.md`): requirement **#2 (breadth) is now MET** — the USD-correlation wall broke (rho_bar_eff 0.40 < 0.41 on all-12; 0.26 on the curated 7-pair subset). But requirement **#1 (edge) is tested and still UNMET**: time-series momentum at {12,24,48,96}h gives 0/12 pairs net-positive and a best portfolio GROSS Sharpe of +0.30 (below the 0.89 confirmability bar) even frictionless — and the earlier F1-F6 screen was likewise empty. **Breadth was not the binding constraint; edge is.** The Phase 1 entry gate (needs BOTH) remains NOT cleared. honest-N stays 30.
+
+1. **A genuinely different EDGE CLASS** (price-only technical/carry archetypes are exhausted here — now confirmed across F1-F6 *and* TSMOM on the full 12-pair 1h universe):
    - order-flow / positioning data (CFTC COT, dealer-flow, options-implied skew),
    - macro/event microstructure (CB-text ML — flagged exploratory but zero-cost),
    - or cross-asset signals not expressible from spot OHLCV alone.
 
-2. **Real diversifying breadth** (the USD-correlation wall: rho_bar_eff ≈ 0.60 vs ≤0.41 gate; N_eff ≈ 1.5 from 8 USD-majors). Requires **non-USD crosses** (EURGBP, GBPJPY, AUDJPY…) or other-asset legs whose effective independent-bet count actually clears the gate. This is a **data-acquisition** task, not a research task.
+2. ~~**Real diversifying breadth**~~ **[MET 2026-06-27]** (the USD-correlation wall: rho_bar_eff ≈ 0.60 vs ≤0.41 gate; N_eff ≈ 1.5 from 8 USD-majors). The completed non-USD-cross 1h backfill broke this: all-12 rho_bar_eff 0.404 (PASS), curated 7-pair subset 0.260 (PASS, N_eff 2.73). USD-majors and crosses decorrelate each other. **No longer a blocker** — but, per Finding #2 above, breadth without edge does not produce return.
 
 3. **Confirmability honesty up front.** The firm's own arithmetic: a modest single-leg Sharpe needs ~37–92 years to confirm at this horizon. A Phase 1 must either (a) target an edge large/frequent enough to confirm in ≤3 years, or (b) explicitly adopt a **portfolio-of-many-weak-uncorrelated-signals** thesis (Fundamental Law of Active Management) where the *aggregate* is confirmable even when no leg is — and pre-register the aggregate test, not per-leg.
 

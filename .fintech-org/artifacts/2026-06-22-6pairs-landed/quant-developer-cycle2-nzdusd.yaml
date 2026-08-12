@@ -1,0 +1,70 @@
+role: quant-developer
+artifact_type: implementation-report
+cycle: 2
+decision: implemented-and-verified
+timestamp: "2026-06-22T00:38:00Z"
+subtask_ref: "cycle-2-rework-nzdusd-dq-factor-cd0"
+subtask_id: "203c196f-4167-4e5e-b785-1a5d8c449cfb"
+no-capital-instruction: true
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+provenance: "Persisted by orchestrator from QD cycle-2 inline return (remedies PR-cycle2 F-001/F-003 artifact-persistence gap)."
+
+body:
+  R1_dq_manifest_NZDUSD:
+    pair: NZDUSD
+    n_rows_total: 31024
+    range_utc: "2021-01-03 22:00 -> 2025-12-31 21:00"
+    pct_exact_1h: 98.92
+    max_contiguous_gap_h: 73.0
+    gap_verdict: "LEGITIMATE New-Year-2024 market closure (Fri 2023-12-29 21:00 -> Mon 2024-01-01 22:00). Not missing data."
+    volume_nonnull_pct: 100.0
+    spread_median_pips_nonnull_pct: 100.0
+    zero_or_neg_volume_count: 0
+    neg_or_zero_spread_count: 0
+    ohlc_violations: 0
+    spread_median_pips: 1.10
+    spread_p90_pips: 1.60
+    verdict: PASS
+
+  R2_factor_structure:
+    methodology: "raw 1h log-return correlation; rho_bar_eff=(lambda_max-1)/(k-1); N_eff=k/lambda_max; PROXY for true PnL-contribution gate"
+    universes:
+      ALL_7:        {k: 7, n_obs: 30093, lambda_max: 4.0138, PC1: 0.5734, rho_bar_eff: 0.5023, N_eff: 1.744, mean_pairwise_signed: 0.0789}
+      USD_majors_6: {k: 6, n_obs: 30233, lambda_max: 3.9853, PC1: 0.6642, rho_bar_eff: 0.5971, N_eff: 1.506, mean_pairwise_signed: 0.0229}
+      USD_majors_5_ref: {k: 5, n_obs: 30384, lambda_max: 3.2195, PC1: 0.6439, rho_bar_eff: 0.5549, N_eff: 1.553, mean_pairwise_signed: -0.0777}
+      ALL_6_cycle1_ref: {k: 6, n_obs: 30243, lambda_max: 3.2496, PC1: 0.5416, rho_bar_eff: 0.4499, N_eff: 1.846, mean_pairwise_signed: 0.0272}
+    NZDUSD_pairwise_corr: {AUDUSD: 0.875, EURUSD: 0.661, GBPUSD: 0.685, USDCAD: -0.684, USDJPY: -0.415, EURJPY: 0.125}
+    deltas:
+      USD5_to_USD6_adding_NZDUSD: "PC1 +0.0203; rho_bar_eff +0.0422; N_eff -0.048 (concentration WORSENS)"
+      ALL6_to_ALL7_adding_NZDUSD: "PC1 +0.0318; rho_bar_eff +0.0524; N_eff -0.102 (concentration WORSENS)"
+    spot_check: "independent-review claimed all-7 PC1~0.573; computed 0.5734 -> CONFIRMED"
+    F002_disclosure: >
+      rho_bar_eff (eigenvalue concentration, sign-blind) is DIFFERENT from mean signed pairwise
+      correlation (ALL-7 +0.079; USD-5 -0.078). Signed mean is FORBIDDEN as the G5 gate stat
+      (it cancels for sign-mixed USD universes -> false independence). Both differ from the TRUE
+      PnL-contribution gate statistic. Raw-return proxy is conservative; 0.50-0.60 >> 0.41 gate.
+
+  R3_cd0_screen_NZDUSD:
+    bar: "PASS>=1.76 / STRETCH>=1.44 net annualized Sharpe; sqrt(6150) annualization"
+    cost: "per-side half-spread(spread_median/2) + 0.25 slip + 0.15 Saxo haircut; pip 0.0001; RT=1.90 pips; charged per position change"
+    results:
+      F1_hourly_reversal:     {gross_SR: 0.5070, net_SR: -9.5465, n_trades: 15726, verdict: FAIL}
+      F2_session_open_mom:    {gross_SR: -1.5049, net_SR: -7.8287, n_trades: 7145, verdict: FAIL}
+      F3_intraday_mom_3:      {gross_SR: -1.3021, net_SR: -6.6845, n_trades: 8499, verdict: FAIL}
+      F4_vol_breakout:        {gross_SR: -0.6489, net_SR: -9.4265, n_trades: 7725, verdict: FAIL}
+      F5_london_am_drift:     {gross_SR: 0.9889, net_SR: -2.1931, n_trades: 2590, verdict: FAIL}
+      F6_spread_filt_reversal:{gross_SR: 0.6597, net_SR: -7.4878, n_trades: 6092, verdict: FAIL}
+    summary: "All 6 NZDUSD families FAIL net SR; best net F5=-2.19; none reach STRETCH 1.44. Cumulative cycle1+2: ALL 24 pair x family FAIL."
+
+firewall_self_review: "approve - zero-budget descriptive screen; no param search; no OOS; no winner-picking; no-lookahead via shift(1); verdicts are mechanical thresholds; interpretation delegated to HoQR."
+knowledge_gaps:
+  - "F1-F6 specs reconstructed from cycle-1 CONSENSUS prose (no frozen code artifact); FAIL verdict robust to plausible spec variation."
+  - "rho_bar_eff is raw-return proxy, not the true PnL-contribution gate stat (no signal series exists pre-pre-reg); conservative direction."
+policy_violations_detected: []
+sources:
+  - data/processed/NZDUSD_1h.parquet
+  - data/processed/{AUDUSD,EURJPY,EURUSD,GBPUSD,USDCAD,USDJPY}_1h.parquet
+  - config/data_quality_gates_1h.yaml
+  - .fintech-org/artifacts/2026-06-19-3pairs-landed/CONSENSUS.md

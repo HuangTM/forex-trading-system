@@ -1,0 +1,216 @@
+role: principal-reviewer
+artifact_type: review-report
+decision: reject
+timestamp: "2026-06-22"
+subtask_id: cycle2-focused-verification-F001-F002
+artifact-under-review:
+  description: >
+    Cycle-2 rework claimed to close the two MAJOR findings (F-001, F-002) I raised in cycle-1
+    of the 3pairs/6pairs intraday-universe review. Verification-only pass (NOT a fresh rubric pass).
+  claimed_artifacts:
+    - "QD cycle-2 factor-structure + CD0 rerun INCLUDING NZDUSD (closure evidence for F-001)"
+    - "HoQR re-issued C2 (REMAIN-FROZEN, strengthened) and C4 (acquire crosses not USD-majors)"
+    - "QD dual-disclosure of rho_bar_eff vs mean-signed-corr (closure evidence for F-002)"
+  artifacts_actually_found_on_disk:
+    - ".fintech-org/artifacts/2026-06-22-6pairs-landed/nht-null-test-report.yaml (NHT, NOT QD/HoQR)"
+    - ".fintech-org/artifacts/2026-06-19-3pairs-landed/CONSENSUS.md (cycle-1 consensus)"
+  data_inspected_independently:
+    - "data/processed/NZDUSD_1h.parquet (31,024 bars)"
+    - "data/processed/{AUDUSD,EURJPY,EURUSD,GBPUSD,USDCAD,USDJPY}_1h.parquet"
+
+rubrics-applied:
+  - "spec-to-implementation-trace: applied (traced each F-001/F-002 closure claim to an on-disk artifact)"
+  - "numerical/statistical-correctness: applied (independently recomputed factor structure from raw parquet)"
+  - "execution-firewall-review: skipped because no implementation-class code artifact was placed in scope this cycle"
+  - "log-as-decision-trace: skipped because no logging/observability change in scope"
+  - "edge-case-enumeration: skipped because no code artifact in scope"
+  - "invariant-search: partially applied (G5 gate-stat invariant: gate must be sign-blind rho_bar_eff, not signed mean)"
+  - "test-inversion: skipped because no test artifact in scope"
+  - "failure-mode-reasoning: applied to the verification process itself (missing-artifact failure mode)"
+
+contamination-check: "clean"
+# Prompt delivered the cycle-1 decision (my own prior reject + two MAJOR findings) and the
+# claimed closure evidence. It did NOT deliver any OTHER role's approval/reject stance on the
+# cycle-2 rework, nor any author self-review. Receiving my own prior findings is the defined
+# input for a verification pass and does not constitute contamination.
+
+assumptions:
+  - "The 'closure evidence' numbers quoted in my prompt are the QD/HoQR cycle-2 claims; I treat them as claims-to-verify, not as established fact."
+  - "USD-5 (prompt) excludes NZDUSD; USD-majors-6 includes it. The prompt's USD-5 signed-mean (-0.078) was not independently recomputed (subset not specified to me)."
+  - "N_eff in my independent check uses the participation ratio (sum-lambda)^2 / sum(lambda^2); the artifacts may use a different breadth definition."
+
+confidence: high
+# High that the factor-structure NUMBERS in the closure evidence are data-corroborated.
+# High that the QD/HoQR cycle-2 rework artifacts are absent from disk and from my context.
+
+body: >
+  This is a focused verification pass on whether cycle-1 findings F-001 (NZDUSD on disk but
+  excluded; C2/C4 reasoned about it as un-acquired) and F-002 (rho_bar_eff proxy vs mean-correlation
+  disclosure) are now closed by cycle-2 rework. I did NOT re-open settled cycle-1 conclusions.
+
+  TWO LAYERS to the verdict, and they point in opposite directions:
+
+  (1) The NUMBERS hold. I independently recomputed the factor structure from the raw 1h parquet for
+  all seven pairs on disk (AUDUSD, EURJPY, EURUSD, GBPUSD, NZDUSD, USDCAD, USDJPY; 30,093 aligned
+  log-return bars). The closure-evidence headline numbers reproduce almost exactly:
+    - USD-majors-6: PC1 = 0.664 (claim 66.4%), rho_bar_eff = 0.597 (claim 0.597) -- MATCH.
+    - ALL-7: PC1 = 0.573 (claim 57.3%; my cycle-1 spot-check 0.5734 -> I compute 0.5734), rho_bar_eff = 0.502 (claim 0.502) -- MATCH.
+    - NZDUSD pairwise corr: +0.875 AUDUSD (claim +0.875), +0.125 EURJPY (claim +0.125) -- MATCH.
+    - ALL-7 mean signed pairwise corr = +0.079 (claim +0.079) -- MATCH.
+    - NZDUSD_1h.parquet = 31,024 bars (claim 31,024) -- MATCH.
+  The data fully substantiates the substantive content of F-001's closure (NZDUSD WAS folded into a
+  re-run factor computation, with correct, reproducible numbers) and F-002's closure (sign-blind
+  rho_bar_eff = 0.597/0.502 and the signed mean +0.079 ARE different quantities, demonstrably so).
+
+  (2) The ARTIFACTS are missing. The two artifacts whose closure I was asked to verify -- the QD
+  cycle-2 factor-structure + CD0 rerun, and HoQR's re-issued C2/C4 -- DO NOT EXIST on disk and were
+  NOT provided in my context. The only cycle-2 artifact present in 2026-06-22-6pairs-landed/ is the
+  NHT null-test report. I cannot trace a closure claim to an artifact that is not in scope. Worse,
+  the one cycle-2 artifact that IS present reports a DIFFERENT universe with DIFFERENT numbers than
+  the closure evidence: NHT cites rho_bar_eff = 0.555 at k=5 / 0.545 at k=3, N_eff = 1.55, and an
+  EURJPY 18-combo CD0 (best net F2 = -0.87), whereas the closure evidence cites USD-6 rho_bar_eff =
+  0.597 / N_eff 1.51, ALL-7 0.502 / N_eff 1.74, and an NZDUSD CD0 (best net F5 = -2.19). These are
+  not reconcilable as the same computation. The NZDUSD CD0 net-SR claim (all 6 families fail, best
+  -2.19; 24 pair-family combos fail) is NOT independently verifiable from any artifact on disk -- the
+  trials.jsonl CD0-3major-prescreen entry covers a 3-major / 18-combo space, not the NZDUSD/24-combo
+  space the closure claims.
+
+  Per my role's approve_when gate, approval requires "all-prior-blocking-findings... have been
+  addressed" AND "evidence-cited-for-every-claim-in-the-artifact-under-review" AND the artifact be
+  "traced to an acceptance criterion." The closure CLAIMS cannot be traced to artifacts in scope.
+  A verification pass cannot ratify closure of a finding against an artifact that is absent, even when
+  the underlying numbers happen to reproduce -- because the re-issued C2/C4 WORDING (REMAIN-FROZEN,
+  "acquire crosses not USD-majors", g5_proxy_note) is exactly the deliverable that must be inspected,
+  and it is not present. Numbers reproducing is necessary but not sufficient: I cannot confirm the
+  HoQR conclusions were actually re-written to cite them, nor that the g5_proxy disclosure language
+  was retained, because those documents are not on disk.
+
+findings:
+  - id: F-001
+    refers_to: "cycle-1 MAJOR: NZDUSD already on disk but excluded; C2/C4 reasoned about it as un-acquired"
+    severity: major
+    category: spec-drift
+    closure-status: partially-closed
+    location: "claimed QD cycle-2 factor-structure rerun (NOT FOUND); data/processed/NZDUSD_1h.parquet (FOUND)"
+    observation: >
+      NZDUSD_1h.parquet (31,024 bars) exists and I independently recomputed it INTO the factor
+      structure: USD-6 PC1=0.664/rho_eff=0.597, ALL-7 PC1=0.573/rho_eff=0.502, NZDUSD +0.875 AUDUSD
+      / +0.125 EURJPY -- all matching the closure evidence. However, the QD artifact that supposedly
+      performed this rerun, and the HoQR C2/C4 re-issued to cite it, are absent from disk and from my
+      context. The only cycle-2 artifact present (NHT) reasons about a DIFFERENT k=5 universe and does
+      not include NZDUSD as a 7th leg or the NZDUSD CD0.
+    inference: >
+      The substantive defect (excluding an on-disk pair) appears corrected at the data/computation
+      level -- the numbers are real and reproducible. But "the finding is closed" cannot be asserted
+      because the deliverable that closes it (a QD rerun document and re-issued C2/C4 conclusions) is
+      not reviewable. The NZDUSD CD0 net-SR claims (all 6 families fail, best -2.19; cumulative 24
+      pair-family fail) are entirely unverifiable from any artifact on disk; the only on-disk CD0
+      record (trials.jsonl) is the 3-major/18-combo prescreen, a different scope.
+    evidence:
+      - "Independent recompute: USD-6 rho_eff=0.597, ALL-7 rho_eff=0.502, NZDUSD corr +0.875 AUDUSD / +0.125 EURJPY (matches closure evidence)"
+      - "ls .fintech-org/artifacts/2026-06-22-6pairs-landed/ -> only nht-null-test-report.yaml; no QD or HoQR artifact"
+      - "grep for CD0/-2.19/REMAIN-FROZEN/'acquire cross' across .fintech-org/ -> no cycle-2 QD/HoQR hit"
+      - ".fintech-org/trials.jsonl CD0-3major-prescreen entry = 18 combos, 3 majors, NOT NZDUSD/24-combo"
+    recommended-action-class: escalate-to-owning-role
+    owning-role: "head-of-quant-research (re-issued C2/C4) + quant-developer (factor/CD0 rerun artifact)"
+
+  - id: F-002
+    refers_to: "cycle-1 MAJOR: rho_bar_eff proxy vs mean-correlation disclosure"
+    severity: major
+    category: numerical
+    closure-status: partially-closed
+    location: "claimed QD dual-disclosure + HoQR C2 g5_proxy_note (NOT FOUND on disk)"
+    observation: >
+      The two quantities the disclosure must separate are independently confirmed to be DIFFERENT:
+      sign-blind rho_bar_eff = (lambda_max - 1)/(k-1) = 0.502 (ALL-7) / 0.597 (USD-6), while the mean
+      signed pairwise correlation = +0.079 (ALL-7). They differ in both magnitude and meaning, exactly
+      as a correct disclosure would state, and signed-mean is correctly NOT the G5 gate stat. BUT the
+      artifact carrying this dual disclosure, and HoQR's C2 g5_proxy_note restating it, are not on disk.
+      I verified the NUMBERS support the disclosure; I could not verify the DISCLOSURE TEXT exists.
+    inference: >
+      The mathematical basis of the disclosure is sound and reproducible. The closure of F-002,
+      however, is specifically a DOCUMENTATION/disclosure finding -- whether the proxy caveat and the
+      "signed-mean is FORBIDDEN as the G5 gate stat" statement are actually written down. That can
+      only be confirmed by reading the document, which is absent. A correct number does not by itself
+      close a disclosure finding.
+    evidence:
+      - "Independent recompute: rho_bar_eff(ALL-7)=0.502 vs mean_signed_corr(ALL-7)=+0.079 -- confirmed distinct quantities"
+      - "git log shows commit 86f53f4 'correct the pooling rho_bar to eigenvalue/sign-blind (rubric G5)' -- the gate-stat fix is in the codebase"
+      - "No QD dual-disclosure artifact or HoQR g5_proxy_note found in 2026-06-22-6pairs-landed/ or 2026-06-19-3pairs-landed/"
+    recommended-action-class: escalate-to-owning-role
+    owning-role: "quant-developer (dual-disclosure artifact) + head-of-quant-research (C2 g5_proxy_note)"
+
+new_defect_introduced_by_cycle2:
+  status: "one INCONSISTENCY surfaced, severity major (not blocking)"
+  id: F-003
+  severity: major
+  category: correctness
+  location: ".fintech-org/artifacts/2026-06-22-6pairs-landed/nht-null-test-report.yaml vs closure-evidence numbers"
+  observation: >
+    The on-disk cycle-2 NHT report and the prompt's closure evidence describe DIFFERENT universes and
+    DIFFERENT numbers for what should be the same cycle-2 factor computation. NHT: rho_eff=0.555 (k=5)
+    / 0.545 (k=3), N_eff=1.55, EURJPY-18-combo CD0 best net F2=-0.87. Closure evidence: USD-6
+    rho_eff=0.597 / N_eff=1.51, ALL-7 rho_eff=0.502 / N_eff=1.74, NZDUSD CD0 best net F5=-2.19. My
+    independent recompute matches the CLOSURE numbers (rho_eff 0.597/0.502), NOT the NHT k=5 number
+    (0.555) -- I get no k=5 set producing 0.555 among the 6 USD pairs (USD-6 = 0.597). Separately,
+    N_eff is reported three different ways (closure 1.51/1.74, NHT 1.55, my participation-ratio
+    2.12/2.53), indicating no single frozen N_eff definition across artifacts.
+  inference: >
+    Either (a) the NHT report reviewed an EARLIER/different data slice (k=5, before NZDUSD landed as a
+    full leg), making it stale relative to the QD rerun, or (b) the two roles used inconsistent
+    universe definitions in the same cycle. Both are reconciliation gaps a consensus must not paper
+    over. This is not blocking (no live capital, the qualitative conclusion -- breadth fails the G5
+    gate, CD0 net-negative, NO-SPEND -- is robust to all three number sets), but it must be reconciled
+    before the cycle-2 numbers are cited as the firm's record.
+  evidence:
+    - "NHT report deciding_number: 'rho_bar_eff = 0.555 at k=5 vs 0.545 at k=3'"
+    - "Closure evidence: USD-6 rho_eff=0.597, ALL-7 rho_eff=0.502"
+    - "Independent recompute: USD-6=0.597, ALL-7=0.502 (no k=5 -> 0.555 reproduced)"
+    - "N_eff divergence: 1.51/1.74 (closure) vs 1.55 (NHT) vs 2.12/2.53 (participation ratio) -- definition not frozen"
+  recommended-action-class: clarify-spec
+  owning-role: "head-of-quant-research (reconcile universe + freeze single N_eff definition)"
+
+coverage-statement: >
+  I reviewed the closure evidence for 2 of 2 in-scope findings (F-001, F-002). I independently
+  recomputed the factor structure from 7 raw 1h parquet files to test the closure numbers. I located
+  1 of the ~3 claimed cycle-2 artifacts on disk (the NHT report); the QD factor/CD0 rerun and the
+  re-issued HoQR C2/C4 were NOT found and could not be reviewed. No artifact was skipped under time
+  pressure; the gap is artifact-absence, not reviewer triage.
+
+decision: reject
+decision_rationale: >
+  REJECT (residual, non-blocking). Both findings are PARTIALLY-CLOSED, not closed: the underlying
+  numbers reproduce exactly against the raw data (strong corroboration), but the deliverables that
+  actually close the findings -- the QD factor/CD0 rerun artifact and the re-issued HoQR C2/C4 with
+  the g5_proxy_note -- are absent from disk and from my context, so closure cannot be ratified. A
+  verification pass cannot approve closure against artifacts it cannot read; numbers reproducing is
+  necessary but not sufficient when the finding is partly about whether the conclusions/disclosure
+  were actually re-written. Additionally, cycle-2 introduced ONE new MAJOR (non-blocking)
+  inconsistency (F-003): the on-disk NHT report and the closure evidence cite irreconcilable universes
+  and N_eff definitions for the same cycle. ZERO BLOCKING findings -- the qualitative conclusions
+  (breadth fails the G5 gate; CD0 net-negative; NO-SPEND) are robust across all number variants and
+  there is no live-capital exposure. To convert this to APPROVE: place the QD rerun artifact and the
+  re-issued C2/C4 in scope for re-review, and reconcile the F-003 universe/N_eff discrepancy.
+
+knowledge_gaps:
+  - "QD cycle-2 factor-structure + CD0 rerun artifact: not on disk; NZDUSD CD0 net-SR (-2.19, 24-combo fail) unverifiable."
+  - "HoQR re-issued C2 (REMAIN-FROZEN) and C4 (acquire crosses): not on disk; strengthened wording and g5_proxy_note unverifiable."
+  - "Whether NHT k=5/rho_eff=0.555 reflects a pre-NZDUSD slice or a different universe definition (F-003)."
+  - "The frozen definition of N_eff (three values cited across artifacts; participation-ratio gives 2.12/2.53)."
+  - "USD-5 signed-mean (-0.078) subset definition was not independently recomputed (subset membership unspecified to me)."
+
+policy_violations_detected: []
+
+sources:
+  - "/Users/huangtm/.claude/skills/fintech-org/roles/principal-reviewer.md (role spec)"
+  - "data/processed/{AUDUSD,EURJPY,EURUSD,GBPUSD,NZDUSD,USDCAD,USDJPY}_1h.parquet (independent factor recompute)"
+  - ".fintech-org/artifacts/2026-06-22-6pairs-landed/nht-null-test-report.yaml"
+  - ".fintech-org/artifacts/2026-06-19-3pairs-landed/CONSENSUS.md (cycle-1 consensus)"
+  - ".fintech-org/trials.jsonl (CD0-3major-prescreen entry, honest-N=30)"
+  - "git log (commit 86f53f4 sign-blind rho_bar fix)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true
+time-spent-reasoning: "~15 minutes (artifact search + independent factor recompute + cross-check vs NHT report)"

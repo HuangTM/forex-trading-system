@@ -1,0 +1,71 @@
+schema_version: 1.0
+artifact_type: ratification
+track_id: p3-intraday-orb-2026-05-30
+addressed_unit: p3-intraday-orb-2026-05-30:phase1:task1.0
+artifact_under_ratification:
+  path: ./docs/decisions/CONSENSUS_2026-05-30_p3_intraday_orb_design.md
+approver:
+  role_or_human: role
+  name: "cro, execution-trader, principal-reviewer"
+  authority_basis: "Distributed quorum under the autonomous default (v0.6.0) per protocols/distributed-ratification.md"
+decision:
+  outcome: ratified_with_dissent
+  rationale: >
+    Research-DESIGN package for intraday-classical strategy #3 (session-boundary ORB on FX majors).
+    PR cycle-1 issued BLOCK (5 findings); QR v2 rework closed all 5 blocking + 8 spec-drift findings.
+    PR cycle-2 focused verification = APPROVE (independently reproduced 3x; one opus run verified
+    engine.py:135/263 bar-index shift and trials.jsonl=35 against source). CRO quality-gate-review =
+    APPROVE (size_multiplier 1.0; all unconditional caps respected; 11 binding constraints carried).
+    ET quality-gate-review = APPROVE (cost treatment honest/adequate; 5 non-blocking impl-wave flags).
+    Quorum satisfied: 3 senior approvals; CRO present (risk domains detected); PR present (design
+    artifact). No architecture DECISION made this wave (intrabar-engine-path explicitly deferred to a
+    future implementation wave / CTO), so CTO sign-off not required for this design-stage ratification.
+    Forbidden-interim check clean (design-only, no live capital, no charter/vendor/capital-movement).
+    Cumulative-override breaker not fired (PR block->approve was the bounded rework loop, not an
+    override; 0 NHT overrides — NHT dissent is non-blocking material_concern). Cross-session check:
+    no prior ratification of this addressed_unit. NHT structural dissent attached and preserved verbatim.
+quorum_signers:
+  - role: principal-reviewer
+    quality_gate_review_path: ./.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/principal-reviewer-cycle2-review-report.yaml
+    decision: approve
+  - role: cro
+    quality_gate_review_path: ./.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/cro-quality-gate-review-v2.yaml
+    decision: approve
+  - role: execution-trader
+    quality_gate_review_path: ./.fintech-org/artifacts/2026-05-30T-p3-intraday-orb/execution-trader-quality-gate-review-v2.yaml
+    decision: approve
+quorum_basis:
+  detected_domains:
+    - position-sizing
+    - correlation-and-concentration-limits
+    - drawdown-contracts
+    - realized-slippage-budget
+    - transaction-cost-analysis
+    - spec-vs-implementation-drift-detection
+    - independent-design-review
+    - hypothesis-formulation-and-pre-registration
+    - data-snooping-and-look-ahead-prevention
+  required_roles: [cro]
+  required_roles_present: [cro]
+  cto_required: false
+  cto_required_basis: "engine-path / architecture decision explicitly DEFERRED to implementation wave; no architecture decision made this wave"
+cross_session_lookup:
+  searched_paths:
+    - .fintech-org/deferred-decisions.jsonl
+    - .agent-accountability/ratifications/
+    - .fintech-org/governance-log/
+  found: false
+  scanned_at: 2026-05-30T07:25:00Z
+linked_dissents:
+  - dissenter: null-hypothesis-tester
+    severity: material_concern
+    does_block: false
+    text_location: "docs/decisions/CONSENSUS_2026-05-30_p3_intraday_orb_design.md § Dissent (preserved verbatim)"
+scope_notes:
+  - "DESIGN-stage ratification only. NOT authorization to backtest, paper-trade, or deploy."
+  - "Three blocking IMPLEMENTATION prerequisites must clear before any backtest: KG-1 (intraday 15m data not in pipeline), KG-2 (no session-calendar module), KG-3 (no intrabar engine path)."
+  - "CRO kill-condition (reject if measured post-cost expectancy <= 0) and the DSR gate at org-wide N remain in force for the future backtest wave."
+  - "No backtest run; org trial count unchanged at 35. No live capital."
+accountable_party:
+  name: "fintech-org orchestrator (autonomous default)"
+  role_or_human: agent

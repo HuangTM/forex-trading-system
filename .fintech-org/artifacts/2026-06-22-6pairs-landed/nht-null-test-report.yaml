@@ -1,0 +1,179 @@
+role: null-hypothesis-tester
+artifact_type: null-test-report
+decision: noise-indistinguishable
+timestamp: "2026-06-22"
+trial_id: none
+counter_burned: false
+contamination-check: "clean"   # prompt delivered atomic claims + numeric evidence + trial count; no proposer narrative, no other-role approval stance, no market-will-behave rationale detected.
+
+claims-tested:
+  - id: A
+    text: "More 1h pair data brings the firm closer to a confirmable pooled USD-momentum edge (H1)."
+  - id: B
+    text: "EURJPY (the only diversifier, corr 0.18-0.37 to the EUR/GBP bloc) hosts an exploitable intraday edge."
+  - id: C
+    text: "This data drop warrants spending a trial-counter increment."
+
+org_trial_state:
+  trials_jsonl_lines: 51
+  honest_N_dsr_denominator: 30
+  last_entry: "CD0-3major-prescreen (2026-06-19), counts_toward_deflation_denominator=false"
+  this_cycle_budget: zero (no trial increment proposed)
+
+# ----------------------------------------------------------------------
+verdicts:
+
+  claim_A:
+    null_hypothesis: "More 1h USD-major data does NOT move H1 toward confirmability; the pooling-fraud failure mode (KILL-4/G5) is real and is made WORSE, not better, by adding correlated USD legs."
+    decision: NULL NOT-REJECTED   # the OPTIMISTIC framing of Claim A is rejected; the null (no progress toward confirmability) stands.
+    deciding_number: "sign-blind rho_bar_eff = 0.555 at k=5 vs 0.545 at k=3. Pre-declared gate: rho_bar <= 0.41 (H1 KILL-4 / confirmability_pass_conditions_measured_pre_slot). 0.555 > 0.41 by 0.145, and the GAP WIDENED with more data (0.545 -> 0.555)."
+    secondary_number: "N_eff = 1.55 effective bets out of 5 nominal. Breadth is the entire confirmability lever for H1 (<=2yr depends on it); 1.55 effective pairs cannot deliver the events/yr x per-event-IR the prereg requires."
+    interpretation: >
+      The data drop does the OPPOSITE of what Claim A asserts. The remaining USD-majors (NZDUSD,
+      USDCHF) are structurally dollar-correlated, so each new pair adds a near-redundant copy of the
+      same dollar factor, not an independent bet. Adding data raised the measured correlation and
+      lowered effective breadth. The prereg pre-registered THIS EXACT failure (reason-it-would-fail
+      #4: "pooling fraud -- shared USD/EUR legs push rho_bar > 0.41, collapsing effective-N"). It fired.
+
+  claim_B:
+    null_hypothesis: "EURJPY hosts NO net-of-cost exploitable intraday edge in the canonical-family space."
+    decision: NULL NOT-REJECTED   # claim B rejected; null stands.
+    deciding_number: "Best net F2 = -0.87 (negative). Best gross F5 = 0.71, collapses post-cost. STRETCH bar = 1.44; PASS bar = 1.76. All 18 (pair x family) combos FAIL even the STRETCH bar. Best NET result is -0.87, i.e. ~2.31 Sharpe below STRETCH and on the wrong side of zero."
+    interpretation: >
+      Diversification value (corr 0.18-0.37) is necessary but NOT sufficient: a diversifier with no
+      standalone edge contributes nothing tradeable. Every EURJPY family is net-negative; the one
+      gross-positive family (F5=0.71) is below STRETCH even BEFORE cost and dies after it. There is
+      no edge to diversify.
+
+  claim_C:
+    null_hypothesis: "Nothing in this data drop earns a trial-counter increment."
+    decision: NULL NOT-REJECTED   # claim C rejected; null stands. NO-SPEND affirmed.
+    deciding_number: "Highest result reaching ANY bar = none. Nothing >= PASS 1.76; nothing >= STRETCH 1.44. Best net Sharpe across the entire drop is NEGATIVE (EURJPY F2 = -0.87; all 18 combos fail). A trial increment burns DSR denominator capacity (honest-N 30) for zero candidate."
+    interpretation: >
+      Spending a counter increment requires at minimum a STRETCH-clearing candidate to confirm. There
+      is none. An increment here would inflate the deflation denominator (penalizing every future real
+      candidate) in exchange for nothing. NO-SPEND is the only calibrated action.
+
+# ----------------------------------------------------------------------
+kill_criterion_watch:
+  documented_failure_mode: "infra-excitement / 'more data, let's go' substituting for a confirmable hypothesis (HONEST-REVIEW 2026-05-31: kill-criterion tripped on infra, not insight)."
+  assessment: >
+    ELEVATED RISK, contained for now. Claim A is the textbook shape of this failure mode: a
+    capability acquisition (more 1h pairs) being narrated as research progress. The honest numbers
+    say the acquisition made the binding gate (rho_bar) WORSE. Any role tempted to recommend
+    "keep pulling data -> H1 will get there" is reasoning from infra-momentum, not evidence: the
+    confirmability lever (breadth) is moving the wrong way. The org's own MEMORY documents a
+    DATASET-WALL finding -- 12 daily pairs / limited 4h / zero volume cap events/yr x per-event-Sharpe.
+    This drop is consistent with that wall, not an escape from it. No role's recommendation should
+    treat "we now have more 1h pairs" as itself a result. The result is: the gate still fails.
+
+methodological_soft_spots:
+  - id: i
+    topic: "rho_bar_eff is a raw-return EIGENVALUE PROXY, not the prereg's PnL/signal-contribution gate statistic."
+    finding: >
+      The H1 prereg defines the gate as "measured mean cross-pair SIGNAL correlation, k=8" (rho_bar <= 0.41).
+      The evidence supplied is a raw-RETURN eigenvalue proxy. These are not the same statistic.
+    does_it_change_verdict_on_A: "NO -- and it makes the verdict SAFER, not weaker."
+    reasoning: >
+      The proxy could in principle over- OR under-state the true signal correlation. But it does not
+      rescue Claim A for two reasons. (1) Even taking the proxy at face value it FAILS the gate by a
+      wide margin (0.555 vs 0.41) AND the direction of change with more data is adverse. (2) For a
+      directional momentum signal, the signal IS a (sign/threshold) transform of returns, so raw-return
+      correlation is a reasonable LOWER-information proxy for signal correlation, and the structural
+      driver (shared USD leg) is identical for both. The honest fix is to RE-MEASURE the gate statistic
+      exactly (request below) before any PASS could ever be claimed -- but a proxy that already fails
+      cannot be used to ARGUE PASS. Using an in-spec proxy to NOT-REJECT the null is conservative and
+      permitted; using it to reject the null would not be. We are doing the former.
+  - id: ii
+    topic: "CD0 / canonical-family screen is an IN-SAMPLE OPTIMISTIC upper bound."
+    finding: "The all-FAIL result is in-sample. Out-of-sample it gets STRONGER, not weaker."
+    reasoning: >
+      In-sample = best case (no OOS decay, single fixed spec but on the development window). If the
+      OPTIMISTIC upper bound is already net-NEGATIVE and below STRETCH for all 18 combos, OOS performance
+      can only be <= in-sample in expectation (decay, regime shift, cost realization). The negative
+      verdict is therefore robust: an upper bound that fails is a stronger kill than a point estimate
+      that fails. This directly corroborates trial-48 and the CD0-3major prescreen.
+  - id: iii
+    topic: "gross-positive-but-cost-dominated pattern (e.g. USDCAD F1 gross 1.05; EURJPY F5 gross 0.71) -- any honest door left open?"
+    finding: "NO honest door at current cost assumptions. One NARROW, NON-PROMOTABLE research note only."
+    reasoning: >
+      A gross-positive / net-negative result means raw directional structure may exist but is entirely
+      consumed by transaction cost. This is NOT a tradeable edge and is NOT a STRETCH candidate -- the
+      bar is NET. The only honest, non-spend follow-up (NOT a claim, NOT a trial) is: cost is the binding
+      constraint, so the question is execution/cost, not signal. Gross 1.05 (USDCAD F1) is the single
+      largest gross figure; if and only if a credibly CHEAPER execution path were demonstrated by the
+      execution trader (lower realized round-trip than session-aware p90), the gross structure could be
+      RE-SCREENED net. That is a hypothesis about COSTS, not a rescue of the current claims, and it does
+      not justify a counter increment now. Absent a demonstrated cost reduction, gross-positive is noise-
+      for-trading-purposes. Door stays shut.
+
+C5_confirmation:
+  no_implicit_trial_spend: true   # zero-budget affirmed; no candidate reached a bar; counter must NOT increment.
+  no_stretch_to_pass_promotion: true   # nothing even reached STRETCH; there is nothing to promote.
+  note: "If any descriptive log is written for this drop it MUST carry counts_toward_deflation_denominator=false, matching the CD0-3major-prescreen precedent."
+
+tests_i_would_request_before_any_future_PASS_claim:
+  route_to: quant-developer
+  # I do not run code (python forbidden). These are the specs that would have to pass BEFORE H1 could
+  # ever be called confirmable -- none are satisfied by this drop.
+  - "Re-measure the EXACT prereg gate statistic: mean cross-pair SIGNAL correlation (not raw-return proxy) over the frozen H1 universe at realized k, with the same sign convention. Report rho_bar and resulting N_eff and years_to_validate. (Closes soft-spot i.)"
+  - "Matched-random benchmark: random-entry trades, same instruments / same 3-bar hold / same session filter / same p90 cost. If random achieves >= the best net family Sharpe, the family is noise. (Expected: random ~= the strategies, since best net < 0.)"
+  - "Permutation test: shuffle the momentum-sign label within each open-hour class, rerun the 18 combos. Report fraction of shuffles achieving net Sharpe >= the observed best. (p-value for the gross structure being directional vs artifact.)"
+  - "Cost-sensitivity curve per gross-positive family (USDCAD F1, EURJPY F5): net Sharpe as a function of realized round-trip cost from p90 down to a CRO-attested floor. Identifies the cost at which gross structure (if real) would clear NET STRETCH -- a COST hypothesis, not a signal PASS."
+
+evidence:
+  - "Org trial state: .fintech-org/trials.jsonl = 51 lines; honest-N (DSR denom) = 30; last entry CD0-3major-prescreen, counts_toward_deflation_denominator=false (verified via tail)."
+  - "H1 prereg gate definitions: .fintech-org/artifacts/2026-06-16-prep-plan/qr-h1-prereg.yaml -- KILL-4 pooling-fraud/effective-N (G5), rho_bar <= 0.41, KILL-2 cost-domination, universe = 8 majors, honest_N=1, pre-registered failure reasons #3 (cost) and #4 (pooling fraud)."
+  - "CD0 trial-48-corroborating screen narrative: trials.jsonl last entry -- all 18 pair-family net-negative, costs flip every family, max gross SR 1.90 (USDJPY vol-breakout)."
+  - "Claim evidence (supplied): A) rho_bar_eff 0.555@k5 vs 0.545@k3, N_eff=1.55/5; B) EURJPY best net F2=-0.87, best gross F5=0.71, all 18 fail 1.44; C) nothing >= 1.76, nothing >= 1.44."
+
+assumptions:
+  - "The supplied numeric evidence (rho_bar_eff, N_eff, family Sharpes) is reported honestly and is in-sample/optimistic as stated; I did not re-run it (python forbidden to this role)."
+  - "Bars PASS=1.76 / STRETCH=1.44 are the frozen, pre-declared thresholds for this space (consistent with CD0 entry and prep-plan rubric)."
+  - "rho_bar gate 0.41 is the frozen H1 confirmability pre-condition (verified in qr-h1-prereg.yaml)."
+
+knowledge_gaps:
+  - "The exact prereg gate statistic (signal correlation, k=8 full universe) was NOT measured in this drop -- only a raw-return eigenvalue PROXY at k=3/k=5. The proxy fails, but the canonical statistic remains unmeasured. This is a gap for a future PASS attempt, not for this NOT-REJECT."
+  - "Per-family permutation / matched-random benchmarks were not supplied; the net-negative result makes them non-load-bearing for the current NO-SPEND, but they would be required before any PASS."
+
+confidence: high
+# Two of three nulls fail the binding gate by margins that are unambiguous and on the wrong side
+# of zero (B, C) or the wrong side of the threshold AND moving adversely (A). The in-sample-optimistic
+# nature of the screen makes the negative verdict conservative.
+
+dissent-statement: |
+  I CONCUR with NO-SPEND and I AFFIRM the zero-budget track. No dissent against a NO-SPEND
+  recommendation -- that recommendation matches the evidence exactly.
+
+  I REGISTER PRE-EMPTIVE DISSENT (append-only, severity material_concern) against any role
+  recommendation, present or future, that frames this data drop as PROGRESS toward H1 confirmability.
+  The evidence is the opposite of progress: the binding pooling gate rho_bar_eff moved from 0.545
+  to 0.555 (gate is 0.41) as USD-majors were ADDED, and effective breadth is 1.55 bets out of 5.
+  More USD-correlated data makes H1 LESS confirmable, not more, because breadth -- the only lever
+  that buys the <=2yr confirmability window -- is collapsing. Restating Claim A's optimistic
+  framing in any consensus artifact would be exactly the documented kill-criterion failure mode
+  (infra-excitement substituting for a confirmable hypothesis, HONEST-REVIEW 2026-05-31) and would
+  be inconsistent with the org's own DATASET-WALL finding.
+
+  I FURTHER DISSENT (severity note) against any treatment of the gross-positive / net-negative
+  families (USDCAD F1 gross 1.05; EURJPY F5 gross 0.71) as a partial win or a STRETCH candidate.
+  The bar is NET. Net is negative. Gross-positive-but-cost-dominated is, for trading purposes,
+  noise. The ONLY honest follow-up it supports is a COST hypothesis (can realized round-trip be
+  driven below p90?), owned by execution -- not a signal claim, and not a counter increment.
+
+  C5 affirmed: no implicit trial spend, no STRETCH->PASS promotion, counter does not increment,
+  any descriptive log of this drop must carry counts_toward_deflation_denominator=false.
+
+severity: material_concern
+
+policy_violations_detected: []
+
+sources:
+  - "/Users/huangtm/.claude/skills/fintech-org/roles/null-hypothesis-tester.md (role spec)"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/trials.jsonl (trial count + CD0 entry)"
+  - "/Users/huangtm/Projects/forex-trading-system/.fintech-org/artifacts/2026-06-16-prep-plan/qr-h1-prereg.yaml (H1 gate definitions)"
+
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+no-capital-instruction: true

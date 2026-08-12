@@ -1,0 +1,76 @@
+role: principal-reviewer
+artifact_type: review-report
+cycle: 1
+timestamp: "2026-06-23T00:47:16Z"
+decision: reject   # 2 major, 0 blocking; reject on evidentiary support/disclosure, NOT on screen correctness
+contamination-check: clean
+no-capital-instruction: true
+web_research_conducted: false
+websearch_used: 0
+webfetch_used: 0
+provenance: "Persisted by orchestrator from PR cycle-1 inline return."
+
+reproductions_that_MATCH:
+  - "USDCAD F1 gross SR 1.054 (artifact 1.05) - MATCH"
+  - "EURJPY F2 net SR -0.872 (artifact -0.87) - MATCH"
+  - "All 18 pair x family net SR < 0; none >= 1.44 - MATCH (verdict reproducible)"
+  - "D2 all-6 PC1 0.542, USD-5 PC1 0.644, inner-join 30,243 bars - EXACT MATCH"
+  - "rho_bar_eff 0.450/0.555, N_eff 1.845/1.553 via (lambda_max-1)/(k-1) - MATCH"
+  - "C1 gap: one 73h gap per new pair ending 2024-01-01 (New Year) - MATCH"
+
+body: >
+  Load-bearing computation is REPRODUCIBLE and DIRECTIONALLY CORRECT. No-lookahead preserved across
+  F1-F6; where the spec is over-cautious (F5 double-lag, F4 rolling shift) the error is SAFE (can only
+  understate gross -> FAIL stronger). Cost model and annualization correct; cost-domination supported
+  (~1 flip/bar at 1h). NO blocking compute defect; NO-SPEND/REMAIN-FROZEN conservatively supported.
+  The reject is on DECISION-CONTENT evidentiary support and disclosure (C2/C4 vs NZDUSD; proxy units).
+
+findings:
+  - id: F-001
+    severity: major
+    category: correctness
+    observation: "NZDUSD_1h.parquet (31,024 bars) is on disk but excluded from D2/D3; C2/C4 cite NZDUSD as 'remaining USD-major' to justify acquire-crosses. Claim asserted on data that exists but was not run. Spot-check: adding NZDUSD raises all-7 PC1 0.542->0.573 (consistent with thesis, but QD did not run it)."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-developer
+  - id: F-002
+    severity: major
+    category: numerical
+    observation: "rho_bar_eff 0.450/0.555 is eigenvalue concentration; actual mean pairwise corr is ~0 (0.027 / -0.078). Conservative for a freeze, but proxy-vs-gate unit disclosure must be sharpened so a reader does not read 0.450 vs 0.41 as comparable units."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-003
+    severity: minor
+    category: spec-drift
+    observation: "F5 spec 'sign(ret[t-1]); shift(1)' = effective 2-bar lag; single-lag reading gives gross 0.05 vs double-lag 0.71 (EURJPY). As-written is no-lookahead-SAFE; both FAIL net; verdict unaffected."
+    recommended-action-class: clarify-spec
+    owning-role: quant-developer
+  - id: F-004
+    severity: minor
+    category: correctness
+    observation: "1h parquets carry fully-populated volume (nonzero frac 1.000); the standing 'ZERO volume' dataset-wall narrative is stale for the 1h tier. Volume-conditioned families not screened."
+    recommended-action-class: escalate-to-owning-role
+    owning-role: quant-developer
+  - id: F-005
+    severity: minor
+    category: test-coverage-gap
+    observation: "No QD source script/unit test; 'all-6' universe membership implicit; a 7th 1h file (NZDUSD) exists -> universe ambiguity. Pin universe + family params to a runnable spec; add explicit no-lookahead assertion."
+    recommended-action-class: add-test
+    owning-role: quant-developer
+  - id: F-006
+    severity: nit
+    category: edge-case
+    observation: "F2 3-bar hold and F4 rolling-24h checked: 07:00 vs 13:00 fires are 6h apart (no overlap); rolling(24).max().shift(1) used. Clean."
+    recommended-action-class: other
+    owning-role: quant-developer
+
+decision_rationale: "REJECT driven by F-001/F-002 (decision-content support/disclosure). NEITHER is a blocking compute defect; NO-SPEND verdict holds. Route majors to quant-developer for NZDUSD-inclusion rerun + proxy disclosure, then re-review. honest-N=30 preservation correct."
+confidence: high
+knowledge_gaps:
+  - "Not given formal definition of the 0.41 PnL-contribution gate; cannot certify proxy is conservative against it, only that rho_bar_eff != mean pairwise corr."
+  - "No QD source script provided; reproductions encode reading of prose specs."
+  - "USDCHF has no 1h file on disk; could not assess C2 claim about USDCHF."
+policy_violations_detected: []
+sources:
+  - data/processed/{AUDUSD,USDCAD,EURJPY,EURUSD,GBPUSD,USDJPY,NZDUSD}_1h.parquet
+  - CLAUDE.md
+  - .claude/skills/fintech-org/roles/principal-reviewer.md

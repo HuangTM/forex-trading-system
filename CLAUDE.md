@@ -64,3 +64,26 @@ The backtester shifts signals by `entry_delay_bars` (default 1) so signals at ba
 - **Immutable domain types**: `Direction`, `PairInfo`, `Trade`, `BacktestResult` are frozen dataclasses.
 - **Pure functions**: indicators and transforms have no side effects.
 - **Ruff**: line length 100, target Python 3.11.
+
+## Memory — 2026-08-17 Independent Audit & Fix Cycle
+
+Independent code-level audit (6 areas) + fixes, commits `2b50dd9` (data) / `9a11be6` (wiring).
+
+**Fixed defects (do not re-litigate):**
+- 3 daily pairs were SYNTHETIC (AUDUSD/USDCAD/EURGBP); replaced with real HistData M1→daily data, quarantined at `data/raw/quarantine_fake_daily_2026-08-17/`, range bounds now enforced in `storage.py`. Provenance: `references/histdata_daily_PROVENANCE.md`.
+- JPY rates were frozen at 2017-04; rebuilt through 2026-06, `rate_differentials.parquet` regenerated (12 cols), provenance in `references/rates_PROVENANCE.md`.
+- USDJPY 4h spreads were in pipettes; fixed via `scripts/fix_usdjpy_4h_spread_units.py`. `saxo/history.py` pip heuristic replaced with pair-based rule.
+- `allow_shorts` was parsed but never forwarded (M1/M2 basket ran long-only); now forwarded everywhere. Re-run: FAMILY_KILL **unchanged** — short legs improve economics but don't clear the 7.5-pip cost wall. Addenda in `references/pre-registrations/macd_cross.md` / `ema_cross.md`.
+- `ContinuousSizer` in continuous mode on JPY pairs carried ~1/150 intended risk (unit contract); new `usd_nominal=True` flag. `min_order_size` clipping is now loud (`n_clipped_to_zero`). R5 STEP-4 correction re-run: AMBIGUOUS_GATE_FAIL **unchanged**; see `references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.superseded.md`.
+
+**Known issues NOT yet fixed (audit backlog, by direction of bias):**
+- Fake-edge direction: no margin/liquidation simulation (equity can go negative and "recover"; max_dd clamps at 1.0); static time-invariant swap rates; script-level null gates use in-sample "held-out" tails + hardcoded DSR denominators; FEDFUNDS month-start publication-lag lookahead; no config sets `oos_holdout_start` so the one-shot OOS machinery is disarmed; `run_falsification_trial.py --dry-run` is a free OOS peek.
+- False-negative direction: rollover-aware swap silently charges 0 on non-1h bars; `run_walkforward` always runs discrete (vol_target_carry WF tests a degenerate strategy).
+- Ops: deploy gate (`assert_deployable`) wired in only 2 of 4 order-capable loops (`run_paper_trading_vt.py` and `run_paper_trading_carry_fred.py` lack it); kill-switch state not persisted in 2 loops; `data/paper_trading_session.log` is test-contaminated (mock rows indistinguishable from broker rows) — never cite it as evidence.
+
+**Pending governance decisions (user/CEO):**
+1. honest-N pins fail: 3 sacred tests assert N=30, ledger yields 32 — re-ratify or explain.
+2. Whether the R5 correction re-run formally supersedes the 2026-06-06 STEP-4 result.
+3. Bet #1 (`data/results/carry_fred_aggregate_2026-04-25.json`, "PASS Sharpe 0.796") was computed on the 3 fake pairs → VOID; re-run on real data is the only open empirical question with new information.
+
+**Test note:** `tests/saxo/test_rem6_429_hardening.py` takes ~9 min (real backoff sleeps); full `pytest tests/` will exceed 10 min.

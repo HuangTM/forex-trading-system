@@ -107,8 +107,8 @@ def main():
                 path = save_parquet(ohlcv, pair, horizon, args.data_dir)
                 print(f"  Saved: {path}")
 
-                # Save spread data if available
-                spread_stats = compute_spread_stats(df)
+                # Save spread data if available (pair-based pip convention)
+                spread_stats = compute_spread_stats(df, pair=pair)
                 if not spread_stats.empty:
                     spread_dir = Path(args.data_dir) / "spreads"
                     spread_dir.mkdir(parents=True, exist_ok=True)

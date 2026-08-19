@@ -6,7 +6,24 @@ to the system's standard DataFrame format.
 
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
+
+# JPY-quoted pairs use pip = 0.01; all others use pip = 0.0001.
+_JPY_QUOTED_SUFFIX = "JPY"
+
+
+def pip_value_for_pair(pair: str) -> float:
+    """Return the pip size (in price units) for a currency pair.
+
+    Pair-based convention: JPY-quoted pairs (USDJPY, EURJPY, ...) have
+    pip = 0.01; all other pairs have pip = 0.0001. This is the correct way to
+    determine pip size — inferring it from the price level misfires on any
+    series stored at an anomalous scale.
+    """
+    symbol = pair.upper().replace("/", "")
+    return 0.01 if symbol.endswith(_JPY_QUOTED_SUFFIX) else 0.0001
 
 
 def bars_to_dataframe(bars: list[dict]) -> pd.DataFrame:
@@ -58,19 +75,37 @@ def bars_to_dataframe(bars: list[dict]) -> pd.DataFrame:
     return df
 
 
-def compute_spread_stats(df: pd.DataFrame) -> pd.DataFrame:
+def compute_spread_stats(df: pd.DataFrame, pair: str | None = None) -> pd.DataFrame:
     """Compute spread statistics from bid/ask columns.
 
     Returns DataFrame with spread in pips per bar, useful for
     cost empiricism (measuring actual Saxo spreads).
+
+    Pip convention is PAIR-BASED (JPY-quoted pairs -> 0.01, else 0.0001),
+    not price-level based. The old price-level heuristic
+    (``0.01 if close.mean() > 10 else 0.0001``) misfires on any series whose
+    scale is anomalous — e.g. it produced the 2026-08-17 incident where
+    USDJPY 4h spreads were stored in pipettes (25.0) instead of pips (2.5).
+    Pass ``pair`` always; omitting it falls back to the heuristic and logs a
+    deprecation warning.
     """
     if "bid_close" not in df.columns or "ask_close" not in df.columns:
         return pd.DataFrame()
 
     spread = df["ask_close"] - df["bid_close"]
-    # Convert to pips (0.0001 for most pairs, 0.01 for JPY)
-    # Heuristic: if prices > 10, it's a JPY pair
-    pip_value = 0.01 if df["close"].mean() > 10 else 0.0001
+    if pair is not None:
+        pip_value = pip_value_for_pair(pair)
+    else:
+        warnings.warn(
+            "compute_spread_stats() called without `pair`: falling back to the "
+            "price-level pip heuristic, which misfires on anomalously-scaled "
+            "series (see USDJPY_4h_spreads pipette incident, 2026-08-17). "
+            "Pass pair= to get the pair-based pip convention.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Deprecated fallback: if prices > 10, assume a JPY pair
+        pip_value = 0.01 if df["close"].mean() > 10 else 0.0001
     spread_pips = spread / pip_value
 
     result = pd.DataFrame({

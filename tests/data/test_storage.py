@@ -99,7 +99,24 @@ def test_range_rejects_missing_close_column():
 def test_range_passes_through_unlisted_pair():
     # A pair with no registered bounds is not range-checked (unknown convention),
     # but finite data must not raise.
-    _assert_price_range(_close([9.0, 14.0]), "AUDUSD", "daily", _DUMMY)
+    _assert_price_range(_close([0.8, 1.1]), "USDCHF", "daily", _DUMMY)
+
+
+def test_range_rejects_fake_scale_audusd_usdcad_eurgbp():
+    # 2026-08-17 incident: AUDUSD/USDCAD/EURGBP daily files were synthetic
+    # (closes 9.5–14.0 / 2.6–5.0 / 7.43–7.48) and a deliberate bounds exemption
+    # let them load silently. The exemption is removed; the fake scales must
+    # now fail closed.
+    with pytest.raises(DataError, match="range sanity check FAILED"):
+        _assert_price_range(_close([9.0, 14.0]), "AUDUSD", "daily", _DUMMY)
+    with pytest.raises(DataError, match="range sanity check FAILED"):
+        _assert_price_range(_close([2.6, 5.0]), "USDCAD", "daily", _DUMMY)
+    with pytest.raises(DataError, match="range sanity check FAILED"):
+        _assert_price_range(_close([7.43, 7.48]), "EURGBP", "daily", _DUMMY)
+    # Real-scale values pass.
+    _assert_price_range(_close([0.65, 1.10]), "AUDUSD", "daily", _DUMMY)
+    _assert_price_range(_close([1.00, 1.45]), "USDCAD", "daily", _DUMMY)
+    _assert_price_range(_close([0.70, 0.95]), "EURGBP", "daily", _DUMMY)
 
 
 def test_range_skips_listed_skip_pair_but_still_rejects_non_finite():

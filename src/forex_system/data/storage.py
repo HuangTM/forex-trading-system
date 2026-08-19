@@ -62,11 +62,19 @@ _PAIR_CLOSE_BOUNDS: dict[str, tuple[float, float]] = {
     "GBPUSD": (0.50, 4.00),
     # NZDUSD uses standard scale ~0.40–0.90.
     "NZDUSD": (0.20, 2.00),
-    # NOTE: AUDUSD, USDCAD, EURGBP in this codebase are stored with a
-    # non-standard price scale (observed: AUDUSD ~9–14, USDCAD ~2.6–5.0,
-    # EURGBP ~7.4).  Bounds are omitted for these pairs to avoid false
-    # positives — they are NOT in the JPY pair group and their synthetic
-    # counterparts are not the identified contamination risk for R5.
+    # AUDUSD, USDCAD, EURGBP — 2026-08-17 INCIDENT: the daily files for these
+    # 3 pairs were discovered to be SYNTHETIC (fake random-walk data:
+    # AUDUSD close 9.47–14.01, USDCAD 2.65–5.01, EURGBP flat 7.43–7.48).
+    # They were quarantined to data/raw/quarantine_fake_daily_2026-08-17/ and
+    # replaced with real data (HistData M1 aggregated to UTC days; see
+    # scripts/rebuild_daily_from_histdata.py and
+    # references/histdata_daily_PROVENANCE.md).  An earlier version of this
+    # guard deliberately OMITTED bounds for exactly these pairs with a comment
+    # calling it a "non-standard price scale" — that exemption is REMOVED so
+    # fabricated data can never silently load again.
+    "AUDUSD": (0.55, 1.20),   # real 2010–2026 range ≈ 0.55–1.11
+    "USDCAD": (0.90, 1.50),   # real 2010–2026 range ≈ 0.94–1.47
+    "EURGBP": (0.60, 1.00),   # real 2010–2026 range ≈ 0.69–0.95
 }
 
 # Pairs where we skip range checking (non-standard scale in stored 4h files)

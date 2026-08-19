@@ -169,3 +169,202 @@ class TestEngineWithSizer:
         if daily_returns.std() > 0:
             sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
             assert sharpe < 3.0, f"Suspiciously high Sharpe ({sharpe:.1f}) — possible lookahead"
+
+
+# ---------------------------------------------------------------------------
+# F-B: usd_nominal unit contract (continuous mode) + discrete-mode preservation
+# ---------------------------------------------------------------------------
+
+
+def _usdjpy_data(n: int = 12, start_price: float = 150.0, step: float = 0.0) -> pd.DataFrame:
+    """Synthetic USDJPY daily data with a constant atr_14 = 1.0 column."""
+    dates = pd.bdate_range("2023-01-02", periods=n, freq="B", tz="UTC")
+    close = start_price + step * np.arange(n)
+    return pd.DataFrame(
+        {
+            "open": close,
+            "high": close + 0.5,
+            "low": close - 0.5,
+            "close": close,
+            "volume": 1000.0,
+            "atr_14": np.full(n, 1.0),
+        },
+        index=pd.DatetimeIndex(dates, name="datetime"),
+    )
+
+
+def _zero_cost_model() -> RealisticCostModel:
+    from forex_system.core.types import PairInfo
+
+    return RealisticCostModel(
+        pair_configs={
+            "USDJPY": PairInfo(
+                symbol="USDJPY",
+                pip_value=0.01,
+                spread_pips=0.0,
+                slippage_pips=0.0,
+                commission_pips=0.0,
+                swap_long_pips_per_day=0.0,
+                swap_short_pips_per_day=0.0,
+            )
+        }
+    )
+
+
+class TestUsdNominalContract:
+    """F-B regression: ContinuousSizer output unit contract.
+
+    Continuous mode treats sizer output as USD-nominal and converts via
+    engine._to_engine_units (divides by price for JPY pairs). usd_nominal=True
+    makes ContinuousSizer honor that contract; the default (False) preserves
+    the legacy discrete-mode convention bit-identically.
+    """
+
+    def test_default_is_legacy_units(self):
+        """Default usd_nominal=False keeps the legacy formula (no price mult)."""
+        sizer = ContinuousSizer(risk_per_trade=0.02, stop_loss_atr_multiple=2.0)
+        assert sizer.usd_nominal is False
+        size = sizer.calculate_size(1.0, 100_000.0, 150.0, 1.0, "USDJPY")
+        # 100000 * 0.02 / (1.0 * 2.0) = 1000, no price multiplication
+        assert size == pytest.approx(1000.0)
+
+    def test_usd_nominal_multiplies_by_price_for_jpy(self):
+        """JPY-quoted pairs: USD-nominal output = legacy size x price."""
+        sizer = ContinuousSizer(
+            risk_per_trade=0.02, stop_loss_atr_multiple=2.0, usd_nominal=True
+        )
+        size = sizer.calculate_size(1.0, 100_000.0, 150.0, 1.0, "USDJPY")
+        # 1000 legacy units x 150 = 150_000 USD nominal
+        assert size == pytest.approx(150_000.0)
+
+    def test_usd_nominal_unchanged_for_usd_quoted(self):
+        """USD-quoted pairs are already USD-nominal in the engine convention."""
+        legacy = ContinuousSizer(risk_per_trade=0.02, stop_loss_atr_multiple=2.0)
+        nominal = ContinuousSizer(
+            risk_per_trade=0.02, stop_loss_atr_multiple=2.0, usd_nominal=True
+        )
+        args = (1.0, 100_000.0, 1.10, 0.005, "EURUSD")
+        assert nominal.calculate_size(*args) == pytest.approx(legacy.calculate_size(*args))
+
+    def test_discrete_mode_jpy_unchanged(self):
+        """Discrete mode + ContinuousSizer must keep the legacy convention.
+
+        Trade size on USDJPY = equity * risk / (atr * mult), with NO price
+        multiplication (the dimensional error that cancels in discrete mode).
+        """
+        data = _usdjpy_data()
+        signals = pd.Series(1.0, index=data.index)
+        sizer = ContinuousSizer(
+            risk_per_trade=0.02, stop_loss_atr_multiple=2.0, min_order_size=1.0
+        )
+        result = run_backtest(
+            data=data,
+            signals=signals,
+            pair="USDJPY",
+            strategy_name="discrete_jpy",
+            cost_model=_zero_cost_model(),
+            initial_capital=100_000.0,
+            entry_delay_bars=1,
+            sizer=sizer,
+            rebalance_mode="discrete",
+        )
+        assert result.trade_log, "expected at least one trade"
+        # 100000 * 0.02 / (1.0 * 2.0) = 1000 legacy units
+        assert result.trade_log[0].size == pytest.approx(1000.0)
+
+    def test_continuous_mode_usdjpy_intended_risk(self):
+        """Continuous mode + usd_nominal=True carries the intended USD risk.
+
+        engine units = usd_nominal / price = equity*risk/(atr*mult) = 1000.
+        A +1% price move then P&L = 1500 USD = 1% of the 150k USD notional.
+        """
+        n = 12
+        data = _usdjpy_data(n=n, start_price=150.0, step=0.0)
+        # Last bar jumps +1%: 150.0 -> 151.5
+        data.iloc[-1, data.columns.get_loc("close")] = 151.5
+        signals = pd.Series(1.0, index=data.index)
+        sizer = ContinuousSizer(
+            risk_per_trade=0.02,
+            stop_loss_atr_multiple=2.0,
+            min_order_size=1.0,
+            usd_nominal=True,
+        )
+        result = run_backtest(
+            data=data,
+            signals=signals,
+            pair="USDJPY",
+            strategy_name="continuous_jpy",
+            cost_model=_zero_cost_model(),
+            initial_capital=100_000.0,
+            entry_delay_bars=1,
+            sizer=sizer,
+            rebalance_mode="continuous",
+            rebalance_threshold=0.20,
+            constant_capital_sizing=True,
+        )
+        entries = [t for t in result.trade_log if t.pnl_dollars == 0.0]
+        assert entries, "expected an entry trade"
+        # engine units = 150_000 USD nominal / 150 = 1000 units
+        assert entries[0].size == pytest.approx(1000.0)
+        # Final equity: 100_000 + 1.5 JPY move x 1000 units = 101_500 USD
+        final_equity = result.equity_curve.dropna().iloc[-1]
+        assert final_equity == pytest.approx(101_500.0, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# F-C: min_order_size floor clipping is loud
+# ---------------------------------------------------------------------------
+
+
+class TestMinOrderSizeFloorLoud:
+    """F-C regression: silent clip-to-zero produced degenerate flat curves."""
+
+    def test_clip_increments_counter_and_warns(self, caplog):
+        import logging
+
+        sizer = ContinuousSizer(min_order_size=1000.0)
+        with caplog.at_level(logging.WARNING):
+            size = sizer.calculate_size(0.01, 10_000.0, 1.1, 0.5, "EURUSD")
+        assert size == 0.0
+        assert sizer.n_clipped_to_zero == 1
+        assert any("clipped to 0" in r.message for r in caplog.records)
+
+    def test_zero_target_clip_not_counted(self):
+        """A zero target (no signal) returning 0 is not a clip."""
+        sizer = ContinuousSizer(min_order_size=1000.0)
+        assert sizer.calculate_size(0.0, 10_000.0, 1.1, 0.5, "EURUSD") == 0.0
+        assert sizer.n_clipped_to_zero == 0
+
+    def test_engine_records_clip_count_and_warns(self, caplog):
+        """A config that produced a silently-flat curve now surfaces it."""
+        import logging
+
+        data = _usdjpy_data()
+        signals = pd.Series(1.0, index=data.index)
+        # Absurd floor: every nonzero target is clipped to flat.
+        sizer = ContinuousSizer(
+            risk_per_trade=0.02,
+            stop_loss_atr_multiple=2.0,
+            min_order_size=1e12,
+            usd_nominal=True,
+        )
+        with caplog.at_level(logging.WARNING):
+            result = run_backtest(
+                data=data,
+                signals=signals,
+                pair="USDJPY",
+                strategy_name="flat_clip",
+                cost_model=_zero_cost_model(),
+                initial_capital=100_000.0,
+                entry_delay_bars=1,
+                sizer=sizer,
+                rebalance_mode="continuous",
+                rebalance_threshold=0.20,
+                constant_capital_sizing=True,
+            )
+        assert sizer.n_clipped_to_zero > 0
+        assert result.parameters.get("n_clipped_to_zero") == sizer.n_clipped_to_zero
+        assert any(
+            "clipped" in r.message and "min_order_size" in r.message
+            for r in caplog.records
+        )

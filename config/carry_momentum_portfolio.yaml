@@ -3,6 +3,19 @@
 # ⚠️  The original "Sharpe 0.59 / Validated 2026-04-07" claim was computed on
 #     SYNTHETIC GBM data (USDJPY values ~6.47 vs real ~159). It does NOT hold.
 #
+# 2026-08-17 ADDENDUM — R5 carry_momentum matrix cells VOIDED and re-run:
+#   The 6 carry_momentum cells (USDJPY/EURJPY/GBPJPY/AUDJPY/CADJPY/NZDJPY) in the
+#   R5 carry-universe matrix (src/forex_system/harness/carry_universe_matrix.py)
+#   ran with ContinuousSizer in continuous mode WITHOUT the usd_nominal unit
+#   contract — a units bug: JPY-quoted pairs carried ~1/price (~1/150) of the
+#   intended risk (risk_per_trade=0.007 below), plus silent min_order_size
+#   clipping to flat. All per-cell results derived from those cells (including
+#   the k*-adjacent diagnostics and the 2026-06-06 STEP-4 result) are VOID as
+#   computed. Fix: ContinuousSizer(usd_nominal=True) now passed by the matrix
+#   builder (carry_universe_matrix.py:_build_sizer); clips are now counted loudly
+#   via sizer.n_clipped_to_zero. Re-run numbers recorded in
+#   references/pre-registrations/r5_carry_universe_kill_test.STEP4-RESULT.superseded.md.
+#
 # REAL-DATA REVALIDATION (scripts/run_phase1_revalidate.py, 2026-06-26):
 #   Portfolio Sharpe:     0.04   (claim was 0.59; candidate run at $1M)
 #   Annual return:        0.01%

@@ -28,7 +28,11 @@ while the engine handles the quote-currency conversion transparently.
 
 from __future__ import annotations
 
+import logging
+
 from forex_system.core.interfaces import PositionSizer
+
+logger = logging.getLogger(__name__)
 
 
 class VolTargetSizer(PositionSizer):
@@ -58,6 +62,10 @@ class VolTargetSizer(PositionSizer):
         self.leverage_cap = leverage_cap
         self.max_order_units = max_order_units
         self.min_order_size = min_order_size
+        # Loud-floor accounting (F-C): number of nonzero target sizes clipped
+        # to 0.0 by the min_order_size floor. Read by the engine into result
+        # metadata.
+        self.n_clipped_to_zero = 0
 
     def calculate_size(
         self,
@@ -80,5 +88,17 @@ class VolTargetSizer(PositionSizer):
         units = min(units, self.max_order_units)
 
         if units < self.min_order_size:
+            if units > 0.0:
+                self.n_clipped_to_zero += 1
+                if self.n_clipped_to_zero == 1:
+                    logger.warning(
+                        "VolTargetSizer: nonzero target size %.2f clipped to 0 by "
+                        "min_order_size=%.2f (pair=%s). Further clips are counted "
+                        "on sizer.n_clipped_to_zero and summarized by the engine "
+                        "at end of run.",
+                        units,
+                        self.min_order_size,
+                        pair,
+                    )
             return 0.0
         return units

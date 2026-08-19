@@ -99,7 +99,7 @@ def run_backtest(
     )
 
     if rebalance_mode == "continuous":
-        return _run_continuous(
+        result = _run_continuous(
             data=data,
             signals=signals,
             pair=pair,
@@ -114,19 +114,37 @@ def run_backtest(
             constant_capital_sizing=constant_capital_sizing,
             allow_shorts=allow_shorts,
         )
+    else:
+        result = _run_discrete(
+            data=data,
+            signals=signals,
+            pair=pair,
+            strategy_name=strategy_name,
+            cost_model=cost_model,
+            initial_capital=initial_capital,
+            risk_per_trade=risk_per_trade,
+            stop_loss_atr_multiple=stop_loss_atr_multiple,
+            entry_delay_bars=entry_delay_bars,
+            sizer=sizer,
+        )
 
-    return _run_discrete(
-        data=data,
-        signals=signals,
-        pair=pair,
-        strategy_name=strategy_name,
-        cost_model=cost_model,
-        initial_capital=initial_capital,
-        risk_per_trade=risk_per_trade,
-        stop_loss_atr_multiple=stop_loss_atr_multiple,
-        entry_delay_bars=entry_delay_bars,
-        sizer=sizer,
-    )
+    # Surface silent min_order_size floor clips (F-C): a sizer that clipped
+    # nonzero targets to flat must be visible in the result metadata and logs,
+    # not produce a degenerate flat equity curve that looks like "no edge".
+    n_clipped = getattr(sizer, "n_clipped_to_zero", 0) if sizer is not None else 0
+    if n_clipped:
+        logger.warning(
+            "run_backtest: pair=%s strategy=%s sizer=%s clipped %d nonzero target "
+            "size(s) to 0 via min_order_size floor — equity curve may be "
+            "degenerate-flat.",
+            pair,
+            strategy_name,
+            type(sizer).__name__,
+            n_clipped,
+        )
+        result.parameters["n_clipped_to_zero"] = n_clipped
+
+    return result
 
 
 def _run_discrete(
@@ -295,6 +313,18 @@ def _run_continuous(
             "Pass a PositionSizer instance (e.g. VolTargetSizer) to run_backtest()."
         )
 
+    # Unit-contract guard (F-B): continuous mode treats sizer output as
+    # USD-nominal and converts via _to_engine_units. A sizer that declares
+    # legacy discrete-convention output (usd_nominal=False, e.g. a default
+    # ContinuousSizer) would carry ~1/price of intended risk on JPY pairs.
+    if getattr(sizer, "usd_nominal", True) is False:
+        logger.warning(
+            "continuous mode expects USD-nominal sizer output, but %s was built "
+            "with usd_nominal=False — JPY-quoted pairs will carry ~1/price of "
+            "intended risk. Rebuild the sizer with usd_nominal=True.",
+            type(sizer).__name__,
+        )
+
     # Defensive rail: a rebalance_threshold >= 1.0 with shorts enabled can suppress
     # a flip (frac_delta for a flip = (|cur|+|tgt|)/|cur| > 1.0, but exactly at
     # threshold=1.0 the `>` guard would still fire — however values >1.0 could
@@ -431,16 +461,23 @@ def _run_continuous(
                 )
                 equity += per_bar_swap_pips * pip_value * abs(cur_units)
             else:
-                # Daily/pro-rata short swap accrual is not implemented.
-                # H1 is intraday (rollover-aware path only). Fail loud rather than
-                # silently accruing zero swap — that would be a research-class decision
-                # the engine must not make unilaterally (execution-firewall §A).
-                if allow_shorts:
+                # Daily/pro-rata short swap accrual. The cost model's own contract
+                # decides: holding_cost(Direction.SHORT) == 0.0 means the model
+                # declares swap inert for shorts (e.g. StaticRoundTripCostModel's
+                # frozen spec) — accruing that zero is NOT an engine-side research
+                # decision. A NONZERO pro-rata short swap is still refused: on
+                # intraday data pro-rata over-charges (24x at 1h), so fail loud and
+                # require RolloverAwareRealisticCostModel (execution-firewall §A).
+                per_bar_swap_pips = -cost_model.holding_cost(
+                    pair, Direction.SHORT, bar_duration_days
+                )
+                if allow_shorts and per_bar_swap_pips != 0.0:
                     raise NotImplementedError(
                         "daily/pro-rata short swap accrual not implemented; "
                         "H1 is intraday rollover-aware only. "
                         "Use RolloverAwareRealisticCostModel for short strategies."
                     )
+                equity += per_bar_swap_pips * pip_value * abs(cur_units)
 
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)

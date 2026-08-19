@@ -159,6 +159,9 @@ def run_member_backtest(
         rebalance_mode="continuous",
         rebalance_threshold=0.10,
         constant_capital_sizing=True,
+        # M1/M2 are pre-registered always-in long/short (+1/−1) — see
+        # references/pre-registrations/macd_cross.md and ema_cross.md ("Mechanism").
+        allow_shorts=True,
     )
 
     ec = result.equity_curve.dropna()
@@ -223,6 +226,7 @@ def compute_regime_consistency(data: pd.DataFrame, signals: pd.Series, member_na
                 rebalance_mode="continuous",
                 rebalance_threshold=0.10,
                 constant_capital_sizing=True,
+                allow_shorts=True,  # always-in long/short per pre-reg (see run_member_backtest)
             )
             ec = result.equity_curve.dropna()
             ppy = infer_periods_per_year(ec.index)
@@ -346,6 +350,7 @@ def compute_cpcv_oof_returns(
                 rebalance_mode="continuous",
                 rebalance_threshold=0.10,
                 constant_capital_sizing=True,
+                allow_shorts=True,  # always-in long/short per pre-reg (see run_member_backtest)
             )
         except Exception as e:
             logger.warning("CPCV fold %d member=%s failed: %s", i, member_name, e)

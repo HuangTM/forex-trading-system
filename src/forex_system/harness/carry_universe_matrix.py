@@ -435,6 +435,9 @@ def _build_sizer(
         # For carry_momentum: risk_per_trade=0.007 from carry_momentum_portfolio.yaml
         # (NOT 0.02 from scripts/run_carry_momentum.py, which is an exploratory sweep).
         # Provisional until STEP 3 pre-registration freezes the exact value.
+        # usd_nominal=True: this variant runs rebalance_mode="continuous", whose
+        # sizer contract is USD-nominal output (engine._to_engine_units converts).
+        # Without it, JPY-quoted pairs carried ~1/price of the intended risk.
         _rpt = variant_params.get("risk_per_trade")
         risk_per_trade = _rpt if _rpt is not None else exec_cfg.risk_per_trade
         _slam = variant_params.get("stop_loss_atr_multiple")
@@ -442,6 +445,7 @@ def _build_sizer(
         return ContinuousSizer(
             risk_per_trade=float(risk_per_trade),
             stop_loss_atr_multiple=float(stop_loss_atr_multiple),
+            usd_nominal=True,
         )
     return None
 

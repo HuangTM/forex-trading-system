@@ -496,10 +496,13 @@ def _run_single_pair(
         strategy_name=strategy_name,
         cost_model=cost_model,
         initial_capital=config.backtest.initial_capital,
+        risk_per_trade=config.backtest.risk_per_trade,
+        stop_loss_atr_multiple=config.backtest.stop_loss_atr_multiple,
         entry_delay_bars=config.backtest.entry_delay_bars,
         sizer=sizer,
         rebalance_mode=config.backtest.rebalance_mode,
         rebalance_threshold=config.backtest.rebalance_threshold,
+        allow_shorts=config.backtest.allow_shorts,
     )
 
     metrics = calculate_metrics(bt_result.equity_curve, bt_result.trade_log)

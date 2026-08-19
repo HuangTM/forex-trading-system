@@ -64,3 +64,32 @@ blocks positive. Gross fade capture ≈ +5.4 pips/trade but below the 7.5-pip co
 (MACD crosses roughly every ~13 bars). Clean falsification; OOS holdout never read. With M2
 (ema_cross) → **FAMILY_KILL**: the trend family is cost-bound on 1h EURUSD, mirroring trial-48's
 mean-reversion result.
+
+## Addendum 2026-08-17 — original outcome VOID (wiring bug), re-run with fix
+
+**The 2026-06-17 outcome above was computed LONG-ONLY and is invalid.** The pre-reg specifies
+always-in long/short (+1/−1, see "Mechanism"), but `scripts/trial_basket_is_eval.py` never
+forwarded `allow_shorts=True` to `run_backtest`, so all short signals were silently floored to
+flat. Fixed in the working tree 2026-08-17: `allow_shorts=True` is now passed on all three
+`run_backtest` call sites (full-IS, CPCV folds, regime blocks), and the engine's short-swap
+branch no longer crashes at zero swap. Re-run 2026-08-17, IS-only (2021-01-03..2024-05-31),
+frozen constants unchanged (N=50, CPCV 8/2 purge 240/embargo 120, 7.5-pip RT, size_mult 0.25);
+OOS holdout never touched.
+
+**Re-run result: KILL-1 again (verdict UNCHANGED).**
+
+| Metric | Old (long-only, INVALID) | New (long/short, fixed) |
+|---|---|---|
+| IS trades | 1,672 | 3,340 (1,670 long / **1,670 short** — previously 0 short) |
+| avg net trade pips | −2.11 | −1.7393 |
+| IS net Sharpe | n/r | −4.0521 |
+| win rate | n/r | 0.1811 |
+| max drawdown | n/r | 0.3020 |
+| CPCV net Sharpe | −2.75 | −3.2198 |
+| DSR @ N=50 | 0.00 | 0.0000 |
+| Regime blocks positive | 0/3 | 0/3 (2021 −4.95, 2022 −4.12, 2023+24H1 −3.79) |
+
+Gates: POWER pass; **KILL-1 FIRES** (DSR 0.0000 ≤ 0.95); KILL-2 fires (−1.74 ≤ 0); KILL-2B
+fires (0/3 positive). With shorts enabled the strategy trades roughly 2× as often and loses on
+both sides — the cost-bound falsification is *stronger*, not weaker. Family verdict with M2:
+**FAMILY_KILL (unchanged)**.

@@ -82,7 +82,7 @@ Independent code-level audit (6 areas) + fixes, commits `2b50dd9` (data) / `9a11
 - Ops: deploy gate (`assert_deployable`) wired in only 2 of 4 order-capable loops (`run_paper_trading_vt.py` and `run_paper_trading_carry_fred.py` lack it); kill-switch state not persisted in 2 loops; `data/paper_trading_session.log` is test-contaminated (mock rows indistinguishable from broker rows) — never cite it as evidence.
 
 **Pending governance decisions (user/CEO):**
-1. ~~honest-N pins~~ RESOLVED 2026-10-26: the extra 2 were M1/M2 1h trials (82497d05, b309935c) that ran 2026-06-17 but were never added to the pin. With the carry retest (65d10ede) and fix-reversal (62a72f65) rows appended, the deflation denominator is **34** (owner re-ratified; pins updated) and the de-dup view is 13.
+1. ~~honest-N pins~~ RESOLVED 2026-10-26: the extra 2 were M1/M2 1h trials (82497d05, b309935c) that ran 2026-06-17 but were never added to the pin. With the carry retest (65d10ede) and fix-reversal (62a72f65) rows appended, the deflation denominator is **34** (owner re-ratified; pins updated) and the de-dup view is 13. Now **35 / 14** after the fx multifactor trial (ef3f117d).
 2. Whether the R5 correction re-run formally supersedes the 2026-06-06 STEP-4 result.
 3. Bet #1 (carry_fred): the 2026-04-25 "PASS 0.796" is VOID (fake pairs); the 2026-08-23 "PASS again 0.6582" is SUPERSEDED (lump-sum swap artifact; CF-T8 fired unreported). See the 2026-10-25 section below — **FAIL**. Remaining: owner sign-off that Bet #1 is closed.
 
@@ -94,6 +94,9 @@ Merged to `main` and pushed 2026-10-26. Each pre-registration was committed befo
 - **Data fix `05e41c1`:** EUR rate was frozen at 4.25% from 2000-06 to 2008-12 (FRED `ECBMRRFR` has no values during the ECB's variable-rate tenders); filled with the ECBDFR/ECBMLFR corridor midpoint. 2010+ data unaffected (bit-identical).
 - **carry_fred retest (`carry_fred_retest_2026-10-25.RESULT.md`): FAIL.** 2010–2026: OOS SR 0.915 but IS SR 0.20 (CF-T8) and 0.075 at 2× costs (CF-T6); DSR(N=33) 0.31. A naive equal-weight long-6-JPY-crosses basket beats every carry_fred variant. Blind 2003–2009 holdout: the pre-registered number is invalid (EURGBP sleeve wiped out, no margin sim); post-hoc pooled-account SR 0.23 (t 0.62).
 - **Fix-reversal test (Krohn/Mueller/Whelan JF 2024, `fix_reversal_1h.RESULT.md`): FAIL.** The gross pattern replicates out of sample (+1.95 bp/day, t 1.98, 6 USD pairs 2021–2025), but 4 round trips/day cost 7–10 bp/day; net −8.5 bp/day. Break-even needs ~0.5-pip round-trip all-in cost.
+- **Margin simulation `cf26517`:** opt-in `MarginConfig` (discrete mode); default path bit-identical.
+- **FX multifactor (`fx_multifactor_monthly.RESULT.md`): INCONCLUSIVE — the owner's single pre-agreed next bet; per the owner's rule the research programme pauses.** Carry+value+momentum at currency level, 7 currencies, monthly 2001–2026, retail costs: full SR 0.49 (t 2.47) but DSR(N=35) 0.63 < 0.95; post-2012 (post-publication) SR 0.22 (t 0.85). Momentum and value do not survive post-2012 net; carry is the only factor positive in both halves. Inputs: `data/factors/raw/` (Fed H.10, BIS REER).
+- Test side effect: running the suite rewrites `references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml` (float noise) — revert it, never commit it.
 - Exploratory (not pre-registered): an equal-weight combination of MA 50/200, BB+RSI, momentum 20, MACD and carry_fred loses money (IS −0.45 / OOS −0.35). Pre-2010 daily data (HistData 2002–2009, bad ticks cleaned by USD-leg triangulation) lives in `data/holdout_pre2010/` (gitignored).
 
 **Test note:** `tests/saxo/test_rem6_429_hardening.py` takes ~9 min (real backoff sleeps); full `pytest tests/` will exceed 10 min.

@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from forex_system.strategies.carry_fred import CarryFREDStrategy
+from forex_system.strategies.carry_fred import _PAIR_TO_COL, CarryFREDStrategy
 from forex_system.strategies.registry import create_strategy
 
 
@@ -395,3 +395,29 @@ class TestRegistry:
     def test_required_indicators(self):
         strategy = CarryFREDStrategy({"pair": "USDJPY"})
         assert "atr_14" in strategy.required_indicators()
+
+
+def test_quintile_selection_top_and_bottom_two_of_twelve():
+    """selection='quintile': top 2 pairs +1, bottom 2 pairs -1, middle 8 flat."""
+    pairs = list(_PAIR_TO_COL)
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    # Distinct differentials: pair i gets (i - 5.5) %, so pairs[10], pairs[11] are top.
+    rate_data = pd.DataFrame(
+        {col: (i - 5.5) / 100.0 for i, col in enumerate(_PAIR_TO_COL.values())}, index=idx
+    )
+    ohlcv = pd.DataFrame({"close": 1.0}, index=idx)
+    got = {}
+    for p in pairs:
+        s = CarryFREDStrategy(
+            {"pair": p, "selection": "quintile", "min_differential": 0.0}, rate_data=rate_data
+        ).generate_signals(ohlcv)
+        got[p] = s.iloc[-1]
+    assert [got[p] for p in pairs] == [-1.0, -1.0] + [0.0] * 8 + [1.0, 1.0]
+
+
+def test_unknown_selection_raises():
+    idx = pd.date_range("2020-01-01", periods=3, freq="D")
+    rate_data = pd.DataFrame({col: 0.01 for col in _PAIR_TO_COL.values()}, index=idx)
+    with pytest.raises(ValueError, match="unknown selection"):
+        CarryFREDStrategy({"pair": "USDJPY", "selection": "tercile"}, rate_data=rate_data)\
+            .generate_signals(pd.DataFrame({"close": 1.0}, index=idx))

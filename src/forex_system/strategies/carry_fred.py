@@ -68,6 +68,9 @@ class CarryFREDStrategy(Strategy):
             (default 0.001 = 0.1%, avoids near-zero noise)
         max_differential: float — differential that maps to |signal|=1.0
             when rank_normalize=False (default 0.05 = 5%)
+        selection: str — rank_normalize=True only. "clip" (default, as shipped
+            2026-04-25): clipped z-score. "quintile": pre-registration step 3 as
+            worded — top floor(n/5) pairs +1, bottom floor(n/5) pairs -1, rest 0.
 
     Note on cross-sectional ranking:
         rank_normalize=True computes z-scores across all 12 PAIR columns at
@@ -189,9 +192,23 @@ class CarryFREDStrategy(Strategy):
         z_score = (this_pair_diff - cross_mean) / cross_std.replace(0.0, np.nan)
         z_score = z_score.fillna(0.0)
 
-        # Clip to [-1, +1]: top quintile ≈ z > 0.84, bottom ≈ z < -0.84
-        # We clip the full z-score to preserve signal magnitude within ±1
-        signals = z_score.clip(-1.0, 1.0)
+        selection = str(self.params.get("selection", "clip"))
+        if selection == "clip":
+            # Clip to [-1, +1]. NOTE: the discrete engine trades sign(signal), so
+            # every pair is always long or short — there is no neutral middle.
+            signals = z_score.clip(-1.0, 1.0)
+        elif selection == "quintile":
+            # Pre-registration step 3 as worded: top quintile long, bottom
+            # quintile short, middle neutral. k = floor(n/5) pairs per side
+            # (2 of 12); ties broken by column order.
+            ranks = cs_daily.rank(axis=1, method="first")
+            n = cs_daily.notna().sum(axis=1)
+            k = n // 5
+            signals = pd.Series(0.0, index=cs_daily.index)
+            signals[ranks[col] > n - k] = 1.0
+            signals[ranks[col] <= k] = -1.0
+        else:
+            raise ValueError(f"CarryFREDStrategy: unknown selection '{selection}'")
 
         # Zero out where abs(raw differential) is below minimum threshold
         # (avoid trading near-zero carry which is noise)

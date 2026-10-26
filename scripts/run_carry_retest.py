@@ -92,20 +92,67 @@ def _naive(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return idx.tz_convert("UTC").tz_localize(None) if idx.tz is not None else idx
 
 
+# Cross = product/quotient of two USD legs (Part B data cleaning, pre-reg addendum).
+_TRIANGLES = {
+    "AUDJPY": ("AUDUSD", "USDJPY", "mul"), "CADJPY": ("USDJPY", "USDCAD", "div"),
+    "EURGBP": ("EURUSD", "GBPUSD", "div"), "EURJPY": ("EURUSD", "USDJPY", "mul"),
+    "GBPJPY": ("GBPUSD", "USDJPY", "mul"), "NZDJPY": ("NZDUSD", "USDJPY", "mul"),
+}
+
+
+def clean_holdout(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Part B bad-tick cleaning, fixed in the pre-registration addendum before the run.
+
+    1. Cross bars whose close is > 2% from the close implied by its two USD legs: dropped.
+    2. Any bar whose close is > 20% from its centered 21-bar median close: dropped.
+    3. Bars whose open/high/low is > 20% from that median: open := previous close,
+       high/low := max/min(open, close). (Affects ATR sizing only; P&L uses close.)
+    """
+    out = {}
+    for pair, df in raw.items():
+        df = df.copy()
+        close = df["close"]
+        drop = pd.Series(False, index=df.index)
+        if pair in _TRIANGLES and all(leg in raw for leg in _TRIANGLES[pair][:2]):
+            a, b, op = _TRIANGLES[pair]
+            implied = raw[a]["close"] * raw[b]["close"] if op == "mul" else \
+                raw[a]["close"] / raw[b]["close"]
+            dev = (close / implied.reindex(df.index) - 1).abs()
+            drop |= dev > 0.02
+        med = close.rolling(21, center=True, min_periods=5).median()
+        drop |= (close / med - 1).abs() > 0.20
+        df = df[~drop]
+        med = med[~drop]
+        bad_ohl = (df[["open", "high", "low"]].div(med, axis=0) - 1).abs().gt(0.20).any(axis=1)
+        if bad_ohl.any():
+            prev_close = df["close"].shift(1)
+            df.loc[bad_ohl, "open"] = prev_close[bad_ohl].fillna(df["close"][bad_ohl])
+            df.loc[bad_ohl, "high"] = df.loc[bad_ohl, ["open", "close"]].max(axis=1)
+            df.loc[bad_ohl, "low"] = df.loc[bad_ohl, ["open", "close"]].min(axis=1)
+        print(f"  {pair}: dropped {int(drop.sum())} bar(s), repaired o/h/l on {int(bad_ohl.sum())}")
+        out[pair] = df
+    return out
+
+
 def load_prices(pairs: list[str], holdout_dir: Path | None, end: str) -> dict[str, pd.DataFrame]:
     """Daily OHLCV + atr_14 per pair, truncated at ``end``. Missing pairs are skipped."""
-    out = {}
+    raw = {}
     for pair in pairs:
         if holdout_dir is None:
-            df = load_parquet(pair, "daily", "data")
-        else:
-            path = holdout_dir / f"{pair}_daily.parquet"
-            if not path.exists():
-                print(f"  {pair}: no holdout file — flat in portfolio")
-                continue
-            df = pd.read_parquet(path)
-            if df.index.tz is None:
-                df.index = df.index.tz_localize("UTC")
+            raw[pair] = load_parquet(pair, "daily", "data")
+            continue
+        path = holdout_dir / f"{pair}_daily.parquet"
+        if not path.exists():
+            print(f"  {pair}: no holdout file — flat in portfolio")
+            continue
+        df = pd.read_parquet(path)
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        raw[pair] = df
+    if holdout_dir is not None:
+        raw = clean_holdout(raw)
+    out = {}
+    for pair, df in raw.items():
         df = df[_naive(df.index) <= pd.Timestamp(end)]
         df = compute_indicators(df, ["atr_14"]).dropna(subset=["atr_14"])
         if len(df) > 30:

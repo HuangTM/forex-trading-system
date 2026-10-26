@@ -98,3 +98,29 @@ No margin/liquidation simulation; policy rates stand in for tom-next rates; ACT/
 for all currencies; FEDFUNDS publication-lag lookahead in the signal (a 1-month lag
 moved the as-shipped OOS SR 0.66 → 0.75, i.e. not inflating); retail swap markups
 vary by broker and account (C3/C4 bracket them).
+
+---
+
+## Addendum 1 (2026-10-25, before Part B was run) — holdout data and cleaning
+
+Part A ran first (result committed separately). Part B data condition: HistData
+whole-year M1 for 2002–2009 → daily (`data/holdout_pre2010/`, gitignored). Full
+2003-01 → 2009-12 coverage for 9 of 12 pairs (condition met). CADJPY starts
+2007-03-19, NZDJPY 2006-09-04, NZDUSD 2005-08-12 (HistData has nothing earlier);
+they are flat in the portfolio before their first bar. EUR rate gap fixed in
+`05e41c1`; Part A was re-run on the fixed rate file and is byte-identical.
+
+Bad ticks found by inspecting data only (no strategy output was computed):
+AUDJPY 2005-05-02..05-13 closes of 1.2–2.3 (real ≈ 81–88); EURGBP 2004-03-26 close
+0.6000 (real ≈ 0.67); bad intraday highs/lows on 7 bars in AUDJPY/AUDUSD/EURGBP/
+EURJPY/NZDUSD. Cleaning rule fixed now (`clean_holdout` in the runner):
+
+1. Cross close > 2% from the close implied by its two USD legs → bar dropped.
+   (Crosses match their legs with median |dev| 0.013–0.042%; this flags exactly
+   the 11 bars above and nothing else.)
+2. Any close > 20% from its centered 21-bar median → dropped (flags none beyond 1).
+3. Open/high/low > 20% from that median → open := previous close, high/low :=
+   max/min(open, close).
+
+A spike-and-revert rule was considered and rejected: it flagged real crash days
+(CADJPY/NZDJPY 2008-11-12). Verdict rule, cells and window are unchanged.

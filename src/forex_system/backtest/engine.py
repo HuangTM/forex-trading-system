@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from forex_system.core.interfaces import CostModel, PositionSizer
-from forex_system.core.types import BacktestResult, Direction, Trade
+from forex_system.core.types import BacktestResult, Direction, MarginConfig, Trade
 from forex_system.costs.model import RolloverAwareRealisticCostModel
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,7 @@ def run_backtest(
     rebalance_threshold: float = 0.20,
     constant_capital_sizing: bool = False,
     allow_shorts: bool = False,
+    margin: MarginConfig | None = None,
 ) -> BacktestResult:
     """Run a vectorized backtest.
 
@@ -79,12 +80,23 @@ def run_backtest(
             enabling short positions in continuous mode. Default False preserves
             today's long-only behavior (bit-identical for all existing callers).
             Only meaningful in continuous mode (discrete mode is already sign-aware).
+        margin: Optional broker margin terms (discrete mode only). When given, entry
+            size is capped at 1/margin_rate leverage, an open position is liquidated
+            intrabar once equity falls to stop_out_level * used margin (at the
+            stop-out price, or the open if the bar gapped through it), and no new
+            position opens while equity <= 0. None (default) = no margin simulation,
+            bit-identical to earlier behavior.
     """
     if rebalance_mode not in _VALID_REBALANCE_MODES:
         raise ValueError(
             f"rebalance_mode must be one of {sorted(_VALID_REBALANCE_MODES)}, "
             f"got {rebalance_mode!r}"
         )
+    if margin is not None:
+        if rebalance_mode != "discrete":
+            raise NotImplementedError("margin simulation is implemented for discrete mode only")
+        if not 0 < margin.margin_rate <= 1 or not 0 <= margin.stop_out_level < 1:
+            raise ValueError(f"invalid MarginConfig: {margin}")
 
     if data.empty:
         return _empty_result(pair, strategy_name, signals)
@@ -127,6 +139,7 @@ def run_backtest(
             stop_loss_atr_multiple=stop_loss_atr_multiple,
             entry_delay_bars=entry_delay_bars,
             sizer=sizer,
+            margin=margin,
         )
 
     # Surface silent min_order_size floor clips (F-C): a sizer that clipped
@@ -159,6 +172,7 @@ def _run_discrete(
     stop_loss_atr_multiple: float,
     entry_delay_bars: int,
     sizer: PositionSizer | None,
+    margin: MarginConfig | None = None,
 ) -> BacktestResult:
     """Original discrete mode: enter/exit on sign-of-signal direction changes."""
     # Shift signals forward to avoid lookahead
@@ -186,6 +200,7 @@ def _run_discrete(
     # and the whole calendar days it covers.
     swap_cost_pips = 0.0
     swap_days = 0
+    liquidations: list[pd.Timestamp] = []
 
     for i, (ts, row) in enumerate(data.iterrows()):
         price = row["close"]
@@ -204,6 +219,34 @@ def _run_discrete(
             )
             equity -= bar_cost_pips * pip_value * current_size
             swap_cost_pips += bar_cost_pips
+
+        # Margin stop-out, intrabar: checked before the scheduled close because it
+        # happens first. The strategy then stays flat until its signal changes.
+        if margin is not None and current_position != 0 and entry_time < ts:
+            stop_px = _stop_out_price(equity, entry_price, current_size, current_position, margin)
+            fill_px = _stop_out_fill(row, current_position, stop_px)
+            if fill_px is not None:
+                trade = _close_position(
+                    pair,
+                    strategy_name,
+                    cost_model,
+                    pip_value,
+                    current_position,
+                    current_size,
+                    entry_price,
+                    entry_time,
+                    ts,
+                    fill_px,
+                    swap_cost_pips=swap_cost_pips,
+                )
+                trade_log.append(trade)
+                equity += trade.pnl_dollars + swap_cost_pips * pip_value * current_size
+                liquidations.append(ts)
+                current_position = 0.0
+                current_size = 0.0
+                entry_time = None
+                swap_cost_pips = 0.0
+                swap_days = 0
 
         # Close existing position if direction changed
         if change != 0 and current_position != 0:
@@ -249,13 +292,18 @@ def _run_discrete(
                     stop_loss_atr_multiple,
                     price,
                 )
+            if margin is not None:
+                # Leverage cap; a blown account (equity <= 0) cannot open.
+                max_size = equity / (margin.margin_rate * price) if equity > 0 else 0.0
+                current_size = min(current_size, max_size)
 
-            entry_cost_pips = cost_model.entry_cost(pair, current_size, timestamp=ts)
-            equity -= entry_cost_pips * pip_value * current_size
+            if margin is None or current_size > 0:
+                entry_cost_pips = cost_model.entry_cost(pair, current_size, timestamp=ts)
+                equity -= entry_cost_pips * pip_value * current_size
 
-            current_position = pos
-            entry_price = price
-            entry_time = ts
+                current_position = pos
+                entry_price = price
+                entry_time = ts
 
         # Mark-to-market (unrealized P&L)
         if current_position != 0:
@@ -291,11 +339,25 @@ def _run_discrete(
         equity += trade.pnl_dollars + swap_cost_pips * pip_value * current_size
         equity_curve.iloc[-1] = equity
 
+    parameters: dict = {"rebalance_mode": "discrete"}
+    if margin is not None:
+        parameters.update(
+            margin_rate=margin.margin_rate,
+            stop_out_level=margin.stop_out_level,
+            n_liquidations=len(liquidations),
+            liquidation_times=liquidations,
+        )
+        if liquidations:
+            logger.warning(
+                "run_backtest: pair=%s strategy=%s margin stop-out x%d (first %s)",
+                pair, strategy_name, len(liquidations), liquidations[0],
+            )
+
     return BacktestResult(
         equity_curve=equity_curve,
         trade_log=trade_log,
         signals=signals,
-        parameters={"rebalance_mode": "discrete"},
+        parameters=parameters,
         pair=pair,
         strategy_name=strategy_name,
         start_date=data.index[0],
@@ -842,6 +904,35 @@ def _accrue_swap(
         return 0.0, days_accrued
     direction = Direction.LONG if position > 0 else Direction.SHORT
     return cost_model.holding_cost(pair, direction, new_days, timestamp=ts), days_held
+
+
+def _stop_out_price(
+    equity: float, entry_price: float, size: float, position: float, margin: MarginConfig
+) -> float:
+    """Price at which equity + unrealized P&L == stop_out_level * margin_rate * size * price.
+
+    ``equity`` is cash equity (entry cost and accrued swap already applied).
+    """
+    k = margin.stop_out_level * margin.margin_rate
+    if position > 0:
+        return (entry_price * size - equity) / (size * (1.0 - k))
+    return (equity + entry_price * size) / (size * (1.0 + k))
+
+
+def _stop_out_fill(row: pd.Series, position: float, stop_px: float) -> float | None:
+    """Fill price if this bar reached the stop-out level, else None.
+
+    Fills at the stop-out price, or at the open when the bar gapped through it.
+    Bars without open/high/low fall back to the close.
+    """
+    close = row["close"]
+    o, hi, lo = (row.get(c, close) for c in ("open", "high", "low"))
+    o, hi, lo = (close if pd.isna(v) else v for v in (o, hi, lo))
+    if position > 0 and lo <= stop_px:
+        return min(o, stop_px)
+    if position < 0 and hi >= stop_px:
+        return max(o, stop_px)
+    return None
 
 
 def _calculate_size(

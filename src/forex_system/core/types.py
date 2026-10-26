@@ -32,6 +32,18 @@ class PairInfo:
 
 
 @dataclass(frozen=True)
+class MarginConfig:
+    """Broker margin terms for the backtest's margin/liquidation simulation.
+
+    Notional and equity are measured in the engine's P&L numeraire (quote-currency
+    units, as P&L is), so leverage = size * price / equity is self-consistent.
+    """
+
+    margin_rate: float  # required margin / notional, e.g. 1/30 for 30:1 leverage
+    stop_out_level: float = 0.5  # liquidate when equity < stop_out_level * used margin
+
+
+@dataclass(frozen=True)
 class Trade:
     """A completed trade with full P&L accounting."""
 

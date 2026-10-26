@@ -54,6 +54,12 @@ class StaticRoundTripCostModel(CostModel):
         """Return the other half of the static round-trip cost (3.75 pips)."""
         return _HALF_COST_PIPS
 
-    def holding_cost(self, pair: str, direction: Direction, days: float) -> float:
+    def holding_cost(
+        self,
+        pair: str,
+        direction: Direction,
+        days: float,
+        timestamp: pd.Timestamp | None = None,
+    ) -> float:
         """Return 0.0 — single-bar hold; swap is inert per frozen spec (F-004)."""
         return 0.0

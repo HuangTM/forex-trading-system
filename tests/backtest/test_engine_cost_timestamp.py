@@ -36,7 +36,7 @@ class _RecordingCostModel(CostModel):
         self.exit_ts.append(timestamp)
         return 1.0
 
-    def holding_cost(self, pair, direction: Direction, days):
+    def holding_cost(self, pair, direction: Direction, days, timestamp=None):
         return 0.0
 
 

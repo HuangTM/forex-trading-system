@@ -5,7 +5,8 @@ Strictly avoids lookahead: signals at bar N execute at bar N+1 open.
 
 rebalance_mode="discrete" (default):
     Sign-of-signal direction changes only. Enters/exits on direction flip.
-    One trade per direction change.
+    One trade per direction change. Swap is accrued into equity per elapsed
+    calendar day (each trade's total swap is the same as an exit-time lump sum).
 
 rebalance_mode="continuous":
     Every bar, compute target_units = sizer.calculate_size(signal, equity, price, atr, pair).
@@ -181,6 +182,10 @@ def _run_discrete(
     current_size = 0.0
     entry_price = 0.0
     entry_time: pd.Timestamp | None = None
+    # Swap accrued into equity for the open position (pips per unit, cost-signed)
+    # and the whole calendar days it covers.
+    swap_cost_pips = 0.0
+    swap_days = 0
 
     for i, (ts, row) in enumerate(data.iterrows()):
         price = row["close"]
@@ -190,6 +195,15 @@ def _run_discrete(
 
         pos = positions.iloc[i]
         change = position_changes.iloc[i]
+
+        # Accrue swap as calendar days elapse, not as a lump sum at exit: a
+        # multi-year hold otherwise books years of carry on its closing bar.
+        if current_position != 0:
+            bar_cost_pips, swap_days = _accrue_swap(
+                cost_model, pair, current_position, entry_time, ts, swap_days
+            )
+            equity -= bar_cost_pips * pip_value * current_size
+            swap_cost_pips += bar_cost_pips
 
         # Close existing position if direction changed
         if change != 0 and current_position != 0:
@@ -204,12 +218,16 @@ def _run_discrete(
                 entry_time,
                 ts,
                 price,
+                swap_cost_pips=swap_cost_pips,
             )
             trade_log.append(trade)
-            equity += trade.pnl_dollars
+            # trade.pnl_dollars includes the swap already accrued into equity.
+            equity += trade.pnl_dollars + swap_cost_pips * pip_value * current_size
             current_position = 0.0
             current_size = 0.0
             entry_time = None
+            swap_cost_pips = 0.0
+            swap_days = 0
 
         # Open new position if signal is non-zero
         if change != 0 and pos != 0:
@@ -250,6 +268,12 @@ def _run_discrete(
     if current_position != 0:
         last_ts = data.index[-1]
         last_price = data["close"].iloc[-1]
+        # No-op unless the last bar(s) were skipped as NaN-priced.
+        bar_cost_pips, swap_days = _accrue_swap(
+            cost_model, pair, current_position, entry_time, last_ts, swap_days
+        )
+        equity -= bar_cost_pips * pip_value * current_size
+        swap_cost_pips += bar_cost_pips
         trade = _close_position(
             pair,
             strategy_name,
@@ -261,9 +285,10 @@ def _run_discrete(
             entry_time,
             last_ts,
             last_price,
+            swap_cost_pips=swap_cost_pips,
         )
         trade_log.append(trade)
-        equity += trade.pnl_dollars
+        equity += trade.pnl_dollars + swap_cost_pips * pip_value * current_size
         equity_curve.iloc[-1] = equity
 
     return BacktestResult(
@@ -449,7 +474,7 @@ def _run_continuous(
             else:
                 # Daily/pro-rata path (unchanged — preserves validated daily results).
                 per_bar_swap_pips = -cost_model.holding_cost(
-                    pair, Direction.LONG, bar_duration_days
+                    pair, Direction.LONG, bar_duration_days, timestamp=ts
                 )
             equity += per_bar_swap_pips * pip_value * cur_units
         elif cur_units < 0:
@@ -469,7 +494,7 @@ def _run_continuous(
                 # intraday data pro-rata over-charges (24x at 1h), so fail loud and
                 # require RolloverAwareRealisticCostModel (execution-firewall §A).
                 per_bar_swap_pips = -cost_model.holding_cost(
-                    pair, Direction.SHORT, bar_duration_days
+                    pair, Direction.SHORT, bar_duration_days, timestamp=ts
                 )
                 if allow_shorts and per_bar_swap_pips != 0.0:
                     raise NotImplementedError(
@@ -751,6 +776,7 @@ def _close_position(
     exit_time: pd.Timestamp,
     exit_price: float,
     include_swap: bool = True,
+    swap_cost_pips: float | None = None,
 ) -> Trade:
     """Close a position and return the completed Trade.
 
@@ -758,12 +784,20 @@ def _close_position(
         include_swap: If True (default), include swap/carry P&L for the holding
             period in the trade PnL. Set to False in continuous mode where swap
             is already credited daily via per-bar equity accrual.
+        swap_cost_pips: Swap already accrued over the hold (discrete mode). When
+            given it is recorded in the trade PnL as-is instead of being
+            recomputed from the hold length; ``include_swap`` is then ignored.
     """
     direction = Direction.LONG if position > 0 else Direction.SHORT
     hold_days = (exit_time - entry_time).days if entry_time is not None else 0
 
     exit_cost_pips = cost_model.exit_cost(pair, size, timestamp=exit_time)
-    swap_cost_pips = cost_model.holding_cost(pair, direction, hold_days) if include_swap else 0.0
+    if swap_cost_pips is None:
+        swap_cost_pips = (
+            cost_model.holding_cost(pair, direction, hold_days, timestamp=exit_time)
+            if include_swap
+            else 0.0
+        )
     total_cost_pips = exit_cost_pips + swap_cost_pips
 
     price_diff_pips = (exit_price - entry_price) / pip_value * position
@@ -786,6 +820,28 @@ def _close_position(
         cost_dollars=cost_dollars,
         strategy=strategy_name,
     )
+
+
+def _accrue_swap(
+    cost_model: CostModel,
+    pair: str,
+    position: float,
+    entry_time: pd.Timestamp,
+    ts: pd.Timestamp,
+    days_accrued: int,
+) -> tuple[float, int]:
+    """Swap cost (pips per unit) for the whole calendar days newly held as of ``ts``.
+
+    Counts whole days since entry — the same ``.days`` count the old exit-time
+    lump sum used — so each trade's total swap is unchanged; only its timing
+    moves into the equity curve. Returns (cost_pips, days_held).
+    """
+    days_held = (ts - entry_time).days
+    new_days = days_held - days_accrued
+    if new_days <= 0:
+        return 0.0, days_accrued
+    direction = Direction.LONG if position > 0 else Direction.SHORT
+    return cost_model.holding_cost(pair, direction, new_days, timestamp=ts), days_held
 
 
 def _calculate_size(

@@ -172,11 +172,18 @@ class RealisticCostModel(CostModel):
         p = self._get_pair(pair)
         return p.spread_pips / 2.0 + p.slippage_pips + p.commission_pips
 
-    def holding_cost(self, pair: str, direction: Direction, days: float) -> float:
+    def holding_cost(
+        self,
+        pair: str,
+        direction: Direction,
+        days: float,
+        timestamp: pd.Timestamp | None = None,
+    ) -> float:
         """Swap cost in pips for holding a position over N calendar days.
 
         Pro-rates daily swap linearly by ``days``.  Correct for daily bars;
         use RolloverAwareRealisticCostModel for 1h intraday positions.
+        ``timestamp`` is ignored — this model uses a static per-pair swap rate.
         """
         p = self._get_pair(pair)
         if direction == Direction.LONG:
@@ -229,11 +236,15 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
         pair: str,
         direction: Direction,
         days: float,
+        timestamp: pd.Timestamp | None = None,
         *,
         entry_ts: pd.Timestamp | datetime | None = None,
         exit_ts: pd.Timestamp | datetime | None = None,
     ) -> float:
         """Rollover-aware swap cost.
+
+        ``timestamp`` is ignored (static swap rate); rollover counting uses
+        ``entry_ts``/``exit_ts``.
 
         If entry_ts and exit_ts are provided, counts actual 22:00 UTC rollover
         crossings (3× on Wednesday) and charges accordingly.  Zero swap for
@@ -324,3 +335,89 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
         )
 
         return -daily_swap * multiplier
+
+
+class RateDifferentialSwapCostModel(RealisticCostModel):
+    """Time-varying swap from policy-rate differentials (spread/slippage unchanged).
+
+    Static per-pair swap rates (``PairInfo.swap_*_pips_per_day``) cannot represent
+    financing over long holds: real swap tracks the base-minus-quote short rate,
+    which moved from ~0 (ZIRP) to ~5% within this data set. This model prices
+    each day's financing from the differential in force on that day:
+
+        long  daily swap (pips) = ( diff_t - markup) * price_t / 365 / pip_value
+        short daily swap (pips) = (-diff_t - markup) * price_t / 365 / pip_value
+
+    ``diff_t`` = base_rate - quote_rate (annual, decimal) as of ``timestamp``,
+    read from a ``{PAIR}_diff`` column; ``price_t`` = the pair's close as of
+    ``timestamp``; ``markup`` = the broker's annual financing markup, charged on
+    BOTH sides (long and short each earn less / pay more than the raw diff).
+
+    Simplifications (acknowledged): policy rates stand in for tom-next/interbank
+    rates; ACT/365 for every currency (USD/EUR are ACT/360 in practice).
+
+    Without a ``timestamp`` (legacy callers) it falls back to the static
+    per-pair swap of :class:`RealisticCostModel`.
+    """
+
+    def __init__(
+        self,
+        pair_configs: dict[str, PairInfo] | None,
+        rate_differentials: pd.DataFrame,
+        prices: dict[str, pd.Series],
+        markup: float = 0.005,
+    ):
+        super().__init__(pair_configs)
+        self.markup = float(markup)
+        self._diffs = {
+            col[: -len("_diff")]: _naive_sorted(rate_differentials[col].dropna())
+            for col in rate_differentials.columns
+            if col.endswith("_diff")
+        }
+        self._prices = {p.upper(): _naive_sorted(s.dropna()) for p, s in prices.items()}
+
+    def holding_cost(
+        self,
+        pair: str,
+        direction: Direction,
+        days: float,
+        timestamp: pd.Timestamp | None = None,
+    ) -> float:
+        if timestamp is None:
+            return super().holding_cost(pair, direction, days)
+        key = pair.upper()
+        if key not in self._diffs or key not in self._prices:
+            raise ValueError(f"RateDifferentialSwapCostModel: no rate/price data for {pair}")
+        ts = _naive_ts(timestamp)
+        diff = _asof(self._diffs[key], ts)
+        price = _asof(self._prices[key], ts)
+        if direction == Direction.LONG:
+            annual = diff - self.markup
+        elif direction == Direction.SHORT:
+            annual = -diff - self.markup
+        else:
+            return 0.0
+        daily_swap_pips = annual * price / 365.0 / self._get_pair(pair).pip_value
+        # Return as cost (positive = money lost), matching RealisticCostModel.
+        return -daily_swap_pips * days
+
+
+def _naive_ts(ts: pd.Timestamp | datetime) -> pd.Timestamp:
+    """UTC tz-naive Timestamp (the storage convention for daily series)."""
+    ts = pd.Timestamp(ts)
+    return ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo is not None else ts
+
+
+def _naive_sorted(series: pd.Series) -> pd.Series:
+    s = series.copy()
+    if s.index.tz is not None:
+        s.index = s.index.tz_convert("UTC").tz_localize(None)
+    return s.sort_index()
+
+
+def _asof(series: pd.Series, ts: pd.Timestamp) -> float:
+    """Last value at or before ``ts``; raises if ``ts`` precedes the series."""
+    value = series.asof(ts)
+    if pd.isna(value):
+        raise ValueError(f"no data at or before {ts} (series starts {series.index[0]})")
+    return float(value)

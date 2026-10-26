@@ -106,8 +106,19 @@ class CostModel(ABC):
         ...
 
     @abstractmethod
-    def holding_cost(self, pair: str, direction: Direction, days: float) -> float:
-        """Swap/financing cost in pips for holding a position."""
+    def holding_cost(
+        self,
+        pair: str,
+        direction: Direction,
+        days: float,
+        timestamp: pd.Timestamp | None = None,
+    ) -> float:
+        """Swap/financing cost in pips for holding a position.
+
+        timestamp: the bar the swap is accrued on, for time-varying swap models
+        (e.g. rate-differential-driven financing). Static-swap implementations
+        ignore it; the engine passes the current bar's timestamp.
+        """
         ...
 
 

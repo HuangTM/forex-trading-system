@@ -153,8 +153,9 @@ class _ScaledCostModel(CostModel):
                   timestamp: pd.Timestamp | None = None) -> float:
         return self._inner.exit_cost(pair, size, timestamp) * self._multiplier
 
-    def holding_cost(self, pair: str, direction: Direction, days: float) -> float:
-        return self._inner.holding_cost(pair, direction, days) * self._multiplier
+    def holding_cost(self, pair: str, direction: Direction, days: float,
+                     timestamp: pd.Timestamp | None = None) -> float:
+        return self._inner.holding_cost(pair, direction, days, timestamp) * self._multiplier
 
 
 def _randomize_signals(

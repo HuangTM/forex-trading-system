@@ -59,3 +59,23 @@ M-01. This is a KNOWN issue — not fixed in the 2026-08-17 pass.
 ```bash
 python scripts/download_fred_rates.py          # no API key needed
 ```
+
+## 2026-10-25 fix: EUR frozen at 4.25% from 2000-06 to 2008-12
+
+`ECBMRRFR` is the ECB's **fixed-rate-tender** MRO rate. From 2000-06-28 to
+2008-10-14 the ECB ran variable-rate tenders (minimum bid rate), so the series
+carries no changes there; the plain `ffill` froze EUR at 4.25% for 8.5 years
+while the real rate went 4.75% (2000-10) → 2.00% (2003-06) → 4.25% (2008-07).
+Affected EURUSD/EURJPY/EURGBP diffs before 2008-10-15 by up to 2.25pp. No
+2010+ backtest was affected (all daily price data starts 2010-01).
+
+Fill: inside that window EUR = (`ECBDFR` + `ECBMLFR`) / 2, the midpoint of the
+symmetric ±100bp corridor around the minimum bid rate
+(`fill_ecb_variable_tender_gap` in the generator). Validation against
+`ECBMRRFR` where both exist: max |diff| 0.000 on 2008-10-15..2012-12-31.
+Rebuilt with `--from-raw` (no other series re-downloaded): the regenerated
+parquet is bit-identical on/after 2008-10-15 and in all 9 non-EUR columns.
+
+```bash
+python scripts/download_fred_rates.py --from-raw   # rebuild from raw CSVs + ECB corridor
+```

@@ -73,6 +73,16 @@ BOE_MANUAL = [
     ("2025-08-07", 4.00), ("2025-11-06", 3.75),
 ]
 
+# ECBMRRFR is the FIXED-rate-tender MRO rate. From 2000-06-28 to 2008-10-14 the
+# ECB ran VARIABLE-rate tenders with a minimum bid rate, so ECBMRRFR carries no
+# changes in that window and a plain ffill froze EUR at 4.25% for 8.5 years
+# (found 2026-10-25). Inside the window the minimum bid rate sat at the midpoint
+# of the deposit / marginal-lending corridor (symmetric +/-100bp), so EUR is
+# filled with (ECBDFR + ECBMLFR) / 2 there. Checked against ECBMRRFR where both
+# exist: max |diff| 0.000 on 2008-10-15..2012-12-31.
+ECB_CORRIDOR = ("ECBDFR", "ECBMLFR")
+ECB_VARIABLE_TENDER = ("2000-06-28", "2008-10-14")
+
 OUTPUT_DIR = Path("data/rates")
 _FREDGRAPH_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
 
@@ -95,6 +105,21 @@ def download_fred_series(series_id: str, start: str = "2000-01-01") -> pd.Series
     s = s.dropna()
     s = s[s.index >= pd.Timestamp(start)]
     return s
+
+
+def fill_ecb_variable_tender_gap(mro: pd.Series, dfr: pd.Series, mlf: pd.Series) -> pd.Series:
+    """Replace EUR inside ECB_VARIABLE_TENDER with the corridor midpoint (see note above)."""
+    start, end = (pd.Timestamp(d) for d in ECB_VARIABLE_TENDER)
+    midpoint = ((dfr + mlf) / 2.0).dropna()
+    inside = midpoint[(midpoint.index >= start) & (midpoint.index <= end)]
+    outside = mro[(mro.index < start) | (mro.index > end)]
+    return pd.concat([outside, inside]).sort_index().rename(mro.name)
+
+
+def load_raw_series(currency: str) -> pd.Series:
+    """Read a series previously saved by main() to data/rates/raw/{currency}.csv."""
+    df = pd.read_csv(OUTPUT_DIR / "raw" / f"{currency}.csv")
+    return pd.Series(df.iloc[:, 1].to_numpy(), index=pd.DatetimeIndex(df.iloc[:, 0], name="date"))
 
 
 def build_boe_series() -> pd.Series:
@@ -146,21 +171,33 @@ def build_rate_differentials(rates: dict[str, pd.Series]) -> pd.DataFrame:
 def main():
     parser = argparse.ArgumentParser(description="Download FRED rate data for carry strategy")
     parser.add_argument("--start", default="2000-01-01", help="Start date for data download")
+    parser.add_argument("--from-raw", action="store_true",
+                        help="Rebuild from data/rates/raw/*.csv instead of re-downloading "
+                             "(only the ECB corridor series are fetched, to fill the EUR gap)")
     args = parser.parse_args()
 
     rates = {}
 
-    # Download from FRED (public fredgraph.csv endpoint, no API key)
-    for currency, series_id in SERIES.items():
-        print(f"Downloading {currency} ({series_id})...")
-        rates[currency] = download_fred_series(series_id, args.start)
-        print(f"  Got {len(rates[currency])} observations: "
-              f"{rates[currency].index[0].date()} to {rates[currency].index[-1].date()}")
+    if args.from_raw:
+        for currency in [*SERIES, "GBP"]:
+            rates[currency] = load_raw_series(currency)
+            print(f"Loaded raw {currency}: {len(rates[currency])} observations")
+    else:
+        # Download from FRED (public fredgraph.csv endpoint, no API key)
+        for currency, series_id in SERIES.items():
+            print(f"Downloading {currency} ({series_id})...")
+            rates[currency] = download_fred_series(series_id, args.start)
+            print(f"  Got {len(rates[currency])} observations: "
+                  f"{rates[currency].index[0].date()} to {rates[currency].index[-1].date()}")
 
-    # Add BOE manual series
-    print("Building GBP series from manual BOE data...")
-    rates["GBP"] = build_boe_series()
-    print(f"  {len(rates['GBP'])} rate changes")
+        # Add BOE manual series
+        print("Building GBP series from manual BOE data...")
+        rates["GBP"] = build_boe_series()
+        print(f"  {len(rates['GBP'])} rate changes")
+
+    print(f"Filling EUR variable-rate-tender gap {ECB_VARIABLE_TENDER} from {ECB_CORRIDOR}...")
+    dfr, mlf = (download_fred_series(s, args.start) for s in ECB_CORRIDOR)
+    rates["EUR"] = fill_ecb_variable_tender_gap(rates["EUR"], dfr, mlf)
 
     # Save individual series
     raw_dir = OUTPUT_DIR / "raw"

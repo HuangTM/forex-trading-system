@@ -179,11 +179,14 @@ def _repo_root() -> Path:
     raise RuntimeError("Could not locate repo root (no pyproject.toml found above test file).")
 
 
-def test_ic9_uses_honest_n_30() -> None:
-    """IC-9 / IC-14d: honest_n_deflation_denominator() must return 30 (ratified N).
+def test_ic9_uses_honest_n_ratified() -> None:
+    """IC-9 / IC-14d: honest_n_deflation_denominator() must return 34 (ratified N).
+
+    Ratified 30 on 2026-06-18; re-ratified 34 on 2026-10-26 (+4 forward-classified
+    trials: 82497d05, b309935c, 65d10ede, 62a72f65).
 
     DELIBERATE LIVE-LEDGER PIN: asserts the production ledger
-    (.fintech-org/trials.jsonl) yields the ratified value 30 — NOT a raw line
+    (.fintech-org/trials.jsonl) yields the ratified value — NOT a raw line
     count (49), NOT the de-dup families (11), NOT the retired prose counter (48).
     The path is anchored to the repo root (not cwd-relative) so the test is
     location-independent. If the production ledger legitimately changes (a new
@@ -194,8 +197,8 @@ def test_ic9_uses_honest_n_30() -> None:
     from forex_system.harness.honest_n import honest_n_deflation_denominator
     ledger = _repo_root() / ".fintech-org" / "trials.jsonl"
     n = honest_n_deflation_denominator(ledger)
-    assert n == 30, (
-        f"honest_n_deflation_denominator() returned {n}, expected 30 (ratified 2026-06-18). "
+    assert n == 34, (
+        f"honest_n_deflation_denominator() returned {n}, expected 34 (re-ratified 2026-10-26). "
         "This is an IC-9 / IC-14d violation: the DSR denominator must be mechanically derived "
         "from the ledger and match the ratified value. "
         f"Check {ledger} for the 'honest-n-classification' record."

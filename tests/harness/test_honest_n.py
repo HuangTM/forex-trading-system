@@ -148,11 +148,11 @@ class TestComputeHonestN:
     # ------------------------------------------------------------------
 
     def test_sacred_n_honest_value(self):
-        """SACRED TEST (RE-SCOPED): compute_honest_n on the real trials.jsonl yields N=11.
+        """SACRED TEST (RE-SCOPED): compute_honest_n on the real trials.jsonl yields N=13.
 
         This function is the HoQR research-portfolio de-duplication view ONLY.
         It is FORBIDDEN at any compute_dsr call site (see test_compute_honest_n_not_used_at_dsr_sites).
-        N=11 must NEVER be passed to compute_dsr as n_trials — it under-deflates and
+        N=13 must NEVER be passed to compute_dsr as n_trials — it under-deflates and
         manufactures false passes (the unacceptable error direction).
 
         N_honest history:
@@ -167,6 +167,9 @@ class TestComputeHonestN:
         Note: trial f2fb41fd (confirmatory, spawned=True, status=unknown) does NOT
         contribute to N_honest — it is neither retained nor excluded (unknown status
         falls through the filter without being counted).
+          N=13 from 2026-10-26 (owner re-ratification): + the pre_reg_path keys of
+                65d10ede (carry_fred_retest_2026-10-25.md) and 62a72f65
+                (fix_reversal_1h.md).
         """
         trials_path = Path(".fintech-org/trials.jsonl")
         if not trials_path.exists():
@@ -174,10 +177,10 @@ class TestComputeHonestN:
 
         n_honest, retained_keys, excluded_counts = compute_honest_n(trials_path)
 
-        # Sacred assertion: N_honest must be 11 for the current programme registry.
+        # Sacred assertion: N_honest must be 13 for the current programme registry.
         # This pins the de-dup view; it does NOT pin the DSR deflation denominator.
-        assert n_honest == 11, (
-            f"N_honest must be 11 for current programme registry (de-dup view); got {n_honest}. "
+        assert n_honest == 13, (
+            f"N_honest must be 13 for current programme registry (de-dup view); got {n_honest}. "
             f"retained_keys={sorted(retained_keys)}"
         )
         # All retained keys are non-empty strings.
@@ -342,14 +345,16 @@ class TestDsrDenominator:
     # ------------------------------------------------------------------
 
     def test_sacred_dsr_denominator_value(self):
-        """SACRED TEST: honest_n_deflation_denominator on real trials.jsonl yields N=30.
+        """SACRED TEST: honest_n_deflation_denominator on real trials.jsonl yields N=34.
 
         This pins the org-wide DSR deflation denominator to the ratified value.
         This test MUST FAIL if anyone reverts to 48, 11, 49, or drifts the
         classification record.
 
         Ratification: HoQR (hoqr-dsr-debate-r1.yaml) + NHT (nht-dsr-debate-r1.yaml)
-        converged 2026-06-18; CTO spec approved; CEo digest RECONCILED-CONVERGED.
+        converged 2026-06-18 on 30; re-ratified 2026-10-26 by the owner as 34 (+ M1/M2
+        1h trials 82497d05/b309935c, carry_fred retest 65d10ede, fix-reversal 62a72f65,
+        all counted by the classification record's forward rule).
         """
         trials_path = Path(".fintech-org/trials.jsonl")
         if not trials_path.exists():
@@ -357,10 +362,10 @@ class TestDsrDenominator:
 
         n = honest_n_deflation_denominator(trials_path)
 
-        assert n == 30, (
-            f"DSR deflation denominator MUST be 30 (ratified 2026-06-18 by HoQR+NHT); "
-            f"got {n}. Check the honest-n-classification record in trials.jsonl and "
-            f"ensure it has exactly 30 counted_trial_ids."
+        assert n == 34, (
+            f"DSR deflation denominator MUST be 34 (30 ratified 2026-06-18 + 4 forward-"
+            f"classified, re-ratified 2026-10-26); got {n}. Check the honest-n-classification "
+            f"record and the trial rows appended after it in trials.jsonl."
         )
 
     # ------------------------------------------------------------------

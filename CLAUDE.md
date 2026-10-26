@@ -82,14 +82,13 @@ Independent code-level audit (6 areas) + fixes, commits `2b50dd9` (data) / `9a11
 - Ops: deploy gate (`assert_deployable`) wired in only 2 of 4 order-capable loops (`run_paper_trading_vt.py` and `run_paper_trading_carry_fred.py` lack it); kill-switch state not persisted in 2 loops; `data/paper_trading_session.log` is test-contaminated (mock rows indistinguishable from broker rows) — never cite it as evidence.
 
 **Pending governance decisions (user/CEO):**
-1. honest-N pins fail: 3 sacred tests assert N=30, ledger yields 32 — re-ratify or explain.
+1. ~~honest-N pins~~ RESOLVED 2026-10-26: the extra 2 were M1/M2 1h trials (82497d05, b309935c) that ran 2026-06-17 but were never added to the pin. With the carry retest (65d10ede) and fix-reversal (62a72f65) rows appended, the deflation denominator is **34** (owner re-ratified; pins updated) and the de-dup view is 13.
 2. Whether the R5 correction re-run formally supersedes the 2026-06-06 STEP-4 result.
 3. Bet #1 (carry_fred): the 2026-04-25 "PASS 0.796" is VOID (fake pairs); the 2026-08-23 "PASS again 0.6582" is SUPERSEDED (lump-sum swap artifact; CF-T8 fired unreported). See the 2026-10-25 section below — **FAIL**. Remaining: owner sign-off that Bet #1 is closed.
-4. Trial ledger: the carry retest and the fix-reversal test each count as one trial (N 32 → 34); rows not yet appended to `.fintech-org/trials.jsonl`.
 
 ## Memory — 2026-10-25 Swap-Accounting Fix & Two Pre-Registered Tests
 
-Branch `carry-retest-swap-fix` (not yet merged/pushed). Each pre-registration was committed before its run.
+Merged to `main` and pushed 2026-10-26. Each pre-registration was committed before its run.
 
 - **Engine fix `012f6c1`:** discrete mode now accrues swap per elapsed calendar day (was a lump sum at trade exit — e.g. NZDJPY +16% on one day). Per-trade totals and final equity unchanged (verified ~1e-7 USD on 16 backtests); only the equity path moves. `CostModel.holding_cost` gained an optional `timestamp`.
 - **Data fix `05e41c1`:** EUR rate was frozen at 4.25% from 2000-06 to 2008-12 (FRED `ECBMRRFR` has no values during the ECB's variable-rate tenders); filled with the ECBDFR/ECBMLFR corridor midpoint. 2010+ data unaffected (bit-identical).

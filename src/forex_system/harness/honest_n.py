@@ -249,7 +249,7 @@ def honest_n_deflation_denominator(trials_path: Path) -> int:
     """Compute the DSR deflation denominator: org-wide cumulative attempt count.
 
     Implements the mechanical counting rule ratified by HoQR + NHT (2026-06-18).
-    Denominator is pinned at 30 for the current ledger (34 distinct ids, 4 drops).
+    Denominator: 30 ratified 2026-06-18 (34 distinct ids, 4 drops); 34 after the 2026-10-26 re-ratification (+4 forward-classified trials).
 
     Ratification artifacts:
         .fintech-org/artifacts/2026-06-17-forward-test-loop/hoqr-dsr-debate-r1.yaml

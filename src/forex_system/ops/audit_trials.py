@@ -68,13 +68,13 @@ def find_orphans(lines: list[dict], orphan_age_min: int) -> list[dict]:
 
     for trial_id, trial_lines in by_id.items():
         # Determine final status
-        statuses = [l.get("status") for l in trial_lines]
+        statuses = [line.get("status") for line in trial_lines]
         has_terminal = any(s in _TERMINAL_STATUSES for s in statuses)
         if has_terminal:
             continue  # Completed or errored — not an orphan.
 
         # Find the spawned line (first occurrence)
-        spawned_line = next((l for l in trial_lines if l.get("status") == "spawned"), None)
+        spawned_line = next((ln for ln in trial_lines if ln.get("status") == "spawned"), None)
         if spawned_line is None:
             continue  # No spawned line — skip.
 

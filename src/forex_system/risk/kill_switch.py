@@ -70,7 +70,7 @@ def _last_audit_entry(audit_log_path: str) -> dict | None:
     p = Path(audit_log_path)
     if not p.exists():
         return None
-    lines = [l.strip() for l in p.read_text().splitlines() if l.strip()]
+    lines = [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
     if not lines:
         return None
     try:

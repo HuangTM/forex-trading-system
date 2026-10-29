@@ -25,12 +25,10 @@ Decision log events emitted:
 from __future__ import annotations
 
 import argparse
-import copy
 import fcntl
 import itertools
 import json
 import logging
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -262,7 +260,7 @@ def run_sweep(
         print(f"  Best Sharpe:   {best['metrics']['sharpe']:.4f}")
         print(f"  Best params:   {best.get('param_overrides', {})}")
         print(f"\n  NOTE: Bonferroni correction for cohort_size={cohort_size}.")
-        print(f"  DSR is deflated by n_trials (org-wide) at each worker spawn.")
+        print("  DSR is deflated by n_trials (org-wide) at each worker spawn.")
         print(f"  Cohort entry written to {_TRIALS_REGISTRY} for downstream DSR.")
 
     print(f"{'='*60}\n")

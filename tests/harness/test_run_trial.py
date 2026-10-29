@@ -181,7 +181,7 @@ class TestRunTrialErrors:
         # Note: lines[0] is the reconciliation baseline record written by the fixture;
         # the spawned skeleton is the FIRST trial record (skip non-trial lines).
         assert registry_path.exists(), "Registry should exist after spawn"
-        all_records = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
+        all_records = [json.loads(ln) for ln in registry_path.read_text().strip().split("\n")]
         trial_records = [r for r in all_records if "trial_id" in r]
         assert len(trial_records) >= 1, "At least one trial record must exist"
         entry = trial_records[0]
@@ -227,7 +227,7 @@ class TestRunTrialIntegration:
         # Check registry was updated.
         # Filter out non-trial records (e.g. the baseline reconciliation record).
         registry_path = rt_mod._TRIALS_REGISTRY
-        all_records = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
+        all_records = [json.loads(ln) for ln in registry_path.read_text().strip().split("\n")]
         trial_records = [r for r in all_records if "trial_id" in r]
         trial_ids = [r["trial_id"] for r in trial_records]
         assert report["trial_id"] in trial_ids
@@ -256,8 +256,8 @@ class TestRunTrialIntegration:
         )
 
         registry_path = rt_mod._TRIALS_REGISTRY
-        lines = [json.loads(l) for l in registry_path.read_text().strip().split("\n")]
-        complete_entries = [l for l in lines if l.get("status") == "complete"]
+        lines = [json.loads(ln) for ln in registry_path.read_text().strip().split("\n")]
+        complete_entries = [r for r in lines if r.get("status") == "complete"]
         assert len(complete_entries) >= 2
 
     def test_second_trial_has_higher_n_trials(self, tmp_registry, minimal_config, minimal_pre_reg):

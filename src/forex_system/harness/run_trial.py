@@ -24,7 +24,6 @@ import hashlib
 import json
 import logging
 import sys
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,10 +33,8 @@ import pandas as pd
 
 from forex_system.backtest.engine import run_backtest
 from forex_system.backtest.metrics import calculate_metrics, infer_periods_per_year
-from forex_system.backtest.walkforward import run_walkforward
 from forex_system.core.config import SystemConfig, load_config
-from forex_system.core.errors import ConfigError, DataError
-from forex_system.core.types import PairInfo
+from forex_system.core.errors import ConfigError
 from forex_system.costs.model import RealisticCostModel
 from forex_system.data.storage import load_parquet
 from forex_system.features.registry import compute_indicators
@@ -251,10 +248,7 @@ def _slice_to_oos(
 
 def _build_sizer(config: SystemConfig) -> VolTargetSizer | None:
     """Build VolTargetSizer from config position_sizing section."""
-    ps = config.backtest
-    method = getattr(ps, "position_sizing_method", None)
-    # Read directly from raw config: check if method is vol_target
-    # We check strategy names to infer sizer type
+    # Infer the sizer type from the strategy names
     strategy_names = [s.name for s in config.strategies]
     if "vol_target_carry" in strategy_names:
         # Find leverage_cap from strategy params

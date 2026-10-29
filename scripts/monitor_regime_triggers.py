@@ -71,7 +71,8 @@ VOL_WINDOW_DAYS = 252  # rolling vol estimate window
 # Output paths
 DEFAULT_OUTPUT_PATH = Path("data/cf_t9_status.json")
 AUDIT_LOG_PATH = Path("data/cf_t9_audit.log")
-CF_T9_STATE_PATH = Path("data/cf_t9_state.json")
+# Env override exists so the test suite cannot advance the real reading counter.
+CF_T9_STATE_PATH = Path(os.environ.get("FOREX_CF_T9_STATE", "data/cf_t9_state.json"))
 
 # Staleness guard: warn if FRED data older than this
 FRED_MAX_STALENESS_DAYS = 95   # ~3 months (FRED rates publish monthly)

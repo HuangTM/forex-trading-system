@@ -101,3 +101,21 @@ backtest:
     config_path = tmp_path / "test_config.yaml"
     config_path.write_text(config_content)
     return config_path
+
+
+def pytest_configure(config):
+    """Point runtime state and logs at a scratch dir before any script is imported.
+
+    The paper loops, the CF-T9 monitor and the qrb6 dry-run read these env vars at
+    import time; without them the suite appended mock cycles to
+    data/paper_trading_session.log, advanced the real CF-T9 reading counter, and
+    rewrote the qrb6 DRY-RUN yaml under references/.
+    """
+    import os
+    import tempfile
+    from pathlib import Path
+
+    scratch = Path(tempfile.mkdtemp(prefix="forex-test-runtime-"))
+    os.environ["FOREX_PAPER_EQUITY_LOG"] = str(scratch / "paper_trading_session.log")
+    os.environ["FOREX_CF_T9_STATE"] = str(scratch / "cf_t9_state.json")
+    os.environ["FOREX_QRB6_DRY_RUN_DIR"] = str(scratch)

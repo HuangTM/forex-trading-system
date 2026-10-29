@@ -78,7 +78,8 @@ LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 QUIET_HOURS = (20, 8)
 
 WS01_TRACE_PATH = "data/ws01_trace.log"
-EQUITY_LOG_PATH = "data/paper_trading_session.log"
+# Env override exists so the test suite can keep mock cycles out of the real log.
+EQUITY_LOG_PATH = os.environ.get("FOREX_PAPER_EQUITY_LOG", "data/paper_trading_session.log")
 
 
 # ---------------------------------------------------------------------------

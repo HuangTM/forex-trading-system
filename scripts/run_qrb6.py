@@ -49,6 +49,7 @@ import datetime
 import hashlib
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -89,9 +90,9 @@ _RESULT_PATH = Path(
 )
 # Dry-run results NEVER land at the canonical path — a stub verdict at the real
 # path is poison if mistaken for the one-shot outcome (RULE-0 remediation 2026-06-07).
-_DRY_RUN_RESULT_PATH = Path(
-    "references/pre-registrations/qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
-)
+# FOREX_QRB6_DRY_RUN_DIR lets the test suite keep dry-run output out of references/.
+_DRY_RUN_DIR = Path(os.environ.get("FOREX_QRB6_DRY_RUN_DIR", "references/pre-registrations"))
+_DRY_RUN_RESULT_PATH = _DRY_RUN_DIR / "qrb6_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
 # --- CONFIRMATORY paths (trial 53981a4a) — distinct from the exploratory above ---
 # The confirmatory re-uses the EXACT exploratory pipeline on a FORWARD window read
 # from THIS receipt.  It NEVER reads the exploratory receipt (no cross-trial constant
@@ -105,8 +106,8 @@ _CONFIRMATORY_RECEIPT_PATH = Path(
 _CONFIRMATORY_RESULT_PATH = Path(
     "references/pre-registrations/qrb6_confirmatory_cb_event_study.STEP-RESULT.yaml"
 )
-_CONFIRMATORY_DRY_RUN_RESULT_PATH = Path(
-    "references/pre-registrations/qrb6_confirmatory_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
+_CONFIRMATORY_DRY_RUN_RESULT_PATH = (
+    _DRY_RUN_DIR / "qrb6_confirmatory_cb_event_study.STEP-RESULT.DRY-RUN.yaml"
 )
 
 _CALENDAR_PATH = Path("data/rates/cb_decision_dates.parquet")

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Download historical central bank rate data from FRED and save as Parquet.
 
-Produces data/rates/rate_differentials.parquet with 12 columns, one per
-supported pair: EURUSD_diff, USDJPY_diff, GBPUSD_diff, EURJPY_diff,
+Produces data/rates/rate_differentials.parquet (reference-period dates, for
+swap costs) and data/rates/rate_differentials_pit.parquet (dated by publication,
+for signals), each with 12 columns, one per supported pair: EURUSD_diff, USDJPY_diff, GBPUSD_diff, EURJPY_diff,
 GBPJPY_diff, EURGBP_diff, AUDUSD_diff, NZDUSD_diff, USDCAD_diff,
 AUDJPY_diff, NZDJPY_diff, CADJPY_diff.
 
@@ -40,6 +41,16 @@ SERIES = {
     "NZD": "IR3TIB01NZM156N",   # New Zealand 3-month interbank rate (monthly)
     "CAD": "IR3TIB01CAM156N",   # Canada 3-month interbank rate (monthly)
 }
+
+# Publication lag, in whole months after the reference month's FIRST day, before a
+# monthly observation (FRED-dated M-01) is reliably public. Used only for the
+# point-in-time table that feeds SIGNALS; the reference-period table (used to
+# accrue swap COSTS, where the month's actual rate is what gets charged) is unlagged.
+# Measured 2026-10-28 against fredgraph.csv: FEDFUNDS had 2026-09 (daily EFFR is
+# public, so the month's mean is known at month end -> M+1); JPY/NZD/CAD had 2026-09
+# but are not guaranteed before M+2; AUD had only 2026-08 -> M+3. One snapshot, so
+# the values lean conservative. EUR (daily) and GBP (decision dates) are lag 0.
+PUBLICATION_LAG_MONTHS = {"USD": 1, "JPY": 2, "NZD": 2, "CAD": 2, "AUD": 3, "EUR": 0, "GBP": 0}
 
 # 12 pairs as (base, quote); diff = (base_rate - quote_rate) / 100.
 PAIRS = [
@@ -129,12 +140,33 @@ def build_boe_series() -> pd.Series:
     return pd.Series(rates, index=dates, name="GBP")
 
 
+def to_point_in_time(
+    rates: dict[str, pd.Series], lag_months: dict[str, int] = PUBLICATION_LAG_MONTHS
+) -> dict[str, pd.Series]:
+    """Re-date each series to when its value was public (signal-safe view).
+
+    A monthly observation dated M-01 is moved to the first day of month M+lag.
+    Series with lag 0 are returned unchanged.
+    """
+    out = {}
+    for currency, series in rates.items():
+        lag = lag_months[currency]
+        if lag:
+            series = series.copy()
+            series.index = series.index.to_period("M").to_timestamp() + pd.DateOffset(months=lag)
+        out[currency] = series
+    return out
+
+
 def build_rate_differentials(rates: dict[str, pd.Series]) -> pd.DataFrame:
     """Merge rate series and compute all 12 pair differentials.
 
     Returns DataFrame indexed by date with columns {PAIR}_diff =
     (base_rate - quote_rate) / 100, i.e. the annualized carry of a LONG
     position in the pair, in decimal.
+
+    Dates are the series' own dates. Pass ``to_point_in_time(rates)`` to get
+    the publication-lagged table for signal generation.
     """
     # Create a common daily date range
     all_dates = set()
@@ -142,18 +174,11 @@ def build_rate_differentials(rates: dict[str, pd.Series]) -> pd.DataFrame:
         all_dates.update(s.index)
     date_range = pd.date_range(min(all_dates), max(all_dates), freq="B")  # Business days
 
-    # Reindex each series to business days and forward-fill.
-    #
-    # KNOWN CAVEAT (publication-lag lookahead): FRED timestamps monthly series
-    # (FEDFUNDS, IR3TIB01*, IRSTCI01*) at the FIRST of the reference month, but
-    # the data is only published weeks-to-months later (e.g. FEDFUNDS for month
-    # M is published at the end of month M+1). The plain ffill below therefore
-    # lets a backtest "know" month M's rate from M-01 rather than from the
-    # actual publication date — a lookahead of up to ~1 month for monthly
-    # series. This is a KNOWN, documented issue (2026-08-17 audit); the
-    # alignment is intentionally NOT re-architected in this pass. Treat
-    # carry-signal edges of magnitude comparable to one month of rate drift
-    # with suspicion.
+    # Reindex each series to business days and forward-fill. FRED dates monthly
+    # series at the FIRST of the reference month, so on the unlagged input the
+    # table states month M's rate from M-01: right for accruing that month's swap
+    # cost, a lookahead for signals (2026-08-17 audit). Signals use the
+    # point-in-time table built from to_point_in_time(rates).
     aligned = pd.DataFrame(index=date_range)
     aligned.index.name = "date"
     for currency, series in rates.items():
@@ -215,6 +240,12 @@ def main():
     diffs.to_parquet(output_path)
     print(f"Saved {output_path} ({len(diffs)} rows, "
           f"{diffs.index[0].date()} to {diffs.index[-1].date()}, {len(diffs.columns)} pairs)")
+
+    pit = build_rate_differentials(to_point_in_time(rates))
+    pit_path = OUTPUT_DIR / "rate_differentials_pit.parquet"
+    pit.to_parquet(pit_path)
+    print(f"Saved {pit_path} (point-in-time, for signals; {len(pit)} rows, "
+          f"{pit.index[0].date()} to {pit.index[-1].date()})")
 
     # Summary
     print("\n=== Latest Differentials ===")

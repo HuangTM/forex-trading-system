@@ -41,7 +41,9 @@ _PAIR_TO_COL: dict[str, str] = {
 }
 
 # Default path relative to project root
-_DEFAULT_RATE_DATA_PATH = "data/rates/rate_differentials.parquet"
+# Point-in-time table: monthly rates dated by publication, not reference month
+# (scripts/download_fred_rates.py). The reference-period table is for swap costs.
+_DEFAULT_RATE_DATA_PATH = "data/rates/rate_differentials_pit.parquet"
 
 
 def _load_rate_data(path: str) -> pd.DataFrame:
@@ -60,7 +62,7 @@ class CarryFREDStrategy(Strategy):
     Params:
         pair: str — currency pair symbol (e.g., "USDJPY")
         rate_data_path: str — path to rate_differentials.parquet
-            (default: data/rates/rate_differentials.parquet)
+            (default: data/rates/rate_differentials_pit.parquet)
         rank_normalize: bool — if True (default), z-score the per-pair
             differential against ALL 12 pairs at each bar (cross-sectional
             rank). If False, uses raw differential / max_differential.

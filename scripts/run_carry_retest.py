@@ -177,8 +177,13 @@ def make_cost_model(cost: str, pair: str, config, rate_data: pd.DataFrame, close
     )
 
 
-def run_cell(variant, cost, prices, config, rate_data) -> dict[str, pd.Series]:
-    """Per-pair daily equity returns for one (variant, cost) cell."""
+def run_cell(variant, cost, prices, config, rate_data, signal_rate_data=None) -> dict[str, pd.Series]:
+    """Per-pair daily equity returns for one (variant, cost) cell.
+
+    rate_data accrues swap costs; signal_rate_data (default: rate_data) drives signals.
+    """
+    if signal_rate_data is None:
+        signal_rate_data = rate_data
     rets = {}
     pairs = JPY_CROSSES if variant == "JPY_basket" else list(prices)
     for pair in pairs:
@@ -189,7 +194,7 @@ def run_cell(variant, cost, prices, config, rate_data) -> dict[str, pd.Series]:
             signals = pd.Series(1.0, index=data.index)
         else:
             params = dict(VARIANTS[variant], pair=pair)
-            signals = CarryFREDStrategy(params, rate_data=rate_data).generate_signals(data)
+            signals = CarryFREDStrategy(params, rate_data=signal_rate_data).generate_signals(data)
         model = make_cost_model(cost, pair, config, rate_data, data["close"])
         result = run_backtest(
             data=data, signals=signals, pair=pair, strategy_name=f"retest_{variant}",
@@ -263,13 +268,13 @@ def vol_weights(rets: dict[str, pd.Series], is_end: pd.Timestamp) -> dict[str, f
     return {p: w / total for p, w in raw.items()}
 
 
-def part_a(config, rate_data, cells, pairs, end) -> dict:
+def part_a(config, rate_data, cells, pairs, end, signal_rate_data=None) -> dict:
     prices = load_prices(pairs, None, end)
     oos = pd.Timestamp(A_OOS_START)
     results = {}
     for variant, cost in cells:
         print(f"  {variant} x {cost} ...")
-        rets = run_cell(variant, cost, prices, config, rate_data)
+        rets = run_cell(variant, cost, prices, config, rate_data, signal_rate_data)
         vw = vol_weights(rets, oos)
         cell = {}
         for wname, weights in (("vol_weighted", vw), ("equal_weighted", None)):
@@ -343,6 +348,10 @@ def main() -> int:
     ap.add_argument("--part", choices=["A", "B"])
     ap.add_argument("--holdout-dir", type=Path)
     ap.add_argument("--rate-data", default="data/rates/rate_differentials.parquet")
+    ap.add_argument("--signal-rate-data",
+                    help="Part A only: separate table for signals (e.g. the point-in-time "
+                         "rate_differentials_pit.parquet); costs still use --rate-data. "
+                         "Default: --rate-data, as pre-registered.")
     ap.add_argument("--out")
     ap.add_argument("--smoke", action="store_true",
                     help="2 pairs, 2010-2011, C1+C2 only; prints no metrics")
@@ -356,6 +365,14 @@ def main() -> int:
     if rate_data.index.tz is not None:
         rate_data.index = rate_data.index.tz_localize(None)
 
+    signal_rate_data = None
+    if args.signal_rate_data:
+        signal_rate_data = pd.read_parquet(args.signal_rate_data)
+        if signal_rate_data.index.tz is not None:
+            signal_rate_data.index = signal_rate_data.index.tz_localize(None)
+        if args.part != "A":
+            ap.error("--signal-rate-data is supported for --part A only")
+
     if args.smoke:
         cells = [("V1_clip", "C1_static"), ("V2_quintile", "C2_rate_m0.5"),
                  ("V3_sign", "C2_rate_m0.5"), ("JPY_basket", "C2_rate_m0.5")]
@@ -367,7 +384,7 @@ def main() -> int:
         return 0
 
     if args.part == "A":
-        results = part_a(config, rate_data, CELLS_A, PAIRS, A_END)
+        results = part_a(config, rate_data, CELLS_A, PAIRS, A_END, signal_rate_data)
         summary = triggers_a(results, rate_data)
     elif args.part == "B":
         if args.holdout_dir is None:
@@ -384,6 +401,7 @@ def main() -> int:
         "pre_registration": PRE_REG_PATH,
         "part": args.part,
         "rate_data": args.rate_data,
+        "signal_rate_data": args.signal_rate_data or args.rate_data,
         "summary": summary,
         "cells": results,
     }, indent=2, default=str))

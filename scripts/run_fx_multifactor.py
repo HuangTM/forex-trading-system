@@ -30,6 +30,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from forex_system.harness.dsr import compute_dsr  # noqa: E402
+from scripts.download_fred_rates import PUBLICATION_LAG_MONTHS  # noqa: E402
 
 PRE_REG_PATH = "references/pre-registrations/fx_multifactor_monthly.md"
 CCYS = ["USD", "EUR", "JPY", "GBP", "AUD", "NZD", "CAD"]
@@ -112,18 +113,20 @@ def rank_weights(score: pd.Series) -> pd.Series:
     return w
 
 
-def factor_weights(spot, rates, reer, xs) -> dict[str, pd.DataFrame]:
+def factor_weights(spot, rates, reer, xs, rate_lags=None) -> dict[str, pd.DataFrame]:
     """Weights formed at the end of month t (index t), held during month t+1.
 
     Every input is as of month t-1 or earlier (one-month publication lag for rates and
-    REER; momentum skips the most recent month).
+    REER; momentum skips the most recent month). rate_lags (currency -> months back from
+    t, default 1 for all) lets the carry score respect a longer publication lag.
     """
+    lags = {c: 1 for c in CCYS} | (rate_lags or {})
     months = pd.period_range(FIRST_RETURN_MONTH, LAST_RETURN_MONTH, freq="M") - 1
     log_reer = np.log(reer)
     out = {"carry": {}, "value": {}, "momentum": {}}
     for t in months:
         lag1 = t - 1
-        out["carry"][t] = rank_weights(rates.loc[lag1])
+        out["carry"][t] = rank_weights(pd.Series({c: rates.at[t - lags[c], c] for c in CCYS}))
         past = log_reer.loc[t - 66:t - 54].mean()
         out["value"][t] = rank_weights(-(log_reer.loc[lag1] - past))
         out["momentum"][t] = rank_weights(xs.loc[t - 11:t - 1].sum(min_count=11))
@@ -196,6 +199,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--smoke", action="store_true", help="build signals and weights only")
     ap.add_argument("--out", default="data/results/fx_multifactor_monthly_2026-10-26.json")
+    ap.add_argument("--pit-rates", action="store_true",
+                    help="post-hoc sensitivity: carry uses each rate no earlier than its "
+                         "publication (download_fred_rates.PUBLICATION_LAG_MONTHS); "
+                         "only AUD changes (t-2). Not the pre-registered run.")
     args = ap.parse_args()
     if not Path(PRE_REG_PATH).exists():
         print(f"ERROR: pre-registration missing: {PRE_REG_PATH}")
@@ -203,7 +210,12 @@ def main() -> int:
 
     spot, rates, reer = load_spot(), load_rates(), load_reer()
     xs = excess_returns(spot, rates)
-    weights = factor_weights(spot, rates, reer, xs)
+    rate_lags = None
+    if args.pit_rates:
+        # Weights are formed at the end of month t, i.e. the start of t+1, when the
+        # latest public reference month is t+1-lag. Never use later than t-1.
+        rate_lags = {c: max(1, PUBLICATION_LAG_MONTHS[c] - 1) for c in CCYS}
+    weights = factor_weights(spot, rates, reer, xs, rate_lags)
 
     if args.smoke:
         for k, w in weights.items():

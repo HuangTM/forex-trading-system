@@ -42,3 +42,18 @@ The composite's value is diversification: in 2008 carry lost 28.7% and value gai
   the papers' 15–48.
 - Per the owner's pre-agreed rule (pause the programme unless this bet passes), this
   result does not justify more trials.
+
+## Addendum (2026-10-29): publication-lag sensitivity (post-hoc, not the verdict)
+
+Carry scores used month t-1 rates for weights formed at the end of month t. Measured
+publication lags (`scripts/download_fred_rates.py: PUBLICATION_LAG_MONTHS`) make that
+conservative or exact for every currency except AUD (OECD 3-month interbank, public
+only from M+3), which had a one-month lookahead. Re-run with AUD at t-2
+(`run_fx_multifactor.py --pit-rates`). A control run reproduced the archived JSON exactly.
+
+| Cell (base cost) | Full SR | Full t | DSR(N=35) | Post-2012 SR |
+|---|---|---|---|---|
+| composite (primary) | 0.488 → 0.497 | 2.47 → 2.52 | 0.630 → 0.647 | 0.222 → 0.239 |
+| carry only | 0.373 → 0.384 | 1.89 → 1.95 | 0.409 → 0.430 | 0.286 → 0.310 |
+
+The verdict is unchanged: **INCONCLUSIVE**.

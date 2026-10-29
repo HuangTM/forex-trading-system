@@ -51,7 +51,9 @@ _PAIR_TO_COL: dict[str, str] = {
     "USDJPY": "USDJPY_diff",
 }
 
-_DEFAULT_RATE_DATA_PATH = "data/rates/rate_differentials.parquet"
+# Point-in-time table: monthly rates dated by publication, not reference month
+# (scripts/download_fred_rates.py). The reference-period table is for swap costs.
+_DEFAULT_RATE_DATA_PATH = "data/rates/rate_differentials_pit.parquet"
 
 
 def _log_decision(event: str, **fields: object) -> None:
@@ -81,7 +83,7 @@ class FredCarryStrippedStrategy(Strategy):
     Params:
         pair: str — currency pair symbol (e.g., "USDJPY")
         rate_data_path: str — path to rate_differentials.parquet
-            (default: data/rates/rate_differentials.parquet)
+            (default: data/rates/rate_differentials_pit.parquet)
         rank_normalize: bool — if True (default), z-score cross-sectionally
         min_differential: float — abs threshold below which signal = 0.0
             (default 0.001)

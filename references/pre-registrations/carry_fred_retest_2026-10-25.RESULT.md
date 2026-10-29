@@ -76,3 +76,25 @@ trial (N = 33) left to the owner.
 Bet #1 is **CLOSED**. `config/carry_fred.yaml` now carries `deploy_status: FALSIFIED`,
 and both carry paper loops refuse to start on a flagged config without
 `--force-falsified`.
+
+## Addendum (2026-10-29): publication-lag sensitivity (post-hoc, not the verdict)
+
+The rate table used above dates monthly FRED series at the first of the reference
+month, so signals could see a month's rate before it was published. Part A was re-run
+with signals from `data/rates/rate_differentials_pit.parquet` (each series dated by
+publication: USD +1 month, JPY/NZD/CAD +2, AUD +3; EUR/GBP unchanged) and swap
+costs still accrued on the reference-period table:
+`run_carry_retest.py --part A --signal-rate-data data/rates/rate_differentials_pit.parquet`.
+A control run without the flag reproduced the archived JSON exactly.
+
+| Cell (vol-weighted) | IS SR old → PIT | OOS SR old → PIT |
+|---|---|---|
+| V1_clip × C2 (primary) | 0.201 → 0.336 | 0.915 → 0.960 |
+| V1_clip × C2×2 | 0.075 → 0.213 | 0.813 → 0.859 |
+| V3_sign × C2 | 0.153 → 0.228 | 1.127 → 1.060 |
+| JPY_basket × C2 | 0.275 → 0.275 | 1.160 → 1.160 |
+
+The verdict is unchanged: **FAIL**, because CF-T8 still fires (IS SR 0.336 < 0.40). CF-T6 no
+longer fires (0.2135). The lookahead was not flattering carry_fred; removing it makes
+every V1 cell slightly better. With point-in-time signals, the naive JPY basket still beats
+every variant out of sample but no longer in sample (V1×C3 IS 0.455 vs 0.275).

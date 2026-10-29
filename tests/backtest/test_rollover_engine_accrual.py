@@ -144,16 +144,14 @@ def test_daily_equivalence_under_rollover_model():
     and confirm results are bit-identical — the engine change cannot have touched the else-branch.
 
     Additionally, confirm that RolloverAwareRealisticCostModel on daily bars (00:00 UTC)
-    accrues ZERO swap (rollover_cost_for_bar returns 0.0 for hour!=21), which is the
-    expected behavior: daily bars at 00:00 UTC are not 22:00 UTC crossing bars. This is
-    NOT equivalent to plain model — the spec's "bit-identical" claim is contingent on
-    the isinstance gate routing plain callers through the pro-rata path exclusively.
+    charges the rollover each bar contains (fixed 2026-10-29; it used to charge ZERO
+    because the rule was hard-coded to 1h bars at hour 21).
 
     What this test validates:
       (a) isinstance gate is correct: isinstance(plain, RolloverAwareRealisticCostModel) = False
       (b) isinstance gate is correct: isinstance(rollover, RolloverAwareRealisticCostModel) = True
       (c) Two identical runs with plain RealisticCostModel produce bit-identical results (regression anchor).
-      (d) RolloverAwareRealisticCostModel on daily bars returns 0 swap/bar (bar_ts.hour != 21).
+      (d) RolloverAwareRealisticCostModel on daily bars charges Mon/Tue/Thu 1x, Wed 3x, Fri 0.
     """
     # (a) and (b): isinstance gate correctness
     plain = _plain_model()
@@ -181,26 +179,22 @@ def test_daily_equivalence_under_rollover_model():
         obj="plain model regression anchor (two identical runs must be identical)",
     )
 
-    # (d): RolloverAwareRealisticCostModel on daily bars (00:00 UTC) accrues zero swap
-    # Daily bars are at 00:00 UTC; rollover_cost_for_bar returns 0.0 for hour != 21
+    # (d): each daily bar (00:00 -> 00:00 UTC) contains that day's 22:00 rollover.
     from forex_system.costs.model import RolloverAwareRealisticCostModel as RARCM
     rollover_zero = RARCM({"EURUSD": _EURUSD_PAIR_ZEROCOST})
+    expected_mult = {0: 1, 1: 1, 2: 3, 3: 1, 4: 0}  # Fri 22:00 is weekend-closed
+    one_day = pd.Timedelta(days=1)
     for ts in data.index:
-        cost = rollover_zero.rollover_cost_for_bar("EURUSD", Direction.LONG, ts)
-        assert cost == 0.0, (
-            f"Daily bar at {ts} (hour={ts.hour}) must not trigger rollover accrual; got {cost}"
-        )
+        cost = rollover_zero.rollover_cost_for_bar("EURUSD", Direction.LONG, ts, one_day)
+        assert cost == 1.2 * expected_mult[ts.weekday()], (ts, cost)
 
-    # Confirm plain model accrues non-zero swap (ensures we're testing a live pair)
+    # In the engine the rollover model now charges 6 swap-days a week on daily bars,
+    # against 5 for the plain pro-rata path (one per business-day bar), so with a
+    # negative-carry long it ends with LESS equity.
     plain_zero = RealisticCostModel({"EURUSD": _EURUSD_PAIR_ZEROCOST})
     ec_plain, _ = _run_continuous(data, plain_zero)
     ec_rollover_daily, _ = _run_continuous(data, rollover_zero)
-    # Plain model: swap accrues every bar (pro-rata). Rollover model: zero swap on 00:00 UTC bars.
-    # They should differ — rollover model has MORE equity (zero swap = no cost)
-    assert ec_rollover_daily.dropna().iloc[-1] > ec_plain.dropna().iloc[-1], (
-        "Rollover model on daily 00:00 UTC bars should have higher equity than plain model "
-        "(plain accrues swap pro-rata every bar; rollover accrues nothing on non-21h bars)"
-    )
+    assert ec_rollover_daily.dropna().iloc[-1] < ec_plain.dropna().iloc[-1]
 
 
 # ---------------------------------------------------------------------------

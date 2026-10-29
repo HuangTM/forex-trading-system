@@ -286,35 +286,24 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
         pair: str,
         direction: Direction,
         bar_ts: pd.Timestamp,
+        bar_duration: pd.Timedelta = pd.Timedelta(hours=1),
     ) -> float:
-        """Swap cost in pips for the BAR whose period crosses the 22:00 UTC rollover.
+        """Swap cost in pips for the rollovers inside one bar's span.
 
-        A 1h bar timestamped at 21:00 UTC CLOSES at 22:00 UTC — it crosses the
-        rollover.  This is the per-bar accrual pattern for the continuous engine.
+        The bar opens at ``bar_ts`` and closes at ``bar_ts + bar_duration``; every
+        22:00 UTC rollover in (open, close] is charged, 3x on Wednesday, with the
+        same weekend rule as count_rollover_crossings() (Fri/Sat/Sun 22:00 UTC are
+        not financing boundaries).  This is the per-bar accrual pattern for the
+        continuous engine.
 
-        Returns non-zero ONLY for bars whose open-to-close spans the 22:00 UTC
-        boundary (i.e. bar_ts.hour == 21 UTC), with 3× charge on Wednesday.
-        Returns 0.0 for all other bars.
-
-        WEEKEND RULE: bars at 21:00 UTC on Friday (weekday 4), Saturday (weekday 5),
-        or Sunday (weekday 6) are NOT charged — the FX market is closed from Fri 21:00
-        UTC through Sun 22:00 UTC.  Fri 21:00 closes at Fri 22:00 (market-closed);
-        Sat 21:00 closes at Sat 22:00 (market-closed); Sun 21:00 closes at Sun 22:00
-        (this is the market OPEN, not a financing boundary).  Consistent with
-        count_rollover_crossings() and quality_gate_1h._WEEKEND_CLOSED_DAY_HOUR.
+        For 1h bars (the default) only the bar at 21:00 UTC is charged, because it
+        closes at 22:00.  A 4h bar at 20:00 or a daily bar at 00:00 is charged for
+        the rollover it contains; before 2026-10-29 the rule was hard-coded to
+        ``hour == 21`` and such bars were silently charged zero.
         """
-        bar_ts_utc = bar_ts if bar_ts.tzinfo is not None else bar_ts.tz_localize("UTC")
-        if str(bar_ts_utc.tz) not in ("UTC", "utc"):
-            bar_ts_utc = bar_ts_utc.tz_convert("UTC")
-
-        # A bar at hour 21 closes at 22:00 — crosses the rollover
-        if bar_ts_utc.hour != 21:
-            return 0.0
-
-        # Skip weekend-closed 22:00 boundaries (Fri/Sat/Sun 21:00 UTC bars).
-        # See WEEKEND RULE in docstring above.
-        wd = bar_ts_utc.weekday()  # 0=Mon … 6=Sun
-        if wd in (4, 5, 6):  # Friday, Saturday, Sunday
+        n_single, n_triple = count_rollover_crossings(bar_ts, bar_ts + bar_duration)
+        multiplier = n_single + 3 * n_triple
+        if multiplier == 0:
             return 0.0
 
         p = self._get_pair(pair)
@@ -325,13 +314,9 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
         else:
             return 0.0
 
-        # Wednesday 22:00 UTC rollover carries 3× (covers Sat+Sun settlement)
-        # bar_ts is at hour 21, meaning the CLOSE is at hour 22 on the SAME day
-        # weekday of the bar_ts still equals the weekday of the crossing (hour is 21)
-        multiplier = 3 if wd == 2 else 1  # 2 = Wednesday
-
         logger.debug(
-            "rollover_cost_for_bar[%s] ts=%s multiplier=%d", pair, bar_ts_utc, multiplier
+            "rollover_cost_for_bar[%s] ts=%s duration=%s multiplier=%d",
+            pair, bar_ts, bar_duration, multiplier,
         )
 
         return -daily_swap * multiplier

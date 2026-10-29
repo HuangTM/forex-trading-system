@@ -433,8 +433,11 @@ def _run_continuous(
     # FIX-1: Compute bar duration in fractional days from the actual index spacing.
     # Use the median timedelta so a few weekend gaps (daily) or session gaps (1h)
     # don't distort the result. Fallback to 1.0 (daily) for single-bar data.
-    # NOTE: bar_duration_days is used only in the pro-rata (non-rollover-aware) path.
+    # The pro-rata path scales by bar_duration_days; the rollover-aware path charges the
+    # 22:00 UTC rollovers inside each bar's (ts, ts + bar_duration] span.
     bar_duration_days = _infer_bar_duration_days(data.index)
+    # Whole seconds: a float 1/24 day can land a hair under 1h and miss 22:00.
+    bar_duration = pd.Timedelta(seconds=round(bar_duration_days * 86_400))
 
     # KG-QD-3: Select accrual path once before the loop — O(1) check, not per-bar.
     # Plain RealisticCostModel (all validated daily-bar trials) → use_rollover_accrual=False
@@ -531,7 +534,7 @@ def _run_continuous(
                 # sign_convention_correction): rollover_cost_for_bar returns
                 # -daily_swap*mult; negate → correct sign for equity accrual.
                 per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
-                    pair, Direction.LONG, ts
+                    pair, Direction.LONG, ts, bar_duration
                 )
             else:
                 # Daily/pro-rata path (unchanged — preserves validated daily results).
@@ -544,7 +547,7 @@ def _run_continuous(
                 # Short-side rollover accrual: mirrors long branch.
                 # Branch is now REACHABLE when allow_shorts=True enables negative units.
                 per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
-                    pair, Direction.SHORT, ts
+                    pair, Direction.SHORT, ts, bar_duration
                 )
                 equity += per_bar_swap_pips * pip_value * abs(cur_units)
             else:

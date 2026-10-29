@@ -408,3 +408,47 @@ class TestWeekendSpanningRollovers:
         )
         assert n_single == 0, f"Sat 22:00 must not count, got {n_single}"
         assert n_triple == 0
+
+
+# ---------------------------------------------------------------------------
+# Bar-length-aware per-bar accrual (2026-10-29): the rule used to be hard-coded
+# to 1h bars at hour 21, so 4h and daily bars were silently charged zero.
+# ---------------------------------------------------------------------------
+
+
+def _legacy_1h_rule(bar_ts: pd.Timestamp) -> int:
+    """The pre-2026-10-29 multiplier: hour 21 Mon-Thu only, 3x on Wednesday."""
+    if bar_ts.hour != 21 or bar_ts.weekday() in (4, 5, 6):
+        return 0
+    return 3 if bar_ts.weekday() == 2 else 1
+
+
+def _span_model() -> RolloverAwareRealisticCostModel:
+    pair = PairInfo(symbol="EURUSD", pip_value=0.0001, spread_pips=0.0, slippage_pips=0.0,
+                    commission_pips=0.0, swap_long_pips_per_day=-1.0,
+                    swap_short_pips_per_day=0.0)
+    return RolloverAwareRealisticCostModel({"EURUSD": pair})
+
+
+def test_1h_bars_identical_to_legacy_rule():
+    model = _span_model()
+    for ts in pd.date_range("2024-01-01", periods=24 * 21, freq="h", tz="UTC"):
+        got = model.rollover_cost_for_bar("EURUSD", Direction.LONG, ts)
+        assert got == 1.0 * _legacy_1h_rule(ts), ts
+
+
+@pytest.mark.parametrize("freq,hours", [("h", 1), ("30min", 0.5), ("4h", 4), ("D", 24)])
+def test_any_bar_length_charges_six_swap_days_per_week(freq, hours):
+    """Mon/Tue/Thu 1x + Wed 3x, Fri-Sun none — same weekly total at every bar length."""
+    model = _span_model()
+    dur = pd.Timedelta(hours=hours)
+    bars = pd.date_range("2024-01-01", "2024-01-29", freq=freq, tz="UTC", inclusive="left")
+    total = sum(model.rollover_cost_for_bar("EURUSD", Direction.LONG, ts, dur) for ts in bars)
+    assert total == 4 * 6 * 1.0
+
+
+def test_4h_bar_spanning_2200_is_charged():
+    model = _span_model()
+    wed_20h = pd.Timestamp("2024-01-03 20:00", tz="UTC")
+    assert model.rollover_cost_for_bar(
+        "EURUSD", Direction.LONG, wed_20h, pd.Timedelta(hours=4)) == 3.0

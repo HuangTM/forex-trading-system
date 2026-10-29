@@ -64,7 +64,8 @@ import requests
 
 from forex_system.analysis.prediction_log import PredictionLog
 from forex_system.analysis.trade_log import TradeLog
-from forex_system.core.config import load_config
+from forex_system.core.config import assert_deployable, load_config
+from forex_system.core.errors import ConfigError
 from forex_system.core.types import Direction
 from forex_system.costs.model import RealisticCostModel
 from forex_system.paper.base_runner import PaperRunnerBase
@@ -1030,6 +1031,11 @@ def main():
         action="store_true",
         help="Required second factor for --reset-account-key-lock to prevent accidental reset.",
     )
+    parser.add_argument(
+        "--force-falsified",
+        action="store_true",
+        help="Override the DO-NOT-DEPLOY guard for a FALSIFIED config (NOT recommended)",
+    )
     args = parser.parse_args()
 
     if args.reset_account_key_lock:
@@ -1052,6 +1058,12 @@ def main():
     _last_cycle_ts = PaperRunnerBase.load_last_cycle_ts(_LAST_CYCLE_TS_STRATEGY_ID)
 
     config = load_config(args.config)
+    # DEPLOY GUARD (CRO C1): refuse to paper/live-trade a FALSIFIED/DO-NOT-DEPLOY config.
+    try:
+        assert_deployable(config, force=args.force_falsified)
+    except ConfigError as e:
+        print(f"Error: {e}")
+        sys.exit(2)
     pair = config.pair_symbols[0]
     strat_cfg = next(s for s in config.strategies if s.name == "carry_fred")
     strat_params = strat_cfg.params

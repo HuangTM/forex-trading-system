@@ -70,3 +70,9 @@ triggers, and has DSR ≤ 0.31 at N = 33. **Not a validated edge; not deployable
 Not fixed by this work: no margin/liquidation simulation (now shown to matter);
 policy rates stand in for tom-next; FEDFUNDS publication lag; ledger row for this
 trial (N = 33) left to the owner.
+
+## Owner sign-off (2026-10-28)
+
+Bet #1 is **CLOSED**. `config/carry_fred.yaml` now carries `deploy_status: FALSIFIED`,
+and both carry paper loops refuse to start on a flagged config without
+`--force-falsified`.

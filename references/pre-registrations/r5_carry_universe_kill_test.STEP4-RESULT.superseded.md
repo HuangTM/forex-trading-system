@@ -76,3 +76,13 @@ k*-adjacent diagnostics and the vol_target_carry:USDJPY DSR remain marginal
   (sizing contract + JPY rates); they were not isolated. The original 2026-06-06 run
   had BOTH defects. Comparing old-vs-new per-cell Sharpes for carry_fred cells
   (e.g. carry_fred:USDJPY −0.01) against any pre-fix numbers mixes both effects.
+
+## Ratification (2026-10-28)
+
+The owner ratified this correction re-run as **superseding** the 2026-06-06 STEP-4
+result as the evidence of record. The decision (AMBIGUOUS_GATE_FAIL) and k*
+(vol_target_carry:USDJPY) are unchanged, so no downstream action changes. The original
+YAML stays in place unmodified. Confirmatory trial f2fb41fd
+(`r5_confirmatory_vol_target_carry_usdjpy.md`) keeps its frozen receipt as-is: its SR0,
+look dates and kill-switch threshold are not re-derived from the re-run, because
+changing a frozen parameter would void the confirmatory test.

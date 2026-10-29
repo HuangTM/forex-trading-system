@@ -151,7 +151,7 @@ def test_daily_equivalence_under_rollover_model():
       (a) isinstance gate is correct: isinstance(plain, RolloverAwareRealisticCostModel) = False
       (b) isinstance gate is correct: isinstance(rollover, RolloverAwareRealisticCostModel) = True
       (c) Two identical runs with plain RealisticCostModel produce bit-identical results (regression anchor).
-      (d) RolloverAwareRealisticCostModel on daily bars charges Mon/Tue/Thu 1x, Wed 3x, Fri 0.
+      (d) RolloverAwareRealisticCostModel on daily bars charges Mon/Tue/Thu/Fri 1x, Wed 3x.
     """
     # (a) and (b): isinstance gate correctness
     plain = _plain_model()
@@ -182,13 +182,13 @@ def test_daily_equivalence_under_rollover_model():
     # (d): each daily bar (00:00 -> 00:00 UTC) contains that day's 22:00 rollover.
     from forex_system.costs.model import RolloverAwareRealisticCostModel as RARCM
     rollover_zero = RARCM({"EURUSD": _EURUSD_PAIR_ZEROCOST})
-    expected_mult = {0: 1, 1: 1, 2: 3, 3: 1, 4: 0}  # Fri 22:00 is weekend-closed
+    expected_mult = {0: 1, 1: 1, 2: 3, 3: 1, 4: 1}
     one_day = pd.Timedelta(days=1)
     for ts in data.index:
         cost = rollover_zero.rollover_cost_for_bar("EURUSD", Direction.LONG, ts, one_day)
         assert cost == 1.2 * expected_mult[ts.weekday()], (ts, cost)
 
-    # In the engine the rollover model now charges 6 swap-days a week on daily bars,
+    # In the engine the rollover model charges 7 swap-days a week on daily bars,
     # against 5 for the plain pro-rata path (one per business-day bar), so with a
     # negative-carry long it ends with LESS equity.
     plain_zero = RealisticCostModel({"EURUSD": _EURUSD_PAIR_ZEROCOST})
@@ -378,10 +378,10 @@ def test_intraday_intra_session_no_charge():
 # ---------------------------------------------------------------------------
 
 def test_intraday_weekend_boundary_no_charge():
-    """Friday, Saturday, Sunday 21:00 UTC bars → zero swap (WEEKEND RULE).
+    """Saturday and Sunday 21:00 UTC bars → zero swap (WEEKEND RULE).
 
-    Verifies rollover_cost_for_bar returns 0.0 for the three weekend-closed 21:00 UTC
-    bars. Monday 21:00 used as a positive control (must be non-zero).
+    Friday 21:00 closes at the Friday rollover and IS charged (restored 2026-10-29).
+    Monday 21:00 used as a positive control (must be non-zero).
     """
     model = RolloverAwareRealisticCostModel({"EURUSD": _EURUSD_PAIR_ZEROCOST})
 
@@ -404,7 +404,7 @@ def test_intraday_weekend_boundary_no_charge():
     sun_cost = model.rollover_cost_for_bar("EURUSD", Direction.LONG, sun_ts)
     mon_cost = model.rollover_cost_for_bar("EURUSD", Direction.LONG, mon_ts)
 
-    assert fri_cost == 0.0, f"Friday 21:00 must return 0.0 (weekend rule); got {fri_cost}"
+    assert fri_cost == mon_cost, f"Friday 21:00 must charge 1x like Monday; got {fri_cost}"
     assert sat_cost == 0.0, f"Saturday 21:00 must return 0.0 (weekend rule); got {sat_cost}"
     assert sun_cost == 0.0, f"Sunday 21:00 must return 0.0 (weekend rule); got {sun_cost}"
     assert mon_cost != 0.0, f"Monday 21:00 must return non-zero (positive control); got {mon_cost}"
@@ -568,3 +568,17 @@ def test_no_double_count_at_close():
             f"Rollover bar must show equity decrease for negative-carry LONG; "
             f"got {rollover_change}"
         )
+
+
+def test_weekend_gap_friday_rollover_charged_once_in_engine():
+    """Real 1h data stops at Fri 20:00 and resumes Sun 22:00, so no bar's own span
+    contains Fri 22:00. The engine's (previous close, close] window must still charge
+    the Friday rollover exactly once, on the Sunday-open bar."""
+    fri = list(pd.date_range("2024-01-12 12:00", "2024-01-12 20:00", freq="1h", tz="UTC"))
+    sun = list(pd.date_range("2024-01-14 22:00", "2024-01-15 06:00", freq="1h", tz="UTC"))
+    data = _make_1h_flat_data(fri + sun)
+    ec, _ = _run_continuous(data, _rollover_model(_EURUSD_PAIR_ZEROCOST))
+    changes = ec.dropna().diff().dropna()
+    moved = changes[changes.abs() > 1e-9]
+    assert list(moved.index) == [pd.Timestamp("2024-01-14 22:00", tz="UTC")]
+    assert moved.iloc[0] < 0  # negative-carry long pays

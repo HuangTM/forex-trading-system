@@ -456,6 +456,9 @@ def _run_continuous(
     cur_units = 0.0
     entry_price = 0.0
     entry_time: pd.Timestamp | None = None
+    # Close of the last processed bar: the rollover-aware accrual window runs from here
+    # to this bar's close, so rollovers in data gaps (Friday 22:00 on 1h data) count.
+    prev_bar_close: pd.Timestamp | None = None
 
     for i, (ts, row) in enumerate(data.iterrows()):
         price = row["close"]
@@ -534,7 +537,7 @@ def _run_continuous(
                 # sign_convention_correction): rollover_cost_for_bar returns
                 # -daily_swap*mult; negate → correct sign for equity accrual.
                 per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
-                    pair, Direction.LONG, ts, bar_duration
+                    pair, Direction.LONG, ts, bar_duration, span_start=prev_bar_close
                 )
             else:
                 # Daily/pro-rata path (unchanged — preserves validated daily results).
@@ -547,7 +550,7 @@ def _run_continuous(
                 # Short-side rollover accrual: mirrors long branch.
                 # Branch is now REACHABLE when allow_shorts=True enables negative units.
                 per_bar_swap_pips = -cost_model.rollover_cost_for_bar(
-                    pair, Direction.SHORT, ts, bar_duration
+                    pair, Direction.SHORT, ts, bar_duration, span_start=prev_bar_close
                 )
                 equity += per_bar_swap_pips * pip_value * abs(cur_units)
             else:
@@ -568,6 +571,8 @@ def _run_continuous(
                         "Use RolloverAwareRealisticCostModel for short strategies."
                     )
                 equity += per_bar_swap_pips * pip_value * abs(cur_units)
+
+        prev_bar_close = ts + bar_duration
 
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)

@@ -127,20 +127,18 @@ class TestCountRolloverCrossings:
         assert n_single == 0
         assert n_triple == 0
 
-    def test_five_days_excluding_fri_22(self):
-        """Mon 10:00 → Sat 10:00: Mon(1), Tue(1), Wed(3×), Thu(1); Fri 22:00 skipped (closed).
+    def test_five_days_including_fri_22(self):
+        """Mon 10:00 → Sat 10:00: Mon(1), Tue(1), Wed(3×), Thu(1), Fri(1).
 
-        PREVIOUSLY WRONG: old code was named test_five_days_four_single_one_triple and
-        asserted n_single==4, counting Fri 22:00 UTC as a rollover boundary.
-        CORRECT: Fri 22:00 UTC is market-closed (quality_gate_1h._WEEKEND_CLOSED_DAY_HOUR
-        includes Fri hours 21-23) — it must NOT count as a rollover boundary.
+        fix-round-1 had dropped Fri 22:00 along with Sat/Sun (6 swap-days/week);
+        restored 2026-10-29: the Friday close is the Friday rollover (7/week).
         """
         n_single, n_triple = count_rollover_crossings(
             _ts("2023-01-02 10:00:00"),  # Monday
             _ts("2023-01-07 10:00:00"),  # Saturday 10:00 (after Fri 22:00)
         )
-        # Mon + Tue + Thu = 3 single rollovers; Wed = 1 triple; Fri 22:00 SKIPPED
-        assert n_single == 3
+        # Mon + Tue + Thu + Fri = 4 single rollovers; Wed = 1 triple
+        assert n_single == 4
         assert n_triple == 1
 
 
@@ -205,19 +203,14 @@ class TestRolloverAwareHoldingCost:
         assert cost == pytest.approx(2.0)
 
     def test_five_day_hold_mon_to_sat(self):
-        """Mon 10:00 → Sat 10:00: 3 single (Mon,Tue,Thu) + 1 triple (Wed) = 6 days charge.
-
-        PREVIOUSLY WRONG: old assertion was cost==7.0, counting Fri 22:00 as a rollover
-        (n_single=4).  CORRECT: Fri 22:00 UTC is market-closed; n_single=3, n_triple=1,
-        total charge = 3×1 + 1×3 = 6 days.
-        """
+        """Mon 10:00 → Sat 10:00: 4 single (Mon,Tue,Thu,Fri) + 1 triple (Wed) = 7 days."""
         cost = _MODEL.holding_cost(
             "EURUSD", Direction.LONG, days=0,
             entry_ts=_ts("2023-01-02 10:00:00"),
             exit_ts=_ts("2023-01-07 10:00:00"),
         )
-        # Total charge = 3 × 1 + 1 × 3 = 6 days
-        assert cost == pytest.approx(6.0)
+        # Total charge = 4 × 1 + 1 × 3 = 7 days
+        assert cost == pytest.approx(7.0)
 
 
 # ---------------------------------------------------------------------------
@@ -320,57 +313,53 @@ class TestWeekendSpanningRollovers:
     They must FAIL against the pre-fix code and PASS after the fix.
 
     Canonical case from Principal Reviewer: Fri 2023-01-06 10:00 → Mon 2023-01-09 10:00.
-    Old result: (3, 0)  — billed Fri 22:00 + Sat 22:00 + Sun 22:00 erroneously.
-    Correct:    (0, 0)  — no rollovers; no Wed in this span; Fri/Sat/Sun skipped.
+    Old result: (3, 0)  — billed Fri 22:00 + Sat 22:00 + Sun 22:00.
+    fix-round-1 result: (0, 0) — also dropped the real Friday rollover.
+    Correct (2026-10-29): (1, 0) — Friday rollover only; Sat/Sun are not rollovers.
     """
 
-    def test_fri_to_mon_no_rollovers(self):
-        """Fri 10:00 → Mon 10:00: NO rollover crossings.
-
-        The 3 candidates (Fri 22:00, Sat 22:00, Sun 22:00) are ALL market-closed
-        and must be skipped.  The Wed triple pre-pay happened before entry (prior
-        Wed) so is not in scope.  Correct result = (0, 0).
-        """
+    def test_fri_to_mon_only_friday_rollover(self):
+        """Fri 10:00 → Mon 10:00: the Friday rollover only; Sat/Sun 22:00 skipped."""
         # 2023-01-06 = Friday, 2023-01-09 = Monday
         n_single, n_triple = count_rollover_crossings(
             _ts("2023-01-06 10:00:00"),  # Friday
             _ts("2023-01-09 10:00:00"),  # Monday
         )
-        assert n_single == 0, f"Expected 0 single rollovers, got {n_single}"
+        assert n_single == 1, f"Expected 1 single rollover (Fri), got {n_single}"
         assert n_triple == 0, f"Expected 0 triple rollovers, got {n_triple}"
 
-    def test_fri_to_mon_holding_cost_zero(self):
-        """holding_cost for a Fri → Mon hold (no Wed in span) = 0.0 pips."""
+    def test_fri_to_mon_holding_cost_one_day(self):
+        """holding_cost for a Fri → Mon hold (no Wed in span) = one day of swap."""
         cost = _MODEL.holding_cost(
             "EURUSD", Direction.LONG, days=0,
             entry_ts=_ts("2023-01-06 10:00:00"),  # Friday
             exit_ts=_ts("2023-01-09 10:00:00"),   # Monday
         )
-        assert cost == pytest.approx(0.0), f"Expected 0.0 pip cost, got {cost}"
+        assert cost == pytest.approx(1.0), f"Expected 1.0 pip cost, got {cost}"
 
-    def test_wed_spanning_with_weekend_charges_only_wed(self):
-        """Wed 10:00 → Mon 10:00: only Wed 22:00 counts (1 triple); Fri/Sat/Sun skipped.
+    def test_wed_spanning_with_weekend(self):
+        """Wed 10:00 → Mon 10:00: Wed triple + Thu + Fri; Sat/Sun skipped.
 
-        The Wed triple pre-pays the weekend; no additional Fri/Sat/Sun charge.
+        The Wed triple pre-pays the weekend; no additional Sat/Sun charge.
         """
         # 2023-01-04 = Wednesday, 2023-01-09 = Monday
         n_single, n_triple = count_rollover_crossings(
             _ts("2023-01-04 10:00:00"),  # Wednesday
             _ts("2023-01-09 10:00:00"),  # Monday
         )
-        # Wed 22:00 (triple) + Thu 22:00 (single); Fri/Sat/Sun skipped
-        assert n_single == 1, f"Expected 1 single (Thu), got {n_single}"
+        # Wed 22:00 (triple) + Thu 22:00 + Fri 22:00 (single); Sat/Sun skipped
+        assert n_single == 2, f"Expected 2 single (Thu, Fri), got {n_single}"
         assert n_triple == 1, f"Expected 1 triple (Wed), got {n_triple}"
 
     def test_wed_spanning_with_weekend_holding_cost(self):
-        """Wed 10:00 → Mon 10:00: charge = Wed triple (3) + Thu single (1) = 4 days."""
+        """Wed 10:00 → Mon 10:00: charge = Wed triple (3) + Thu (1) + Fri (1) = 5 days."""
         cost = _MODEL.holding_cost(
             "EURUSD", Direction.LONG, days=0,
             entry_ts=_ts("2023-01-04 10:00:00"),  # Wednesday
             exit_ts=_ts("2023-01-09 10:00:00"),   # Monday
         )
-        # 3× (Wed) + 1× (Thu) = 4 days swap; long swap = -(-1.0) × 4 = 4.0 pips
-        assert cost == pytest.approx(4.0), f"Expected 4.0 pip cost, got {cost}"
+        # 3× (Wed) + 1× (Thu) + 1× (Fri) = 5 days swap; long swap = -(-1.0) × 5 = 5.0 pips
+        assert cost == pytest.approx(5.0), f"Expected 5.0 pip cost, got {cost}"
 
     def test_sat_rollover_bar_zero(self):
         """rollover_cost_for_bar: Sat 21:00 UTC bar must return 0.0 (market closed)."""
@@ -386,12 +375,20 @@ class TestWeekendSpanningRollovers:
         cost = _MODEL.rollover_cost_for_bar("EURUSD", Direction.LONG, ts)
         assert cost == 0.0, f"Sun 21:00 bar must be 0.0 (not a financing boundary), got {cost}"
 
-    def test_fri_rollover_bar_zero(self):
-        """rollover_cost_for_bar: Fri 21:00 UTC bar must return 0.0 (closes at Fri 22:00 = closed)."""
+    def test_fri_rollover_bar_charged(self):
+        """rollover_cost_for_bar: a bar whose span reaches Fri 22:00 UTC charges 1×."""
         # 2023-01-06 = Friday
         ts = _ts("2023-01-06 21:00:00")
         cost = _MODEL.rollover_cost_for_bar("EURUSD", Direction.LONG, ts)
-        assert cost == 0.0, f"Fri 21:00 bar must be 0.0 (Fri 22:00 is market-closed), got {cost}"
+        assert cost == pytest.approx(1.0), f"Fri 21:00 bar must charge 1×, got {cost}"
+
+    def test_weekend_gap_charged_on_first_bar_after(self):
+        """1h data has no Fri 21:00 bar; the Sunday-open bar's span from the previous
+        close (Fri 21:00) picks up the Friday rollover exactly once."""
+        sun_open = _ts("2023-01-08 22:00:00")
+        cost = _MODEL.rollover_cost_for_bar(
+            "EURUSD", Direction.LONG, sun_open, span_start=_ts("2023-01-06 21:00:00"))
+        assert cost == pytest.approx(1.0)
 
     def test_thu_rollover_bar_nonzero(self):
         """rollover_cost_for_bar: Thu 21:00 UTC (day before Fri) still charges 1×."""
@@ -416,9 +413,9 @@ class TestWeekendSpanningRollovers:
 # ---------------------------------------------------------------------------
 
 
-def _legacy_1h_rule(bar_ts: pd.Timestamp) -> int:
-    """The pre-2026-10-29 multiplier: hour 21 Mon-Thu only, 3x on Wednesday."""
-    if bar_ts.hour != 21 or bar_ts.weekday() in (4, 5, 6):
+def _hour21_rule(bar_ts: pd.Timestamp) -> int:
+    """Hour-21 bars Mon-Fri, 3x on Wednesday (the 1h rule, Friday included)."""
+    if bar_ts.hour != 21 or bar_ts.weekday() in (5, 6):
         return 0
     return 3 if bar_ts.weekday() == 2 else 1
 
@@ -430,21 +427,21 @@ def _span_model() -> RolloverAwareRealisticCostModel:
     return RolloverAwareRealisticCostModel({"EURUSD": pair})
 
 
-def test_1h_bars_identical_to_legacy_rule():
+def test_1h_bars_match_hour21_rule():
     model = _span_model()
     for ts in pd.date_range("2024-01-01", periods=24 * 21, freq="h", tz="UTC"):
         got = model.rollover_cost_for_bar("EURUSD", Direction.LONG, ts)
-        assert got == 1.0 * _legacy_1h_rule(ts), ts
+        assert got == 1.0 * _hour21_rule(ts), ts
 
 
 @pytest.mark.parametrize("freq,hours", [("h", 1), ("30min", 0.5), ("4h", 4), ("D", 24)])
-def test_any_bar_length_charges_six_swap_days_per_week(freq, hours):
-    """Mon/Tue/Thu 1x + Wed 3x, Fri-Sun none — same weekly total at every bar length."""
+def test_any_bar_length_charges_seven_swap_days_per_week(freq, hours):
+    """Mon/Tue/Thu/Fri 1x + Wed 3x, Sat/Sun none — same weekly total at every bar length."""
     model = _span_model()
     dur = pd.Timedelta(hours=hours)
     bars = pd.date_range("2024-01-01", "2024-01-29", freq=freq, tz="UTC", inclusive="left")
     total = sum(model.rollover_cost_for_bar("EURUSD", Direction.LONG, ts, dur) for ts in bars)
-    assert total == 4 * 6 * 1.0
+    assert total == 4 * 7 * 1.0
 
 
 def test_4h_bar_spanning_2200_is_charged():

@@ -9,13 +9,13 @@ daily rollover boundary (Wednesday 22:00 UTC counts triple for the T+2 weekend
 roll).  An intraday position opened and closed within a single session pays ZERO
 swap; a position held across 22:00 UTC pays the full daily swap (3× on Wed).
 
-WEEKEND ROLLOVER RULE (fix-round-1):
-Fri 22:00, Sat 22:00, and Sun 22:00 UTC are NOT counted as rollover boundaries.
-The FX market is closed Fri 21:00 → Sun 22:00 UTC (aligns with quality_gate_1h
-_WEEKEND_CLOSED_DAY_HOUR definition).  The T+2 weekend settlement cost for
-Sat/Sun is PRE-PAID by the Wednesday 22:00 triple charge; no additional Sat/Sun
-charge accrues.  A hold from Fri to Mon with no Wednesday crossing in the window
-therefore incurs ZERO rollover cost.
+WEEKEND ROLLOVER RULE (fix-round-1, Friday restored 2026-10-29):
+Sat 22:00 and Sun 22:00 UTC are NOT rollover boundaries.  Friday 22:00 UTC IS:
+the Friday close is the Friday rollover, and a position held over the weekend
+pays it (value date rolls one business day).  The T+2 weekend settlement for
+Sat/Sun is PRE-PAID by the Wednesday 22:00 triple charge.  A full week therefore
+charges Mon 1 + Tue 1 + Wed 3 + Thu 1 + Fri 1 = 7 swap-days.  fix-round-1 had
+removed Friday together with Sat/Sun, which charged 6 per week.
 
 DST note: rollover is anchored at 22:00 UTC.  Broker convention varies; we use
 strict UTC throughout.  This is a simplification acknowledged here (CRO CM-2).
@@ -63,11 +63,9 @@ def count_rollover_crossings(
     We count boundaries STRICTLY AFTER entry and up to AND INCLUDING exit.
 
     WEEKEND RULE: Saturday (weekday 5) and Sunday (weekday 6) 22:00 UTC are NOT
-    counted as rollover boundaries — the FX market is closed Fri 21:00 → Sun 22:00
-    UTC (identical to quality_gate_1h._WEEKEND_CLOSED_DAY_HOUR).  Friday 22:00 UTC
-    (weekday 4, hour 22) is also market-closed and therefore skipped.  The T+2
-    weekend financing cost is pre-paid by the Wednesday triple charge; no additional
-    Sat/Sun charge accrues.
+    rollover boundaries.  Friday 22:00 UTC is the Friday rollover and IS counted
+    (1x).  The T+2 weekend financing cost is pre-paid by the Wednesday triple
+    charge; no additional Sat/Sun charge accrues.
 
     Clock discipline:
       - All timestamps must be UTC-aware.  If tz-naive, UTC is assumed.
@@ -93,12 +91,9 @@ def count_rollover_crossings(
 
     while candidate <= exit_dt:
         wd = candidate.weekday()  # 0=Mon … 6=Sun
-        # Skip weekend-closed 22:00 boundaries.  The FX market is closed on
-        # Friday 22:00 UTC (wd=4), Saturday 22:00 UTC (wd=5), and Sunday 22:00
-        # UTC (wd=6).  These align with quality_gate_1h._WEEKEND_CLOSED_DAY_HOUR
-        # which marks Fri 21-23, all Sat, and Sun 00-21 as closed.  Sunday 22:00
-        # is the market OPEN (not a financing boundary).
-        if wd not in (4, 5, 6):
+        # Sat/Sun 22:00 UTC are not financing boundaries (Sunday 22:00 is the
+        # market OPEN).  Friday 22:00 is the Friday rollover and is charged.
+        if wd not in (5, 6):
             if wd == 2:  # Wednesday
                 n_triple += 1
             else:
@@ -205,7 +200,7 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
     """Rollover-aware cost model for 1h intraday backtests.  CRO CM-2.
 
     Swap / financing is charged ONLY on 22:00 UTC rollover crossings:
-      - 1× daily swap per standard rollover (Mon-Tue, Thu-Fri, Sun)
+      - 1× daily swap per standard rollover (Mon, Tue, Thu, Fri)
       - 3× daily swap on Wednesday 22:00 UTC (T+2 weekend settlement roll)
       - 0 swap for positions opened and closed within a single session
 
@@ -287,21 +282,24 @@ class RolloverAwareRealisticCostModel(RealisticCostModel):
         direction: Direction,
         bar_ts: pd.Timestamp,
         bar_duration: pd.Timedelta = pd.Timedelta(hours=1),
+        span_start: pd.Timestamp | None = None,
     ) -> float:
         """Swap cost in pips for the rollovers inside one bar's span.
 
-        The bar opens at ``bar_ts`` and closes at ``bar_ts + bar_duration``; every
-        22:00 UTC rollover in (open, close] is charged, 3x on Wednesday, with the
-        same weekend rule as count_rollover_crossings() (Fri/Sat/Sun 22:00 UTC are
-        not financing boundaries).  This is the per-bar accrual pattern for the
-        continuous engine.
+        The bar closes at ``bar_ts + bar_duration``; every 22:00 UTC rollover in
+        (span_start, close] is charged, 3x on Wednesday, with the same weekend rule
+        as count_rollover_crossings().  ``span_start`` defaults to the bar's open.
+        The engine passes the PREVIOUS bar's close instead, so a rollover that falls
+        in a data gap (the Friday 22:00 rollover on 1h data, whose last Friday bar
+        is 20:00) is charged on the first bar after the gap.
 
         For 1h bars (the default) only the bar at 21:00 UTC is charged, because it
         closes at 22:00.  A 4h bar at 20:00 or a daily bar at 00:00 is charged for
         the rollover it contains; before 2026-10-29 the rule was hard-coded to
         ``hour == 21`` and such bars were silently charged zero.
         """
-        n_single, n_triple = count_rollover_crossings(bar_ts, bar_ts + bar_duration)
+        start = bar_ts if span_start is None else span_start
+        n_single, n_triple = count_rollover_crossings(start, bar_ts + bar_duration)
         multiplier = n_single + 3 * n_triple
         if multiplier == 0:
             return 0.0

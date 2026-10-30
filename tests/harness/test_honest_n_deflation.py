@@ -77,7 +77,7 @@ class TestHonestNSacred:
     """Sacred acceptance test: pins the exact value on the ratified programme ledger."""
 
     def test_sacred_dsr_denominator_value(self):
-        """SACRED: honest_n_deflation_denominator on the real trials.jsonl == 35.
+        """SACRED: honest_n_deflation_denominator on the real trials.jsonl == 36.
 
         This is the IC-9 acceptance test (CTO spec 2026-06-18 acceptance_tests[0]).
         Value ratified 2026-06-18: 30 = 34 distinct trial_ids - 4 drops (2 spawned-only
@@ -88,6 +88,7 @@ class TestHonestNSacred:
         and b309935c (M2 EMA 1h), both RAN 2026-06-17 but were never added to the pin;
         65d10ede (carry_fred retest) and 62a72f65 (fix-reversal 1h), 2026-10-25/26.
         35 from 2026-10-26: + ef3f117d (fx multifactor monthly), owner-approved bet.
+        36 from 2026-10-30: + f713f511 (COT crowding carry), owner-approved bet.
 
         Ratification: HoQR (hoqr-dsr-debate-r1.yaml) + NHT (nht-dsr-debate-r1.yaml)
         converged 2026-06-18; CTO spec approved; CEO digest RECONCILED-CONVERGED.
@@ -107,10 +108,10 @@ class TestHonestNSacred:
             )
 
         n = honest_n_deflation_denominator(trials_path)
-        assert n == 35, (
-            f"SACRED FAILURE: honest_n_deflation_denominator must return 35 on the "
+        assert n == 36, (
+            f"SACRED FAILURE: honest_n_deflation_denominator must return 36 on the "
             f"ratified ledger; got {n}. "
-            f"Re-ratified 2026-10-26: 30 legacy + 5 forward-classified trials."
+            f"Re-ratified 2026-10-30: 30 legacy + 6 forward-classified trials."
         )
 
 

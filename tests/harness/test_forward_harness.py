@@ -180,10 +180,10 @@ def _repo_root() -> Path:
 
 
 def test_ic9_uses_honest_n_ratified() -> None:
-    """IC-9 / IC-14d: honest_n_deflation_denominator() must return 35 (ratified N).
+    """IC-9 / IC-14d: honest_n_deflation_denominator() must return 36 (ratified N).
 
     Ratified 30 on 2026-06-18; re-ratified 34 on 2026-10-26 (+4 forward-classified
-    trials: 82497d05, b309935c, 65d10ede, 62a72f65); 35 with ef3f117d.
+    trials: 82497d05, b309935c, 65d10ede, 62a72f65); 35 with ef3f117d; 36 with f713f511.
 
     DELIBERATE LIVE-LEDGER PIN: asserts the production ledger
     (.fintech-org/trials.jsonl) yields the ratified value — NOT a raw line
@@ -197,8 +197,8 @@ def test_ic9_uses_honest_n_ratified() -> None:
     from forex_system.harness.honest_n import honest_n_deflation_denominator
     ledger = _repo_root() / ".fintech-org" / "trials.jsonl"
     n = honest_n_deflation_denominator(ledger)
-    assert n == 35, (
-        f"honest_n_deflation_denominator() returned {n}, expected 35 (re-ratified 2026-10-26). "
+    assert n == 36, (
+        f"honest_n_deflation_denominator() returned {n}, expected 36 (re-ratified 2026-10-30). "
         "This is an IC-9 / IC-14d violation: the DSR denominator must be mechanically derived "
         "from the ledger and match the ratified value. "
         f"Check {ledger} for the 'honest-n-classification' record."

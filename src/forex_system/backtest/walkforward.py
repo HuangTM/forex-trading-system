@@ -11,6 +11,7 @@ import pandas as pd
 from forex_system.backtest.engine import run_backtest
 from forex_system.backtest.metrics import PerformanceMetrics, calculate_metrics
 from forex_system.core.interfaces import CostModel, PositionSizer, Strategy
+from forex_system.core.types import MarginConfig
 from forex_system.features.registry import compute_indicators
 
 
@@ -69,6 +70,11 @@ def run_walkforward(
     risk_per_trade: float = 0.02,
     stop_loss_atr_multiple: float = 2.0,
     sizer: PositionSizer | None = None,
+    entry_delay_bars: int = 1,
+    rebalance_mode: str = "discrete",
+    rebalance_threshold: float = 0.20,
+    allow_shorts: bool = False,
+    margin: MarginConfig | None = None,
 ) -> WalkForwardResult:
     """Run walk-forward analysis across rolling windows.
 
@@ -83,6 +89,10 @@ def run_walkforward(
         initial_capital: Starting capital per window
         risk_per_trade: Risk fraction per trade
         stop_loss_atr_multiple: ATR stop multiplier
+        entry_delay_bars, rebalance_mode, rebalance_threshold, allow_shorts, margin:
+            forwarded to run_backtest for each test window. The defaults reproduce the
+            old discrete-only behaviour; pass the trial's own execution settings so a
+            continuous-mode strategy (e.g. vol_target_carry) is walked forward as itself.
     """
     windows: list[WalkForwardWindow] = []
     total_bars = len(data)
@@ -126,7 +136,12 @@ def run_walkforward(
             initial_capital=initial_capital,
             risk_per_trade=risk_per_trade,
             stop_loss_atr_multiple=stop_loss_atr_multiple,
+            entry_delay_bars=entry_delay_bars,
             sizer=sizer,
+            rebalance_mode=rebalance_mode,
+            rebalance_threshold=rebalance_threshold,
+            allow_shorts=allow_shorts,
+            margin=margin,
         )
 
         metrics = calculate_metrics(result.equity_curve, result.trade_log)

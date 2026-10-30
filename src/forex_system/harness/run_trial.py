@@ -512,6 +512,10 @@ def run_trial(
                 test_days=config.backtest.walkforward_test_days,
                 step_days=config.backtest.walkforward_step_days,
                 sizer=sizer,
+                entry_delay_bars=config.backtest.entry_delay_bars,
+                rebalance_mode=config.backtest.rebalance_mode,
+                rebalance_threshold=config.backtest.rebalance_threshold,
+                allow_shorts=config.backtest.allow_shorts,
             )
             if wf_result and wf_result.windows:
                 oos_sharpes = [w.metrics.sharpe_ratio for w in wf_result.windows]

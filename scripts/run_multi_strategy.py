@@ -433,7 +433,10 @@ def main():
         print("Error: could not fetch initial account equity from Saxo. "
               "Refusing to start with an unknown baseline.")
         sys.exit(1)
-    kill_switch = KillSwitch(initial_equity=initial_equity)
+    # strategy_id gives this loop its own audit log, data/kill_switch_audit_multi_strategy.log:
+    # a HALT now survives a restart (KillSwitch refuses to start until
+    # scripts/reset_kill_switch.py records a RESET).
+    kill_switch = KillSwitch(initial_equity=initial_equity, strategy_id="multi_strategy")
 
     print("=" * 70)
     print("  MULTI-STRATEGY PAPER TRADING")

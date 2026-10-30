@@ -256,8 +256,10 @@ def test_pre_reg_and_rubric_loaded(
         )
 
     assert result["strategy"] == "carry"
-    assert result["oos_window_start"] == "2022-01-01"
-    assert result["oos_window_end"] == "2023-12-31"
+    # dry_run evaluates the equally long in-sample window just before the registered
+    # OOS window (2022-01-01..2023-12-31), never the OOS window itself.
+    assert result["oos_window_start"] == "2020-01-02"
+    assert result["oos_window_end"] == "2021-12-31"
     assert "oos_sharpe" in result["metrics"]
     assert "dsr" in result
 
@@ -533,7 +535,7 @@ def test_dominance_cache_hit(
             pre_reg_path=pre_reg_path,
             config_path=tmp_path / "config.yaml",
             registry=tmp_registry,
-            dry_run=True,
+            dry_run=False,  # writes are patched out; dry_run would shift the window
         )
 
     # Sharpe minus carry_fred: 0.80 - 0.72 = 0.08; T5 threshold is -0.20 → should pass T5.

@@ -640,6 +640,17 @@ def run_falsification_trial(
 
     oos_start = pre_reg.oos_window_start
     oos_end = pre_reg.oos_window_end
+    if dry_run:
+        # A dry run must not be a free look at the OOS window (2026-08-17 audit):
+        # run the identical pipeline on the equally long window that ends the day
+        # before the OOS window starts, so no OOS bar enters any metric or log.
+        span = pd.Timestamp(oos_end) - pd.Timestamp(oos_start)
+        dry_end = pd.Timestamp(oos_start) - pd.Timedelta(days=1)
+        oos_start, oos_end = str((dry_end - span).date()), str(dry_end.date())
+        _log("falsification_trial.dry_run.window_shifted", trial_id=trial_id,
+             registered_oos_start=pre_reg.oos_window_start,
+             registered_oos_end=pre_reg.oos_window_end,
+             dry_run_start=oos_start, dry_run_end=oos_end)
 
     # --- Step 2: Load NHT rubric ---
     nht_rubric = NhtRubric.load_from_yaml(_NHT_RUBRIC_PATH)
@@ -881,7 +892,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--dry-run", action="store_true", dest="dry_run",
-        help="Run everything but skip writes to trials.jsonl and dominance cache.",
+        help="Run the whole pipeline on the equally long IN-SAMPLE window just before "
+             "the OOS window (no OOS data is touched); skip writes to trials.jsonl and "
+             "the dominance cache.",
     )
     parser.add_argument(
         "--cost-multiplier", type=float, default=1.0, dest="cost_multiplier",
@@ -925,7 +938,8 @@ def main() -> None:
     print(f"FALSIFICATION TRIAL {result['trial_id']}: {status}")
     print(f"{'=' * 60}")
     print(f"  Strategy:    {result['strategy']}")
-    print(f"  OOS Window:  {result['oos_window_start']} → {result['oos_window_end']}")
+    label = "Window*" if args.dry_run else "OOS Window"
+    print(f"  {label + ':':12s} {result['oos_window_start']} → {result['oos_window_end']}")
     print(f"  OOS Sharpe:  {result['metrics']['oos_sharpe']:.4f}")
     print(f"  Max DD:      {result['metrics']['max_dd']:.2%}")
     print(f"  N Trades:    {int(result['metrics']['n_trades'])}")
@@ -938,7 +952,8 @@ def main() -> None:
     if args.pair_restrict:
         print(f"  PairRestr:   {args.pair_restrict} (pair-restrict hook active)")
     if args.dry_run:
-        print("  [DRY RUN — no registry writes]")
+        print("  [DRY RUN — no registry writes. *In-sample window ending the day before")
+        print("   the registered OOS window; these numbers are NOT the trial result.]")
     print(f"{'=' * 60}\n")
 
 

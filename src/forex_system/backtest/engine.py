@@ -80,7 +80,7 @@ def run_backtest(
             enabling short positions in continuous mode. Default False preserves
             today's long-only behavior (bit-identical for all existing callers).
             Only meaningful in continuous mode (discrete mode is already sign-aware).
-        margin: Optional broker margin terms (discrete mode only). When given, entry
+        margin: Optional broker margin terms (both modes). When given, entry
             size is capped at 1/margin_rate leverage, an open position is liquidated
             intrabar once equity falls to stop_out_level * used margin (at the
             stop-out price, or the open if the bar gapped through it), and no new
@@ -93,8 +93,6 @@ def run_backtest(
             f"got {rebalance_mode!r}"
         )
     if margin is not None:
-        if rebalance_mode != "discrete":
-            raise NotImplementedError("margin simulation is implemented for discrete mode only")
         if not 0 < margin.margin_rate <= 1 or not 0 <= margin.stop_out_level < 1:
             raise ValueError(f"invalid MarginConfig: {margin}")
 
@@ -126,6 +124,7 @@ def run_backtest(
             rebalance_threshold=rebalance_threshold,
             constant_capital_sizing=constant_capital_sizing,
             allow_shorts=allow_shorts,
+            margin=margin,
         )
     else:
         result = _run_discrete(
@@ -379,6 +378,7 @@ def _run_continuous(
     rebalance_threshold: float,
     constant_capital_sizing: bool = False,
     allow_shorts: bool = False,
+    margin: MarginConfig | None = None,
 ) -> BacktestResult:
     """Continuous rebalance mode.
 
@@ -459,6 +459,7 @@ def _run_continuous(
     # Close of the last processed bar: the rollover-aware accrual window runs from here
     # to this bar's close, so rollovers in data gaps (Friday 22:00 on 1h data) count.
     prev_bar_close: pd.Timestamp | None = None
+    liquidations: list[pd.Timestamp] = []
 
     for i, (ts, row) in enumerate(data.iterrows()):
         price = row["close"]
@@ -497,6 +498,11 @@ def _run_continuous(
             pair,
         )
         target_units = _to_engine_units(usd_nominal, pair, price)
+        if margin is not None:
+            # Leverage cap in the P&L numeraire (|units| * price); a blown account
+            # (equity <= 0) gets target 0, which closes any open position.
+            max_units = equity / (margin.margin_rate * price) if equity > 0 else 0.0
+            target_units = float(np.sign(target_units)) * min(abs(target_units), max_units)
 
         # Decision boundary log — per log-as-decision-trace §3
         logger.debug(
@@ -574,6 +580,35 @@ def _run_continuous(
 
         prev_bar_close = ts + bar_duration
 
+        # Margin stop-out, intrabar, after this bar's swap and before any rebalance.
+        # Same stop-out price as discrete mode; no re-entry on the liquidation bar.
+        liquidated = False
+        if margin is not None and cur_units != 0.0 and entry_time is not None and entry_time < ts:
+            side = 1.0 if cur_units > 0.0 else -1.0
+            stop_px = _stop_out_price(equity, entry_price, abs(cur_units), side, margin)
+            fill_px = _stop_out_fill(row, side, stop_px)
+            if fill_px is not None:
+                trade = _close_position(
+                    pair,
+                    strategy_name,
+                    cost_model,
+                    pip_value,
+                    side,
+                    abs(cur_units),
+                    entry_price,
+                    entry_time,
+                    ts,
+                    fill_px,
+                    include_swap=False,
+                )
+                trade_log.append(trade)
+                equity += trade.pnl_dollars
+                liquidations.append(ts)
+                cur_units = 0.0
+                entry_price = 0.0
+                entry_time = None
+                liquidated = True
+
         # Compute fractional delta to determine if rebalance fires.
         # RC1: use cur_units as denominator (matching script line 88: delta / cur_units)
         # not max(cur_units, 1.0). For USDJPY the units are always >> 1 so the
@@ -583,7 +618,7 @@ def _run_continuous(
         denominator = abs(cur_units) if cur_units != 0.0 else 1.0
         frac_delta = abs(target_units - cur_units) / denominator
 
-        if frac_delta > rebalance_threshold:
+        if frac_delta > rebalance_threshold and not liquidated:
             # Four-case magnitude+sign decision tree (Site-E / CTO spec Section 3).
             # Branch on sign(cur) vs sign(target), NEVER on sign(delta) or target<=0.
             # This is the ONLY structure that correctly handles shorts, flips, and
@@ -819,14 +854,28 @@ def _run_continuous(
         equity += trade.pnl_dollars
         equity_curve.iloc[-1] = equity
 
+    parameters: dict = {
+        "rebalance_mode": "continuous",
+        "rebalance_threshold": rebalance_threshold,
+    }
+    if margin is not None:
+        parameters.update(
+            margin_rate=margin.margin_rate,
+            stop_out_level=margin.stop_out_level,
+            n_liquidations=len(liquidations),
+            liquidation_times=liquidations,
+        )
+        if liquidations:
+            logger.warning(
+                "run_backtest: pair=%s strategy=%s margin stop-out x%d (first %s)",
+                pair, strategy_name, len(liquidations), liquidations[0],
+            )
+
     return BacktestResult(
         equity_curve=equity_curve,
         trade_log=trade_log,
         signals=signals,
-        parameters={
-            "rebalance_mode": "continuous",
-            "rebalance_threshold": rebalance_threshold,
-        },
+        parameters=parameters,
         pair=pair,
         strategy_name=strategy_name,
         start_date=data.index[0],

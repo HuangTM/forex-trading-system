@@ -1,4 +1,4 @@
-"""Margin / liquidation simulation (discrete mode).
+"""Margin / liquidation simulation (discrete and continuous modes).
 
 Without it, a sleeve could lose >100% and keep trading: the 2026-10-25 carry
 retest's EURGBP sleeve fell to 0.7% of capital (below zero with static swap) and
@@ -113,8 +113,75 @@ def test_no_liquidation_when_margin_is_loose_matches_no_margin():
     pd.testing.assert_series_equal(with_margin.equity_curve, without.equity_curve)
 
 
-def test_margin_rejected_in_continuous_mode():
-    data = _bars([1.0] * 5)
-    with pytest.raises(NotImplementedError, match="discrete mode only"):
-        run_backtest(data, pd.Series(1.0, index=data.index), "EURUSD", "t", _free_model(),
-                     sizer=_FixedSizer(1), rebalance_mode="continuous", margin=_MARGIN)
+# ---------------------------------------------------------------------------
+# Continuous mode (2026-10-29). Same stop-out price and leverage cap; a
+# liquidated position is NOT reopened on the liquidation bar, but the next bar
+# re-enters at the capped size the depleted equity allows.
+# ---------------------------------------------------------------------------
+
+
+def _run_cont(data, signal, units, margin=_MARGIN, capital=10_000.0):
+    return run_backtest(
+        data, pd.Series(signal, index=data.index), "EURUSD", "t", _free_model(),
+        initial_capital=capital, entry_delay_bars=1, sizer=_FixedSizer(units), margin=margin,
+        rebalance_mode="continuous", rebalance_threshold=0.2, allow_shorts=True,
+    )
+
+
+def _liquidation_trade(res):
+    ts = res.parameters["liquidation_times"][0]
+    return next(t for t in res.trade_log if t.exit_time == ts and t.pnl_dollars != 0.0)
+
+
+def test_continuous_long_liquidated_at_stop_out_price():
+    closes = [1.0, 1.0, 0.99, 0.95, 0.90, 0.88]
+    opens = [1.0, 1.0, 1.0, 0.99, 0.95, 0.90]
+    res = _run_cont(_bars(closes, lows=closes, opens=opens), 1.0, 100_000)
+    p_star = 90_000 / 97_500
+    assert res.parameters["n_liquidations"] == 1
+    assert _liquidation_trade(res).exit_price == pytest.approx(p_star)
+    left = 0.5 * 0.05 * 100_000 * p_star
+    assert res.equity_curve.iloc[4] == pytest.approx(left)
+    # Next bar re-enters, capped at 20x the depleted equity.
+    reentry = [t for t in res.trade_log if t.entry_time == res.equity_curve.index[5]]
+    assert reentry and reentry[0].size == pytest.approx(left / (0.05 * 0.88))
+
+
+def test_continuous_gap_through_fills_at_open():
+    closes = [1.0, 1.0, 0.99, 0.85, 0.85]
+    opens = [1.0, 1.0, 0.99, 0.86, 0.85]
+    res = _run_cont(_bars(closes, opens=opens), 1.0, 100_000)
+    assert _liquidation_trade(res).exit_price == pytest.approx(0.86)
+
+
+def test_continuous_short_liquidated_on_high():
+    closes = [1.0, 1.0, 1.02, 1.05, 1.06]
+    highs = [1.0, 1.0, 1.03, 1.08, 1.06]
+    res = _run_cont(_bars(closes, highs=highs), -1.0, 100_000)
+    assert res.parameters["n_liquidations"] == 1
+    assert _liquidation_trade(res).exit_price == pytest.approx(110_000 / 102_500)
+
+
+def test_continuous_entry_size_capped_by_leverage():
+    res = _run_cont(_bars([1.0] * 5), 1.0, 1_000_000)
+    assert res.trade_log[0].size == pytest.approx(10_000 / (0.05 * 1.0))
+
+
+def test_continuous_blown_account_does_not_reopen():
+    closes = [1.0, 1.0, 0.80, 0.80, 0.80, 0.80]
+    sig = [1.0, 1.0, 1.0, 1.0, -1.0, -1.0]
+    res = _run_cont(_bars(closes), sig, 200_000)
+    assert res.parameters["n_liquidations"] == 1
+    assert res.equity_curve.iloc[2] < 0
+    assert all(t.entry_time <= res.equity_curve.index[2] for t in res.trade_log)
+
+
+def test_continuous_loose_margin_matches_no_margin():
+    rng = np.random.default_rng(1)
+    closes = 1.1 + np.cumsum(rng.normal(0, 0.003, 60))
+    data = _bars(closes, lows=closes - 0.001, highs=closes + 0.001)
+    sig = np.where(np.arange(60) % 20 < 10, 1.0, -1.0)
+    loose = MarginConfig(margin_rate=1e-6, stop_out_level=0.0)
+    with_margin = _run_cont(data, sig, 5_000, margin=loose)
+    without = _run_cont(data, sig, 5_000, margin=None)
+    pd.testing.assert_series_equal(with_margin.equity_curve, without.equity_curve)

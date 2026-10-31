@@ -4,6 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
+**STATUS: CLOSED 2026-10-30 by the owner.** There is no validated edge after 36 honest
+trials. Read `references/PROJECT_CLOSURE_2026-10-30.md` before doing anything.
+- Every strategy config is flagged do-not-deploy, and no jobs are running.
+- Reopening is an owner decision; a new idea needs a pre-registration and would be trial #37.
+
 Phase 0 baseline forex trading system — proving alpha exists before building complexity. Backtest-only (no live trading). Python 3.11+, ~21k LOC in `src/` (plus ~35k tests, ~18k scripts).
 
 ## Commands
